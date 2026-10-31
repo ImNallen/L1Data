@@ -144,7 +144,24 @@ fn writes(tokens: &[Token<'_>]) -> bool {
                 i += 1;
             }
             loop {
+                let unicode = tokens.get(i) == Some(&Token::UnicodeEscape);
+                if unicode {
+                    i += 1;
+                }
+                if !matches!(tokens.get(i), Some(Token::Word(_) | Token::Quoted(_))) {
+                    return false;
+                }
                 i += 1;
+                if unicode && word(tokens.get(i), "UESCAPE") {
+                    i += 1;
+                    if word(tokens.get(i), "E") {
+                        i += 1;
+                    }
+                    if tokens.get(i) != Some(&Token::Other) {
+                        return false;
+                    }
+                    i += 1;
+                }
                 if tokens.get(i) == Some(&Token::Open) {
                     let Some(end) = closing(tokens, i) else {
                         return false;
@@ -287,6 +304,30 @@ mod tests {
         assert!(!history_is_write(
             "WITH café AS (SELECT 1) SELECT * FROM café"
         ));
+    }
+
+    #[test]
+    fn escaped_cte_names_preserve_write_classification() {
+        for name in [r#"U&"ch\0061nged""#, r#"u&"ch!0061nged" UESCAPE '!'"#, r#"U&"changed" UESCAPE E'!'"#, "U&\"changed\" UESCAPE '!'\n''"] {
+            for columns in ["", "(n)"] {
+                for sql in [
+                    format!("WITH {name}{columns} AS (DELETE FROM orders RETURNING n) SELECT * FROM changed"),
+                    format!("WITH RECURSIVE seed AS (SELECT 1), {name}{columns} AS NOT MATERIALIZED (SELECT 1) DELETE FROM orders"),
+                    format!("WITH RECURSIVE {name}{columns} AS (SELECT 1), later AS (UPDATE orders SET n = 2 RETURNING n) SELECT * FROM later"),
+                ] {
+                    assert!(history_is_write(&sql), "{sql}");
+                    assert!(history_is_write(&format!("COPY ({sql}) TO PROGRAM 'cat'")), "{sql}");
+                }
+            }
+        }
+        for sql in [
+            r#"WITH U&"DELETE" AS (SELECT 'UPDATE') SELECT * FROM "DELETE""#,
+            r#"WITH U&"UPDATE" UESCAPE '!' ("DELETE") AS (SELECT $$INSERT INTO orders$$) SELECT * FROM "UPDATE""#,
+            r#"WITH RECURSIVE U&"DROP" AS (SELECT 'DELETE'), "INSERT" AS (SELECT 'UPDATE') SELECT * FROM "DROP""#,
+        ] {
+            assert!(!history_is_write(sql), "{sql}");
+            assert!(!history_is_write(&format!("COPY ({sql}) TO PROGRAM 'cat'")), "{sql}");
+        }
     }
 
     #[test]

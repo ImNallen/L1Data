@@ -2412,6 +2412,58 @@ async fn count(oracle: &tokio_postgres::Client, table: &str) -> i64 {
 }
 
 #[tokio::test]
+async fn unicode_escaped_cte_write_requires_production_approval() {
+    let mut h = Harness::start().await;
+    let oracle = h.oracle().await;
+    let table = unique("t_unicode_guard");
+    oracle.batch_execute(&format!("create table public.{table} (n int); insert into public.{table} values (7)")).await.unwrap();
+    set_environment(&h, Some(Environment::Production)).await;
+    let queries = [
+        format!(r#"WITH U&"changed" AS (DELETE FROM public.{table} RETURNING *) SELECT * FROM changed"#),
+        format!(r#"WITH U&"ch\0061nged" (n) AS (DELETE FROM public.{table} RETURNING *) SELECT * FROM changed"#),
+        format!(r#"WITH U&"ch!0061nged" UESCAPE '!' AS (DELETE FROM public.{table} RETURNING *) SELECT * FROM changed"#),
+        format!("WITH U&\"changed\" UESCAPE '!'\n'' AS (DELETE FROM public.{table} RETURNING *) SELECT * FROM changed"),
+        format!(r#"WITH RECURSIVE seed AS (SELECT 1), U&"ch!0061nged" UESCAPE E'!' (n) AS (DELETE FROM public.{table} RETURNING *) SELECT * FROM changed"#),
+        format!(r#"WITH U&"source" AS (SELECT 1), later AS (SELECT * FROM source) DELETE FROM public.{table}"#),
+        format!("WITH changed AS (DELETE FROM public.{table} RETURNING *) SELECT * FROM changed"),
+        format!(r#"COPY (WITH U&"source" UESCAPE '!' (n) AS (SELECT 7) DELETE FROM public.{table} RETURNING *) TO PROGRAM 'cat > /dev/null'"#),
+        format!("COPY (WITH source AS (SELECT 7) DELETE FROM public.{table} RETURNING *) TO PROGRAM 'cat > /dev/null'"),
+    ];
+    for sql in queries {
+        let tab = h.sql_tab(TxnMode::AutoCommit).await;
+        let history = h.history_len();
+        let asked = asked_to_run(&h, tab, script(&sql), None).await;
+        assert_eq!((asked.sends.count, asked.sends.statements.as_slice()), (1, [sql.clone()].as_slice()));
+        assert_eq!(count(&oracle, &table).await, 1, "unconfirmed SQL must not delete rows");
+        assert_eq!(h.history_len(), history, "unconfirmed SQL records no history");
+        assert!(matches!(h.console(tab).run, RunState::Idle), "unconfirmed SQL starts no run");
+
+        let changed = sql.replace("DELETE FROM", "DELETE /* changed */ FROM");
+        let stale = asked_to_run(&h, tab, script(&changed), Some(&asked.digest)).await;
+        assert_ne!(stale.digest, asked.digest);
+        assert_eq!(count(&oracle, &table).await, 1, "stale approval must not delete rows");
+        assert_eq!(h.history_len(), history);
+        assert!(matches!(h.console(tab).run, RunState::Idle));
+
+        let accepted = h.engine.console_run(tab, script(&sql), Some(asked.digest)).await.unwrap();
+        let state = h.wait_finished(tab, accepted.run_id).await;
+        assert!(matches!(state.run, RunState::Finished { outcome: RunOutcome::Ok, .. }), "{sql}: {:?}", state.run);
+        assert_eq!(count(&oracle, &table).await, 0, "exact confirmed SQL deletes the row");
+        assert_eq!(h.history_len(), history + 1);
+        oracle.batch_execute(&format!("insert into public.{table} values (7)")).await.unwrap();
+    }
+    let tab = h.sql_tab(TxnMode::AutoCommit).await;
+    for sql in [
+        r#"WITH U&"DELETE" AS (SELECT 'UPDATE') SELECT * FROM "DELETE""#,
+        r#"WITH U&"UPDATE" UESCAPE '!' ("DELETE") AS (SELECT $$INSERT INTO orders$$) SELECT * FROM "UPDATE""#,
+    ] {
+        h.run_ok(tab, sql).await;
+        h.run_ok(tab, &format!("COPY ({sql}) TO PROGRAM 'cat > /dev/null'")).await;
+    }
+    oracle.batch_execute(&format!("drop table public.{table}")).await.unwrap();
+}
+
+#[tokio::test]
 async fn copy_from_on_production_requires_the_exact_statement_digest() {
     let mut h = Harness::start().await;
     let oracle = h.oracle().await;
