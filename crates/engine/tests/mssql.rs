@@ -363,16 +363,92 @@ async fn catalogs_details_browse_counts_and_exact_text_use_sql_server() {
 }
 
 #[tokio::test]
-async fn raw_money_refuses_without_returning_an_approximation_and_partial_results_survive() {
+async fn raw_money_sql_variant_and_clr_values_show_exactly() {
     let mut h = Harness::open(TxnMode::AutoCommit).await;
-    let state = h.run("SELECT 17 AS before_money; SELECT CAST(922337203685477.5807 AS money) AS unsafe_money").await;
-    let RunState::Finished { outcome, statements, .. } = &state.run else { unreachable!() };
-    assert_eq!(*outcome, RunOutcome::Failed);
-    assert!(matches!(&statements[0].status,StmtStatus::Failed{error} if error.message.contains("decimal(19,4)")));
-    assert_eq!(Harness::rowsets(&state).len(), 1);
-    assert_eq!(h.rows(Harness::rowsets(&state)[0])[0][0].as_deref(), Some("17"));
-    let state = h.ok("SELECT CAST(CAST(922337203685477.5807 AS money) AS decimal(19,4)) AS exact").await;
-    assert_eq!(h.rows(Harness::rowsets(&state)[0])[0][0].as_deref(), Some("922337203685477.5807"));
+    let cases = [
+        ("CAST(922337203685477.5807 AS money)", "money", Some("922337203685477.5807")),
+        ("CAST(-922337203685477.5808 AS money)", "money", Some("-922337203685477.5808")),
+        ("CAST(-0.0001 AS money)", "money", Some("-0.0001")),
+        ("CAST(0 AS money)", "money", Some("0.0000")),
+        ("CAST(214748.3647 AS smallmoney)", "money", Some("214748.3647")),
+        ("CAST(-214748.3648 AS smallmoney)", "money", Some("-214748.3648")),
+        ("CAST(NULL AS money)", "money", None),
+        ("CAST(CAST(1 AS bit) AS sql_variant)", "sql_variant", Some("1")),
+        ("CAST(CAST(255 AS tinyint) AS sql_variant)", "sql_variant", Some("255")),
+        ("CAST(CAST(-7 AS smallint) AS sql_variant)", "sql_variant", Some("-7")),
+        ("CAST(5 AS sql_variant)", "sql_variant", Some("5")),
+        ("CAST(CAST(9223372036854775807 AS bigint) AS sql_variant)", "sql_variant", Some("9223372036854775807")),
+        ("CAST(CAST(1.5 AS real) AS sql_variant)", "sql_variant", Some("1.5")),
+        ("CAST(CAST(1.5 AS float) AS sql_variant)", "sql_variant", Some("1.5")),
+        ("CAST(CAST(-12.50 AS decimal(10,2)) AS sql_variant)", "sql_variant", Some("-12.50")),
+        ("CAST(CAST(12345678901234567890.123456789012 AS numeric(38,12)) AS sql_variant)", "sql_variant", Some("12345678901234567890.123456789012")),
+        ("CAST(CAST(922337203685477.5807 AS money) AS sql_variant)", "sql_variant", Some("922337203685477.5807")),
+        ("CAST(CAST(-1.5 AS smallmoney) AS sql_variant)", "sql_variant", Some("-1.5000")),
+        ("CAST(CAST('2024-01-02' AS date) AS sql_variant)", "sql_variant", Some("2024-01-02")),
+        ("CAST(CAST('03:04:05.123' AS time(3)) AS sql_variant)", "sql_variant", Some("03:04:05.1230000")),
+        ("CAST(CAST('2024-01-02T03:04:05.123' AS datetime) AS sql_variant)", "sql_variant", Some("2024-01-02 03:04:05.123")),
+        ("CAST(CAST('2024-01-02T03:04:00' AS smalldatetime) AS sql_variant)", "sql_variant", Some("2024-01-02 03:04:00")),
+        ("CAST(CAST('2024-01-02T03:04:05.1234567' AS datetime2(7)) AS sql_variant)", "sql_variant", Some("2024-01-02 03:04:05.1234567")),
+        ("CAST(CAST('2024-01-02T03:04:05.123+02:00' AS datetimeoffset(3)) AS sql_variant)", "sql_variant", Some("2024-01-02 03:04:05.1230000+02:00")),
+        ("CAST(CAST('abcd1234-5678-90ab-cdef-1234567890ab' AS uniqueidentifier) AS sql_variant)", "sql_variant", Some("abcd1234-5678-90ab-cdef-1234567890ab")),
+        ("CAST(CAST('abc' AS char(3)) AS sql_variant)", "sql_variant", Some("abc")),
+        ("CAST(CAST('abc' AS varchar(3)) AS sql_variant)", "sql_variant", Some("abc")),
+        ("CAST(CAST(N'世' AS nchar(1)) AS sql_variant)", "sql_variant", Some("世")),
+        ("CAST(N'Hej 世界 😀' AS sql_variant)", "sql_variant", Some("Hej 世界 😀")),
+        ("CAST(CAST(0x00FF AS binary(2)) AS sql_variant)", "sql_variant", Some("0x00FF")),
+        ("CAST(CAST(0x00FF AS varbinary(2)) AS sql_variant)", "sql_variant", Some("0x00FF")),
+        ("CAST(NULL AS sql_variant)", "sql_variant", None),
+        ("hierarchyid::GetRoot()", "clr", Some("0x")),
+        ("hierarchyid::Parse('/1/')", "clr", Some("0x58")),
+        ("CAST(NULL AS hierarchyid)", "clr", None),
+        ("geography::Point(1, 1, 4326)", "clr", Some("0xE6100000010C000000000000F03F000000000000F03F")),
+    ];
+    for (expression, display, value) in cases {
+        let state = h.ok(&format!("SELECT {expression} AS value, 7 AS after_value")).await;
+        let result = Harness::rowsets(&state)[0];
+        assert_eq!(result.columns[0].r#type.display, display, "{expression}");
+        assert_eq!(h.rows(result)[0], vec![value.map(str::to_owned), Some("7".into())], "{expression}");
+    }
+    let state = h.ok("SELECT * FROM lab.type_zoo; SELECT SUM(money_value) AS total FROM lab.type_zoo; SELECT * FROM sys.configurations").await;
+    let results = Harness::rowsets(&state);
+    let money = results[0].columns.iter().position(|c| c.name == "money_value").unwrap();
+    assert_eq!(h.rows(results[0])[0][money].as_deref(), Some("12.3456"));
+    assert_eq!(h.rows(results[1])[0][0].as_deref(), Some("12.3456"));
+    assert!(!h.rows(results[2]).is_empty());
+    let state = h.ok("SELECT SERVERPROPERTY('ProductVersion') AS version").await;
+    assert!(h.rows(Harness::rowsets(&state)[0])[0][0].as_deref().is_some_and(|v| v.starts_with("16.")));
+
+    let table = format!("l1_exact_{}", uuid::Uuid::new_v4().simple());
+    h.ok(&format!("CREATE TABLE dbo.[{table}] (id int PRIMARY KEY, v sql_variant, h hierarchyid, g geography, m money)")).await;
+    let outcome = AssertUnwindSafe(async {
+        h.ok(&format!("INSERT INTO dbo.[{table}] VALUES (1, 5, hierarchyid::Parse('/1/'), geography::Point(1, 1, 4326), 922337203685477.5807)")).await;
+        h.engine.refresh_catalog(h.db()).await.unwrap();
+        let expected = vec![Some("1".to_owned()), Some("5".into()), Some("0x58".into()), Some("0xE6100000010C000000000000F03F000000000000F03F".into()), Some("922337203685477.5807".into())];
+        let page = RunRequest::TablePage { schema: "dbo".into(), table: table.clone(), page: 0, query: TableQuery::default() };
+        let accepted = h.engine.console_run(h.tab, page, None).await.unwrap();
+        let state = h.finish(accepted.run_id).await;
+        assert!(matches!(state.run, RunState::Finished { outcome: RunOutcome::Ok, .. }), "{:?}", state.run);
+        let meta = Harness::rowsets(&state)[0].clone();
+        assert_eq!(h.rows(&meta)[0], expected);
+        let (_, csv) = h.export(&meta, ExportFormat::Csv, ExportScope::Loaded, "exact.csv").await;
+        assert!(csv.contains("922337203685477.5807") && csv.contains("0xE6100000010C"), "{csv}");
+        let (_, script) = h.export(&meta, ExportFormat::SqlInsert, ExportScope::Loaded, "exact.sql").await;
+        h.ok(&format!("DELETE FROM dbo.[{table}]")).await;
+        h.ok(&script).await;
+        let state = h.ok(&format!("SELECT id, v, h, g, m FROM dbo.[{table}]")).await;
+        assert_eq!(h.rows(Harness::rowsets(&state)[0])[0], expected, "the INSERT export replays");
+    })
+    .catch_unwind()
+    .await;
+    h.ok(&format!("DROP TABLE dbo.[{table}]")).await;
+    if let Err(panic) = outcome {
+        std::panic::resume_unwind(panic);
+    }
+}
+
+#[tokio::test]
+async fn results_before_a_server_error_survive() {
+    let mut h = Harness::open(TxnMode::AutoCommit).await;
     let state = h.run("SELECT 5 AS partial; RAISERROR('expected failure',16,1)").await;
     assert_eq!(h.rows(Harness::rowsets(&state)[0])[0][0].as_deref(), Some("5"));
     let RunState::Finished { statements, .. } = &state.run else { unreachable!() };
