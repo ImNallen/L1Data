@@ -656,10 +656,7 @@ pub fn table_browse(kind: DatabaseKind, schema: &str, table: &str, relation: Opt
         DatabaseKind::SqlServer => {
             sql::tsql::validate_expression(&query.r#where,false)?;
             sql::tsql::validate_expression(&query.order_by,true)?;
-            let projection = relation.map(|r| r.columns.iter().map(|c| {
-                let col = sql::tsql::quote_ident(&c.name);
-                if matches!(c.type_display.as_str(),"money"|"smallmoney") { format!("CAST({col} AS decimal(19,4)) AS {col}") } else { col }
-            }).collect::<Vec<_>>().join(", ")).filter(|p| !p.is_empty()).unwrap_or_else(|| "*".into());
+            let projection = relation.map(|r| r.columns.iter().map(|c| sql::tsql::quote_ident(&c.name)).collect::<Vec<_>>().join(", ")).filter(|p| !p.is_empty()).unwrap_or_else(|| "*".into());
             sql::tsql::browse_sql(schema,table,&projection,relation.map(|r| r.columns.as_slice()).unwrap_or_default(),&pk,query,window)
         }
     }

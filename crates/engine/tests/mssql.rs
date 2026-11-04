@@ -605,27 +605,27 @@ async fn connection_kind_is_immutable_and_history_records_sql_server() {
 }
 
 #[tokio::test]
-async fn clr_columns_stay_in_the_catalog_and_browse_refuses_unsupported_values() {
+async fn clr_columns_stay_in_the_catalog_and_browse_as_hexadecimal() {
     let mut h = Harness::open(TxnMode::AutoCommit).await;
     let table = format!("l1_clr_{}", uuid::Uuid::new_v4().simple());
-    h.ok(&format!("CREATE TABLE dbo.[{table}] (id int PRIMARY KEY, path hierarchyid, location geography); INSERT INTO dbo.[{table}] VALUES (1, hierarchyid::GetRoot(), geography::Point(59.3, 18.1, 4326))")).await;
+    h.ok(&format!("CREATE TABLE dbo.[{table}] (id int PRIMARY KEY, path hierarchyid, location geography); INSERT INTO dbo.[{table}] VALUES (1, hierarchyid::GetRoot(), geography::Point(1, 1, 4326))")).await;
     h.engine.refresh_catalog(h.db()).await.unwrap();
     let catalog = h.engine.catalog(h.db()).await.unwrap();
     let relation = catalog.schemas.iter().flat_map(|s| &s.relations).find(|r| r.name == table).unwrap();
     assert_eq!(relation.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["id", "path", "location"]);
     for column in &relation.columns[1..] {
-        assert_eq!(column.category, TypeCategory::Other);
+        assert_eq!(column.category, TypeCategory::Binary);
     }
     assert_eq!(relation.columns[1].type_display, "hierarchyid");
     assert_eq!(relation.columns[2].type_display, "geography");
     let run = h.engine.console_run(h.tab, RunRequest::TablePage { schema: "dbo".into(), table: table.clone(), page: 0, query: TableQuery::default() }, None).await.unwrap();
     let state = h.finish(run.run_id).await;
-    assert!(
-        matches!(&state.run, RunState::Finished { outcome: RunOutcome::Failed, statements, .. } if matches!(&statements[0].status, StmtStatus::Failed { error } if error.message.contains("CLR"))),
-        "{:?}",
-        state.run
-    );
-    assert!(Harness::rowsets(&state).is_empty());
+    let meta = Harness::rowsets(&state)[0];
+    assert_eq!(meta.columns[1].r#type.display, "hierarchyid");
+    assert_eq!(h.rows(meta)[0], [Some("1".to_owned()), Some("0x".into()), Some("0xE6100000010C000000000000F03F000000000000F03F".into())]);
+    let filters = vec![ColumnFilter { column: "location".into(), op: FilterOp::Contains, value: "E6".into() }];
+    let refused = h.engine.console_run(h.tab, RunRequest::TablePage { schema: "dbo".into(), table: table.clone(), page: 0, query: TableQuery { filters, ..Default::default() } }, None).await;
+    assert!(matches!(refused, Err(RunError::BadFilter)), "{refused:?}");
     h.ok(&format!("DROP TABLE dbo.[{table}]")).await;
 }
 
