@@ -237,9 +237,9 @@ async fn native_buttons_keep_nesting_semantics_and_do_not_run_a_followup_probe()
 }
 
 #[tokio::test]
-async fn conversion_failures_drain_the_original_response_and_scoped_use_stays_scoped() {
+async fn failed_statements_drain_the_original_response_and_scoped_use_stays_scoped() {
     check(|h| async move {
-        let (state, _) = h.run("SELECT CAST(1 AS money); SELECT REPLICATE(CAST('x' AS varchar(max)),9000); BEGIN TRANSACTION").await;
+        let (state, _) = h.run("RAISERROR('expected failure',16,1); SELECT REPLICATE(CAST('x' AS varchar(max)),9000); BEGIN TRANSACTION").await;
         assert!(matches!(state.run, RunState::Finished { outcome: RunOutcome::Failed, .. }));
         transaction(&state, true);
         assert!(matches!(state.session, SessionState::Open { .. }));

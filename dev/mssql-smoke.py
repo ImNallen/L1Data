@@ -244,8 +244,9 @@ def check(bridge, work, assistant=True):
         with exported.open(newline="") as stream:
             exported_row = next(csv.DictReader(stream))
         assert exported_row["precise"] == precise and exported_row["text_value"] == full
-        bridge.run(tab, "SELECT CAST(922337203685477.5807 AS money)", outcome="Failed")
-        print("PASS precise text, money cast, long-cell retrieval and CSV export")
+        raw = bridge.run(tab, "SELECT CAST(922337203685477.5807 AS money), CAST(5 AS sql_variant), hierarchyid::Parse('/1/')")
+        assert bridge.rows(raw)[0][0] == ["922337203685477.5807", "5", "0x58"], raw
+        print("PASS precise text, raw money, sql_variant, CLR, long-cell retrieval and CSV export")
 
         bridge.run(tab, f"SET XACT_ABORT ON; BEGIN TRANSACTION; INSERT INTO {qualified} ([id],[value]) VALUES(2,N'rollback')")
         assert bridge.console(tab)["txn"] == "Open"

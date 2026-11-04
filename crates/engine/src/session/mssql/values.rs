@@ -3,11 +3,13 @@ use crate::model::{ColumnMeta, QueryError, SqlTypeRef, TypeCategory};
 use chrono::{FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use tiberius::{Column, ColumnData, ColumnType, FromSql};
 
-pub(super) fn metadata(c: &Column) -> Result<ColumnMeta, QueryError> {
+pub(super) fn metadata(c: &Column) -> ColumnMeta {
     use ColumnType::*;
     let (display, category) = match c.column_type() {
-        Money | Money4 => return Err(error("Raw money and smallmoney cannot be decoded exactly. Cast to decimal(19,4), or use a table page.")),
-        Udt | SSVariant => return Err(error("SQL Server CLR and sql_variant values are unsupported. Cast to a supported SQL type explicitly.")),
+        Money => ("money", TypeCategory::Numeric),
+        Money4 => ("smallmoney", TypeCategory::Numeric),
+        SSVariant => ("sql_variant", TypeCategory::Other),
+        Udt => ("clr", TypeCategory::Binary),
         Int1 => ("tinyint", TypeCategory::Integer),
         Int2 => ("smallint", TypeCategory::Integer),
         Int4 => ("int", TypeCategory::Integer),
@@ -30,7 +32,7 @@ pub(super) fn metadata(c: &Column) -> Result<ColumnMeta, QueryError> {
         NVarchar | NChar | NText => ("nvarchar", TypeCategory::Text),
         Null => ("null", TypeCategory::Other),
     };
-    Ok(ColumnMeta { name: c.name().to_owned(), r#type: SqlTypeRef { display: display.into(), category }, source: None })
+    ColumnMeta { name: c.name().to_owned(), r#type: SqlTypeRef { display: display.into(), category }, source: None }
 }
 
 pub(super) fn decimal(value: i128, scale: u8) -> String {

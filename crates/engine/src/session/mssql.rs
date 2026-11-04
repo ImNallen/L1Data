@@ -351,12 +351,8 @@ fn native_query<'a>(client: &'a mut TdsClient, sql: &'a str) -> QueryStream<'a> 
             if conversion_error.is_some() { continue; }
             match item {
                 QueryItem::Metadata(meta) => {
-                    let columns = match meta.columns().iter().map(values::metadata).collect::<Result<Vec<_>, _>>() {
-                        Ok(columns) => columns,
-                        Err(e) => { conversion_error = Some(e); continue; }
-                    };
                     in_result = true;
-                    yield QueryEvent::Columns(columns);
+                    yield QueryEvent::Columns(meta.columns().iter().map(values::metadata).collect());
                 }
                 QueryItem::Row(row) => {
                     let cells = match row.cells().map(|(_, data)| values::text(data)).collect::<Result<Vec<_>, _>>() {
@@ -600,9 +596,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn conversion_failure_still_consumes_database_environment_changes() {
+    async fn failed_batch_still_consumes_database_environment_changes() {
         let mut session = MsSession::open(&params()).await.unwrap();
-        assert!(session.rows("SELECT CAST(1 AS money); SELECT REPLICATE(CAST('x' AS varchar(max)),9000); USE reporting").await.is_err());
+        assert!(session.rows("RAISERROR('expected failure',16,1); SELECT REPLICATE(CAST('x' AS varchar(max)),9000); USE reporting").await.is_err());
         assert!(session.client.is_none());
         assert!(session.closed_reason().unwrap().contains("Execution database changed to reporting"));
     }

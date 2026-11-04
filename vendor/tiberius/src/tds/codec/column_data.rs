@@ -1265,6 +1265,16 @@ mod tests {
             .expect_err("decode must consume entire buffer");
     }
 
+    async fn test_money_decodes_as(ti: TypeInfo, encoded: ColumnData<'_>, decoded: ColumnData<'_>) {
+        let buf = encode_with_ti(&ti, encoded).unwrap();
+        let reader = &mut buf.into_sql_read_bytes();
+        assert_eq!(ColumnData::decode(reader, &ti).await.unwrap(), decoded);
+        reader
+            .read_u8()
+            .await
+            .expect_err("decode must consume entire buffer");
+    }
+
     #[test]
     fn numeric_rescale_down_does_not_overflow() {
         // `Numeric::value()` is a pub-constructible i128. Rescaling `i128::MAX`
@@ -2067,18 +2077,20 @@ mod tests {
 
     #[tokio::test]
     async fn f64_with_fixedlen_money() {
-        test_round_trip(
+        test_money_decodes_as(
             TypeInfo::FixedLen(FixedLenType::Money),
             ColumnData::F64(Some(3.5)),
+            ColumnData::Numeric(Some(Numeric::new_with_scale(35000, 4))),
         )
         .await;
     }
 
     #[tokio::test]
     async fn f64_with_fixedlen_smallmoney() {
-        test_round_trip(
+        test_money_decodes_as(
             TypeInfo::FixedLen(FixedLenType::Money4),
             ColumnData::F64(Some(3.5)),
+            ColumnData::Numeric(Some(Numeric::new_with_scale(35000, 4))),
         )
         .await;
     }
@@ -2219,18 +2231,20 @@ mod tests {
 
     #[tokio::test]
     async fn f64_with_varlen_money() {
-        test_round_trip(
+        test_money_decodes_as(
             TypeInfo::VarLenSized(VarLenContext::new(VarLenType::Money, 8, None)),
             ColumnData::F64(Some(3.5)),
+            ColumnData::Numeric(Some(Numeric::new_with_scale(35000, 4))),
         )
         .await;
     }
 
     #[tokio::test]
     async fn none_f64_with_varlen_money() {
-        test_round_trip(
+        test_money_decodes_as(
             TypeInfo::VarLenSized(VarLenContext::new(VarLenType::Money, 8, None)),
             ColumnData::F64(None),
+            ColumnData::Numeric(None),
         )
         .await;
     }
@@ -2410,7 +2424,7 @@ mod tests {
 
         let reader = &mut buf.into_sql_read_bytes();
         let nd = ColumnData::decode(reader, &ti).await.unwrap();
-        assert_eq!(nd, ColumnData::F64(Some(3.5)));
+        assert_eq!(nd, ColumnData::Numeric(Some(Numeric::new_with_scale(35000, 4))));
     }
 
     #[tokio::test]
@@ -2420,7 +2434,7 @@ mod tests {
 
         let reader = &mut buf.into_sql_read_bytes();
         let nd = ColumnData::decode(reader, &ti).await.unwrap();
-        assert_eq!(nd, ColumnData::F64(None));
+        assert_eq!(nd, ColumnData::Numeric(None));
     }
 
     // ----- Numeric rescale on encode (lines 859-879) -----

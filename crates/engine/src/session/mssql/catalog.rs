@@ -118,7 +118,8 @@ impl MsSession {
         let rows = self.rows(&format!("SELECT c.object_id,c.column_id,c.name,COALESCE(t.name,declared.name,'unknown'),c.max_length,c.precision,c.scale,c.is_nullable,c.is_identity,c.is_computed,
             CASE WHEN EXISTS (SELECT 1 FROM sys.indexes i JOIN sys.index_columns ic ON ic.object_id=i.object_id AND ic.index_id=i.index_id WHERE i.object_id=c.object_id AND i.is_primary_key=1 AND ic.column_id=c.column_id) THEN 1 ELSE 0 END,
             CASE WHEN EXISTS (SELECT 1 FROM sys.foreign_key_columns fk WHERE fk.parent_object_id=c.object_id AND fk.parent_column_id=c.column_id) THEN 1 ELSE 0 END,
-            c.generated_always_type
+            c.generated_always_type,
+            CASE WHEN c.system_type_id=240 THEN 1 ELSE 0 END AS is_clr
             FROM sys.all_columns c JOIN sys.all_objects o ON o.object_id=c.object_id JOIN sys.schemas s ON s.schema_id=o.schema_id
             LEFT JOIN sys.types declared ON declared.user_type_id=c.user_type_id
             LEFT JOIN sys.types t ON t.user_type_id=c.system_type_id AND t.system_type_id=t.user_type_id
@@ -133,7 +134,7 @@ impl MsSession {
                 name: required(&r, 2)?.into(),
                 quoted: quote_if_needed(DatabaseKind::SqlServer, required(&r, 2)?),
                 type_display: display(name, number(&r, 4)?, number(&r, 5)?, number(&r, 6)?),
-                category: category(name),
+                category: if number::<u8>(&r, 13)? != 0 { TypeCategory::Binary } else { category(name) },
                 not_null: number::<u8>(&r, 7)? == 0,
                 writable: number::<u8>(&r, 8)? == 0 && number::<u8>(&r, 9)? == 0 && number::<u8>(&r, 12)? == 0 && !matches!(name, "timestamp" | "rowversion"),
                 pk: number::<u8>(&r, 10)? != 0,

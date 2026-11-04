@@ -1,4 +1,4 @@
-# Tiberius session observations and messages
+# Tiberius session observations, messages, and exact money
 
 This directory contains the source of the published `tiberius` 0.13.0 crate.
 The registry archive SHA-256 is
@@ -36,9 +36,17 @@ no result set, which `SET @x = 1` and `DECLARE @x int = 1` report as one row.
 The implementation changes only `src/client.rs`, `src/client/connection.rs`,
 `src/lib.rs`, `src/query.rs`, `src/tds/context.rs`, `src/tds/codec/header.rs`,
 `src/tds/codec/token/token_done.rs`, `src/tds/codec/token/token_info.rs`,
-`src/tds/stream/query.rs`, and `src/tds/stream/token.rs`. Protocol decoding and
-row conversion remain upstream. The application regressions are in
-`crates/engine/tests/mssql_session_state.rs` and `crates/engine/tests/mssql.rs`.
+`src/tds/stream/query.rs`, and `src/tds/stream/token.rs`. The application
+regressions are in `crates/engine/tests/mssql_session_state.rs` and
+`crates/engine/tests/mssql.rs`.
+
+`money::decode` returns `ColumnData::Numeric` at scale 4. Upstream returned
+`ColumnData::F64`, which cannot hold the full range of `money`. This also applies
+to `money` and `smallmoney` inside a `sql_variant`. Encoding is unchanged, so an
+`f64` still encodes to a money column. The change is in
+`src/tds/codec/column_data/money.rs`, and in the expected values of the unit tests
+in `src/tds/codec/column_data.rs` and `src/tds/codec/column_data/var_len.rs`. All
+other protocol decoding and row conversion remain upstream.
 
 SQL Server does not set DONE_INXACT, as specified in
 [MS-TDS Appendix A](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-tds/135d0ebe-5c4c-4a94-99bf-1811eccb9f4a).
