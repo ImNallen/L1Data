@@ -4,9 +4,20 @@ import { useReducedMotion } from "./appearance";
 import { handleLook } from "./ResizeHandle";
 
 const COLUMNS = {
-  sidebar: { key: "sidebarWidth", min: 200, max: 480, shrink: 1, edge: "right", handle: "sidebar-resize", label: "Resize sidebar", line: "bg-hover" },
+  sidebar: {
+    key: "sidebarWidth",
+    reset: 240,
+    min: 200,
+    max: 480,
+    shrink: 1,
+    edge: "right",
+    handle: "sidebar-resize",
+    label: "Resize sidebar",
+    line: "bg-hover",
+  },
   right: {
     key: "rightPanelWidth",
+    reset: 360,
     min: 260,
     max: 560,
     shrink: 1e6,
@@ -114,6 +125,8 @@ export function PixelColumn({ column, open, children }: { column: Column; open: 
       data-testid={handle}
       role="separator"
       aria-label={label}
+      title={`${label}. Double-click to reset size.`}
+      aria-description="Use arrow keys to resize. Double-click to reset size."
       aria-orientation="vertical"
       aria-valuenow={width}
       aria-valuemin={min}
@@ -126,6 +139,7 @@ export function PixelColumn({ column, open, children }: { column: Column; open: 
       onPointerUp={onPointerEnd}
       onPointerCancel={onPointerEnd}
       onKeyDown={onKeyDown}
+      onDoubleClick={() => save(COLUMNS[column].reset)}
     >
       <div className={look.pill} />
     </div>

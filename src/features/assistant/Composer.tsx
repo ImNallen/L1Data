@@ -136,6 +136,11 @@ export function Composer({ chat }: { chat: ChatState | undefined }) {
 
   const active = useWorkspace((s) => s.active);
   const full = useWorkspace((s) => s.settings.assistantAccess === "Full");
+  const targetLabel = useWorkspace((s) => {
+    const db = tabTarget(s.active ? s.tabs[s.active] : undefined);
+    if (!db) return "No database selected";
+    return `${s.configs[db.connectionId]?.name ?? "Unknown connection"} / ${db.database}`;
+  });
   const tabTitle = useWorkspace((s) => (s.active ? s.tabs[s.active]?.title : undefined));
   const sqlServer = useWorkspace((s) => databaseKindFor(tabTarget(s.active ? s.tabs[s.active] : undefined), s.configs) === "SqlServer");
   const picked = useWorkspace((s) => (s.active ? s.activeResult[s.active] : undefined));
@@ -180,19 +185,30 @@ export function Composer({ chat }: { chat: ChatState | undefined }) {
   return (
     <div className="shrink-0 px-3 pb-3">
       {banner && <Banner banner={banner} />}
-      <p data-testid="assistant-access" className="mb-2 text-ui-12 leading-relaxed text-dim">
-        <button type="button" className="text-muted underline-offset-2 hover:underline" onClick={() => useWorkspace.getState().openSettings("general")}>
-          {full ? "Full access" : "Schema only"}
-        </button>
-        {full
-          ? " · Editor SQL and errors are sent. Chat text is sent as written."
-          : " · Schema structure and your chat text are sent, including anything you paste."}
-      </p>
       {sqlServer && (
         <p data-testid="assistant-sqlserver-limit" className="mb-2 text-ui-12 leading-relaxed text-dim">
           The assistant can inspect SQL Server schema and suggest SQL. Its run_query tool is unavailable for SQL Server. Open suggested SQL in a tab to run it.
         </p>
       )}
+      <div data-testid="assistant-access" className="mb-2 text-ui-12 leading-relaxed text-dim">
+        <p className="mb-1">
+          {full
+            ? "Editor SQL and errors are sent. Chat text is sent as written."
+            : "Schema structure and your chat text are sent, including anything you paste."}
+        </p>
+        <div className="flex min-w-0 items-center gap-2">
+          <span data-testid="assistant-target" title={targetLabel} className="min-w-0 flex-1 truncate text-muted">
+            {targetLabel}
+          </span>
+          <button
+            type="button"
+            className="shrink-0 text-muted underline-offset-2 hover:underline"
+            onClick={() => useWorkspace.getState().openSettings("general")}
+          >
+            {full ? "Full access" : "Schema only"}
+          </button>
+        </div>
+      </div>
       <div className="rounded-xl border border-control bg-raised focus-within:border-focus">
         {attaching && (
           <div className="flex px-3 pt-2.5">

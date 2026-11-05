@@ -82,7 +82,19 @@ function build(expanded: Expanded, selected: RelationRef | null = null, entries:
 }
 
 function row(b: Build, node: Omit<RowNode, "kind" | "tint">): void {
-  b.out.push({ kind: "row", tint: b.tint, ...node });
+  b.out.push({
+    kind: "row",
+    tint: b.tint,
+    ...node,
+    view: (active) => {
+      const view = node.view(active);
+      const qualified = (node.path ?? node.key)
+        .split("/")
+        .filter((part) => !part.startsWith("#"))
+        .join(" / ");
+      return { ...view, title: view.title && view.title !== node.name ? `${qualified} · ${view.title}` : qualified };
+    },
+  });
 }
 
 function note(b: Build, key: string, depth: number, size: number, render: () => ReactNode): void {
@@ -336,6 +348,26 @@ const relationActions = (db: DatabaseRef, schema: string, rel: Relation) => ({
   menu: () => <RelationMenu db={db} schema={schema} rel={rel} />,
 });
 
+function RelationName({ name, ranges }: { name: string; ranges?: readonly TextRange[] | null }) {
+  if (name.length <= 12) return <Highlight text={name} ranges={ranges} />;
+  const split = Math.max(name.length - 12, Math.floor(name.length / 2));
+  const before = ranges?.filter((r) => r.start < split).map((r) => ({ start: r.start, end: Math.min(r.end, split) }));
+  const after = ranges?.filter((r) => r.end > split).map((r) => ({ start: Math.max(0, r.start - split), end: r.end - split }));
+  return (
+    <span className="flex min-w-0">
+      <span className="sr-only">{name}</span>
+      <span aria-hidden className="min-w-0 truncate">
+        <Highlight text={name.slice(0, split)} ranges={before} />
+      </span>
+      <span aria-hidden dir="rtl" className="max-w-1/2 shrink-0 overflow-hidden text-left whitespace-nowrap">
+        <bdi>
+          <Highlight text={name.slice(split)} ranges={after} />
+        </bdi>
+      </span>
+    </span>
+  );
+}
+
 function relationRow(b: Build, path: string, depth: number, db: DatabaseRef, schema: string, rel: Relation, version: number) {
   const me = `${path}/${rel.name}`;
   const open = b.expanded.has(me);
@@ -352,7 +384,7 @@ function relationRow(b: Build, path: string, depth: number, db: DatabaseRef, sch
       if (!open) b.expanded.toggle(`${me}/#columns`, true);
       b.expanded.toggle(me);
     },
-    view: () => ({ icon: relationIcon(rel), title: rel.name, label: rel.name }),
+    view: () => ({ icon: relationIcon(rel), label: <RelationName name={rel.name} /> }),
   });
   if (open) relationGroups(b, me, depth + 1, db, schema, rel, version);
 }
@@ -730,7 +762,7 @@ function filteredRelationRows(b: Build, path: string, db: DatabaseRef, schema: s
     selected: isSelected(b.selected, db, schema, rel),
     ...relationActions(db, schema, rel),
     onToggle: expandable ? () => b.expanded.toggle(me) : undefined,
-    view: () => ({ icon: relationIcon(rel), title: rel.name, label: <Highlight text={rel.name} ranges={ranges} /> }),
+    view: () => ({ icon: relationIcon(rel), label: <RelationName name={rel.name} ranges={ranges} /> }),
   });
   if (open) for (const c of columns) columnRow(b, `${me}/#columns`, 4, c.column, c.ranges);
 }

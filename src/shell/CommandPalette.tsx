@@ -1,11 +1,11 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { SearchIcon } from "lucide-react";
-import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { docOf, focusEditor, onBuffersChanged } from "../features/editor/editorStates";
 import { useWorkspace, type Screen } from "../state/workspace";
 import type { TabId } from "../ipc/bindings";
 import { ACTIVE_OPTION, cx, DialogSurface, Kbd } from "../ui/primitives";
-import { COMMANDS, commandAvailable, commandLabel, shortcutLabel, type Command } from "./commands";
+import { COMMAND_GROUPS, COMMANDS, commandAvailable, commandLabel, shortcutLabel, type Command } from "./commands";
 
 function CommandBrowser({ activate, composing }: { activate: (command: Command) => void; composing: RefObject<boolean> }) {
   useWorkspace((s) => s.tabs);
@@ -16,9 +16,10 @@ function CommandBrowser({ activate, composing }: { activate: (command: Command) 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const listId = useId();
   const words = query.toLowerCase().trim().split(/\s+/);
-  const items = COMMANDS.filter((command) => command.palette !== false && commandAvailable(command)).filter((command) =>
+  const matching = COMMANDS.filter((command) => command.palette !== false && commandAvailable(command)).filter((command) =>
     words.every((word) => commandLabel(command).toLowerCase().includes(word)),
   );
+  const items = COMMAND_GROUPS.flatMap((group) => matching.filter((command) => command.group === group));
   const selectedIndex = Math.max(
     0,
     items.findIndex((command) => command.id === selectedId),
@@ -64,25 +65,31 @@ function CommandBrowser({ activate, composing }: { activate: (command: Command) 
           <Kbd>esc</Kbd>
         </Dialog.Close>
       </div>
-      <div id={listId} role="listbox" aria-label="Commands" className="max-h-80 min-h-0 flex-1 overflow-auto p-2">
+      <div id={listId} role="listbox" aria-label="Commands" className="max-h-[60vh] min-h-0 flex-1 overflow-auto p-2">
         {items.map((command, index) => (
-          <div
-            key={command.id}
-            id={`${listId}-${index}`}
-            role="option"
-            aria-selected={index === selectedIndex}
-            data-testid={`command-item-${command.id}`}
-            onMouseMove={() => setSelectedId(command.id)}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => activate(command)}
-            className={cx(
-              "flex cursor-default items-center justify-between gap-3 rounded-lg px-3 py-2 text-ui-13.5 text-fg",
-              index === selectedIndex ? ACTIVE_OPTION : "hover:bg-hover",
+          <Fragment key={command.id}>
+            {(index === 0 || items[index - 1]?.group !== command.group) && (
+              <div role="presentation" className="px-3 pt-3 pb-1 text-ui-11.5 font-medium text-dim">
+                {command.group}
+              </div>
             )}
-          >
-            <span>{commandLabel(command)}</span>
-            <Kbd className="shrink-0 text-muted">{shortcutLabel(command)}</Kbd>
-          </div>
+            <div
+              id={`${listId}-${index}`}
+              role="option"
+              aria-selected={index === selectedIndex}
+              data-testid={`command-item-${command.id}`}
+              onMouseMove={() => setSelectedId(command.id)}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => activate(command)}
+              className={cx(
+                "flex cursor-default items-center justify-between gap-3 rounded-lg px-3 py-2 text-ui-13.5 text-fg",
+                index === selectedIndex ? ACTIVE_OPTION : "hover:bg-hover",
+              )}
+            >
+              <span>{commandLabel(command)}</span>
+              {command.key && <Kbd className="shrink-0 text-muted">{shortcutLabel(command)}</Kbd>}
+            </div>
+          </Fragment>
         ))}
         {items.length === 0 && (
           <p data-testid="command-empty" role="status" className="px-3 py-8 text-center text-ui-13 text-dim">

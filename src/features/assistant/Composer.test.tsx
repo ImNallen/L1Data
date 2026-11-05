@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it } from "vitest";
 import { useLive } from "../../state/live";
 import { useWorkspace } from "../../state/workspace";
+import { connectionConfig } from "../../testing/connections";
 import { Composer } from "./Composer";
 
 afterEach(() => {
@@ -82,4 +83,25 @@ it("shows schema access and only offers query permissions and attachments in Ful
   expect(screen.queryByTestId("assistant-attachment")).toBeNull();
   act(() => useWorkspace.setState((s) => ({ settings: { ...s.settings, assistantAccess: "Full" } })));
   expect(screen.queryByTestId("assistant-attachment")).toBeNull();
+});
+
+it("follows the active tab's database, including an unconfigured tab and no tab", () => {
+  const consoleFor = (database: string) => ({ db: { connectionId: "c", database }, mode: "AutoCommit" as const });
+  useWorkspace.setState({
+    active: "a",
+    configs: { c: connectionConfig("c", "Dev Postgres") },
+    tabs: {
+      a: { id: "a", title: "first.sql", console: consoleFor("shop"), table: null, file: null },
+      b: { id: "b", title: "second.sql", console: consoleFor("reporting"), table: null, file: null },
+      empty: { id: "empty", title: "empty.sql", console: { db: null, mode: "AutoCommit" }, table: null, file: null },
+    },
+  });
+  render(<Composer chat={undefined} />);
+  expect(screen.getByTestId("assistant-target").title).toBe("Dev Postgres / shop");
+  act(() => useWorkspace.setState({ active: "b" }));
+  expect(screen.getByTestId("assistant-target").textContent).toBe("Dev Postgres / reporting");
+  act(() => useWorkspace.setState({ active: "empty" }));
+  expect(screen.getByTestId("assistant-target").textContent).toBe("No database selected");
+  act(() => useWorkspace.setState({ active: null }));
+  expect(screen.getByTestId("assistant-target").textContent).toBe("No database selected");
 });

@@ -7,10 +7,14 @@ import { pendingCount, useTableEdits } from "../state/tableEdits";
 import { useWorkspace, type Overlay } from "../state/workspace";
 import { isMac } from "./hostedWindow";
 
+export type CommandGroup = "Query" | "Connections" | "Workspace";
+export const COMMAND_GROUPS: CommandGroup[] = ["Query", "Connections", "Workspace"];
+
 export type Command = {
+  group: CommandGroup;
   id: string;
   label: string;
-  key: string;
+  key?: string;
   shift?: boolean;
   available?: () => boolean;
   labelForContext?: () => string;
@@ -47,13 +51,14 @@ function toggleSaved() {
 }
 
 export const START_COMMANDS: Command[] = [
-  { id: "new-query", label: "New query tab", key: "t", run: inWorkspace(() => openSqlTab()) },
-  { id: "open-file", label: "Open file…", key: "o", run: () => void openFiles() },
-  { id: "new-connection", label: "New connection", key: "n", run: open({ kind: "connection", editing: null }) },
-  { id: "navigation", label: "Quick navigation", key: "p", run: openNavigation },
-  { id: "saved-queries", label: "Saved queries", key: "e", run: toggleSaved },
+  { id: "new-query", group: "Query", label: "New query tab", key: "t", run: inWorkspace(() => openSqlTab()) },
+  { id: "open-file", group: "Query", label: "Open file…", key: "o", run: () => void openFiles() },
+  { id: "new-connection", group: "Connections", label: "New connection", key: "n", run: open({ kind: "connection", editing: null }) },
+  { id: "navigation", group: "Workspace", label: "Quick navigation", key: "p", run: openNavigation },
+  { id: "saved-queries", group: "Query", label: "Saved queries", key: "e", run: toggleSaved },
   {
     id: "settings",
+    group: "Workspace",
     label: "Settings",
     labelForContext: () => (ws().screen.kind === "settings" ? "Close Settings" : "Settings"),
     key: ",",
@@ -63,6 +68,7 @@ export const START_COMMANDS: Command[] = [
 
 const CLOSE_TAB: Command = {
   id: "close-tab",
+  group: "Query",
   label: "Close tab",
   key: "w",
   labelForContext: () => (ws().screen.kind === "settings" ? "Close Settings" : "Close tab"),
@@ -94,11 +100,12 @@ const saveActive = (mode: SaveMode) => () => {
   else void saveTab(active, mode);
 };
 
-const SAVE: Command = { id: "save", label: "Save", key: "s", available: hasWorkspaceTab, run: saveActive("save") };
-const SAVE_AS: Command = { id: "save-as", label: "Save as…", key: "s", shift: true, available: hasWorkspaceTab, run: saveActive("saveAs") };
+const SAVE: Command = { id: "save", group: "Query", label: "Save", key: "s", available: hasWorkspaceTab, run: saveActive("save") };
+const SAVE_AS: Command = { id: "save-as", group: "Query", label: "Save as…", key: "s", shift: true, available: hasWorkspaceTab, run: saveActive("saveAs") };
 
 const SAVE_QUERY: Command = {
   id: "save-query",
+  group: "Query",
   label: "Save query",
   key: "e",
   shift: true,
@@ -112,11 +119,17 @@ const SAVE_QUERY: Command = {
 
 export const COMMANDS: Command[] = [
   ...START_COMMANDS,
+  {
+    id: "reset-panels",
+    group: "Workspace",
+    label: "Reset panel sizes",
+    run: () => ws().setLayout({ sidebarWidth: 240, rightPanelWidth: 360, resultsHeight: 320 }),
+  },
   CLOSE_TAB,
   SAVE,
   SAVE_AS,
   SAVE_QUERY,
-  { id: "commands", label: "Command panel", key: "p", shift: true, palette: false, run: openCommandPalette },
+  { id: "commands", group: "Workspace", label: "Command panel", key: "p", shift: true, palette: false, run: openCommandPalette },
 ];
 
 export const commandLabel = (command: Command): string => command.labelForContext?.() ?? command.label;
@@ -143,5 +156,6 @@ export function handleGlobalKey(e: KeyboardEvent): void {
 }
 
 export function shortcutLabel(c: Command): string {
+  if (!c.key) return "";
   return MAC ? `⌘${c.shift ? "⇧" : ""}${c.key.toUpperCase()}` : `Ctrl+${c.shift ? "Shift+" : ""}${c.key.toUpperCase()}`;
 }

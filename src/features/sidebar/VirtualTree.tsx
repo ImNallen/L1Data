@@ -131,6 +131,7 @@ function RowBody({ node, setSize, posInSet, tabStop, menuOpen, active }: RowProp
       aria-setsize={setSize}
       aria-posinset={posInSet}
       title={title}
+      aria-description={title}
       tabIndex={tabStop ? 0 : -1}
       onClick={node.onClick}
       onDoubleClick={node.onDoubleClick}
