@@ -65,7 +65,7 @@ function CommandBrowser({ activate, composing }: { activate: (command: Command) 
           <Kbd>esc</Kbd>
         </Dialog.Close>
       </div>
-      <div id={listId} role="listbox" aria-label="Commands" className="max-h-80 min-h-0 flex-1 overflow-auto p-2">
+      <div id={listId} role="listbox" aria-label="Commands" className="max-h-[60vh] min-h-0 flex-1 overflow-auto p-2">
         {items.map((command, index) => (
           <Fragment key={command.id}>
             {(index === 0 || items[index - 1]?.group !== command.group) && (

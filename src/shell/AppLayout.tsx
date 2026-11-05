@@ -64,12 +64,16 @@ function MainArea() {
   const active = useWorkspace((s) => (s.active ? s.tabs[s.active] : undefined));
   const tableTab = isTableTab(active);
   const showResults = useWorkspace((s) => s.layout.results);
-  const resultsHeight = useWorkspace((s) => s.layout.resultsHeight);
+  const resultsHeight = useWorkspace.getState().layout.resultsHeight;
   const resultsPanel = useRef<PanelImperativeHandle | null>(null);
-  useEffect(() => {
-    if (!tableTab) resultsPanel.current?.resize(resultsHeight);
-  }, [resultsHeight, tableTab]);
   const resultsPx = useRef<number | null>(null);
+  useEffect(() => {
+    return useWorkspace.subscribe((state, previous) => {
+      if (tableTab || state.layout.resultsHeight === previous.layout.resultsHeight) return;
+      resultsPx.current = state.layout.resultsHeight;
+      resultsPanel.current?.resize(state.layout.resultsHeight);
+    });
+  }, [tableTab]);
   // Saved on release only: a store update mid-drag re-renders the Group and the library drops the drag.
   const saveResultsHeight = () => {
     const { layout, setLayout } = useWorkspace.getState();

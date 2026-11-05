@@ -349,8 +349,8 @@ const relationActions = (db: DatabaseRef, schema: string, rel: Relation) => ({
 });
 
 function RelationName({ name, ranges }: { name: string; ranges?: readonly TextRange[] | null }) {
-  if (name.length <= 24) return <Highlight text={name} ranges={ranges} />;
-  const split = name.length - 12;
+  if (name.length <= 12) return <Highlight text={name} ranges={ranges} />;
+  const split = Math.max(name.length - 12, Math.floor(name.length / 2));
   const before = ranges?.filter((r) => r.start < split).map((r) => ({ start: r.start, end: Math.min(r.end, split) }));
   const after = ranges?.filter((r) => r.end > split).map((r) => ({ start: Math.max(0, r.start - split), end: r.end - split }));
   return (
@@ -359,7 +359,7 @@ function RelationName({ name, ranges }: { name: string; ranges?: readonly TextRa
       <span aria-hidden className="min-w-0 truncate">
         <Highlight text={name.slice(0, split)} ranges={before} />
       </span>
-      <span aria-hidden dir="rtl" className="max-w-1/2 shrink-0 truncate text-left">
+      <span aria-hidden dir="rtl" className="max-w-1/2 shrink-0 overflow-hidden text-left whitespace-nowrap">
         <bdi>
           <Highlight text={name.slice(split)} ranges={after} />
         </bdi>
