@@ -93,7 +93,7 @@ it("wraps arrow selection, guards composition keys and Escape, and runs Enter on
   const input = screen.getByTestId("command-input");
   expect(screen.getByRole("option", { selected: true })).toBe(screen.getByTestId("command-item-new-query"));
   await user.keyboard("{ArrowUp}");
-  expect(screen.getByRole("option", { selected: true })).toBe(screen.getByTestId("command-item-settings"));
+  expect(screen.getByRole("option", { selected: true })).toBe(screen.getByTestId("command-item-reset-panels"));
   await user.keyboard("{ArrowDown}");
   fireEvent.compositionStart(input);
   fireEvent.keyDown(input, { key: "ArrowDown" });
@@ -247,4 +247,29 @@ it("does not restore its opener over a replacement approval dialog", async () =>
   expect(screen.queryByTestId("command-palette")).toBeNull();
   await user.click(screen.getByTestId("ask-run"));
   expect(await approval).toBe("run");
+});
+
+it("groups commands without selecting headings and resets sizes without changing panel visibility", async () => {
+  const user = userEvent.setup();
+  useWorkspace.getState().setLayout({ sidebar: false, rightPanel: "Assistant", results: false, sidebarWidth: 470, rightPanelWidth: 540, resultsHeight: 500 });
+  render(<CommandPalette />);
+  act(openCommandPalette);
+  expect(screen.getByText("Query").getAttribute("role")).toBe("presentation");
+  expect(screen.getByText("Connections").getAttribute("role")).toBe("presentation");
+  expect(screen.getByText("Workspace").getAttribute("role")).toBe("presentation");
+  await user.keyboard("{ArrowDown}{ArrowDown}");
+  expect(screen.getByRole("option", { selected: true })).toBe(screen.getByTestId("command-item-saved-queries"));
+  await user.keyboard("{ArrowDown}");
+  expect(screen.getByRole("option", { selected: true })).toBe(screen.getByTestId("command-item-new-connection"));
+  await user.type(screen.getByTestId("command-input"), "reset panel");
+  expect(screen.queryByText("Query")).toBeNull();
+  await user.keyboard("{Enter}");
+  expect(useWorkspace.getState().layout).toMatchObject({
+    sidebar: false,
+    rightPanel: "Assistant",
+    results: false,
+    sidebarWidth: 240,
+    rightPanelWidth: 360,
+    resultsHeight: 320,
+  });
 });

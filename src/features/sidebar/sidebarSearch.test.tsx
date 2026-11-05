@@ -101,3 +101,21 @@ it("keeps the color dot and draws no shading while tinting is off", () => {
   expect(html).not.toContain("conn-tint-");
   expect(html).toContain(RED_DOT);
 });
+
+it("keeps long relation suffixes and search marks visible with the full catalog path", () => {
+  render("orders");
+  const catalog = shopCatalog("p", 1);
+  const schema = catalog.schemas.find((s) => s.name === "public");
+  const relation = schema?.relations[0];
+  if (!relation) throw new Error("The shop fixture needs a relation");
+  relation.name = "customer_orders_archived_2026";
+  const view = buildCatalogView(catalog);
+  Object.assign(useCatalog.getInitialState(), { views: { [dbKey(catalog.db)]: view } });
+  const html = renderToStaticMarkup(<Sidebar hosted={null} />);
+  const item = inside(html, "tree-node-prod/shop/public/customer_orders_archived_2026");
+  expect(item).toContain('title="prod / shop / public / customer_orders_archived_2026"');
+  expect(item).toContain('aria-description="prod / shop / public / customer_orders_archived_2026"');
+  expect(item).toContain('<span class="sr-only">customer_orders_archived_2026</span>');
+  expect(item).toContain(">rchived_2026</bdi>");
+  expect(item).toContain(">orders</mark>");
+});

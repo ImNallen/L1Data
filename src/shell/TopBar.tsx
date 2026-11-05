@@ -178,6 +178,7 @@ export function TopBar({ hosted }: { hosted: HostedWindow | null }) {
         )}
       </div>
 
+      {tab && <span aria-hidden className="h-5 w-px shrink-0 bg-border" />}
       {tab && (
         <Menu.Root modal={false}>
           <Menu.Trigger
@@ -251,6 +252,7 @@ export function TopBar({ hosted }: { hosted: HostedWindow | null }) {
         </span>
       )}
 
+      {tab && <span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-border" />}
       {tab &&
         (cancellable ? (
           <Button

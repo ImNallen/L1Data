@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Group, Panel } from "react-resizable-panels";
+import { Group, Panel, type PanelImperativeHandle } from "react-resizable-panels";
 import { useDatabaseMap } from "../features/databaseMap/controller";
 import { SqlEditor } from "../features/editor/SqlEditor";
 import { StatementChooser } from "../features/editor/StatementChooser";
@@ -65,6 +65,10 @@ function MainArea() {
   const tableTab = isTableTab(active);
   const showResults = useWorkspace((s) => s.layout.results);
   const resultsHeight = useWorkspace((s) => s.layout.resultsHeight);
+  const resultsPanel = useRef<PanelImperativeHandle | null>(null);
+  useEffect(() => {
+    if (!tableTab) resultsPanel.current?.resize(resultsHeight);
+  }, [resultsHeight, tableTab]);
   const resultsPx = useRef<number | null>(null);
   // Saved on release only: a store update mid-drag re-renders the Group and the library drops the drag.
   const saveResultsHeight = () => {
@@ -88,6 +92,7 @@ function MainArea() {
           <ResizeHandle id="results-resize" label="Resize results" line="horizontal" lineColor="bg-border" />
           <Panel
             id="results"
+            panelRef={resultsPanel}
             defaultSize={tableTab ? undefined : resultsHeight}
             minSize={120}
             groupResizeBehavior={tableTab ? "preserve-relative-size" : "preserve-pixel-size"}

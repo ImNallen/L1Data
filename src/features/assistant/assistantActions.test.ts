@@ -290,3 +290,16 @@ it("waits for every queued access change before admitting a message", async () =
   ]);
   expect(sent).toEqual([{ chatId: "chat-1", request: { text: "Schema help", tab: null } }]);
 });
+
+it("uses the active tab at send time for the same chat, then sends no target when it is cleared", async () => {
+  const sent = captureSend();
+  showTab("select 1");
+  expect(await sendMessage("same-chat", "First", false)).toBe(true);
+  const second: Tab = { ...TAB, id: "tab-2", console: { ...TAB.console, db: { connectionId: "c2", database: "reporting" } } };
+  seedEditor(second.id, "select 2");
+  useWorkspace.getState().addTab(second);
+  expect(await sendMessage("same-chat", "Second", false)).toBe(true);
+  useWorkspace.setState({ active: null });
+  expect(await sendMessage("same-chat", "No target", false)).toBe(true);
+  expect(sent.map((s) => s.request.tab?.db ?? null)).toEqual([TAB.console.db, second.console.db, null]);
+});
