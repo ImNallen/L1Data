@@ -207,3 +207,13 @@ it("shows environment-colored database icons for connected, disconnected and fil
   expect(filtered.getAllByRole("img")).toHaveLength(1);
   expect(filtered.queryByText(/^(PG|MS)$/)).toBeNull();
 });
+
+it("offers the connection dialog as the first step when no connections are saved", async () => {
+  const user = userEvent.setup();
+  useWorkspace.setState({ configs: {} });
+  render(<Sidebar hosted={null} />);
+  expect(screen.getByText(/PostgreSQL or SQL Server/)).toBeTruthy();
+  expect(screen.queryByRole("tree")).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Connect a database" }));
+  expect(useWorkspace.getState().overlay).toEqual({ kind: "connection", editing: null });
+});

@@ -47,7 +47,7 @@ function DatabaseMenu({ tab, db }: { tab: Tab; db: DatabaseRef }) {
   const state = useLive((s) => s.connections[db.connectionId]);
   return (
     <Menu.Root modal={false}>
-      <Menu.Trigger data-testid="tab-database" title={db.database} className={cx(TARGET_TRIGGER, "text-fg")}>
+      <Menu.Trigger data-testid="tab-database" title={db.database} className={cx(TARGET_TRIGGER, "flex-1 text-fg")}>
         <span className="truncate">{db.database}</span>
         <ChevronDownIcon size={12} className="shrink-0 text-dim" />
       </Menu.Trigger>
@@ -126,161 +126,174 @@ export function TopBar({ hosted }: { hosted: HostedWindow | null }) {
   const sqlServer = config?.databaseKind === "SqlServer";
   const loss = liveConsole?.session.kind === "Lost" ? LOSS_LABEL[liveConsole.session.transaction] : null;
   const environment = config?.environment ?? null;
+  const pending = hasUncommittedWork(liveConsole);
+  const expandedActions = pending || loss !== null || liveConsole?.work === "Count";
 
-  // The database sits in a zero-basis box that gets only the room left over, so it truncates before the connection
-  // name. The top padding matches the bottom border, so the items stay level with the sidebar header and the traffic
-  // lights.
   return (
     <header
       data-tauri-drag-region="deep"
       className={cx(
-        "@container flex h-[52px] shrink-0 items-center gap-2 border-b-2 border-transparent pt-[2px]",
+        "@container shrink-0 border-b-2 border-transparent pt-[2px]",
         windowEdgeInset(hosted),
         layout.sidebar ? "pl-4" : windowLeadingInset(hosted),
       )}
       data-testid="top-bar"
       data-environment={environment ?? undefined}
     >
-      {!layout.sidebar && <SidebarToggle />}
-      <div className="flex min-w-0 flex-1 items-center">
-        {tab ? (
-          <Menu.Root modal={false}>
-            <Menu.Trigger data-testid="tab-connection" title={config?.name} className={cx(TARGET_TRIGGER, "-ml-1", config ? "text-fg" : "text-dim")}>
-              <ConnectionColorDot color={config?.color ?? null} className="mr-0.5" />
-              <span className="truncate">{config?.name ?? "No connection"}</span>
-              <ChevronDownIcon size={12} className="shrink-0 text-dim" />
-            </Menu.Trigger>
-            <MenuContent>
-              <MenuLabel>Connection for this tab</MenuLabel>
-              {Object.values(configs).map((c) => {
-                const tone = connectionTone(connections[c.id]);
-                return (
-                  <MenuItem key={c.id} checked={c.id === connectionId} onSelect={() => void setTabTarget(tab.id, homeDb(c))}>
-                    <StatusDot tone={tone} label={CONNECTION_TONE_LABEL[tone]} />
-                    <ConnectionColorDot color={c.color} />
-                    {c.name}
-                  </MenuItem>
-                );
-              })}
-            </MenuContent>
-          </Menu.Root>
-        ) : (
-          <span className="flex min-w-0 items-center gap-1.5 text-ui-14 text-dim">
-            <ConnectionColorDot color={config?.color ?? null} />
-            <span className="truncate">{config?.name ?? ""}</span>
-          </span>
+      <div
+        className={cx(
+          "flex min-h-12 min-w-0 items-center gap-2",
+          expandedActions ? "@max-[760px]:flex-wrap @max-[760px]:gap-y-1 @max-[760px]:py-1" : "@max-[520px]:flex-wrap @max-[520px]:gap-y-1 @max-[520px]:py-1",
         )}
-        {tab && db && config && (
-          <div className="flex min-w-0 flex-1 items-center overflow-hidden">
-            <Separator />
-            <DatabaseMenu tab={tab} db={db} />
-          </div>
-        )}
-      </div>
+      >
+        <div className={cx("flex min-w-0 flex-1 items-center gap-2", expandedActions ? "@max-[760px]:basis-full" : "@max-[520px]:basis-full")}>
+          {!layout.sidebar && <SidebarToggle />}
+          {tab ? (
+            <Menu.Root modal={false}>
+              <Menu.Trigger data-testid="tab-connection" title={config?.name} className={cx(TARGET_TRIGGER, "-ml-1 flex-1", config ? "text-fg" : "text-dim")}>
+                <ConnectionColorDot color={config?.color ?? null} className="mr-0.5" />
+                <span className="truncate">{config?.name ?? "No connection"}</span>
+                <ChevronDownIcon size={12} className="shrink-0 text-dim" />
+              </Menu.Trigger>
+              <MenuContent>
+                <MenuLabel>Connection for this tab</MenuLabel>
+                {Object.values(configs).map((c) => {
+                  const tone = connectionTone(connections[c.id]);
+                  return (
+                    <MenuItem key={c.id} checked={c.id === connectionId} onSelect={() => void setTabTarget(tab.id, homeDb(c))}>
+                      <StatusDot tone={tone} label={CONNECTION_TONE_LABEL[tone]} />
+                      <ConnectionColorDot color={c.color} />
+                      {c.name}
+                    </MenuItem>
+                  );
+                })}
+              </MenuContent>
+            </Menu.Root>
+          ) : (
+            <span className="flex min-w-0 items-center gap-1.5 text-ui-14 text-dim">
+              <ConnectionColorDot color={config?.color ?? null} />
+              <span className="truncate">{config?.name ?? ""}</span>
+            </span>
+          )}
+          {tab && db && config && (
+            <div className="flex min-w-0 flex-1 items-center overflow-hidden">
+              <Separator />
+              <DatabaseMenu tab={tab} db={db} />
+            </div>
+          )}
+        </div>
 
-      {tab && <span aria-hidden className="h-5 w-px shrink-0 bg-border" />}
-      {tab && (
-        <Menu.Root modal={false}>
-          <Menu.Trigger
-            data-testid="tx-mode"
-            title={
-              loss?.title ?? (txn === "Open" ? "Transaction open. SQL Server does not report nesting depth or committability through the protocol." : undefined)
-            }
-            className="inline-flex h-7 items-center gap-1 rounded-md pr-1.5 pl-2 text-ui-12.5 text-muted hover:bg-hover hover:text-fg data-[state=open]:bg-hover data-[state=open]:text-fg"
-          >
-            {MODE_LABEL[tab.console.mode]}
-            {txn && txn !== "Idle" && (
-              <span className={txn === "Aborted" ? "text-danger" : "text-amber"}>
-                {" "}
-                · {txn === "Aborted" ? "aborted" : "in transaction"}
-                {txnDepth !== null && txnDepth !== undefined && txnDepth > 1 ? ` (${txnDepth})` : ""}
-              </span>
-            )}
-            {loss && <span className="text-danger"> · {loss.label}</span>}
-            <ChevronDownIcon size={13} />
-          </Menu.Trigger>
-          <MenuContent align="end">
-            {(["AutoCommit", "Manual"] as const).map((m) => (
-              <MenuItem
-                key={m}
-                testId={`tx-mode-${m}`}
-                checked={m === tab.console.mode}
-                disabled={sqlServer && m === "Manual"}
-                onSelect={() => void setTabMode(tab.id, m)}
-              >
-                {MODE_LABEL[m]}
-                {sqlServer && m === "Manual" ? " (unavailable for SQL Server)" : ""}
-              </MenuItem>
-            ))}
-            {sqlServer && <MenuLabel>Use BEGIN, COMMIT and ROLLBACK in SQL scripts.</MenuLabel>}
-          </MenuContent>
-        </Menu.Root>
-      )}
-
-      {tab && hasUncommittedWork(liveConsole) && (
-        <>
-          <Button
-            data-testid="commit-btn"
-            title={sqlServer ? "Commit all transaction nesting levels" : undefined}
-            disabled={busy}
-            onClick={() => void endTransaction(tab.id, "commit")}
-          >
-            Commit
-          </Button>
-          <Button data-testid="rollback-btn" disabled={busy} onClick={() => void endTransaction(tab.id, "rollback")}>
-            Rollback
-          </Button>
-        </>
-      )}
-
-      {tab && (
-        // Format gives way to the run target in a narrow bar, and ⌘⌥L still formats.
-        <Button
-          data-testid="format-btn"
-          title="Format the selection or the marked statement (⌘⌥L)"
-          className="@max-[900px]:px-2.5 @max-[520px]:hidden"
-          onClick={() => void formatActive()}
+        <div
+          className={cx(
+            "flex min-w-0 shrink-0 items-center gap-2",
+            expandedActions ? "@max-[760px]:basis-full @max-[760px]:flex-wrap" : "@max-[520px]:basis-full @max-[520px]:flex-wrap",
+          )}
         >
-          <ListIndentIncreaseIcon size={14} className="text-muted" />
-          <span className="@max-[900px]:sr-only">Format</span>
-        </Button>
-      )}
+          {tab && <span aria-hidden className={cx("h-5 w-px shrink-0 bg-border", expandedActions ? "@max-[760px]:hidden" : "@max-[520px]:hidden")} />}
+          {tab && (
+            <Menu.Root modal={false}>
+              <Menu.Trigger
+                data-testid="tx-mode"
+                title={
+                  loss?.title ??
+                  (txn === "Open" ? "Transaction open. SQL Server does not report nesting depth or committability through the protocol." : undefined)
+                }
+                className="inline-flex h-7 items-center gap-1 rounded-md pr-1.5 pl-2 text-ui-12.5 text-muted hover:bg-hover hover:text-fg data-[state=open]:bg-hover data-[state=open]:text-fg"
+              >
+                {MODE_LABEL[tab.console.mode]}
+                {txn && txn !== "Idle" && (
+                  <span className={txn === "Aborted" ? "text-danger" : "text-amber"}>
+                    {" "}
+                    · {txn === "Aborted" ? "aborted" : "in transaction"}
+                    {txnDepth !== null && txnDepth !== undefined && txnDepth > 1 ? ` (${txnDepth})` : ""}
+                  </span>
+                )}
+                {loss && <span className="text-danger"> · {loss.label}</span>}
+                <ChevronDownIcon size={13} />
+              </Menu.Trigger>
+              <MenuContent align="end">
+                {(["AutoCommit", "Manual"] as const).map((m) => (
+                  <MenuItem
+                    key={m}
+                    testId={`tx-mode-${m}`}
+                    checked={m === tab.console.mode}
+                    disabled={sqlServer && m === "Manual"}
+                    onSelect={() => void setTabMode(tab.id, m)}
+                  >
+                    {MODE_LABEL[m]}
+                    {sqlServer && m === "Manual" ? " (unavailable for SQL Server)" : ""}
+                  </MenuItem>
+                ))}
+                {sqlServer && <MenuLabel>Use BEGIN, COMMIT and ROLLBACK in SQL scripts.</MenuLabel>}
+              </MenuContent>
+            </Menu.Root>
+          )}
 
-      {tab && liveConsole?.work === "Count" && (
-        <span data-testid="counting-status" role="status" className="text-ui-13 text-dim">
-          Counting…
-        </span>
-      )}
+          {tab && pending && (
+            <>
+              <Button
+                data-testid="commit-btn"
+                title={sqlServer ? "Commit all transaction nesting levels" : undefined}
+                disabled={busy}
+                onClick={() => void endTransaction(tab.id, "commit")}
+              >
+                Commit
+              </Button>
+              <Button data-testid="rollback-btn" disabled={busy} onClick={() => void endTransaction(tab.id, "rollback")}>
+                Rollback
+              </Button>
+            </>
+          )}
 
-      {tab && <span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-border" />}
-      {tab &&
-        (cancellable ? (
-          <Button
-            data-testid="cancel-btn"
-            title={
-              sqlServer
-                ? liveConsole?.work === "Import"
-                  ? "Cancel waits for the active import batch, then rolls back."
-                  : "Cancel resets the SQL Server session. Earlier commits remain committed."
-                : undefined
-            }
-            className="w-[104px] justify-center bg-hover"
-            onClick={() => cancelActive()}
-          >
-            <SquareIcon fill="currentColor" size={10} className="text-muted" />
-            Cancel
-            <Kbd tone="menu">Esc</Kbd>
-          </Button>
-        ) : (
-          <RunButton busy={busy} environment={environment} explainable={!!config && explainSupported(config.databaseKind) && !isBrowsing(tab)} />
-        ))}
+          {tab && (
+            <Button
+              data-testid="format-btn"
+              title="Format the selection or the marked statement (⌘⌥L)"
+              className="@max-[900px]:px-2.5 @max-[520px]:hidden"
+              onClick={() => void formatActive()}
+            >
+              <ListIndentIncreaseIcon size={14} className="text-muted" />
+              <span className="@max-[900px]:sr-only">Format</span>
+            </Button>
+          )}
 
-      {layout.rightPanel === null && (
-        <>
-          <div className="mx-1 h-5 w-px bg-border" />
-          <WindowEdgeActions hosted={hosted} />
-        </>
-      )}
+          {tab && liveConsole?.work === "Count" && (
+            <span data-testid="counting-status" role="status" className="text-ui-13 text-dim">
+              Counting…
+            </span>
+          )}
+
+          {tab && <span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-border" />}
+          {tab &&
+            (cancellable ? (
+              <Button
+                data-testid="cancel-btn"
+                title={
+                  sqlServer
+                    ? liveConsole?.work === "Import"
+                      ? "Cancel waits for the active import batch, then rolls back."
+                      : "Cancel resets the SQL Server session. Earlier commits remain committed."
+                    : undefined
+                }
+                className="w-[104px] justify-center bg-hover"
+                onClick={() => cancelActive()}
+              >
+                <SquareIcon fill="currentColor" size={10} className="text-muted" />
+                Cancel
+                <Kbd tone="menu">Esc</Kbd>
+              </Button>
+            ) : (
+              <RunButton busy={busy} environment={environment} explainable={!!config && explainSupported(config.databaseKind) && !isBrowsing(tab)} />
+            ))}
+
+          {layout.rightPanel === null && (
+            <>
+              <div className="mx-1 h-5 w-px bg-border" />
+              <WindowEdgeActions hosted={hosted} />
+            </>
+          )}
+        </div>
+      </div>
     </header>
   );
 }

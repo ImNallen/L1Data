@@ -8,6 +8,7 @@ import { commandForKey } from "../../shell/commands";
 import { Overlays } from "../../shell/Overlays";
 import { useLive } from "../../state/live";
 import { confirm, useWorkspace } from "../../state/workspace";
+import { connectionConfig } from "../../testing/connections";
 import { openSqlTab } from "../editor/runActions";
 import { dropEditor } from "../editor/editorStates";
 import { SavedPalette } from "../saved/SavedPalette";
@@ -43,6 +44,7 @@ afterEach(() => {
 
 it("preserves the workspace and Settings filter while quick navigation opens above Settings", async () => {
   const user = userEvent.setup();
+  useWorkspace.setState({ configs: { saved: connectionConfig("saved", "Saved connection") } });
   render(<AppLayout />);
   const main = screen.getByTestId("no-tabs");
   const tree = screen.getByTestId("conn-tree");

@@ -27,6 +27,7 @@ async fn import_lock_blocks_ddl_on_empty_and_populated_tables_and_late_error_rol
             let error = other.batch(&ddl).await.unwrap_err();
             assert!(error.message.contains("Lock request time out"), "{error:?}");
         }
+        other.batch("SET LOCK_TIMEOUT 5000").await.unwrap();
         owner.batch(&format!("INSERT {table} VALUES (1,1),(2,2)")).await.unwrap();
         assert!(owner.batch(&format!("INSERT {table} VALUES (3,-1)")).await.is_err());
         owner.batch("ROLLBACK TRANSACTION").await.unwrap();
@@ -90,6 +91,7 @@ async fn import_lock_blocks_rls_and_indexed_view_attachment() {
             let e = ddl.batch(&sql).await.unwrap_err();
             assert!(e.message.contains("Lock request time out"), "{e:?}");
         }
+        ddl.batch("SET LOCK_TIMEOUT 5000").await.unwrap();
         owner.batch("ROLLBACK").await.unwrap();
         ddl.batch(&format!("DROP VIEW {view}; DROP TABLE {table}; DROP FUNCTION {function}")).await.unwrap();
     }

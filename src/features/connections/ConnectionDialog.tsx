@@ -345,6 +345,7 @@ function ConnectionForm({
   const [probe, setProbe] = useState<Probe>({ kind: "idle" });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(() => !!existing?.ssh || !!existing?.caCertPath);
 
   const dirty = isDirty(existing, { fields, password, sshSecret, url });
   useEffect(() => {
@@ -383,6 +384,7 @@ function ConnectionForm({
     }
     const d = res.data;
     setUrlError(null);
+    if (d.caCertPath) setAdvancedOpen(true);
     update({
       databaseKind: d.databaseKind,
       caCertPath: d.caCertPath ?? "",
@@ -530,6 +532,18 @@ function ConnectionForm({
               </option>
             ))}
           </select>
+        </FormRow>
+        <FormRow label="Name" htmlFor={`${ids}-name`} hint="Leave empty to use the host and database.">
+          <input
+            id={`${ids}-name`}
+            aria-describedby={hintOf(`${ids}-name`)}
+            data-testid="conn-name"
+            autoFocus={existing !== undefined}
+            className={inputClass}
+            value={fields.name}
+            onChange={set("name")}
+            placeholder={fallbackName}
+          />
         </FormRow>
         <FormRow
           label="Environment"
@@ -699,148 +713,146 @@ function ConnectionForm({
             <ChevronsUpDownIcon size={14} className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-dim" />
           </div>
         </FormRow>
-        {fields.databaseKind === "Postgres" && (
-          <FormRow label="CA certificate" htmlFor={`${ids}-ca`} hint="Optional path to a PEM certificate file.">
-            <input
-              id={`${ids}-ca`}
-              aria-describedby={hintOf(`${ids}-ca`)}
-              data-testid="conn-ca-cert"
-              className={inputClass}
-              value={fields.caCertPath}
-              onChange={(e) => update({ caCertPath: e.target.value })}
-            />
-          </FormRow>
-        )}
-        <FormRow
-          label="SSH tunnel"
-          htmlFor={fields.sshEnabled ? `${ids}-ssh-host` : undefined}
-          hint={fields.sshEnabled ? "Checks ~/.ssh/known_hosts. Does not read ~/.ssh/config." : undefined}
-        >
-          <div className="flex h-8 items-center gap-2">
-            <Switch checked={fields.sshEnabled} onCheckedChange={(sshEnabled) => update({ sshEnabled })} label="SSH tunnel" testId="conn-ssh-enabled" />
-            {fields.sshEnabled ? (
-              <>
-                <div className="ml-1 min-w-0 flex-1">
-                  <input
-                    id={`${ids}-ssh-host`}
-                    aria-describedby={hintOf(`${ids}-ssh-host`)}
-                    data-testid="conn-ssh-host"
-                    className={inputClass}
-                    value={fields.sshHost}
-                    onChange={set("sshHost")}
-                    placeholder="bastion.example.com"
-                  />
-                </div>
-                <div className="w-24 shrink-0">
-                  <input
-                    data-testid="conn-ssh-port"
-                    aria-label="SSH port"
-                    className={inputClass}
-                    value={fields.sshPort}
-                    onChange={set("sshPort")}
-                    inputMode="numeric"
-                  />
-                </div>
-              </>
-            ) : (
-              <span className="text-ui-13 text-dim">Connect through an SSH server</span>
+        <details open={advancedOpen} onToggle={(e) => setAdvancedOpen(e.currentTarget.open)} className="border-b border-border py-3">
+          <summary className="cursor-pointer rounded text-ui-13 font-medium text-fg">
+            Advanced network settings
+            {(fields.sshEnabled || fields.caCertPath) && (
+              <span className="ml-2 text-ui-12 font-normal text-dim">
+                {fields.sshEnabled ? (sshValid(fields) ? "SSH configured" : "SSH needs attention") : "CA certificate configured"}
+              </span>
             )}
-          </div>
-        </FormRow>
-        {fields.sshEnabled && (
-          <>
-            <FormRow label="SSH sign in" htmlFor={`${ids}-ssh-user`}>
-              <div className="flex gap-2">
-                <input
-                  id={`${ids}-ssh-user`}
-                  data-testid="conn-ssh-user"
-                  className={inputClass}
-                  value={fields.sshUser}
-                  onChange={set("sshUser")}
-                  placeholder="user"
-                />
-                <div className="relative w-full">
-                  <select
-                    data-testid="conn-ssh-auth"
-                    aria-label="SSH authentication"
-                    className={cx(inputClass, "appearance-none pr-8")}
-                    value={fields.sshAuth}
-                    onChange={(e) => {
-                      const auth = SSH_AUTHS.find((a) => a.value === e.target.value);
-                      if (!auth) return;
-                      update({ sshAuth: auth.value });
-                      setSshSecret(initialSshSecret(existing, auth.value));
-                    }}
-                  >
-                    {SSH_AUTHS.map((a) => (
-                      <option key={a.value} value={a.value}>
-                        {a.label}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronsUpDownIcon size={14} className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-dim" />
-                </div>
-              </div>
+          </summary>
+          {fields.databaseKind === "Postgres" && (
+            <FormRow label="CA certificate" htmlFor={`${ids}-ca`} hint="Optional path to a PEM certificate file.">
+              <input
+                id={`${ids}-ca`}
+                aria-describedby={hintOf(`${ids}-ca`)}
+                data-testid="conn-ca-cert"
+                className={inputClass}
+                value={fields.caCertPath}
+                onChange={(e) => update({ caCertPath: e.target.value })}
+              />
             </FormRow>
-            {fields.sshAuth === "Password" && (
-              <FormRow label="SSH password" hint={sshSecretClear || undefined}>
-                {sshSecretInput("password")}
-              </FormRow>
-            )}
-            {fields.sshAuth === "Key" && (
-              <FormRow
-                label="Key file"
-                htmlFor={`${ids}-ssh-key`}
-                hint={
-                  <>
-                    <span className="block">Leave the passphrase empty for an unencrypted key.</span>
-                    {sshSecretClear}
-                  </>
-                }
-              >
-                <div className="flex gap-2">
-                  <div className="min-w-0 flex-1">
+          )}
+          <FormRow
+            label="SSH tunnel"
+            htmlFor={fields.sshEnabled ? `${ids}-ssh-host` : undefined}
+            hint={fields.sshEnabled ? "Checks ~/.ssh/known_hosts. Does not read ~/.ssh/config." : undefined}
+          >
+            <div className="flex h-8 items-center gap-2">
+              <Switch checked={fields.sshEnabled} onCheckedChange={(sshEnabled) => update({ sshEnabled })} label="SSH tunnel" testId="conn-ssh-enabled" />
+              {fields.sshEnabled ? (
+                <>
+                  <div className="ml-1 min-w-0 flex-1">
                     <input
-                      id={`${ids}-ssh-key`}
-                      aria-describedby={hintOf(`${ids}-ssh-key`)}
-                      data-testid="conn-ssh-key"
+                      id={`${ids}-ssh-host`}
+                      aria-describedby={hintOf(`${ids}-ssh-host`)}
+                      data-testid="conn-ssh-host"
                       className={inputClass}
-                      value={fields.sshKeyPath}
-                      onChange={set("sshKeyPath")}
-                      placeholder="~/.ssh/id_ed25519"
+                      value={fields.sshHost}
+                      onChange={set("sshHost")}
+                      placeholder="bastion.example.com"
                     />
                   </div>
-                  <div className="w-40 shrink-0">{sshSecretInput("passphrase")}</div>
+                  <div className="w-24 shrink-0">
+                    <input
+                      data-testid="conn-ssh-port"
+                      aria-label="SSH port"
+                      className={inputClass}
+                      value={fields.sshPort}
+                      onChange={set("sshPort")}
+                      inputMode="numeric"
+                    />
+                  </div>
+                </>
+              ) : (
+                <span className="text-ui-13 text-dim">Connect through an SSH server</span>
+              )}
+            </div>
+          </FormRow>
+          {fields.sshEnabled && (
+            <>
+              <FormRow label="SSH sign in" htmlFor={`${ids}-ssh-user`}>
+                <div className="flex gap-2">
+                  <input
+                    id={`${ids}-ssh-user`}
+                    data-testid="conn-ssh-user"
+                    className={inputClass}
+                    value={fields.sshUser}
+                    onChange={set("sshUser")}
+                    placeholder="user"
+                  />
+                  <div className="relative w-full">
+                    <select
+                      data-testid="conn-ssh-auth"
+                      aria-label="SSH authentication"
+                      className={cx(inputClass, "appearance-none pr-8")}
+                      value={fields.sshAuth}
+                      onChange={(e) => {
+                        const auth = SSH_AUTHS.find((a) => a.value === e.target.value);
+                        if (!auth) return;
+                        update({ sshAuth: auth.value });
+                        setSshSecret(initialSshSecret(existing, auth.value));
+                      }}
+                    >
+                      {SSH_AUTHS.map((a) => (
+                        <option key={a.value} value={a.value}>
+                          {a.label}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronsUpDownIcon size={14} className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-dim" />
+                  </div>
                 </div>
               </FormRow>
-            )}
-            {fields.sshAuth === "Agent" && (
-              <FormRow label="Agent socket" htmlFor={`${ids}-ssh-agent`} hint="Optional. Leave empty to use the agent at SSH_AUTH_SOCK.">
-                <input
-                  id={`${ids}-ssh-agent`}
-                  aria-describedby={hintOf(`${ids}-ssh-agent`)}
-                  data-testid="conn-ssh-agent-socket"
-                  className={inputClass}
-                  value={fields.sshAgentSocket}
-                  onChange={set("sshAgentSocket")}
-                  placeholder="SSH_AUTH_SOCK"
-                />
-              </FormRow>
-            )}
-          </>
-        )}
-        <FormRow label="Name" htmlFor={`${ids}-name`} hint="Leave empty to use the host and database.">
-          <input
-            id={`${ids}-name`}
-            aria-describedby={hintOf(`${ids}-name`)}
-            data-testid="conn-name"
-            autoFocus={existing !== undefined}
-            className={inputClass}
-            value={fields.name}
-            onChange={set("name")}
-            placeholder={fallbackName}
-          />
-        </FormRow>
+              {fields.sshAuth === "Password" && (
+                <FormRow label="SSH password" hint={sshSecretClear || undefined}>
+                  {sshSecretInput("password")}
+                </FormRow>
+              )}
+              {fields.sshAuth === "Key" && (
+                <FormRow
+                  label="Key file"
+                  htmlFor={`${ids}-ssh-key`}
+                  hint={
+                    <>
+                      <span className="block">Leave the passphrase empty for an unencrypted key.</span>
+                      {sshSecretClear}
+                    </>
+                  }
+                >
+                  <div className="flex gap-2">
+                    <div className="min-w-0 flex-1">
+                      <input
+                        id={`${ids}-ssh-key`}
+                        aria-describedby={hintOf(`${ids}-ssh-key`)}
+                        data-testid="conn-ssh-key"
+                        className={inputClass}
+                        value={fields.sshKeyPath}
+                        onChange={set("sshKeyPath")}
+                        placeholder="~/.ssh/id_ed25519"
+                      />
+                    </div>
+                    <div className="w-40 shrink-0">{sshSecretInput("passphrase")}</div>
+                  </div>
+                </FormRow>
+              )}
+              {fields.sshAuth === "Agent" && (
+                <FormRow label="Agent socket" htmlFor={`${ids}-ssh-agent`} hint="Optional. Leave empty to use the agent at SSH_AUTH_SOCK.">
+                  <input
+                    id={`${ids}-ssh-agent`}
+                    aria-describedby={hintOf(`${ids}-ssh-agent`)}
+                    data-testid="conn-ssh-agent-socket"
+                    className={inputClass}
+                    value={fields.sshAgentSocket}
+                    onChange={set("sshAgentSocket")}
+                    placeholder="SSH_AUTH_SOCK"
+                  />
+                </FormRow>
+              )}
+            </>
+          )}
+        </details>
         <FormRow label="Color" labelId={`${ids}-color`} hint="Marks this connection in the tree and the top bar.">
           <ColorPicker value={fields.color} onChange={(color) => update({ color })} labelledBy={`${ids}-color`} />
         </FormRow>
