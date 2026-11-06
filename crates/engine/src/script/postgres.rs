@@ -41,6 +41,8 @@ pub struct Unscripted {
     /// Publications of every table in the relation's schema.
     pub schema_publications: Vec<String>,
     pub owner: Owner,
+    /// Inherited not-null constraints whose name or `NOT VALID` state a replay cannot give them.
+    pub inherited_not_nulls: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -145,6 +147,7 @@ pub struct Column {
 pub struct Inherited {
     pub replay_order: i64,
     pub default: Option<String>,
+    /// A parent passes its `NOT NULL` on, which a `NO INHERIT` one does not.
     pub not_null: bool,
     pub storage: String,
     pub compression: String,
@@ -190,6 +193,8 @@ pub struct Constraint {
     /// A foreign key to another table of the same partition tree, which may not exist yet where the
     /// constraint's own table is created.
     pub after_tree: bool,
+    /// The column of a `NOT NULL` constraint, which takes the place of the column's own `NOT NULL`.
+    pub not_null_column: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -326,7 +331,7 @@ fn table_statements(t: &Table, out: &mut Vec<String>, warnings: &mut Vec<String>
         }
         (Parent::None, Some(of_type)) => {
             head.push_str(&format!(" OF {of_type}"));
-            let options = t.columns.iter().map(|c| (c, column_options(c, &t.schema, &t.name))).filter(|(_, o)| !o.is_empty());
+            let options = t.columns.iter().map(|c| (c, column_options(c, t))).filter(|(_, o)| !o.is_empty());
             let body: Vec<_> = options.map(|(c, o)| format!("{} WITH OPTIONS{o}", ident(&c.name))).chain(constraints).collect();
             if !body.is_empty() {
                 head.push_str(&format!(" (\n    {}\n)", body.join(",\n    ")));
@@ -338,11 +343,12 @@ fn table_statements(t: &Table, out: &mut Vec<String>, warnings: &mut Vec<String>
                     Some(_) => c
                         .identity
                         .as_ref()
+                        .filter(|_| !identity_waits(t, c))
                         .map(|i| format!(" {}", identity_clause(i, &t.schema, &t.name)))
                         .or_else(|| generation_override(c))
                         .or_else(|| merged_default(c))
                         .unwrap_or_default(),
-                    None => column_options(c, &t.schema, &t.name),
+                    None => column_options(c, t),
                 };
                 format!("{}{options}", column_head(c))
             });
@@ -370,6 +376,9 @@ fn table_statements(t: &Table, out: &mut Vec<String>, warnings: &mut Vec<String>
     }
     out.push(head);
     out.extend(restore_attached_names(t));
+    for c in t.columns.iter().filter(|c| identity_waits(t, c)) {
+        out.extend(c.identity.as_ref().map(|i| format!("ALTER TABLE {name} ALTER COLUMN {} ADD {}", ident(&c.name), identity_clause(i, &t.schema, &t.name))));
+    }
 
     out.extend(t.owned_sequences.iter().map(|s| format!("ALTER SEQUENCE {} OWNED BY {name}.{}", qualified(&s.schema, &s.name), ident(&s.column))));
     out.extend(t.sequence_states.iter().filter_map(|s| {
@@ -378,7 +387,7 @@ fn table_statements(t: &Table, out: &mut Vec<String>, warnings: &mut Vec<String>
     let add = |k: &&Constraint| format!("ALTER TABLE {name} ADD CONSTRAINT {} {}", ident(&k.name), constraint_definition(k));
     out.extend(deferred.iter().map(add));
     for c in &t.columns {
-        out.extend(column_changes(c, keyword, &name, !partition && c.declared && c.inherited.is_none(), !partition && merged_default(c).is_some()));
+        out.extend(column_changes(c, keyword, &name, !partition && c.declared && c.inherited.is_none(), !partition && merged_default(c).is_some(), not_null_constraint(t, c).is_some()));
     }
     indexes(&t.indexes, keyword, &t.schema, &name, out, warnings);
     out.extend(late.iter().map(add));
@@ -451,6 +460,11 @@ fn unscripted(u: &Unscripted, schema: &str, name: &str, decides: Option<&str>) -
     };
     out.extend(membership(&u.publications, ""));
     out.extend(membership(&u.schema_publications, &format!(" through schema {}", ident(schema))));
+    if !u.inherited_not_nulls.is_empty() {
+        let list: Vec<String> = u.inherited_not_nulls.iter().map(|n| ident(n)).collect();
+        let noun = if list.len() == 1 { "not-null constraint" } else { "not-null constraints" };
+        out.push(format!("{noun} {} of {name}, which a replay takes from its parent, with the parent's name and validated", list.join(", ")));
+    }
     out
 }
 
@@ -474,17 +488,27 @@ fn constraint_definition(k: &Constraint) -> String {
     format!("{}{parameters}{}", &k.definition[..at], &k.definition[at..])
 }
 
-fn column_options(c: &Column, schema: &str, table: &str) -> String {
+fn not_null_constraint<'a>(t: &'a Table, c: &Column) -> Option<&'a Constraint> {
+    t.constraints.iter().find(|k| !k.inherited && k.not_null_column.as_deref() == Some(c.name.as_str()))
+}
+
+/// In one `CREATE TABLE` a column's identity conflicts with a `NO INHERIT` not-null constraint on it,
+/// so the identity is added once the constraint exists.
+fn identity_waits(t: &Table, c: &Column) -> bool {
+    not_null_constraint(t, c).is_some_and(|k| k.definition.ends_with(" NO INHERIT"))
+}
+
+fn column_options(c: &Column, t: &Table) -> String {
     let mut out = String::new();
-    if let Some(identity) = &c.identity {
-        out.push_str(&format!(" {}", identity_clause(identity, schema, table)));
+    if let Some(identity) = c.identity.as_ref().filter(|_| !identity_waits(t, c)) {
+        out.push_str(&format!(" {}", identity_clause(identity, &t.schema, &t.name)));
     }
     match (c.generated, &c.default) {
         (Some(kind), Some(expr)) => out.push_str(&generation(kind, expr)),
         (None, Some(expr)) => out.push_str(&format!(" DEFAULT {expr}")),
         _ => {}
     }
-    if c.not_null {
+    if c.not_null && not_null_constraint(t, c).is_none() {
         out.push_str(" NOT NULL");
     }
     out
@@ -617,7 +641,7 @@ fn column_head(c: &Column) -> String {
     out
 }
 
-fn column_changes(c: &Column, keyword: &str, relation: &str, declared: bool, declared_default: bool) -> Vec<String> {
+fn column_changes(c: &Column, keyword: &str, relation: &str, declared: bool, declared_default: bool, has_not_null_constraint: bool) -> Vec<String> {
     let (default, not_null, storage, compression) = match &c.inherited {
         _ if declared => (c.default.as_ref(), c.not_null, &c.type_storage, ""),
         Some(p) => (if declared_default { c.default.as_ref() } else { p.default.as_ref() }, p.not_null, &p.storage, p.compression.as_str()),
@@ -627,7 +651,7 @@ fn column_changes(c: &Column, keyword: &str, relation: &str, declared: bool, dec
     if c.generated.is_none() && c.identity.is_none() && c.default.as_ref() != default {
         changes.push(c.default.as_ref().map_or("DROP DEFAULT".into(), |d| format!("SET DEFAULT {d}")));
     }
-    if c.not_null != not_null {
+    if c.not_null != not_null && !has_not_null_constraint {
         changes.push(if c.not_null { "SET NOT NULL" } else { "DROP NOT NULL" }.into());
     }
     if let Some(target) = c.statistics {
@@ -974,7 +998,7 @@ pub fn view(v: &View) -> Ddl {
     }
     let mut statements = vec![head];
     for c in &v.columns {
-        statements.extend(column_changes(c, keyword, &name, false, false));
+        statements.extend(column_changes(c, keyword, &name, false, false, false));
     }
     let decides = if v.materialized { "whose privileges a refresh runs the query with" } else { "whose privileges the view's query is checked against" };
     let mut warnings = unscripted(&v.unscripted, &v.schema, &name, Some(decides));
@@ -1577,6 +1601,120 @@ ALTER FOREIGN TABLE public.e2 ALTER COLUMN v OPTIONS (ADD column_name 'vv');
                 "the column order of app.child, because a replay puts inherited columns first",
             ]
         );
+    }
+
+    fn not_null(name: &str, column: &str, tail: &str) -> Constraint {
+        Constraint { name: name.into(), definition: format!("NOT NULL {}{tail}", ident(column)), not_null_column: Some(column.into()), ..Default::default() }
+    }
+
+    #[test]
+    fn a_not_null_constraint_takes_the_place_of_the_columns_own_not_null() {
+        let required = |name: &str| Column { not_null: true, ..col(name, "integer") };
+        let t = Table {
+            schema: "app".into(),
+            name: "t".into(),
+            columns: vec![required("plain"), required("named"), required("Mi xed"), required("later"), required("local")],
+            constraints: vec![
+                Constraint { comment: Some("why".into()), ..not_null("t_named", "named", "") },
+                not_null("Odd \"nn\"", "Mi xed", ""),
+                not_null("t_later", "later", " NOT VALID"),
+                not_null("t_local", "local", " NO INHERIT"),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(
+            table(&t).text,
+            "CREATE TABLE app.t (
+    plain integer NOT NULL,
+    named integer,
+    \"Mi xed\" integer,
+    later integer,
+    local integer,
+    CONSTRAINT t_named NOT NULL named,
+    CONSTRAINT \"Odd \"\"nn\"\"\" NOT NULL \"Mi xed\",
+    CONSTRAINT t_local NOT NULL local NO INHERIT
+);
+
+ALTER TABLE app.t ADD CONSTRAINT t_later NOT NULL later NOT VALID;
+
+COMMENT ON CONSTRAINT t_named ON app.t IS 'why';
+"
+        );
+    }
+
+    #[test]
+    fn an_inherited_not_null_keeps_only_its_comment_and_leaves_the_column_to_its_parent() {
+        let t = Table {
+            schema: "app".into(),
+            name: "kid".into(),
+            columns: vec![Column { not_null: true, declared: false, inherited: Some(Inherited { not_null: true, storage: "x".into(), ..Default::default() }), ..col("id", "integer") }],
+            constraints: vec![Constraint { inherited: true, comment: Some("from base".into()), ..not_null("base_id_not_null", "id", "") }],
+            parent: Parent::Inherits(vec![("app".into(), "base".into())]),
+            ..Default::default()
+        };
+        assert_eq!(table(&t).text, "CREATE TABLE app.kid (\n    \n) INHERITS (app.base);\n\nCOMMENT ON CONSTRAINT base_id_not_null ON app.kid IS 'from base';\n");
+    }
+
+    #[test]
+    fn a_partition_writes_its_own_not_null_constraint_instead_of_setting_not_null() {
+        let from_parent = |not_null: bool| Some(Inherited { not_null, storage: "x".into(), ..Default::default() });
+        let required = |name: &str, parent_requires: bool| Column { not_null: true, declared: false, inherited: from_parent(parent_requires), ..col(name, "integer") };
+        let t = Table {
+            schema: "app".into(),
+            name: "p_1".into(),
+            parent: Parent::Partition { schema: "app".into(), name: "p".into(), bound: "FOR VALUES IN (1)".into() },
+            columns: vec![required("merged", true), required("own", false), required("later", false), required("set", false)],
+            constraints: vec![not_null("p_1_merged", "merged", ""), not_null("p_1_own", "own", ""), not_null("p_1_later", "later", " NOT VALID")],
+            ..Default::default()
+        };
+        assert_eq!(
+            table(&t).text,
+            "CREATE TABLE app.p_1 PARTITION OF app.p (
+    CONSTRAINT p_1_merged NOT NULL merged,
+    CONSTRAINT p_1_own NOT NULL own
+)
+    FOR VALUES IN (1);
+
+ALTER TABLE app.p_1 ADD CONSTRAINT p_1_later NOT NULL later NOT VALID;
+
+ALTER TABLE app.p_1 ALTER COLUMN set SET NOT NULL;
+"
+        );
+    }
+
+    #[test]
+    fn a_typed_table_writes_a_not_null_constraint_without_with_options() {
+        let t = Table {
+            schema: "app".into(),
+            name: "pets".into(),
+            of_type: Some("app.pet".into()),
+            columns: vec![Column { not_null: true, ..col("id", "integer") }, Column { not_null: true, ..col("kind", "text") }],
+            constraints: vec![not_null("pets_id", "id", "")],
+            ..Default::default()
+        };
+        assert_eq!(table(&t).text, "CREATE TABLE app.pets OF app.pet (\n    kind WITH OPTIONS NOT NULL,\n    CONSTRAINT pets_id NOT NULL id\n);\n");
+    }
+
+    #[test]
+    fn an_identity_waits_for_a_no_inherit_not_null_constraint_it_would_conflict_with() {
+        let sequence = Sequence { schema: "app".into(), name: "t_id_seq".into(), column: "id".into(), type_name: "integer".into(), start: 1, increment: 1, min: 1, max: i64::from(i32::MAX), cache: 1, cycle: false };
+        let column = Column { not_null: true, identity: Some(Identity { always: true, sequence }), ..col("id", "integer") };
+        let t = |constraint: Constraint| Table { schema: "app".into(), name: "t".into(), columns: vec![column.clone()], constraints: vec![constraint], ..Default::default() };
+        assert_eq!(
+            table(&t(not_null("t_id_not_null", "id", " NO INHERIT"))).text,
+            "CREATE TABLE app.t (\n    id integer,\n    CONSTRAINT t_id_not_null NOT NULL id NO INHERIT\n);\n\nALTER TABLE app.t ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY;\n"
+        );
+        assert_eq!(table(&t(not_null("t_named", "id", ""))).text, "CREATE TABLE app.t (\n    id integer GENERATED ALWAYS AS IDENTITY,\n    CONSTRAINT t_named NOT NULL id\n);\n");
+    }
+
+    #[test]
+    fn inherited_not_nulls_a_replay_cannot_reproduce_are_warned_once_per_table() {
+        let warnings = |names: &[&str]| {
+            table(&Table { schema: "app".into(), name: "p_1".into(), unscripted: Unscripted { inherited_not_nulls: names.iter().map(|n| n.to_string()).collect(), ..Default::default() }, ..Default::default() }).warnings
+        };
+        assert_eq!(warnings(&[]), Vec::<String>::new());
+        assert_eq!(warnings(&["p_1_id"]), ["not-null constraint p_1_id of app.p_1, which a replay takes from its parent, with the parent's name and validated"]);
+        assert_eq!(warnings(&["Odd nn", "p_1_id"]), ["not-null constraints \"Odd nn\", p_1_id of app.p_1, which a replay takes from its parent, with the parent's name and validated"]);
     }
 
     #[test]

@@ -377,8 +377,8 @@ fn unique(prefix: &str) -> String {
 async fn connect_reports_server_and_catalog_has_the_mockup_tables() {
     let h = Harness::start().await;
     let server = h.engine.connect(h.conn).await.unwrap();
-    assert!(server.version.starts_with("16."), "{}", server.version);
-    assert!(server.version_num >= 160000);
+    assert!(server.version_num >= 160000, "{}", server.version_num);
+    assert!(server.version.starts_with(&format!("{}.", server.version_num / 10000)), "{} is not version {}", server.version, server.version_num);
     assert_eq!(server.encoding, "UTF8");
     assert_eq!(h.engine.connect(h.conn).await.unwrap().version, server.version, "connect is idempotent");
 
@@ -1131,7 +1131,9 @@ async fn schema_and_search_path_follow_the_console_config() {
 async fn bad_credentials_fail_with_auth_and_test_connection_works() {
     let h = Harness::start().await;
     let mut draft = draft_from_url(&url(), "x").unwrap();
-    assert!(h.engine.test_connection(draft.clone()).await.unwrap().version.starts_with("16."));
+    let server = h.engine.test_connection(draft.clone()).await.unwrap();
+    assert!(server.version_num >= 160000, "{}", server.version_num);
+    assert!(server.version.starts_with(&format!("{}.", server.version_num / 10000)), "{} is not version {}", server.version, server.version_num);
     draft.password = PasswordInput::Set("wrong".into());
     assert!(matches!(h.engine.test_connection(draft.clone()).await, Err(ConnectError::Auth { .. })));
     draft.port = 1;
@@ -3534,6 +3536,7 @@ async fn a_partition_tree_replays_its_index_names_without_a_clash_and_leaves_oth
 
 const HOSTILE: &str = include_str!("fixtures/script-hostile-pg.sql");
 const HOSTILE_PRELUDE: &str = include_str!("fixtures/script-hostile-pg-prelude.sql");
+const HOSTILE_18: &str = include_str!("fixtures/script-hostile-pg18.sql");
 const HOSTILE_RELATIONS: &str = "n.nspname IN ('Weird \"S\"', 'app', 'order') AND c.relkind IN ('r', 'p', 'v', 'm', 'f')";
 
 #[tokio::test]
@@ -3557,9 +3560,15 @@ async fn hostile_object_scripts_replay_every_property_or_warn() {
     let (original, replay) = (connect(&source).await, connect(&target).await);
 
     let outcome = futures_util::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(async {
+        let version: i32 = shop.query_one("select current_setting('server_version_num')::int4", &[]).await.unwrap().get(0);
         original.batch_execute(HOSTILE).await.unwrap();
         assert!(original.batch_execute("CREATE UNIQUE INDEX CONCURRENTLY dups_v ON app.dups (v)").await.is_err(), "the duplicate rows leave dups_v invalid");
         replay.batch_execute(HOSTILE_PRELUDE).await.unwrap();
+        if version >= 180000 {
+            replay.batch_execute("CREATE EXTENSION btree_gist").await.unwrap();
+            original.batch_execute("CREATE EXTENSION btree_gist").await.unwrap();
+            original.batch_execute(HOSTILE_18).await.unwrap_or_else(|e| panic!("{e:?}"));
+        }
         let db = h.db_named(&source);
         let script = async |target: ScriptTarget| h.engine.object_script(db.clone(), target).await.unwrap();
         let oids = async |sql: &str| original.query(sql, &[]).await.unwrap().iter().map(|r| r.get::<_, u32>(0)).collect::<Vec<_>>();
@@ -3602,6 +3611,15 @@ async fn hostile_object_scripts_replay_every_property_or_warn() {
             texts.push(s.text);
         }
         replay_in_dependency_order(&replay, texts).await;
+        if version >= 180000 {
+            for (title, warning) in [
+                ("ev.sql", "not-null constraints ev_b_d_not_null, ev_b_id_not_null, ev_b_k_not_null of app.ev_b, which a replay takes from its parent, with the parent's name and validated"),
+                ("nnv.sql", "not-null constraint nnv_id of app.nnv_early, which a replay takes from its parent, with the parent's name and validated"),
+                ("nn_unchecked_joiner.sql", "not-null constraint nn_unchecked_joiner_v of app.nn_unchecked_joiner, which a replay takes from its parent, with the parent's name and validated"),
+            ] {
+                assert_eq!(warned.remove(title), Some(vec![warning.to_owned()]));
+            }
+        }
         assert_eq!(
             warned,
             std::collections::BTreeMap::from([
@@ -3627,8 +3645,21 @@ async fn hostile_object_scripts_replay_every_property_or_warn() {
                 ("v_def.sql".to_owned(), vec!["owner l1data of app.v_def, whose privileges the view's query is checked against".to_owned()]),
             ])
         );
-        let reordered = |facts: Vec<String>| facts.into_iter().filter(|f| !f.starts_with("app.child column") && !f.starts_with("app.pt1 index")).collect::<Vec<_>>();
-        assert_eq!(reordered(catalog_facts(&replay, HOSTILE_RELATIONS).await), reordered(catalog_facts(&original, HOSTILE_RELATIONS).await));
+        let reordered_or_warned = |facts: Vec<String>| {
+            let warned = |f: &String| {
+                f.starts_with("app.ev_b constraint ") && !f.starts_with("app.ev_b constraint ev_b_v_not_null ")
+                    || f.starts_with("app.nnv_early constraint nnv_id ")
+                    || f.starts_with("app.nn_unchecked_joiner constraint ")
+            };
+            facts.into_iter().filter(|f| !f.starts_with("app.child column") && !f.starts_with("app.pt1 index") && !warned(f)).collect::<Vec<_>>()
+        };
+        let replayed = catalog_facts(&replay, HOSTILE_RELATIONS).await;
+        if version >= 180000 {
+            for fact in ["app.ev_b constraint ev_id_not_null NOT NULL id t f 1", "app.nnv_early constraint nnv_id NOT NULL id t f 1", "app.nn_unchecked_joiner constraint nn_unchecked_base_v NOT NULL v t f 1"] {
+                assert!(replayed.iter().any(|f| f == fact), "the warning says a replay takes the parent's name and validated: {fact}");
+            }
+        }
+        assert_eq!(reordered_or_warned(replayed), reordered_or_warned(catalog_facts(&original, HOSTILE_RELATIONS).await));
         let columns = "select string_agg(attname, ',' order by attname) from pg_attribute where attrelid = 'app.child'::regclass and attnum > 0";
         let (a, b) = (original.query_one(columns, &[]).await.unwrap(), replay.query_one(columns, &[]).await.unwrap());
         assert_eq!(a.get::<_, String>(0), b.get::<_, String>(0));

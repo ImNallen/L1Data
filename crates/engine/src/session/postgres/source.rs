@@ -94,9 +94,15 @@ impl Queries {
           AND sc.relnamespace = c.relnamespace AND sc.relname = c.relname || '_' || a.attname || '_seq'
           AND s.seqtypid = a.atttypid AND s.seqstart = 1 AND s.seqincrement = 1 AND s.seqmin = 1 AND s.seqcache = 1 AND NOT s.seqcycle
           AND s.seqmax = CASE a.atttypid WHEN 'int2'::regtype THEN 32767 WHEN 'int4'::regtype THEN 2147483647 ELSE 9223372036854775807 END
+          AND NOT EXISTS (SELECT 1 FROM pg_constraint nn WHERE nn.conrelid = a.attrelid AND nn.contype = 'n' AND nn.conkey[1] = a.attnum AND (nn.connoinherit OR NOT nn.convalidated))
      ) serial ON true
      LEFT JOIN LATERAL (
-        SELECT (h.inhseqno::int8 << 16) + pa.attnum AS position, pg_get_expr(pd.adbin, pd.adrelid) AS def, pa.attnotnull, pa.attstorage, {parent_compression} AS attcompression
+        SELECT (h.inhseqno::int8 << 16) + pa.attnum AS position, pg_get_expr(pd.adbin, pd.adrelid) AS def,
+            EXISTS (
+                SELECT 1 FROM pg_inherits nh JOIN pg_attribute nn ON nn.attrelid = nh.inhparent AND nn.attname = a.attname AND nn.attnotnull AND NOT nn.attisdropped
+                WHERE nh.inhrelid = a.attrelid AND NOT EXISTS (SELECT 1 FROM pg_constraint nk WHERE nk.conrelid = nn.attrelid AND nk.contype = 'n' AND nk.conkey[1] = nn.attnum AND nk.connoinherit)
+            ) AS attnotnull,
+            pa.attstorage, {parent_compression} AS attcompression
         FROM pg_inherits h JOIN pg_attribute pa ON pa.attrelid = h.inhparent AND pa.attname = a.attname AND NOT pa.attisdropped
         LEFT JOIN pg_attrdef pd ON pd.adrelid = pa.attrelid AND pd.adnum = pa.attnum
         WHERE h.inhrelid = a.attrelid AND a.attinhcount > 0 ORDER BY h.inhseqno LIMIT 1
@@ -133,18 +139,33 @@ const OWNED_SEQUENCES: &str = "SELECT sn.nspname, sc.relname, a.attname, format_
 /// foreign key's clones for the partitions it references come with the parent, so only their
 /// comments are read. `pg_get_constraintdef` prints an exclusion constraint's storage parameters
 /// but no constraint's tablespace.
+///
+/// PostgreSQL 18 stores `NOT NULL` as constraints. The column's own `NOT NULL` replays a local one
+/// with the default name and nothing else to say, so that one is not read. A replay gives an
+/// inherited one the parent's name and validates it, so `lost` marks one it cannot reproduce.
 const CONSTRAINTS: &str = "SELECT k.conname, pg_get_constraintdef(k.oid), obj_description(k.oid, 'pg_constraint'),
         k.contype = 'f' AND k.confrelid = k.conrelid
           AND NOT EXISTS (SELECT 1 FROM pg_constraint u WHERE u.conindid = k.conindid AND u.conrelid = k.conrelid AND u.contype IN ('p', 'u')),
         CASE WHEN k.contype IN ('p', 'u') THEN coalesce(ic.reloptions, '{}') ELSE '{}' END, ts.spcname,
         NOT (k.conislocal AND k.conparentid = 0),
         k.contype = 'f' AND k.confrelid <> k.conrelid AND k.confrelid = ANY ($1),
+        nn.attname, not_null.lost,
         k.conrelid
      FROM pg_constraint k
+     JOIN pg_class rel ON rel.oid = k.conrelid
      LEFT JOIN pg_class ic ON ic.oid = k.conindid AND k.contype IN ('p', 'u', 'x') LEFT JOIN pg_tablespace ts ON ts.oid = ic.reltablespace
-     WHERE k.conrelid = ANY ($1) AND k.contype IN ('p', 'u', 'f', 'c', 'x')
-       AND (k.conislocal AND k.conparentid = 0 OR obj_description(k.oid, 'pg_constraint') IS NOT NULL)
-     ORDER BY position(k.contype IN 'pufcx'), k.conname";
+     LEFT JOIN pg_attribute nn ON k.contype = 'n' AND nn.attrelid = k.conrelid AND nn.attnum = k.conkey[1]
+     CROSS JOIN LATERAL (
+        SELECT k.contype = 'n' AND k.coninhcount > 0 AND (NOT k.convalidated OR NOT k.conislocal AND NOT EXISTS (
+            SELECT 1 FROM pg_inherits h JOIN pg_constraint p ON p.conrelid = h.inhparent AND p.contype = 'n' AND p.conname = k.conname WHERE h.inhrelid = k.conrelid
+        )) AS lost
+     ) not_null
+     WHERE k.conrelid = ANY ($1) AND k.contype IN ('p', 'u', 'f', 'c', 'x', 'n')
+       AND (k.contype <> 'n' AND k.conislocal AND k.conparentid = 0
+            OR obj_description(k.oid, 'pg_constraint') IS NOT NULL
+            OR not_null.lost
+            OR k.contype = 'n' AND k.conislocal AND (k.coninhcount > 0 OR NOT k.convalidated OR k.connoinherit OR k.conname <> rel.relname || '_' || nn.attname || '_not_null'))
+     ORDER BY position(k.contype IN 'pufcxn'), k.conname";
 
 /// A partition's copy of its parent's index comes with the parent.
 const INDEXES: &str = "SELECT ic.relname,
@@ -707,6 +728,7 @@ fn table(oid: u32, tree: &Tree) -> Result<ddl::Table, DetailError> {
         }
     };
     let children = tree.partitions(oid).into_iter().map(|child| table(child, tree)).collect::<Result<Vec<_>, _>>()?;
+    let (lost, constraints): (Vec<&Row>, Vec<&Row>) = constraints.iter().partition(|k| k.get(9));
     Ok(ddl::Table {
         name: r.get(2),
         unlogged: r.get(3),
@@ -728,7 +750,7 @@ fn table(oid: u32, tree: &Tree) -> Result<ddl::Table, DetailError> {
             .iter()
             .map(|s| ddl::SequenceState { schema: s.get(0), name: s.get(1), unlogged: s.get(2), comment: s.get(3) })
             .collect(),
-        constraints: constraints.iter().map(constraint_row).collect(),
+        constraints: constraints.into_iter().map(constraint_row).collect(),
         parent,
         partition_key: r.get(6),
         partitions: children,
@@ -761,7 +783,7 @@ fn table(oid: u32, tree: &Tree) -> Result<ddl::Table, DetailError> {
             .map(|p| ddl::Policy { name: p.get(0), permissive: p.get(1), command: first(p.get(2)), roles: p.get(3), using: p.get(4), check: p.get(5), comment: p.get(6) })
             .collect(),
         statistics: statistics.iter().map(|s| ddl::Statistics { schema: s.get(0), name: s.get(1), definition: s.get(2), target: s.get(3), comment: s.get(4) }).collect(),
-        unscripted: unscripted(r, grants, tree.role),
+        unscripted: ddl::Unscripted { inherited_not_nulls: lost.iter().map(|k| k.get(0)).collect(), ..unscripted(r, grants, tree.role) },
         schema,
     })
 }
@@ -833,7 +855,7 @@ fn column(r: &Row) -> ddl::Column {
 }
 
 fn constraint_row(r: &Row) -> ddl::Constraint {
-    ddl::Constraint { name: r.get(0), definition: r.get(1), comment: r.get(2), after_indexes: r.get(3), index_options: r.get(4), index_tablespace: r.get(5), inherited: r.get(6), after_tree: r.get(7) }
+    ddl::Constraint { name: r.get(0), definition: r.get(1), comment: r.get(2), after_indexes: r.get(3), index_options: r.get(4), index_tablespace: r.get(5), inherited: r.get(6), after_tree: r.get(7), not_null_column: r.get(8) }
 }
 
 fn index_row(r: &Row) -> ddl::Index {

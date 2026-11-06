@@ -32,6 +32,8 @@ pnpm icons               # rewrites src-tauri/icons from src-tauri/app-icon.svg
 pnpm screenshot          # macOS: rewrites docs/images/l1-data.png from the running app
 ```
 
+CI runs `pg-tests` on PostgreSQL 16, 17, and 18. To run them on another server, point `L1_DATA_TEST_PG` at a database seeded with `dev/seed.sql`. The keyword lists in `crates/engine/src/sql/keywords.rs` come from 16, so run `dev/pg-keywords.sh` against 16.
+
 The SQL Server TLS smoke needs Docker, OpenSSL, Rust, and the cached `mcr.microsoft.com/mssql/server:2022-latest` image. It builds the engine and a temporary public-API probe, starts its own container on a free loopback port, and uses generated fixture credentials and certificates. It checks trusted `localhost`, hostname rejection on `127.0.0.1`, unrelated-CA rejection, and **Require** controls. Each probe child gets isolated `SSL_CERT_FILE` and `SSL_CERT_DIR` settings. The script removes its container and temporary files on success or failure. It does not use the seeded databases or bridge.
 
 `pnpm db:ssh:up` starts an OpenSSH bastion on `localhost:2222` that forwards only to `postgres:5432`, and to `mssql:1433`. The bastion's host key and the client keys under `dev/sshd` are test-only fixtures.

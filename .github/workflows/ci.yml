@@ -181,3 +181,66 @@ jobs:
 
       - name: SQL Server certificate verification
         run: python3 dev/mssql-tls-smoke.py
+
+  postgres-versions:
+    name: pg-tests on PostgreSQL ${{ matrix.postgres }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ["17", "18"]
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_USER: ${{ env.PGUSER }}
+          POSTGRES_PASSWORD: ${{ env.PGPASSWORD }}
+          POSTGRES_DB: ${{ env.PGDATABASE }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U l1data -d shop"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+          --shm-size=1g
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install linker, OpenSSL, and psql
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential \
+            pkg-config \
+            libssl-dev \
+            postgresql-client
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: postgres-versions
+
+      - name: Publish L1_DATA_TEST_PG
+        run: |
+          echo "shop database at 127.0.0.1:5432"
+          printf 'L1_DATA_TEST_PG=%s\n' "postgres://${PGUSER}:${PGPASSWORD}@127.0.0.1:5432/${PGDATABASE}" >> "$GITHUB_ENV"
+
+      - name: Allow prepared transactions
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          psql "$L1_DATA_TEST_PG" -v ON_ERROR_STOP=1 -c "alter system set max_prepared_transactions = 5"
+          docker restart "$PG_CONTAINER"
+          until pg_isready -h 127.0.0.1 -U "$PGUSER" -d "$PGDATABASE"; do sleep 1; done
+          test "$(psql "$L1_DATA_TEST_PG" -Atc 'show max_prepared_transactions')" = 5
+
+      - name: Apply dev/seed.sql
+        run: psql "$L1_DATA_TEST_PG" -v ON_ERROR_STOP=1 -f dev/seed.sql
+
+      - name: cargo test -p engine --features pg-tests
+        run: cargo test -p engine --features pg-tests
