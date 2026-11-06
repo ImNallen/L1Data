@@ -3,7 +3,7 @@ import { useMemo, useRef } from "react";
 import { useCatalog } from "../../state/catalog";
 import { useLive } from "../../state/live";
 import { useWorkspace } from "../../state/workspace";
-import { cx, IconButton } from "../../ui/primitives";
+import { Button, cx, IconButton } from "../../ui/primitives";
 import { parseQuery } from "../../ui/textMatch";
 import { isMac, type HostedWindow } from "../../shell/hostedWindow";
 import { SidebarToggle, windowLeadingInset } from "../../shell/WindowEdgeActions";
@@ -45,6 +45,7 @@ function useTreeFilter(query: string): TreeFilter | null {
 }
 
 function WorkspaceSidebarBody() {
+  const firstConnection = useWorkspace((s) => Object.keys(s.configs).length === 0);
   const open = useWorkspace((s) => s.open);
   const openSettings = useWorkspace((s) => s.openSettings);
   const query = useWorkspace((s) => s.treeQuery);
@@ -77,7 +78,17 @@ function WorkspaceSidebarBody() {
         </IconButton>
       </SidebarSearch>
 
-      <ConnectionTree ref={tree} filter={filter} query={query} />
+      {firstConnection ? (
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6">
+          <h2 className="text-ui-14 font-semibold text-fg">Connect a database</h2>
+          <p className="mt-2 text-ui-13 leading-relaxed text-dim">Add a PostgreSQL or SQL Server connection to browse tables and run SQL.</p>
+          <Button className="mt-4" onClick={() => open({ kind: "connection", editing: null })}>
+            Connect a database
+          </Button>
+        </div>
+      ) : (
+        <ConnectionTree ref={tree} filter={filter} query={query} />
+      )}
 
       <div className="mx-2 flex shrink-0 items-center gap-1 py-2">
         <IconButton className="size-[34px] shrink-0" data-testid="open-settings" aria-label="Settings" title="Settings" onClick={() => openSettings()}>

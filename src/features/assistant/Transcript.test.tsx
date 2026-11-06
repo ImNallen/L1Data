@@ -89,3 +89,10 @@ it("keeps the streamed transcript quiet and says each turn's moments once, never
   rerender(<Transcript chat={show({ kind: "Idle" }, failed)} />);
   expect(said()[1]).toMatch(/^Claude failed\. Claude is signed out\./);
 });
+
+it("introduces an empty conversation without claiming to send editor SQL", () => {
+  render(<Transcript chat={show({ kind: "Idle" }, [])} />);
+  const introduction = screen.getByRole("log", { name: "Chat transcript" }).textContent;
+  expect(introduction).toBe("Ask for help with your database.");
+  expect(introduction).not.toContain("SQL");
+});

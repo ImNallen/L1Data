@@ -245,7 +245,7 @@ export function Transcript({ chat }: { chat: ChatState }) {
       {/* A log, but a quiet one: streamed tokens would be read a fragment at a time. The regions above speak for it. */}
       <div ref={content} role="log" aria-live="off" aria-label="Chat transcript" className="flex flex-col gap-6 px-4 pt-2 pb-6">
         {turns.length === 0 ? (
-          <p className="pt-10 text-center text-ui-12.5 text-dim">Ask about your data. Each message carries the active tab's database and SQL.</p>
+          <p className="pt-10 text-center text-ui-12.5 text-dim">Ask for help with your database.</p>
         ) : (
           turns.map((t, i) => <Turn key={t.turn} chat={chat} view={t} last={i === turns.length - 1} voice={voice} />)
         )}
