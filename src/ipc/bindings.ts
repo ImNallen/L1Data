@@ -46,6 +46,8 @@ export const commands = {
 	consoleClose: (tabId: TabId, force: boolean) => typedError<null, DisconnectError>(__TAURI_INVOKE("console_close", { tabId, force })),
 	resultPage: (resultRef: ResultRef, start: number, len: number) => typedError<RowPage, ResultError>(__TAURI_INVOKE("result_page", { resultRef, start, len })),
 	resultCell: (resultRef: ResultRef, row: number, col: number) => typedError<string | null, ResultError>(__TAURI_INVOKE("result_cell", { resultRef, row, col })),
+	resultFind: (resultRef: ResultRef, query: string, direction: ResultFindDirection) => typedError<ResultFind, ResultError>(__TAURI_INVOKE("result_find", { resultRef, query, direction })),
+	resultCellMatches: (resultRef: ResultRef, cell: ResultCell, query: string) => typedError<boolean, ResultError>(__TAURI_INVOKE("result_cell_matches", { resultRef, cell, query })),
 	resultAggregate: (resultRef: ResultRef, rows: RowSpan, cols: ColSpan) => typedError<CellAggregate, ResultError>(__TAURI_INVOKE("result_aggregate", { resultRef, rows, cols })),
 	resultPlan: (resultRef: ResultRef) => typedError<Plan, ResultError>(__TAURI_INVOKE("result_plan", { resultRef })),
 	resultExport: (resultRef: ResultRef, format: ExportFormat, scope: ExportScope, path: string) => typedError<ExportSummary, ExportError>(__TAURI_INVOKE("result_export", { resultRef, format, scope, path })),
@@ -1270,7 +1272,25 @@ export type RestartImpact = {
 	chats: ChatId[],
 };
 
+export type ResultCell = {
+	row: number,
+	col: number,
+};
+
 export type ResultError = { kind: "Gone" } | { kind: "OutOfRange" } | { kind: "NotAPlan"; what: string };
+
+export type ResultFind = {
+	count: number,
+	target: ResultFindTarget | null,
+	rowCount: number,
+};
+
+export type ResultFindDirection = { kind: "First" } | { kind: "Next"; anchor: ResultCell } | { kind: "Previous"; anchor: ResultCell };
+
+export type ResultFindTarget = {
+	cell: ResultCell,
+	ordinal: number,
+};
 
 export type ResultMeta = {
 	databaseKind: DatabaseKind,

@@ -135,6 +135,8 @@ routes! { e;
     console_close(tab_id: TabId, force: bool) => e.console_close(tab_id, force).await;
     result_page(result_ref: ResultRef, start: u32, len: u32) => e.result_page(result_ref, start, len);
     result_cell(result_ref: ResultRef, row: u32, col: u16) => e.result_cell(result_ref, row, col);
+    result_find(result_ref: ResultRef, query: String, direction: ResultFindDirection) => e.result_find(result_ref, query, direction).await;
+    result_cell_matches(result_ref: ResultRef, cell: ResultCell, query: String) => e.result_cell_matches(result_ref, cell, query).await;
     result_aggregate(result_ref: ResultRef, rows: RowSpan, cols: ColSpan) => e.result_aggregate(result_ref, rows, cols).await;
     result_plan(result_ref: ResultRef) => e.result_plan(result_ref);
     result_export(result_ref: ResultRef, format: ExportFormat, scope: ExportScope, path: String) => e.result_export(result_ref, format, scope, path).await;

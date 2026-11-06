@@ -1671,6 +1671,22 @@ impl Engine {
         set.cell(row, col).ok_or(ResultError::OutOfRange)
     }
 
+    pub async fn result_cell_matches(&self, r: ResultRef, cell: ResultCell, query: String) -> Result<bool, ResultError> {
+        let set = self.shared.result_set(r).ok_or(ResultError::Gone)?;
+        let shared = self.shared.clone();
+        self.shared.runtime.spawn_blocking(move || {
+            set.cell_matches(cell, &query, || shared.result_set(r).is_some())
+        }).await.expect("result_cell_matches task panicked")
+    }
+
+    pub async fn result_find(&self, r: ResultRef, query: String, direction: ResultFindDirection) -> Result<ResultFind, ResultError> {
+        let set = self.shared.result_set(r).ok_or(ResultError::Gone)?;
+        let shared = self.shared.clone();
+        self.shared.runtime.spawn_blocking(move || {
+            set.find(&query, direction, || shared.result_set(r).is_some())
+        }).await.expect("result_find task panicked")
+    }
+
     pub async fn result_aggregate(&self, r: ResultRef, rows: RowSpan, cols: ColSpan) -> Result<CellAggregate, ResultError> {
         let set = self.shared.result_set(r).ok_or(ResultError::Gone)?;
         self.shared
@@ -2211,6 +2227,7 @@ mod tests {
         assert!(matches!(engine.console_configure(tab, unknown).await, Err(ConfigureError::UnknownConnection)));
         let r = ResultRef { tab_id: tab, run_id: RunId(1), index: 0 };
         assert!(matches!(engine.result_page(r, 0, 10), Err(ResultError::Gone)));
+        assert!(matches!(engine.result_find(r, "x".into(), ResultFindDirection::First).await, Err(ResultError::Gone)));
         assert!(matches!(engine.console_run(tab, RunRequest::Script { text: "select 1".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }, None).await, Err(RunError::NotConfigured)));
         assert!(matches!(engine.console_commit(tab, None).await, Err(TxnError::NoTransaction)));
     }

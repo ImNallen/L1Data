@@ -1,10 +1,11 @@
 import type { VirtualItem } from "@tanstack/react-virtual";
 import { memo, useState, type ReactNode } from "react";
-import type { ColumnMeta } from "../../ipc/bindings";
+import type { ColumnMeta, ResultRef } from "../../ipc/bindings";
 import { commandForKey } from "../../shell/commands";
 import type { Row, RowCache } from "../../state/rowCache";
 import type { CellValue, NewRow } from "../../state/tableEdits";
 import { cx } from "../../ui/primitives";
+import { storedValueMatches, useCutCellMatch } from "./useResultFind";
 import { groupDigits, isNumeric } from "./format";
 
 export const DEFAULT = Symbol("default");
@@ -97,6 +98,8 @@ export function GridEditor({
 }
 
 type CellProps = {
+  resultRef: ResultRef;
+  findQuery: string;
   id: string;
   row: number;
   col: number;
@@ -105,6 +108,7 @@ type CellProps = {
   value: CellValue | typeof DEFAULT | undefined;
   right: boolean;
   cut: boolean;
+  matched: boolean;
   selected: boolean;
   focused: boolean;
   changed: boolean;
@@ -112,7 +116,26 @@ type CellProps = {
   editor: ReactNode;
 };
 
-const GridCell = memo(function GridCell({ id, row, col, left, width, value, right, cut, selected, focused, changed, deleted, editor }: CellProps) {
+const GridCell = memo(function GridCell({
+  resultRef,
+  findQuery,
+  id,
+  row,
+  col,
+  left,
+  width,
+  value,
+  right,
+  cut,
+  matched,
+  selected,
+  focused,
+  changed,
+  deleted,
+  editor,
+}: CellProps) {
+  const suffixMatch = useCutCellMatch(resultRef, row, col, cut && !matched ? findQuery : "");
+  const findMatch = matched || suffixMatch;
   return (
     <div
       data-testid={`grid-cell-${row}-${col}`}
@@ -121,12 +144,14 @@ const GridCell = memo(function GridCell({ id, row, col, left, width, value, righ
       id={id}
       role="gridcell"
       aria-colindex={col + 2}
+      data-find-match={findMatch || undefined}
       aria-selected={selected}
       className={cx(
         "absolute top-0 flex h-full items-center gap-1 border-r border-grid px-2 font-mono text-code",
         right && "justify-end",
         changed && "bg-amber/15",
         selected && "bg-cell-select",
+        findMatch && "ring-2 ring-inset ring-amber",
         deleted && "text-dim line-through",
         focused && "outline-2 -outline-offset-2 outline-focus outline-solid",
       )}
@@ -163,6 +188,8 @@ const GridCell = memo(function GridCell({ id, row, col, left, width, value, righ
 });
 
 export type RowProps = {
+  findQuery?: string;
+  activeMatch?: Cell;
   index: number;
   top: number;
   height: number;
@@ -187,6 +214,8 @@ export type RowProps = {
 };
 
 export const GridRow = memo(function GridRow({
+  findQuery = "",
+  activeMatch,
   index,
   top,
   height,
@@ -252,6 +281,8 @@ export const GridRow = memo(function GridRow({
         return (
           <GridCell
             key={vc.key}
+            resultRef={cache.ref}
+            findQuery={findQuery}
             id={`${idPrefix}-${index}-${vc.index}`}
             row={index}
             col={vc.index}
@@ -260,6 +291,11 @@ export const GridRow = memo(function GridRow({
             value={staged !== undefined ? staged : values?.[vc.index]}
             right={isNumeric(columns[vc.index]!.type.category)}
             cut={staged === undefined && !added && cache.isCut(index, vc.index)}
+            matched={
+              staged === undefined &&
+              !added &&
+              (storedValueMatches(values?.[vc.index], findQuery) || (activeMatch?.row === index && activeMatch.col === vc.index))
+            }
             selected={vc.index >= selFrom && vc.index <= selTo}
             focused={focusCol === vc.index}
             changed={!added && changed !== undefined && name in changed}
