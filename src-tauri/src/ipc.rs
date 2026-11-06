@@ -205,6 +205,18 @@ pub fn result_cell(engine: State<'_, Arc<Engine>>, result_ref: ResultRef, row: u
 
 #[tauri::command]
 #[specta::specta]
+pub async fn result_cell_matches(engine: State<'_, Arc<Engine>>, result_ref: ResultRef, cell: ResultCell, query: String) -> Result<bool, ResultError> {
+    engine.result_cell_matches(result_ref, cell, query).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn result_find(engine: State<'_, Arc<Engine>>, result_ref: ResultRef, query: String, direction: ResultFindDirection) -> Result<ResultFind, ResultError> {
+    engine.result_find(result_ref, query, direction).await
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn result_aggregate(engine: State<'_, Arc<Engine>>, result_ref: ResultRef, rows: RowSpan, cols: ColSpan) -> Result<CellAggregate, ResultError> {
     engine.result_aggregate(result_ref, rows, cols).await
 }

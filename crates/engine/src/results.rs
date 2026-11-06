@@ -3,8 +3,8 @@ use std::time::Instant;
 
 use crate::aggregate::ColumnText;
 use crate::model::{
-    AllRows, ColSpan, ColumnMeta, ConnectionId, DatabaseKind, DatabaseRef, PlanFormat, QueryError, ResultError, ResultMeta, ResultRef, RowPage, RowSpan, RunId, RunOutput, TabId,
-    TruncateReason,
+    AllRows, ColSpan, ColumnMeta, ConnectionId, DatabaseKind, DatabaseRef, PlanFormat, QueryError, ResultCell, ResultError, ResultFind, ResultFindDirection,
+    ResultFindTarget, ResultMeta, ResultRef, RowPage, RowSpan, RunId, RunOutput, TabId, TruncateReason,
 };
 
 pub const CELL_CHAR_LIMIT: usize = 2_000;
@@ -178,6 +178,141 @@ impl ResultSet {
         Some(a.cell(row as usize, col as usize).map(str::to_owned))
     }
 
+    pub(crate) fn find(
+        &self,
+        query: &str,
+        direction: ResultFindDirection,
+        current: impl Fn() -> bool,
+    ) -> Result<ResultFind, ResultError> {
+        let row_count = self.data.read().unwrap().row_count();
+        let ncols = self.columns.len();
+        let anchor = match direction {
+            ResultFindDirection::First => None,
+            ResultFindDirection::Next { anchor } | ResultFindDirection::Previous { anchor } => {
+                Some(anchor)
+            }
+        };
+        if anchor.is_some_and(|c| c.row >= row_count || c.col as usize >= ncols) {
+            return Err(ResultError::OutOfRange);
+        }
+        let mut found = ResultFind {
+            count: 0,
+            target: None,
+            row_count,
+        };
+        if query.is_empty() {
+            return Ok(found);
+        }
+        let (needle, prefix) = find_pattern(query);
+        let mut first = None;
+        let mut last = None;
+        let mut relative = None;
+        for row in 0..row_count {
+            for col in 0..ncols {
+                let hit = self.matches_cell(row, col, &needle, &prefix, &current)?;
+                if !hit {
+                    continue;
+                }
+                found.count += 1;
+                let cell = ResultCell {
+                    row,
+                    col: col as u16,
+                };
+                let target = || ResultFindTarget {
+                    cell,
+                    ordinal: found.count,
+                };
+                if first.is_none() {
+                    first = Some(target());
+                }
+                last = Some(target());
+                if let Some(anchor) = anchor {
+                    let before = (cell.row, cell.col) < (anchor.row, anchor.col);
+                    let after = (cell.row, cell.col) > (anchor.row, anchor.col);
+                    match direction {
+                        ResultFindDirection::Next { .. } if after && relative.is_none() => {
+                            relative = Some(target())
+                        }
+                        ResultFindDirection::Previous { .. } if before => relative = Some(target()),
+                        _ => (),
+                    }
+                }
+            }
+        }
+        found.target = relative.or(match direction {
+            ResultFindDirection::Previous { .. } => last,
+            _ => first,
+        });
+        if !current() {
+            return Err(ResultError::Gone);
+        }
+        Ok(found)
+    }
+
+    pub(crate) fn cell_matches(
+        &self,
+        cell: ResultCell,
+        query: &str,
+        current: impl Fn() -> bool,
+    ) -> Result<bool, ResultError> {
+        if cell.row >= self.data.read().unwrap().row_count()
+            || cell.col as usize >= self.columns.len()
+        {
+            return Err(ResultError::OutOfRange);
+        }
+        if query.is_empty() {
+            return Ok(false);
+        }
+        let (needle, prefix) = find_pattern(query);
+        self.matches_cell(cell.row, cell.col as usize, &needle, &prefix, &current)
+    }
+
+    fn matches_cell(
+        &self,
+        row: u32,
+        col: usize,
+        needle: &[char],
+        prefix: &[usize],
+        current: &impl Fn() -> bool,
+    ) -> Result<bool, ResultError> {
+        let mut offset = 0;
+        let mut matched = 0;
+        let hit = loop {
+            if !current() {
+                return Err(ResultError::Gone);
+            }
+            let a = self.data.read().unwrap();
+            let Some(value) = a.cell(row as usize, col) else {
+                break false;
+            };
+            let mut end = (offset + 16_384).min(value.len());
+            while !value.is_char_boundary(end) {
+                end -= 1;
+            }
+            let mut hit = false;
+            for c in value[offset..end].chars().flat_map(char::to_lowercase) {
+                while matched > 0 && c != needle[matched] {
+                    matched = prefix[matched - 1];
+                }
+                if c == needle[matched] {
+                    matched += 1;
+                }
+                if matched == needle.len() {
+                    hit = true;
+                    break;
+                }
+            }
+            if hit {
+                break true;
+            }
+            if end == value.len() {
+                break false;
+            }
+            offset = end;
+        };
+        Ok(hit)
+    }
+
     pub(crate) fn copy_rect(&self, rows: RowSpan, cols: ColSpan) -> Result<Vec<ColumnText>, ResultError> {
         if rows.start > rows.end || cols.start > cols.end {
             return Err(ResultError::OutOfRange);
@@ -209,6 +344,22 @@ impl ResultSet {
         }
         Ok((u64::from(rows), a.truncated.is_some()))
     }
+}
+
+fn find_pattern(query: &str) -> (Vec<char>, Vec<usize>) {
+    let needle: Vec<char> = query.chars().flat_map(char::to_lowercase).collect();
+    let mut prefix = vec![0; needle.len()];
+    let mut matched = 0;
+    for i in 1..needle.len() {
+        while matched > 0 && needle[i] != needle[matched] {
+            matched = prefix[matched - 1];
+        }
+        if needle[i] == needle[matched] {
+            matched += 1;
+        }
+        prefix[i] = matched;
+    }
+    (needle, prefix)
 }
 
 pub(crate) fn plan_output(
@@ -275,6 +426,109 @@ mod tests {
     }
 
     const NO_CAPS: Caps = Caps { max_rows: u32::MAX, max_bytes: u64::MAX };
+
+    #[test]
+    fn find_counts_cells_and_wraps_in_row_major_order() {
+        let rs = set(2);
+        rs.push_row([Some("foo FOO"), None].into_iter(), &NO_CAPS);
+        rs.push_row([Some("food"), Some("FOO")].into_iter(), &NO_CAPS);
+        let first = rs.find("foo", ResultFindDirection::First, || true).unwrap();
+        assert_eq!(first.count, 3);
+        assert_eq!(first.row_count, 2);
+        assert_eq!(first.target.unwrap().cell, ResultCell { row: 0, col: 0 });
+        let next = rs
+            .find(
+                "foo",
+                ResultFindDirection::Next {
+                    anchor: ResultCell { row: 1, col: 1 },
+                },
+                || true,
+            )
+            .unwrap();
+        assert_eq!(next.target.unwrap().ordinal, 1);
+        let previous = rs
+            .find(
+                "foo",
+                ResultFindDirection::Previous {
+                    anchor: ResultCell { row: 0, col: 0 },
+                },
+                || true,
+            )
+            .unwrap();
+        assert_eq!(previous.target.unwrap().ordinal, 3);
+        let next = rs
+            .find(
+                "foo",
+                ResultFindDirection::Next {
+                    anchor: ResultCell { row: 0, col: 1 },
+                },
+                || true,
+            )
+            .unwrap();
+        assert_eq!(next.target.unwrap().cell, ResultCell { row: 1, col: 0 });
+        assert!(matches!(
+            rs.find(
+                "x",
+                ResultFindDirection::Next {
+                    anchor: ResultCell { row: 2, col: 0 }
+                },
+                || true
+            ),
+            Err(ResultError::OutOfRange)
+        ));
+    }
+
+    #[test]
+    fn find_full_unicode_values_across_chunks_without_null_or_empty_query_matches() {
+        let rs = set(2);
+        let long = format!("{}Éİ尾", "x".repeat(16_383));
+        rs.push_row([Some(long.as_str()), None].into_iter(), &NO_CAPS);
+        assert!(rs.cell_matches(ResultCell { row: 0, col: 0 }, "éİ尾", || true).unwrap());
+        assert!(!rs.cell_matches(ResultCell { row: 0, col: 1 }, "NULL", || true).unwrap());
+        assert!(matches!(rs.cell_matches(ResultCell { row: 1, col: 0 }, "x", || true), Err(ResultError::OutOfRange)));
+        assert_eq!(
+            rs.find("éİ尾", ResultFindDirection::First, || true)
+                .unwrap()
+                .count,
+            1
+        );
+        assert_eq!(
+            rs.find("NULL", ResultFindDirection::First, || true)
+                .unwrap()
+                .count,
+            0
+        );
+        assert_eq!(
+            rs.find("", ResultFindDirection::First, || panic!(
+                "empty query must not scan"
+            ))
+            .unwrap()
+            .count,
+            0
+        );
+        assert!(matches!(
+            rs.find("x", ResultFindDirection::First, || false),
+            Err(ResultError::Gone)
+        ));
+    }
+
+    #[test]
+    fn find_preserves_snapshot_row_bound_while_streaming() {
+        let rs = set(1);
+        let long = format!("{}hit", "x".repeat(32_768));
+        rs.push_row([Some(long.as_str())].into_iter(), &NO_CAPS);
+        let appended = std::sync::atomic::AtomicUsize::new(0);
+        let result = rs
+            .find("hit", ResultFindDirection::First, || {
+                if appended.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 1 {
+                    rs.push_row([Some("hit")].into_iter(), &NO_CAPS);
+                }
+                true
+            })
+            .unwrap();
+        assert_eq!((result.row_count, result.count), (1, 1));
+        assert_eq!(rs.meta().row_count, 2);
+    }
 
     #[test]
     fn pages_and_cells_follow_the_arena() {

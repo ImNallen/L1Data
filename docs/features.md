@@ -59,6 +59,9 @@ This page describes everything L1 Data does. The [README](../README.md) has the 
 
 ## Results and table data
 
+- **Find in results**, or `⌘F` / `Ctrl+F` while results have focus, searches the current result's saved/retained cell values. It uses case-insensitive literal matching with Unicode lowercase scalars, including the hidden suffix of cut-off values. The count is matching cells, not occurrences. `Enter` and `Shift+Enter`, or the next and previous buttons, move in row-major order and wrap. The input keeps focus; `Escape` closes Find and returns focus to the grid. Matching visible cells have an amber ring, and the active match also has the selection ring. Open **…** to inspect a hidden suffix. Pending display values are not highlighted as saved matches. When drafts exist, Find states **Saved/retained values only**. Opening Find from a cell editor saves its draft through the normal finish path.
+- Find labels its scope **Current result** or **Current table page**, and says **Result truncated** when a limit discarded rows. It never reruns SQL or searches other table pages. Streaming rows refresh the search after a short debounce. Replacing a result discards old replies. `⌘P` / `Ctrl+P` quick navigation and `⌘⇧P` / `Ctrl+Shift+P` commands remain available in the Find input. The SQL editor keeps its own Find shortcut.
+
 - Drag a column's edge to resize it, or select a cell and press `⌥→` or `⌥←` to widen or narrow its column. The cell menu also sorts by the column and resets a resized width.
 - Idle results show **Results appear here** and the run shortcut. The results header groups staged edits, result selection, status, and output and export controls. It wraps in narrow panes so those controls remain reachable. Long summaries show at most two lines, with the full text on hover. When a batch returns many results, its numbered selector scrolls horizontally.
 

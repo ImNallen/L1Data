@@ -1125,6 +1125,36 @@ pub struct ResultRef {
     pub index: u16,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ResultCell {
+    pub row: u32,
+    pub col: u16,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type)]
+#[serde(tag = "kind")]
+pub enum ResultFindDirection {
+    First,
+    Next { anchor: ResultCell },
+    Previous { anchor: ResultCell },
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ResultFindTarget {
+    pub cell: ResultCell,
+    pub ordinal: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ResultFind {
+    pub count: u64,
+    pub target: Option<ResultFindTarget>,
+    pub row_count: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ResultMeta {

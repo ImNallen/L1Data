@@ -88,3 +88,14 @@ it("stages the draft when Enter commits the edit", async () => {
   expect(Object.values(pending().updates)).toEqual([{ key: [{ column: "id", value: "1" }], values: { status: "shipped" } }]);
   expect(screen.getByTestId("result-grid").getAttribute("data-pending")).toBe("1");
 });
+
+it("opens results find from a cell editor through its normal draft finish path", async () => {
+  const user = userEvent.setup();
+  await typeIntoStatus(user, "shipped");
+  await user.keyboard("{Control>}f{/Control}");
+  expect(screen.queryByTestId("grid-editor")).toBeNull();
+  expect(Object.values(pending().updates)).toEqual([{ key: [{ column: "id", value: "1" }], values: { status: "shipped" } }]);
+  const input = screen.getByRole("textbox", { name: "Find in results" });
+  await vi.waitFor(() => expect(document.activeElement).toBe(input));
+  expect(screen.getByText(/Saved\/retained values only/)).toBeTruthy();
+});

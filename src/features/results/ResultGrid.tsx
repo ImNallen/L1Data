@@ -5,6 +5,8 @@ import {
   BracketsIcon,
   CalendarIcon,
   CaseSensitiveIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
   CircleDotIcon,
   FingerprintPatternIcon,
   FunnelIcon,
@@ -16,6 +18,7 @@ import {
   MoveUpIcon,
   NetworkIcon,
   ToggleLeftIcon,
+  XIcon,
   type LucideIcon,
 } from "lucide-react";
 import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
@@ -54,12 +57,13 @@ import {
 } from "../../state/tableEdits";
 import { useWorkspace } from "../../state/workspace";
 import { fontStack } from "../../themes/fonts";
-import { ContextMenuArea, ContextMenuItem, ContextMenuSeparator, cx } from "../../ui/primitives";
+import { ContextMenuArea, ContextMenuItem, ContextMenuSeparator, IconButton, cx } from "../../ui/primitives";
 import { openTableTab } from "../editor/runActions";
 import { useKeyLinks, type KeyLink } from "./foreignKeys";
 import { cellAt, DEFAULT, EMPTY_MARK, GridEditor, GridRow, NULL_MARK, rowNumberAt, type Cell } from "./GridRows";
 import { groupDigits, isNumeric, toTsv } from "./format";
 import { formatSelectionTotals, type SelectionSlot } from "./selectionTotals";
+import { useResultFind } from "./useResultFind";
 import { referencedRows, type SortKey } from "./tableQuery";
 
 const HEADER_H = 28;
@@ -910,6 +914,28 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
     if (row !== null) setSelection((sel) => (sel && sel.focus.row !== row ? selectRows(sel.anchor.row, row, columns.length) : sel));
   };
 
+  const findInput = useRef<HTMLInputElement>(null);
+  const find = useResultFind(meta.ref, rowCount, (cell) => {
+    if (document.activeElement !== findInput.current) return;
+    rows.scrollToIndex(cell.row);
+    cols.scrollToIndex(cell.col);
+    setSelection({ anchor: cell, focus: cell });
+  });
+  const showFind = () => {
+    ++opening.current;
+    find.show();
+    requestAnimationFrame(() => {
+      findInput.current?.focus();
+      findInput.current?.select();
+    });
+  };
+  const closeFind = () => {
+    find.close();
+    scroller.current?.focus();
+  };
+  const activeMatch = find.state.kind === "ready" ? find.state.result.target?.cell : undefined;
+  const matchQuery = find.open ? find.query : "";
+
   const virtualCols = cols.getVirtualItems();
   const focus = selection?.focus;
   const bounds = selection ? selectionBounds(selection) : null;
@@ -989,6 +1015,8 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
           const selectedHere = bounds !== null && index >= bounds.r0 && index <= bounds.r1;
           return (
             <GridRow
+              findQuery={matchQuery}
+              activeMatch={activeMatch}
               key={vr.key}
               index={index}
               top={vr.start}
@@ -1101,7 +1129,84 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
         )
       }
     >
-      {grid}
+      <div
+        className="flex min-h-0 flex-1 flex-col"
+        onKeyDownCapture={(e) => {
+          if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "f") {
+            e.preventDefault();
+            if (e.target instanceof HTMLInputElement && e.target !== findInput.current) e.target.blur();
+            e.stopPropagation();
+            showFind();
+          }
+        }}
+      >
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-grid px-2 py-1 text-ui-12 text-muted">
+          {find.open ? (
+            <>
+              <input
+                ref={findInput}
+                aria-label="Find in results"
+                value={find.query}
+                onChange={(e) => find.change(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    closeFind();
+                  }
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    find.navigate(e.shiftKey);
+                  }
+                }}
+                className="min-w-0 rounded border border-grid bg-bg px-2 py-1 text-fg"
+              />
+              <span role="status">
+                {find.state.kind === "failed"
+                  ? find.state.message
+                  : find.state.kind === "ready"
+                    ? `${find.state.result.target?.ordinal ?? 0} of ${find.state.result.count} matching cells`
+                    : "Searching…"}
+              </span>
+              <IconButton
+                aria-label="Previous matching cell"
+                title="Previous matching cell (Shift+Enter)"
+                disabled={find.state.kind !== "ready" || !find.state.result.target}
+                onClick={() => {
+                  find.navigate(true);
+                  findInput.current?.focus();
+                }}
+              >
+                <ChevronUpIcon size={15} />
+              </IconButton>
+              <IconButton
+                aria-label="Next matching cell"
+                title="Next matching cell (Enter)"
+                disabled={find.state.kind !== "ready" || !find.state.result.target}
+                onClick={() => {
+                  find.navigate(false);
+                  findInput.current?.focus();
+                }}
+              >
+                <ChevronDownIcon size={15} />
+              </IconButton>
+              <IconButton aria-label="Close find" title="Close find (Escape)" onClick={closeFind}>
+                <XIcon size={15} />
+              </IconButton>
+            </>
+          ) : (
+            <button onClick={showFind} title={`${MOD_KEY}F`}>
+              Find in results
+            </button>
+          )}
+          <span>
+            {query ? "Current table page" : "Current result"}
+            {meta.truncated ? " · Result truncated" : ""}
+            {edits.inserts.length || Object.keys(edits.updates).length || Object.keys(edits.deletes).length ? " · Saved/retained values only" : ""}
+          </span>
+        </div>
+        {grid}
+      </div>
     </ContextMenuArea>
   );
 });
