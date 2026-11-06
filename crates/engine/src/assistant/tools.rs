@@ -673,9 +673,17 @@ mod pg_tests {
         let mut session = Session::open_assistant(&params(), &engine.shared.timezone).await.unwrap();
         let rows = test_rows(&mut session, "select word, catcode::text from pg_get_keywords() order by word").await;
         let of = |codes: &[&str]| rows.iter().filter(|r| codes.contains(&r[1].as_str())).map(|r| r[0].clone()).collect::<Vec<_>>();
-        assert_eq!(of(&["R", "C"]), sql::NEVER_A_FUNCTION, "rerun dev/pg-keywords.sh");
-        assert_eq!(of(&["T", "U"]), sql::OTHER_KEYWORDS, "rerun dev/pg-keywords.sh");
-        assert_eq!(of(&["R"]), sql::RESERVED, "rerun dev/pg-keywords.sh");
-        assert_eq!(of(&["T"]), sql::TYPE_OR_FUNCTION_NAME, "rerun dev/pg-keywords.sh");
+        assert_eq!(of(&["R"]), sql::RESERVED, "rerun dev/pg-keywords.sh against PostgreSQL 16");
+        assert_eq!(of(&["T"]), sql::TYPE_OR_FUNCTION_NAME, "rerun dev/pg-keywords.sh against PostgreSQL 16");
+        // The lists stay PostgreSQL 16's. A word from a newer server in NEVER_A_FUNCTION would let a
+        // user's function of that name on 16 pass as syntax, while a word missing from it only asks first.
+        let syntax = of(&["R", "C"]);
+        let callable: Vec<&&str> = sql::NEVER_A_FUNCTION.iter().filter(|word| !syntax.iter().any(|s| s == *word)).collect();
+        assert_eq!(callable, Vec::<&&str>::new(), "NEVER_A_FUNCTION words this server lets name a function");
+        let version: i32 = test_rows(&mut session, "select current_setting('server_version_num')").await[0][0].parse().unwrap();
+        if (160000..170000).contains(&version) {
+            assert_eq!(syntax, sql::NEVER_A_FUNCTION, "rerun dev/pg-keywords.sh");
+            assert_eq!(of(&["T", "U"]), sql::OTHER_KEYWORDS, "rerun dev/pg-keywords.sh");
+        }
     }
 }

@@ -377,8 +377,8 @@ fn unique(prefix: &str) -> String {
 async fn connect_reports_server_and_catalog_has_the_mockup_tables() {
     let h = Harness::start().await;
     let server = h.engine.connect(h.conn).await.unwrap();
-    assert!(server.version.starts_with("16."), "{}", server.version);
-    assert!(server.version_num >= 160000);
+    assert!(server.version_num >= 160000, "{}", server.version_num);
+    assert!(server.version.starts_with(&format!("{}.", server.version_num / 10000)), "{} is not version {}", server.version, server.version_num);
     assert_eq!(server.encoding, "UTF8");
     assert_eq!(h.engine.connect(h.conn).await.unwrap().version, server.version, "connect is idempotent");
 
@@ -1131,7 +1131,9 @@ async fn schema_and_search_path_follow_the_console_config() {
 async fn bad_credentials_fail_with_auth_and_test_connection_works() {
     let h = Harness::start().await;
     let mut draft = draft_from_url(&url(), "x").unwrap();
-    assert!(h.engine.test_connection(draft.clone()).await.unwrap().version.starts_with("16."));
+    let server = h.engine.test_connection(draft.clone()).await.unwrap();
+    assert!(server.version_num >= 160000, "{}", server.version_num);
+    assert!(server.version.starts_with(&format!("{}.", server.version_num / 10000)), "{} is not version {}", server.version, server.version_num);
     draft.password = PasswordInput::Set("wrong".into());
     assert!(matches!(h.engine.test_connection(draft.clone()).await, Err(ConnectError::Auth { .. })));
     draft.port = 1;
