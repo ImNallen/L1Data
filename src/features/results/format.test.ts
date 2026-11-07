@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatClock, formatElapsed, groupDigits, isNumeric, pageStatus, shortType, toTsv } from "./format";
+import { formatClock, formatElapsed, groupDigits, hasResultPager, isNumeric, pageStatus, resultPage, shortType, toTsv } from "./format";
 
 describe("groupDigits", () => {
   it("groups the integer part and keeps sign and fraction verbatim", () => {
@@ -55,6 +55,34 @@ describe("shortType", () => {
 describe("isNumeric", () => {
   it("treats integers and other numbers alike and nothing else", () => {
     expect((["Integer", "Numeric", "Text", "Bool", "Temporal", "Other"] as const).map(isNumeric)).toEqual([true, true, false, false, false, false]);
+  });
+});
+
+describe("resultPage", () => {
+  it("windows and labels a page of the stored rows", () => {
+    expect(resultPage(200_000, 500, 1)).toEqual({
+      page: 1,
+      lastPage: 399,
+      window: { start: 500, length: 500 },
+      label: "501–1,000 of 200,000",
+      isLast: false,
+    });
+  });
+
+  it("shortens the last page", () => {
+    expect(resultPage(1_205, 500, 2)).toEqual({ page: 2, lastPage: 2, window: { start: 1000, length: 205 }, label: "1,001–1,205 of 1,205", isLast: true });
+  });
+
+  it("ends on a full page when the count is an exact multiple of the size", () => {
+    expect(resultPage(1_000, 500, 1)).toEqual({ page: 1, lastPage: 1, window: { start: 500, length: 500 }, label: "501–1,000 of 1,000", isLast: true });
+  });
+
+  it("clamps a page past the end to the last page", () => {
+    expect(resultPage(1_205, 500, 9)).toMatchObject({ page: 2, window: { start: 1000, length: 205 }, isLast: true });
+  });
+
+  it("shows a pager only above the smallest page size", () => {
+    expect([hasResultPager(10), hasResultPager(11)]).toEqual([false, true]);
   });
 });
 

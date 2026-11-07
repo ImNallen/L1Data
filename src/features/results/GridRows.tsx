@@ -2,7 +2,7 @@ import type { VirtualItem } from "@tanstack/react-virtual";
 import { memo, useState, type ReactNode } from "react";
 import type { ColumnMeta, ResultRef } from "../../ipc/bindings";
 import { commandForKey } from "../../shell/commands";
-import type { Row, RowCache } from "../../state/rowCache";
+import type { Row, RowView } from "../../state/rowCache";
 import type { CellValue, NewRow } from "../../state/tableEdits";
 import { cx } from "../../ui/primitives";
 import { storedValueMatches, useCutCellMatch } from "./useResultFind";
@@ -102,6 +102,7 @@ type CellProps = {
   findQuery: string;
   id: string;
   row: number;
+  storedRow: number;
   col: number;
   left: number;
   width: number;
@@ -121,6 +122,7 @@ const GridCell = memo(function GridCell({
   findQuery,
   id,
   row,
+  storedRow,
   col,
   left,
   width,
@@ -134,7 +136,7 @@ const GridCell = memo(function GridCell({
   deleted,
   editor,
 }: CellProps) {
-  const suffixMatch = useCutCellMatch(resultRef, row, col, cut && !matched ? findQuery : "");
+  const suffixMatch = useCutCellMatch(resultRef, storedRow, col, cut && !matched ? findQuery : "");
   const findMatch = matched || suffixMatch;
   return (
     <div
@@ -191,13 +193,14 @@ export type RowProps = {
   findQuery?: string;
   activeMatch?: Cell;
   index: number;
+  rowOffset: number;
   top: number;
   height: number;
   rowNumW: number;
   idPrefix: string;
   columns: ColumnMeta[];
   virtualCols: VirtualItem[];
-  cache: RowCache;
+  cache: RowView;
   /** The stored values; a page that loads again brings new arrays, and with them its cut cells. */
   values: Row | undefined;
   added: NewRow | undefined;
@@ -217,6 +220,7 @@ export const GridRow = memo(function GridRow({
   findQuery = "",
   activeMatch,
   index,
+  rowOffset,
   top,
   height,
   rowNumW,
@@ -240,7 +244,7 @@ export const GridRow = memo(function GridRow({
     <div
       data-testid={`grid-row-${index}`}
       role="row"
-      aria-rowindex={index + 2}
+      aria-rowindex={rowOffset + index + 2}
       data-state={added ? "new" : deleted ? "deleted" : changed ? "changed" : undefined}
       className={cx(
         "group absolute right-0 left-0 border-b border-grid",
@@ -269,7 +273,7 @@ export const GridRow = memo(function GridRow({
           </>
         ) : (
           <>
-            {index + 1}
+            {rowOffset + index + 1}
             {deleted ? <span className="sr-only">, marked for deletion</span> : changed && <span className="sr-only">, changed</span>}
           </>
         )}
@@ -285,6 +289,7 @@ export const GridRow = memo(function GridRow({
             findQuery={findQuery}
             id={`${idPrefix}-${index}-${vc.index}`}
             row={index}
+            storedRow={rowOffset + index}
             col={vc.index}
             left={vc.start}
             width={vc.size}

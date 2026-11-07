@@ -42,6 +42,24 @@ export function pageStatus(
   return { label: `${digits(first + 1)}–${digits(last)} of ${totalLabel(last, rows < size, estimate, exactRowCount)}`, isLast };
 }
 
+export type RowWindow = { start: number; length: number };
+
+export const PAGE_SIZES = [10, 100, 250, 500, 1000];
+
+export const hasResultPager = (rowCount: number) => rowCount > PAGE_SIZES[0]!;
+
+export function resultPage(
+  rowCount: number,
+  size: number,
+  page: number,
+): { page: number; lastPage: number; window: RowWindow; label: string; isLast: boolean } {
+  const lastPage = Math.max(0, Math.ceil(rowCount / size) - 1);
+  const shown = Math.min(page, lastPage);
+  const start = shown * size;
+  const length = Math.min(size, rowCount - start);
+  return { page: shown, lastPage, window: { start, length }, ...pageStatus(shown, size, length, null, rowCount) };
+}
+
 export function formatElapsed(ms: number): string {
   if (ms < 1000) return `${ms} ms`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(ms < 10_000 ? 2 : 1)} s`;

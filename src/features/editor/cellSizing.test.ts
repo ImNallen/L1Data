@@ -15,8 +15,9 @@ function heights(overrides: Partial<CellSizingInput>) {
     ...overrides,
   });
 }
-const table = (rows?: number) => ({ table: true, rows, rowHeight: ROW, chrome: CHROME });
-const query = (rows?: number) => ({ table: false, rows, rowHeight: ROW, chrome: CHROME });
+const table = (rows?: number) => ({ table: true, rows, rowHeight: ROW, chrome: CHROME, pager: false });
+const query = (rows?: number, pager = false) => ({ table: false, rows, rowHeight: ROW, chrome: CHROME, pager });
+const PAGER = 36;
 
 it("fills the room below the editor with a focused table", () => {
   expect(heights({ results: table(1000) })).toMatchObject({ editor: 128, results: 672 });
@@ -29,6 +30,11 @@ it("fills the room while a focused table has no row count yet", () => {
 it("sizes a short result to its content", () => {
   expect(heights({ results: query(3) }).results).toBe(152);
   expect(heights({ results: table(3) }).results).toBe(252);
+});
+
+it("adds the pager's height to a paged query, focused or compact", () => {
+  expect(heights({ results: query(3, true) }).results).toBe(152 + PAGER);
+  expect(heights({ results: query(1000, true), focused: false }).results).toBe(320 + PAGER);
 });
 
 it("gives an unrun query four rows of space", () => {

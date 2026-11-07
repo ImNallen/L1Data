@@ -14,7 +14,8 @@ const db = { connectionId: "c1", database: "shop" };
 const FIVE_LINES = "SELECT\n  id,\n  name\nFROM\n  customers";
 
 const FILLED = 672;
-const COMPACT = 320;
+const PAGER = 36;
+const COMPACT = 320 + PAGER;
 const EDITOR = 128;
 
 let viewport = 858;
@@ -216,6 +217,20 @@ it("gives a batch the space of its largest result", async () => {
   withRowCounts({ a: [2, 1000] });
   await renderNotebook();
   expect(resultsHeight("a")).toBe(FILLED);
+});
+
+it("sizes a paged query to one page and its pager, not to every stored row", async () => {
+  useWorkspace.setState({ settings: { ...useWorkspace.getState().settings, tablePageSize: 10 } });
+  withRowCounts({ a: [1000], b: [10] });
+  await renderNotebook();
+  expect(resultsHeights()).toEqual([80 + 10 * 24 + PAGER, 80 + 10 * 24]);
+});
+
+it("leaves a result that shows no pager no room for one", async () => {
+  useWorkspace.setState({ settings: { ...useWorkspace.getState().settings, tablePageSize: 100 } });
+  withRowCounts({ a: [10], b: [11] });
+  await renderNotebook();
+  expect(resultsHeights()).toEqual([80 + 10 * 24, 80 + 10 * 24 + PAGER]);
 });
 
 it("holds both cells' sizes through a press on an inactive cell until after the click", async () => {

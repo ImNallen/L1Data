@@ -8,6 +8,7 @@ import { useLive } from "../../state/live";
 import { canCancel, hasUncommittedWork, isBusy, rowResults } from "../../state/status";
 import { useWorkspace } from "../../state/workspace";
 import { Button, cx, IconButton, MenuContent, MenuItem } from "../../ui/primitives";
+import { hasResultPager } from "../results/format";
 import { ResultsPane } from "../results/ResultsPane";
 import { CellResizeHandle } from "./CellResizeHandle";
 import { CELL_SCROLL_MARGIN, cellHeights, EDITOR_MIN, type DraggedHeights } from "./cellSizing";
@@ -42,6 +43,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
   const showResults = useWorkspace((s) => s.layout.results);
   const codeSize = useWorkspace((s) => s.settings.codeFont.size);
   const density = useWorkspace((s) => s.settings.density);
+  const pageSize = useWorkspace((s) => s.settings.tablePageSize);
   const databaseKind = useWorkspace((s) => databaseKindFor(s.tabs[id]?.console.db ?? null, s.configs));
   const console = useLive((s) => s.consoles[id]);
   const text = useSyncExternalStore(
@@ -62,13 +64,21 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
   const [dragging, setDragging] = useState(false);
   const hasResults = showResults && ((tab?.table != null && active) || (console !== undefined && console.run.kind !== "Idle"));
   const rowCounts = console ? rowResults(console.run).map((result) => result.meta.rowCount) : [];
-  const rows = rowCounts.length > 0 ? Math.max(...rowCounts) : undefined;
+  const largest = rowCounts.length > 0 ? Math.max(...rowCounts) : undefined;
+  const table = tab?.table != null;
+  const rows = table || largest === undefined ? largest : Math.min(largest, pageSize);
   const heights = cellHeights({
     viewport,
     lines: text.split("\n").length,
     lineHeight: Math.round(codeSize * 1.54),
     results: hasResults
-      ? { table: tab?.table != null, rows, rowHeight: gridRowHeight(codeSize, density), chrome: Math.round(80 * DENSITY_FACTOR[density]) }
+      ? {
+          table,
+          rows,
+          rowHeight: gridRowHeight(codeSize, density),
+          chrome: Math.round(80 * DENSITY_FACTOR[density]),
+          pager: !table && largest !== undefined && hasResultPager(largest),
+        }
       : null,
     focused,
     dragged,
