@@ -59,12 +59,13 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
   const [renaming, setRenaming] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
   const [dragged, setDragged] = useState<DraggedHeights>({ editor: null, results: null });
+  const [dragging, setDragging] = useState(false);
   const hasResults = showResults && ((tab?.table != null && active) || (console !== undefined && console.run.kind !== "Idle"));
   const rowCounts = console ? rowResults(console.run).map((result) => result.meta.rowCount) : [];
   const rows = rowCounts.length > 0 ? Math.max(...rowCounts) : undefined;
   useEffect(() => {
-    if (focused) cell.current?.scrollIntoView({ block: "nearest" });
-  }, [focused, hasResults, rows, viewport]);
+    if (focused && !dragging) cell.current?.scrollIntoView({ block: "nearest" });
+  }, [focused, dragging, dragged, hasResults, rows, viewport]);
   if (!tab) return null;
   const activate = (focus = false) => {
     setFocusOnActivate(focus);
@@ -247,7 +248,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
         </div>
         {heights.results !== null && (
           <>
-            <CellResizeHandle {...editorHandle} lineColor="bg-border" />
+            <CellResizeHandle {...editorHandle} lineColor="bg-border" onDragChange={setDragging} />
             <div
               className="notebook-results"
               style={{ height: heights.results }}
@@ -260,7 +261,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
           </>
         )}
       </section>
-      <CellResizeHandle {...lowerHandle} lineColor="bg-transparent" />
+      <CellResizeHandle {...lowerHandle} lineColor="bg-transparent" onDragChange={setDragging} />
       <AddCell after={id} />
     </>
   );

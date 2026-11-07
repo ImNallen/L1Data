@@ -245,3 +245,22 @@ it("resizes straight away when a cell activates without a press", async () => {
   });
   expect(resultsHeights()).toEqual([COMPACT, FILLED]);
 });
+
+it("brings the focused cell back into view when a resize ends, not while it runs", async () => {
+  withRowCounts({ a: [1000] });
+  await renderNotebook();
+  const scroll = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+  const handle = within(cell("a")).getByTestId("cell-editor-resize");
+
+  fireEvent.pointerDown(handle, { button: 0, clientY: 100 });
+  fireEvent.pointerMove(handle, { clientY: 160 });
+  expect(editorHeight("a")).toBe(EDITOR + 60);
+  expect(scroll).not.toHaveBeenCalled();
+
+  fireEvent.pointerUp(handle, { clientY: 160 });
+  expect(scroll).toHaveBeenCalledTimes(1);
+  expect(scroll.mock.contexts[0]).toBe(cell("a"));
+
+  fireEvent.keyDown(handle, { key: "ArrowDown" });
+  expect(scroll).toHaveBeenCalledTimes(2);
+});
