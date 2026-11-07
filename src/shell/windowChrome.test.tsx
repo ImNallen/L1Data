@@ -30,13 +30,19 @@ function inTauri(userAgent: string) {
   vi.stubGlobal("navigator", { userAgent });
 }
 
-const { layout: initialLayout, tabs: initialTabs, active: initialActive, configs: initialConfigs } = useWorkspace.getInitialState();
+const { layout: initialLayout, tabs: initialTabs, active: initialActive, configs: initialConfigs, order: initialOrder } = useWorkspace.getInitialState();
 
 beforeAll(preloadSurfaces);
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  Object.assign(useWorkspace.getInitialState(), { layout: initialLayout, tabs: initialTabs, active: initialActive, configs: initialConfigs });
+  Object.assign(useWorkspace.getInitialState(), {
+    layout: initialLayout,
+    tabs: initialTabs,
+    active: initialActive,
+    configs: initialConfigs,
+    order: initialOrder,
+  });
 });
 
 // Static rendering reads zustand's server snapshot, which is the store's initial state, so setState can't reach it.
@@ -139,11 +145,9 @@ it("heads the right panel with Assistant, new chat, and chat history before the 
   withLayout({ rightPanel: "Assistant" });
   const panel = renderToStaticMarkup(<RightPanel hosted={null} />);
   expect(panel).toMatch(/<aside[^>]*aria-labelledby="right-panel-title".*<h2 id="right-panel-title"[^>]*>Assistant<\/h2>/);
-  const order = ['data-testid="assistant-new"', 'data-testid="assistant-history"', RESULTS, TOGGLE, 'data-testid="assistant-panel"'].map((id) =>
-    panel.indexOf(id),
-  );
+  const order = ['data-testid="assistant-new"', 'data-testid="assistant-history"', TOGGLE, 'data-testid="assistant-panel"'].map((id) => panel.indexOf(id));
   expect(order.every((at, i) => at > (order[i - 1] ?? 0))).toBe(true);
-  expect(panel).toMatch(/<textarea[^>]*data-testid="assistant-input"[^>]*placeholder="Ask for SQL help using your schema"/);
+  expect(panel).toMatch(/<textarea[^>]*data-testid="assistant-input"[^>]*placeholder="Message assistant…"/);
   expect(panel).not.toContain("coming soon");
 });
 
@@ -178,7 +182,7 @@ it("puts the sidebar toggle before the app title while the sidebar is open, and 
   withLayout({ sidebar: true });
   const sidebar = renderToStaticMarkup(<Sidebar hosted={null} />);
   expect(sidebar).toContain(SIDEBAR_TOGGLE);
-  expect(sidebar.indexOf(SIDEBAR_TOGGLE)).toBeLessThan(sidebar.indexOf('data-testid="app-title"'));
+  expect(sidebar.indexOf(SIDEBAR_TOGGLE)).toBeLessThan(sidebar.indexOf('data-testid="new-connection"'));
   expect(renderToStaticMarkup(<TopBar hosted={null} />)).not.toContain(SIDEBAR_TOGGLE);
 });
 
@@ -208,7 +212,7 @@ it("puts a labelled resize handle with a centered pill on the open sidebar's edg
   expect(separator?.[0]).toContain('role="separator"');
   expect(separator?.[0]).toContain('aria-label="Resize sidebar"');
   expect(separator?.[1]).toContain("rounded-full");
-  expect(html.indexOf('data-testid="app-title"')).toBeLessThan(html.indexOf('data-testid="sidebar-resize"'));
+  expect(html.indexOf('data-testid="sidebar-header"')).toBeLessThan(html.indexOf('data-testid="sidebar-resize"'));
 });
 
 it("drops the sidebar resize handle while the sidebar is hidden", () => {
@@ -222,42 +226,32 @@ const handle = (html: string, id: string) => html.match(new RegExp(`<div[^>]*dat
 
 function withQueryTab() {
   const tab: Tab = { id: "t1", title: "Untitled-1.sql", console: { db: null, mode: "AutoCommit" }, table: null, file: null };
-  Object.assign(useWorkspace.getInitialState(), { tabs: { t1: tab }, active: "t1" });
+  Object.assign(useWorkspace.getInitialState(), { tabs: { t1: tab }, order: ["t1"], active: "t1" });
 }
 
-it("puts the same pill handle on the line above the results, laid flat", () => {
+it("keeps an unrun cell compact and its results directly below it", () => {
   withQueryTab();
   withLayout({ results: true });
   const html = renderToStaticMarkup(<AppLayout />);
-  const results = handle(html, "results-resize");
-  expect(results?.[0]).toContain('aria-label="Resize results"');
-  expect(results?.[0]).toContain("h-px");
-  expect(results?.[1]).toContain("rounded-full");
-  expect(results?.[1]).toContain("h-[5px] w-8");
-  expect(html.indexOf('data-testid="results-resize"')).toBeLessThan(html.indexOf('data-testid="results"'));
-});
-
-it("drops the results handle along with the results", () => {
-  withQueryTab();
-  withLayout({ results: false });
-  const html = renderToStaticMarkup(<AppLayout />);
-  expect(html).toContain('data-testid="editor"');
+  expect(html).toContain('data-testid="notebook-cell-t1"');
+  expect(html).toContain('data-testid="sql-editor"');
   expect(html).not.toContain('data-testid="results-resize"');
-  expect(html).not.toContain('aria-label="Resize results"');
+  expect(html).not.toContain("Results appear here");
 });
 
-it("toggles the results with no tabs open", () => {
-  withLayout({ results: true });
-  const shown = renderToStaticMarkup(<AppLayout />);
-  expect(shown).toContain('data-testid="no-tabs"');
-  expect(shown).toContain('data-testid="results"');
-  expect(shown).toContain("Results appear here");
-  expect(shown).toContain("Run a statement with");
-
+it("keeps the editor while results are hidden", () => {
+  withQueryTab();
   withLayout({ results: false });
-  const hidden = renderToStaticMarkup(<AppLayout />);
-  expect(hidden).toContain('data-testid="no-tabs"');
-  expect(hidden).not.toContain('data-testid="results"');
+  const html = renderToStaticMarkup(<AppLayout />);
+  expect(html).toContain('data-testid="sql-editor"');
+  expect(html).not.toContain('class="notebook-results"');
+});
+
+it("keeps the empty notebook's start commands while results are hidden", () => {
+  withLayout({ results: false });
+  const html = renderToStaticMarkup(<AppLayout />);
+  expect(html).toContain('data-testid="no-tabs"');
+  expect(html).not.toContain("Results appear here");
 });
 
 it("lists the start commands with their shortcuts when no tab is open", () => {
@@ -318,7 +312,7 @@ function withTableTab(mode: TxnMode = "AutoCommit", color: string | null = null)
     environment: null,
     sqlServerAuth: null,
   };
-  Object.assign(useWorkspace.getInitialState(), { tabs: { t2: tab }, active: "t2", configs: { c: config } });
+  Object.assign(useWorkspace.getInitialState(), { tabs: { t2: tab }, order: ["t2"], active: "t2", configs: { c: config } });
 }
 
 it("shows the transaction mode and cursor position on a table tab", () => {
@@ -326,7 +320,7 @@ it("shows the transaction mode and cursor position on a table tab", () => {
   withLayout({ results: true });
   const html = renderToStaticMarkup(<AppLayout />);
   expect(html).toMatch(/data-testid="tx-mode"[^>]*>Auto-commit</);
-  expect(html).toMatch(/data-testid="cursor-position"[^>]*>Ln 1, Col 1</);
+  expect(html).toContain('data-testid="notebook-cell-t2"');
 });
 
 it("gives a table tab the connection, database, and transaction mode menus a query tab has", () => {

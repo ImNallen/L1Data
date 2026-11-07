@@ -67,13 +67,13 @@ it("keeps workspace chrome behind settings with its own navigation and close con
   }
 });
 
-const sidebarHeader = (html: string) => /<div data-tauri-drag-region="deep" class="flex h-\[52px\][^"]*">(?:(?!<\/div>).)*<\/div>/.exec(html)?.[0];
+const sidebarHeader = (html: string) => /<div data-testid="sidebar-header"[^>]*>(?:(?!<\/div>).)*<\/div>/.exec(html)?.[0];
 
 it("keeps the sidebar header, toggle and app title, identical in settings and the workspace", () => {
   const settings = sidebarHeader(render(settingsOpen()));
   const workspace = sidebarHeader(render({ screen: { kind: "workspace" } }));
   expect(settings).toContain('data-testid="toggle-sidebar"');
-  expect(settings).toContain('data-testid="app-title"');
+  expect(settings).toContain('data-testid="sidebar-header"');
   expect(settings).toBe(workspace);
 });
 
@@ -113,7 +113,7 @@ it("keeps settings navigation when the workspace sidebar is hidden", () => {
 it("returns to the workspace layout once settings close", () => {
   const html = render({ screen: { kind: "workspace" } });
   expect(html).not.toContain('data-testid="settings-nav"');
-  expect(html).toContain('data-testid="app-title"');
+  expect(html).toContain('data-testid="sidebar-header"');
   expect(html).toContain('data-testid="no-tabs"');
 });
 
@@ -134,11 +134,10 @@ it("shows the running version and the engine's track in General, and locks the t
   expect(downloading).toMatch(/<button[^>]*data-testid="update-action"[^>]*disabled=""[^>]*>Downloading…<\/button>/);
 });
 
-it("puts the update button in the sidebar footer only while this build can update", () => {
-  const status = (s: UpdateStatus): Partial<LiveData> => ({ updates: { rev: 1, track: "Stable", currentVersion: "0.1.0", status: s, checkedAtMs: null } });
-  const offered = render({ screen: { kind: "workspace" } }, status({ kind: "Available", version: "0.2.0", downgrade: false, changes: [] }));
-  expect(offered).toMatch(/<button[^>]*data-testid="update-button" data-status="Available" aria-label="Download L1 Data 0.2.0"/);
-  expect(render({ screen: { kind: "workspace" } }, status({ kind: "Disabled", reason: "DevBuild" }))).not.toContain('data-testid="update-button"');
+it("keeps workspace utilities behind a compact options button", () => {
+  const html = render({ screen: { kind: "workspace" } });
+  expect(html).toContain('aria-label="Workspace options"');
+  expect(html).not.toContain('data-testid="open-usage"');
 });
 
 it.each([
@@ -612,9 +611,10 @@ it("says Checking while a probe runs and keeps the last outcome on the provider'
   expect(resetTag(html)).toContain('disabled=""');
 });
 
-it("orders the sidebar's bottom bar Settings, Usage, Query history, then Saved queries", () => {
+it("keeps the sidebar header compact without a bottom toolbar", () => {
   const html = render({ screen: { kind: "workspace" } });
-  expect([...html.matchAll(/data-testid="(open-[^"]*)"/g)].map(([, id]) => id)).toEqual(["open-settings", "open-usage", "open-history", "open-saved-queries"]);
+  expect(html).toContain('aria-label="Workspace options"');
+  expect(html).not.toContain('data-testid="app-title"');
 });
 
 it("excludes Usage from settings navigation and search", () => {

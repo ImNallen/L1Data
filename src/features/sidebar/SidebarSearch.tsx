@@ -13,6 +13,8 @@ export function SidebarSearch({
   onEnter,
   onArrowDown,
   children,
+  placeholder = "Search",
+  showCount = true,
 }: {
   testId: string;
   scope: Screen["kind"];
@@ -22,6 +24,8 @@ export function SidebarSearch({
   onEnter?: () => void;
   onArrowDown?: () => void;
   children?: ReactNode;
+  placeholder?: string;
+  showCount?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [focused, setFocused] = useState(false);
@@ -45,30 +49,32 @@ export function SidebarSearch({
       <label
         className={cx(
           "group flex h-full min-w-0 flex-1 cursor-text items-center gap-2.5 rounded-md border pr-1.5 pl-2.5 text-muted",
-          focused ? "border-focus bg-raised" : "border-transparent bg-transparent hover:bg-hover",
+          focused ? "border-focus bg-transparent" : "border-transparent bg-transparent",
         )}
       >
         <SearchIcon size={15} className="shrink-0" />
         <input
           ref={input}
           data-testid={testId}
-          aria-label="Search"
+          aria-label={placeholder}
           type="text"
           value={query}
-          placeholder="Search"
+          placeholder={placeholder}
           spellCheck={false}
           autoComplete="off"
           onChange={(e) => onQueryChange(e.target.value)}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           onKeyDown={onKeyDown}
-          className="h-full min-w-0 flex-1 bg-transparent text-ui-13.5 text-fg outline-none placeholder:text-muted"
+          className="h-full min-w-0 flex-1 bg-transparent text-ui-12 text-fg outline-none placeholder:text-muted"
         />
         {query && (
           <>
-            <span data-testid={`${testId}-count`} className="shrink-0 text-ui-11.5 text-muted tabular-nums">
-              {count}
-            </span>
+            {showCount && (
+              <span data-testid={`${testId}-count`} className="shrink-0 text-ui-11.5 text-muted tabular-nums">
+                {count}
+              </span>
+            )}
             <IconButton
               data-testid={`${testId}-clear`}
               aria-label="Clear search"

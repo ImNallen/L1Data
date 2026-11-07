@@ -1108,11 +1108,16 @@ async fn history_survives_reopen_on_the_same_dir() {
 #[tokio::test]
 async fn schema_and_search_path_follow_the_console_config() {
     let mut h = Harness::start().await;
-    let tab = h.sql_tab_in(TxnMode::AutoCommit, Some("lab")).await;
+    let tab = h.sql_tab_in(TxnMode::AutoCommit, None).await;
+    let default_path = h.scalar(tab, "show search_path").await;
+    h.engine.console_configure(tab, ConsoleConfig { connection_id: h.conn, database: "shop".into(), schema: Some("lab".into()), mode: TxnMode::AutoCommit }).await.unwrap();
     assert_eq!(h.scalar(tab, "select count(*) from type_zoo").await, "2");
     assert_eq!(h.scalar(tab, "show search_path").await, "lab");
     h.engine.console_configure(tab, ConsoleConfig { connection_id: h.conn, database: "shop".into(), schema: Some("public".into()), mode: TxnMode::AutoCommit }).await.unwrap();
     assert_eq!(h.scalar(tab, "show search_path").await, "public");
+    h.engine.console_configure(tab, ConsoleConfig { connection_id: h.conn, database: "shop".into(), schema: None, mode: TxnMode::AutoCommit }).await.unwrap();
+    assert_eq!(h.scalar(tab, "show search_path").await, default_path);
+    assert_eq!(h.scalar(tab, "select current_schema()").await, "public");
     assert_eq!(h.scalar(tab, "show application_name").await, "L1 Data");
     for copy in ["copy customers from stdin", "copy public.customers (id) to stdout", "copy pg_temp.nope from stdin with (format csv)"] {
         let err = h.engine.console_run(tab, RunRequest::Script { text: copy.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }, None).await.err();

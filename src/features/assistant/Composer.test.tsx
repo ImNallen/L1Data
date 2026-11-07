@@ -76,7 +76,8 @@ it("shows schema access and only offers query permissions and attachments in Ful
   expect(screen.queryByTestId("assistant-attach")).toBeNull();
   expect(screen.queryByTestId("assistant-permission")).toBeNull();
   act(() => useWorkspace.setState((s) => ({ settings: { ...s.settings, assistantAccess: "Full" } })));
-  expect(screen.getByTestId("assistant-permission").textContent).toContain("Auto");
+  await user.click(screen.getByTestId("assistant-options"));
+  expect(screen.getByTestId("assistant-permission-Auto").textContent).toContain("Auto");
   await user.click(screen.getByTestId("assistant-attach"));
   expect(screen.getByTestId("assistant-attachment")).toBeTruthy();
   act(() => useWorkspace.setState((s) => ({ settings: { ...s.settings, assistantAccess: "SchemaOnly" } })));
@@ -99,7 +100,7 @@ it("follows the active tab's database, including an unconfigured tab and no tab"
   render(<Composer chat={undefined} />);
   expect(screen.getByTestId("assistant-target").title).toBe("Dev Postgres / shop");
   act(() => useWorkspace.setState({ active: "b" }));
-  expect(screen.getByTestId("assistant-target").textContent).toBe("Dev Postgres / reporting");
+  expect(screen.getByTestId("assistant-target").textContent).toBe("reporting / default");
   act(() => useWorkspace.setState({ active: "empty" }));
   expect(screen.getByTestId("assistant-target").textContent).toBe("No database selected");
   act(() => useWorkspace.setState({ active: null }));

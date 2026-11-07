@@ -7,13 +7,16 @@
 
 A desktop SQL IDE for PostgreSQL and Microsoft SQL Server, built with Rust, Tauri 2, and React.
 
-![L1 Data running the revenue-by-region query against the seeded shop database, with the assistant answering a question about it](docs/images/l1-data.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/l1-data-dark.png">
+  <img src="docs/images/l1-data.png" alt="L1 Data with SQL notebook cells, results, a split database browser, and the assistant">
+</picture>
 
 ## Features
 
 - **Both databases in one app.** PostgreSQL and SQL Server, including Azure SQL with Microsoft Entra ID sign-in and SSH tunnels.
 - **A catalog you can browse.** Explore every schema, table, column, key, and index, generate `CREATE` scripts, and map foreign keys.
-- **An editor that knows your schema.** Completion, formatting, and query parameters. Each tab has its own session, so `SET`, temp tables, and transactions stay with the tab.
+- **A SQL notebook that knows your schema.** Edit multiple cells with results underneath, plus completion, formatting, and query parameters. Each cell keeps its own session, so `SET`, temp tables, and transactions stay with it.
 - **Results you can work with.** A streaming grid, row editing on PostgreSQL, CSV import, and export to CSV, JSON, Markdown, or SQL.
 - **Production safety.** The app asks before a query, an edit, or an import writes to a Production connection.
 - **A Claude assistant.** Chat about your database through your own `claude` CLI. By default it sees only your schema.

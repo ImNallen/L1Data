@@ -48,9 +48,11 @@ export function WindowEdgeActions({ hosted }: { hosted: HostedWindow | null }) {
   const setLayout = useWorkspace((s) => s.setLayout);
   return (
     <div className="flex items-center gap-2">
-      <IconButton data-testid="toggle-results" aria-label="Toggle results" aria-expanded={results} onClick={() => setLayout({ results: !results })}>
-        <PanelIcon side="bottom" shown={results} />
-      </IconButton>
+      {rightPanel === null && (
+        <IconButton data-testid="toggle-results" aria-label="Toggle results" aria-expanded={results} onClick={() => setLayout({ results: !results })}>
+          <PanelIcon side="bottom" shown={results} />
+        </IconButton>
+      )}
       <IconButton
         data-testid="toggle-right-panel"
         aria-label="Toggle right panel"

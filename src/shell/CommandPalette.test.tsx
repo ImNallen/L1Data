@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { openWorkspaceItem } from "../testing/workspaceUI";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -214,7 +215,7 @@ it("preserves Settings and its filter on cancel, shows accurate labels, and can 
   const user = userEvent.setup();
   openSqlTab({ text: "select 1" });
   render(<AppLayout />);
-  await user.click(screen.getByTestId("open-settings"));
+  await openWorkspaceItem(user, "open-settings");
   const search = screen.getByTestId("settings-search");
   await user.type(search, "font");
   const settings = useWorkspace.getState().screen;

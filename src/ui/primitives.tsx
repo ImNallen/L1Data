@@ -2,16 +2,7 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import { CheckIcon, ChevronRightIcon, XIcon } from "lucide-react";
-import {
-  useLayoutEffect,
-  useRef,
-  type ButtonHTMLAttributes,
-  type ComponentProps,
-  type KeyboardEvent,
-  type ReactElement,
-  type ReactNode,
-  type RefObject,
-} from "react";
+import { useLayoutEffect, useRef, type ComponentProps, type KeyboardEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 import type { DatabaseKind } from "../ipc/bindings";
 import { DATABASE_LABEL } from "../state/databaseKind";
 import type { TextRange } from "./textMatch";
@@ -109,7 +100,7 @@ export function Button({ variant = "outline", className, ...rest }: ButtonProps)
     <button
       type="button"
       className={cx(
-        "inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-ui-13 whitespace-nowrap transition-colors disabled:pointer-events-none disabled:opacity-40",
+        "inline-flex h-8 w-fit shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 text-center text-ui-13 leading-[18px] whitespace-nowrap transition-colors disabled:pointer-events-none disabled:opacity-40",
         look,
         className,
       )}
@@ -118,7 +109,7 @@ export function Button({ variant = "outline", className, ...rest }: ButtonProps)
   );
 }
 
-export function IconButton({ className, ...rest }: ButtonHTMLAttributes<HTMLButtonElement>) {
+export function IconButton({ className, ...rest }: ComponentProps<"button">) {
   return (
     <button
       type="button"

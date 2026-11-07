@@ -1140,7 +1140,7 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
           }
         }}
       >
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-grid px-2 py-1 text-ui-12 text-muted">
+        <div data-open={find.open} className="result-find-bar flex shrink-0 flex-wrap items-center gap-2 border-b border-grid px-2 py-1 text-ui-12 text-muted">
           {find.open ? (
             <>
               <input

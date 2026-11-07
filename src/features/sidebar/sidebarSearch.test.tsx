@@ -6,7 +6,7 @@ import { useLive } from "../../state/live";
 import { useWorkspace } from "../../state/workspace";
 import { connectedState, connectionConfig, databaseState } from "../../testing/connections";
 import { shopCatalog } from "../../testing/shopCatalog";
-import { Sidebar } from "./Sidebar";
+import { ConnectionTreeHarness } from "../../testing/ConnectionTreeHarness";
 
 const initial = { workspace: { ...useWorkspace.getInitialState() }, live: { ...useLive.getInitialState() }, catalog: { ...useCatalog.getInitialState() } };
 
@@ -24,7 +24,7 @@ function render(treeQuery: string, loaded = true, tint?: { tintConnections: bool
   Object.assign(useLive.getInitialState(), { connections: { p: connectedState("p", [databaseState("shop", true, ["public"])]) } });
   const view = buildCatalogView(shopCatalog("p", 1));
   Object.assign(useCatalog.getInitialState(), { views: loaded ? { [dbKey(view.catalog.db)]: view } : {} });
-  return renderToStaticMarkup(<Sidebar hosted={null} />);
+  return renderToStaticMarkup(<ConnectionTreeHarness />);
 }
 
 /** Each tree row as its path, with "+" or "-" when it has an open or closed chevron. */
@@ -111,7 +111,7 @@ it("keeps long relation suffixes and search marks visible with the full catalog 
   relation.name = "customer_orders_archived_2026";
   const view = buildCatalogView(catalog);
   Object.assign(useCatalog.getInitialState(), { views: { [dbKey(catalog.db)]: view } });
-  const html = renderToStaticMarkup(<Sidebar hosted={null} />);
+  const html = renderToStaticMarkup(<ConnectionTreeHarness />);
   const item = inside(html, "tree-node-prod/shop/public/customer_orders_archived_2026");
   expect(item).toContain('title="prod / shop / public / customer_orders_archived_2026"');
   expect(item).toContain('aria-description="prod / shop / public / customer_orders_archived_2026"');
