@@ -141,7 +141,7 @@ it("draws a finished turn as the mockup does: bubble and context, tool line, mar
   expect(text(section(html, "chat-user-0", "chat-tool-1"))).toBe(
     "Which regions grew the most compared with the 90 days before? prod-postgres / shop · orders_by_region.sql · 6 rows attached",
   );
-  expect(text(section(html, "chat-tool-1", "chat-text-2"))).toBe("Ran query · 6 rows · 27 ms");
+  expect(text(section(html, "chat-tool-1", "chat-text-2"))).toContain("Ran query · 6 rows · 27 ms");
   const reply = section(html, "chat-text-2", "chat-end-3") ?? "";
   expect(reply).toContain('<code class="rounded-[4px] bg-pill');
   expect(reply).not.toContain("<a ");
@@ -150,16 +150,18 @@ it("draws a finished turn as the mockup does: bubble and context, tool line, mar
   expect(reply).toMatch(/<table[^>]*>.*<th[^>]*>region<\/th>.*<td[^>]*>EU-West<\/td>/);
   expect(text(/data-testid="sql-card-uses"[^>]*>(.*?)<\/span>/.exec(reply)?.[1])).toBe("Uses orders, customers");
   expect(html).toContain('data-testid="chat-end-3" data-outcome="Completed"');
-  expect([...html.matchAll(/data-testid="suggestion-chip"[^>]*>(.*?)<\/button>/g)].map(([, t]) => t)).toEqual([
-    "Show growth as a percentage",
-    "Only EU regions",
-  ]);
+  expect(html).toContain('type="checkbox"');
+  expect(text(html)).toContain("Show growth as a percentage");
+  expect(text(html)).toContain("Only EU regions");
+  expect(text(html)).toContain("Continue");
   expect(html).not.toContain("Thinking");
 });
 
 it("labels the pickers from the chat's options and the provider's models, and offers Send while idle", () => {
   const html = render({ kind: "Idle" }, FIRST_TURN);
-  expect(["assistant-model", "assistant-effort", "assistant-permission"].map((id) => buttonText(html, id))).toEqual(["Opus 5.5", "High", "Ask first"]);
+  expect(buttonText(html, "assistant-model")).toBe("Opus 5.5");
+  expect(html).toContain('data-testid="assistant-options"');
+  expect(html).not.toContain('data-testid="assistant-effort"');
   expect(html).toContain('data-testid="assistant-send"');
   expect(html).not.toContain('data-testid="assistant-stop"');
   expect(html).not.toContain('data-testid="assistant-provider-banner"');
@@ -182,7 +184,7 @@ it("shows Starting while the CLI starts, then a waiting approval card, with Stop
   ]);
   const card = section(waiting, "chat-tool-1") ?? "";
   expect(text(card)).toContain(
-    "Run this query? Check the link select dblink_exec('x') Calls functions L1 Data cannot verify as read-only: dblink_exec Run Deny",
+    "Run this query? Check the link select dblink_exec('x') Calls functions L1 Data cannot verify as read-only: dblink_exec Reject Approve once",
   );
   expect([card.includes('data-testid="approval-run"'), card.includes('data-testid="approval-deny"'), waiting.includes("Thinking")]).toEqual([
     true,

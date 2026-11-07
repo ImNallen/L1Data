@@ -50,7 +50,7 @@ import { detailKey, useRelationDetail, type DetailEntry } from "../../state/rela
 import { connectionTone, type Tone } from "../../state/status";
 import { tabTarget, useWorkspace, type RelationRef } from "../../state/workspace";
 import { ContextMenuItem, ContextMenuSeparator, ContextSubmenu, Highlight, Spinner, StatusDot, cx } from "../../ui/primitives";
-import type { TextRange } from "../../ui/textMatch";
+import { matchRanges, parseQuery, type TextRange } from "../../ui/textMatch";
 import { connect, confirmDelete, disconnect, refreshCatalog, refreshConnection } from "../connections/connectionActions";
 import { ConnectionColorDot, EnvironmentIcon, connectionColor } from "../connections/connectionColors";
 import { insertAtCursor } from "../editor/editorStates";
@@ -75,10 +75,11 @@ type Build = {
   entries: Record<string, DetailEntry>;
   details: { db: DatabaseRef; version: number; oid: number }[];
   idle: DatabaseRef[];
+  browse: { selected: DatabaseRef | null; select(db: DatabaseRef): void } | null;
 };
 
 function build(expanded: Expanded, selected: RelationRef | null = null, entries: Record<string, DetailEntry> = {}): Build {
-  return { out: [], expanded, tint: null, selected, entries, details: [], idle: [] };
+  return { out: [], expanded, tint: null, selected, entries, details: [], idle: [], browse: null };
 }
 
 function row(b: Build, node: Omit<RowNode, "kind" | "tint">): void {
@@ -571,10 +572,11 @@ function databaseRows(b: Build, news: CatalogNews, path: string, db: DatabaseRef
     key: me,
     depth: 1,
     name: db.database,
-    expandable: true,
+    expandable: b.browse === null,
+    selected: b.browse !== null && sameDb(b.browse.selected, db),
     open,
     picker: target,
-    onClick: () => b.expanded.toggle(me),
+    onClick: () => (b.browse ? b.browse.select(db) : b.expanded.toggle(me)),
     menu: () => <NewMenu db={db} />,
     view: (active) => ({
       icon: <DatabaseIcon size={15} className="text-muted" />,
@@ -582,6 +584,10 @@ function databaseRows(b: Build, news: CatalogNews, path: string, db: DatabaseRef
       trailing: count && <PickerPill target={target} count={count} active={active} testId={`schema-pill-${me}`} />,
     }),
   });
+  if (b.browse) {
+    if (state.catalog.kind === "Idle" && sameDb(b.browse.selected, db)) b.idle.push(db);
+    return;
+  }
   if (!open) return;
 
   // Past the engine's cap of auto-opened databases a shown one stays Idle until its row opens. The snapshot then
@@ -721,7 +727,11 @@ function connectionRows(b: Build, news: CatalogNews, config: ConnectionConfig, s
     },
     menu: () => <ConnectionMenu config={config} shown={instance && shown.map((d) => ({ connectionId: config.id, database: d.name }))} />,
     view: (active) => ({
-      icon: <EnvironmentIcon environment={config.environment} size={15} testId={`env-icon-${config.name}`} />,
+      icon: b.browse ? (
+        <DatabaseIcon size={15} className="text-keyword" />
+      ) : (
+        <EnvironmentIcon environment={config.environment} size={15} testId={`env-icon-${config.name}`} />
+      ),
       label: (
         <span className="flex min-w-0 items-center">
           <span className={cx("truncate font-medium", tone === "off" && "text-muted")}>{config.name}</span>
@@ -885,7 +895,20 @@ function useCollapsedSet(query: string): Expanded {
 const NO_NEWS: CatalogNews = { loading: [], failed: [] };
 
 /** `filter` is set while the sidebar search holds a query, and the tree then shows only its matches. */
-export function ConnectionTree({ filter, query, ref }: { filter: TreeFilter | null; query: string; ref: RefObject<HTMLDivElement | null> }) {
+type TreeScope =
+  | { kind: "databases"; selected: DatabaseRef | null; select(db: DatabaseRef): void }
+  | { kind: "objects"; db: DatabaseRef; category: "tables" | "views" | "all" };
+export function ConnectionTree({
+  filter,
+  query,
+  ref,
+  scope,
+}: {
+  filter: TreeFilter | null;
+  query: string;
+  ref: RefObject<HTMLDivElement | null>;
+  scope?: TreeScope;
+}) {
   const configs = useWorkspace((s) => s.configs);
   const selected = useWorkspace((s) => s.selected);
   const tinting = useWorkspace((s) => s.settings.tintConnections);
@@ -900,19 +923,87 @@ export function ConnectionTree({ filter, query, ref }: { filter: TreeFilter | nu
   const list = useMemo(() => Object.values(configs).sort((a, b) => a.name.localeCompare(b.name)), [configs]);
 
   const tree = useMemo(() => {
+    if (filter && scope?.kind === "databases") {
+      const b = build(searched, selected);
+      b.browse = scope;
+      const tokens = parseQuery(query);
+      for (const config of list) {
+        const all = matchRanges(tokens, config.name) !== null;
+        const databases = instanceOf(connections[config.id])?.databases.filter((d) => d.shown && matchRanges(tokens, d.name) !== null) ?? [];
+        if (!all && databases.length === 0) continue;
+        const start = b.out.length;
+        connectionRows(b, { loading: [], failed: [] }, config, connections[config.id], views);
+        if (!all) {
+          const allowed = new Set(databases.map((d) => `${config.name}/${d.name}`));
+          b.out = [...b.out.slice(0, start), ...b.out.slice(start).filter((n) => n.depth === 0 || allowed.has(n.key))];
+        }
+      }
+      return { b, news: NO_NEWS };
+    }
     if (filter) {
       const b = build(searched, selected);
       filteredTree(b, filter, tinting);
+      if (scope?.kind === "objects") {
+        const prefix = `${configs[scope.db.connectionId]?.name}/${scope.db.database}/`;
+        b.out = b.out.filter((n) => n.key.startsWith(prefix)).map((n) => ({ ...n, depth: Math.max(0, n.depth - 2) }));
+      }
       return { b, news: NO_NEWS };
     }
     const b = build(expanded, selected, entries);
     const news: CatalogNews = { loading: [], failed: [] };
+    if (scope?.kind === "objects") {
+      const view = viewFor(views, scope.db);
+      const state = instanceOf(connections[scope.db.connectionId])?.databases.find((d) => d.name === scope.db.database);
+      if (!view) {
+        const failed = state?.catalog.kind === "Failed" ? state.catalog.message : null;
+        note(b, "objects-status", 0, 40, () => (
+          <p className="px-4 py-3 text-ui-12 text-dim">
+            {failed ?? (instanceOf(connections[scope.db.connectionId]) ? "Loading database objects…" : "Connect to load database objects.")}
+          </p>
+        ));
+      }
+      if (view)
+        for (const schema of view.catalog.schemas.filter((s) => !state || state.shownSchemas.includes(s.name))) {
+          const shown =
+            scope.category === "all"
+              ? schema
+              : {
+                  ...schema,
+                  tableCount: schema.relations.filter((r) => isViewKind(r.kind) === (scope.category === "views")).length,
+                  relations: schema.relations.filter((r) => isViewKind(r.kind) === (scope.category === "views")),
+                  functions: [],
+                  sequences: [],
+                  synonyms: [],
+                  types: [],
+                };
+          schemaRows(b, `${configs[scope.db.connectionId]?.name}/${scope.db.database}`, 0, scope.db, shown, view.catalog.version);
+        }
+      if (view && scope.category === "all")
+        objectGroup(
+          b,
+          `${configs[scope.db.connectionId]?.name}/${scope.db.database}/#extensions`,
+          0,
+          scope.db,
+          "Extensions",
+          ZapIcon,
+          view.catalog.extensions.map((ext) => ({ oid: ext.oid, name: ext.name, detail: ext.version, target: { kind: "Extension", oid: ext.oid } })),
+        );
+      return { b, news };
+    }
+    if (scope?.kind === "databases") b.browse = scope;
     for (const config of list) {
       b.tint = tintOf(config, tinting);
       connectionRows(b, news, config, connections[config.id], views);
     }
     return { b, news };
-  }, [filter, searched, expanded, selected, entries, tinting, list, connections, views]);
+  }, [filter, searched, expanded, selected, entries, tinting, list, connections, views, scope, configs, query]);
+
+  const objectsDb = scope?.kind === "objects" ? scope.db : null;
+  const objectDefault = viewFor(views, objectsDb)?.catalog.defaultSchema;
+  const objectConnection = objectsDb ? configs[objectsDb.connectionId]?.name : null;
+  useEffect(() => {
+    if (objectsDb && objectDefault) toggle(`${objectConnection}/${objectsDb.database}/${objectDefault}`, true);
+  }, [objectsDb, objectDefault, objectConnection, toggle]);
 
   // The first connect opens the connection and its home database, then that database's default schema once its catalog says which.
   useEffect(() => {
@@ -956,10 +1047,16 @@ export function ConnectionTree({ filter, query, ref }: { filter: TreeFilter | nu
 
   return (
     <>
-      <div ref={ref} data-testid="conn-tree" role="tree" aria-label="Connections" className="min-h-0 flex-1 overflow-y-auto">
-        {filter && filter.searched === 0 ? (
+      <div
+        ref={ref}
+        data-testid={scope?.kind === "objects" ? "object-tree" : "conn-tree"}
+        role="tree"
+        aria-label={scope?.kind === "objects" ? "Database objects" : "Connections"}
+        className="min-h-0 flex-1 overflow-y-auto"
+      >
+        {filter && filter.searched === 0 && scope?.kind !== "databases" ? (
           <TreeNote>Connect to a database to search its catalog.</TreeNote>
-        ) : filter && filter.connections.length === 0 ? (
+        ) : filter && tree.b.out.length === 0 ? (
           <TreeNote>No matches for “{query.trim()}”.</TreeNote>
         ) : (
           <VirtualTree key={filter ? `search:${query}` : "tree"} nodes={tree.b.out} scrollRef={ref} />

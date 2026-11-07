@@ -273,7 +273,7 @@ describe("workspace snapshot", () => {
       { id: "d", title: "free.sql", text: "", console: { connectionId: null, database: null, schema: null, mode: "Manual" }, table: null, file: null },
     ];
     expect(saved.map((t) => tabFromSnapshot(t, configs))).toEqual([
-      { id: "a", title: "q.sql", console: { db: { connectionId: "c", database: "shop" }, mode: "AutoCommit" }, table: null, file: null },
+      { id: "a", title: "q.sql", console: { db: { connectionId: "c", database: "shop" }, mode: "AutoCommit", schema: "lab" }, table: null, file: null },
       { id: "d", title: "free.sql", console: { db: null, mode: "Manual" }, table: null, file: null },
     ]);
   });

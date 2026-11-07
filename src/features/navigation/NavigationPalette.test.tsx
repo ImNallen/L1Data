@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { openWorkspaceItem } from "../../testing/workspaceUI";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
@@ -121,7 +122,7 @@ it("opens the same navigation from Settings and activates a database without cha
   const previous = openSqlTab({ db, title: "work.sql", text: "begin;" });
   const original = useWorkspace.getState().tabs[previous];
   render(<AppLayout />);
-  await user.click(screen.getByTestId("open-settings"));
+  await openWorkspaceItem(user, "open-settings");
   await user.keyboard("{Control>}p{/Control}");
   await user.type(screen.getByTestId("navigation-input"), "reporting");
   expect(screen.getByRole("option").textContent).toContain("Open new query in this database");

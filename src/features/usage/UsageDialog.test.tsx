@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { openWorkspaceItem } from "../../testing/workspaceUI";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
@@ -46,8 +47,8 @@ it("opens Usage from the sidebar without entering Settings, closes with Escape a
   const user = userEvent.setup();
   render(<Shell />);
   expect(read).not.toHaveBeenCalled();
-  const opener = screen.getByTestId("open-usage");
-  await user.click(opener);
+  const opener = screen.getByRole("button", { name: "Workspace options" });
+  await openWorkspaceItem(user, "open-usage");
   expect(screen.getByRole("dialog", { name: "Usage" })).toBe(screen.getByTestId("usage-dialog"));
   expect(useWorkspace.getState().screen).toEqual({ kind: "workspace" });
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close" }));
@@ -58,7 +59,7 @@ it("opens Usage from the sidebar without entering Settings, closes with Escape a
   await user.keyboard("{Escape}");
   expect(screen.queryByTestId("usage-dialog")).toBeNull();
   await waitFor(() => expect(document.activeElement).toBe(opener));
-  await user.click(opener);
+  await openWorkspaceItem(user, "open-usage");
   await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
   await user.click(screen.getByRole("button", { name: "Close" }));
   await waitFor(() => expect(document.activeElement).toBe(opener));
@@ -68,7 +69,7 @@ it("opens Usage from the sidebar without entering Settings, closes with Escape a
 it("keeps cached cards while refreshing, disables duplicate reads, and displays a failed refresh", async () => {
   const user = userEvent.setup();
   render(<Shell />);
-  await user.click(screen.getByTestId("open-usage"));
+  await openWorkspaceItem(user, "open-usage");
   await screen.findByTestId("usage-note-Claude");
   let rejectRead: ((error: Error) => void) | undefined;
   read.mockImplementationOnce(
@@ -102,17 +103,16 @@ it("shows loading on first open and retains an in-flight read and cached report 
   );
   const user = userEvent.setup();
   render(<Shell />);
-  const opener = screen.getByTestId("open-usage");
-  await user.click(opener);
+  await openWorkspaceItem(user, "open-usage");
   expect(screen.getByTestId("usage-loading")).toBeTruthy();
   await user.keyboard("{Escape}");
-  await user.click(opener);
+  await openWorkspaceItem(user, "open-usage");
   expect(read).toHaveBeenCalledTimes(1);
   await act(async () => finish?.(report));
   await screen.findByTestId("usage-note-Claude");
   await user.keyboard("{Escape}");
   read.mockImplementationOnce(() => new Promise(() => {}));
-  await user.click(opener);
+  await openWorkspaceItem(user, "open-usage");
   expect(screen.getByTestId("usage-note-Claude")).toBeTruthy();
   expect(screen.queryByTestId("usage-loading")).toBeNull();
   expect(read).toHaveBeenCalledTimes(2);
@@ -121,7 +121,7 @@ it("shows loading on first open and retains an in-flight read and cached report 
 it("replaces Usage with the saved query popup when its shortcut runs", async () => {
   const user = userEvent.setup();
   render(<Shell />);
-  await user.click(screen.getByTestId("open-usage"));
+  await openWorkspaceItem(user, "open-usage");
   await screen.findByTestId("usage-note-Claude");
   act(() => commandForKey({ key: "e", ctrlKey: true, metaKey: false, altKey: false, shiftKey: false }, false)?.run());
   expect(screen.queryByTestId("usage-dialog")).toBeNull();

@@ -5,7 +5,7 @@ import { databaseKindFor } from "../../state/databaseKind";
 import { tabTarget, useWorkspace } from "../../state/workspace";
 import { activateEditor, configureSql, cursorOf, editorStateOf, focusEditor, mountEditor } from "./editorStates";
 
-export function SqlEditor({ tabId }: { tabId: TabId }) {
+export function SqlEditor({ tabId, autoFocus = true }: { tabId: TabId; autoFocus?: boolean }) {
   const host = useRef<HTMLDivElement>(null);
   const tab = useWorkspace((s) => s.tabs[tabId]);
   const target = tabTarget(tab);
@@ -27,8 +27,8 @@ export function SqlEditor({ tabId }: { tabId: TabId }) {
   }, [tabId, view, databaseKind]);
 
   useEffect(() => {
-    focusEditor();
-  }, [tabId]);
+    if (autoFocus) focusEditor();
+  }, [tabId, autoFocus]);
 
   return <div ref={host} data-testid="sql-editor" className="h-full min-h-0 bg-bg" />;
 }

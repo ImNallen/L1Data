@@ -1,7 +1,8 @@
+import * as Menu from "@radix-ui/react-dropdown-menu";
 import * as HoverCard from "@radix-ui/react-hover-card";
 import { DownloadIcon, RefreshCwIcon, RotateCwIcon, TriangleAlertIcon } from "lucide-react";
 import { useLive } from "../../state/live";
-import { cx, IconButton, Spinner } from "../../ui/primitives";
+import { cx, IconButton, MENU_ITEM, Spinner } from "../../ui/primitives";
 import { useNow } from "../../ui/useNow";
 import { runUpdateAction } from "./updateActions";
 import { changeSections, updateButtonView, type ChangeSection, type UpdateButtonView } from "./updateText";
@@ -82,7 +83,7 @@ function ChangesCard({ lead, sections }: { lead: string; sections: ChangeSection
 }
 
 /** Not `disabled` while a step runs, because a disabled button shows no tooltip with the progress. */
-export function UpdateButton() {
+export function UpdateButton({ menu = false }: { menu?: boolean }) {
   const updates = useLive((s) => s.updates);
   const now = useNow(updates?.status.kind === "UpToDate", 60_000);
   const view = updates && updateButtonView(updates, now);
@@ -94,18 +95,31 @@ export function UpdateButton() {
   return (
     <HoverCard.Root openDelay={400} closeDelay={200}>
       <HoverCard.Trigger asChild>
-        <IconButton
-          data-testid="update-button"
-          data-status={updates.status.kind}
-          aria-label={view.label}
-          aria-disabled={action === null}
-          title={card ? undefined : view.tooltip}
-          className="size-[34px] shrink-0 relative ml-auto rounded-full aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
-          onClick={() => action && runUpdateAction(action)}
-        >
-          <Glyph view={view} />
-          {view.attention && <span className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-run" />}
-        </IconButton>
+        {menu ? (
+          <Menu.Item
+            data-testid="update-button"
+            data-status={updates.status.kind}
+            disabled={action === null}
+            onSelect={() => action && runUpdateAction(action)}
+            className={cx(MENU_ITEM, "text-fg data-disabled:opacity-50")}
+          >
+            <Glyph view={view} />
+            <span>{view.label}</span>
+          </Menu.Item>
+        ) : (
+          <IconButton
+            data-testid="update-button"
+            data-status={updates.status.kind}
+            aria-label={view.label}
+            aria-disabled={action === null}
+            title={card ? undefined : view.tooltip}
+            className="size-[34px] shrink-0 relative ml-auto rounded-full aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
+            onClick={() => action && runUpdateAction(action)}
+          >
+            <Glyph view={view} />
+            {view.attention && <span className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-run" />}
+          </IconButton>
+        )}
       </HoverCard.Trigger>
       {card && <ChangesCard lead={view.tooltip} sections={sections} />}
     </HoverCard.Root>

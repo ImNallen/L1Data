@@ -1,5 +1,5 @@
 import * as Menu from "@radix-ui/react-dropdown-menu";
-import { ChevronDownIcon, ListIndentIncreaseIcon, PlayIcon, SquareIcon } from "lucide-react";
+import { ChevronDownIcon, DatabaseIcon, ListIndentIncreaseIcon, PlayIcon, PlusIcon, SquareIcon } from "lucide-react";
 import { ConnectionColorDot } from "../features/connections/connectionColors";
 import {
   cancelActive,
@@ -11,13 +11,16 @@ import {
   runOrChoose,
   setTabMode,
   setTabTarget,
+  setTabSchema,
+  openSqlTab,
 } from "../features/editor/runActions";
 import type { ConnectionState, DatabaseRef, Environment, TransactionLoss, TxnMode } from "../ipc/bindings";
+import { useCatalog, viewFor } from "../state/catalog";
 import { homeDb } from "../state/dbKey";
 import { instanceOf, useLive } from "../state/live";
 import { canCancel, connectionTone, hasUncommittedWork, isBusy } from "../state/status";
 import { tabTarget, useWorkspace, type Tab } from "../state/workspace";
-import { Button, CONNECTION_TONE_LABEL, Kbd, MenuContent, MenuItem, MenuLabel, StatusDot, cx } from "../ui/primitives";
+import { Button, CONNECTION_TONE_LABEL, Kbd, MenuContent, MenuItem, MenuLabel, StatusDot, IconButton, cx } from "../ui/primitives";
 import { SidebarToggle, WindowEdgeActions, windowEdgeInset, windowLeadingInset } from "./WindowEdgeActions";
 import type { HostedWindow } from "./hostedWindow";
 
@@ -110,7 +113,7 @@ function RunButton({ busy, environment, explainable }: { busy: boolean; environm
   );
 }
 
-export function TopBar({ hosted }: { hosted: HostedWindow | null }) {
+export function TopBar({ hosted, notebook = false }: { hosted: HostedWindow | null; notebook?: boolean }) {
   const tab = useWorkspace((s) => (s.active ? s.tabs[s.active] : undefined));
   const configs = useWorkspace((s) => s.configs);
   const layout = useWorkspace((s) => s.layout);
@@ -118,6 +121,7 @@ export function TopBar({ hosted }: { hosted: HostedWindow | null }) {
   const connectionId = db?.connectionId ?? null;
   const liveConsole = useLive((s) => (tab ? s.consoles[tab.id] : undefined));
   const connections = useLive((s) => s.connections);
+  const catalog = useCatalog((s) => viewFor(s.views, db)?.catalog);
   const config = connectionId ? configs[connectionId] : undefined;
   const busy = isBusy(liveConsole);
   const cancellable = canCancel(liveConsole);
@@ -133,7 +137,7 @@ export function TopBar({ hosted }: { hosted: HostedWindow | null }) {
     <header
       data-tauri-drag-region="deep"
       className={cx(
-        "@container shrink-0 border-b-2 border-transparent pt-[2px]",
+        notebook ? "workspace-context @container shrink-0" : "@container shrink-0 border-b-2 border-transparent pt-[2px]",
         windowEdgeInset(hosted),
         layout.sidebar ? "pl-4" : windowLeadingInset(hosted),
       )}
@@ -151,7 +155,11 @@ export function TopBar({ hosted }: { hosted: HostedWindow | null }) {
           {tab ? (
             <Menu.Root modal={false}>
               <Menu.Trigger data-testid="tab-connection" title={config?.name} className={cx(TARGET_TRIGGER, "-ml-1 flex-1", config ? "text-fg" : "text-dim")}>
-                <ConnectionColorDot color={config?.color ?? null} className="mr-0.5" />
+                {notebook ? (
+                  <DatabaseIcon size={14} className="shrink-0 text-keyword" />
+                ) : (
+                  <ConnectionColorDot color={config?.color ?? null} className="mr-0.5" />
+                )}
                 <span className="truncate">{config?.name ?? "No connection"}</span>
                 <ChevronDownIcon size={12} className="shrink-0 text-dim" />
               </Menu.Trigger>
@@ -176,10 +184,42 @@ export function TopBar({ hosted }: { hosted: HostedWindow | null }) {
             </span>
           )}
           {tab && db && config && (
-            <div className="flex min-w-0 flex-1 items-center overflow-hidden">
+            <div className={cx("flex min-w-0 items-center overflow-hidden", !notebook && "flex-1")}>
               <Separator />
               <DatabaseMenu tab={tab} db={db} />
             </div>
+          )}
+          {notebook && tab && db && (
+            <>
+              <Separator />
+              <Menu.Root modal={false}>
+                <Menu.Trigger data-testid="tab-schema" className={cx(TARGET_TRIGGER, "shrink-0")}>
+                  {tab.console.schema ?? catalog?.defaultSchema ?? "Schema"}
+                  <ChevronDownIcon size={12} className="text-dim" />
+                </Menu.Trigger>
+                <MenuContent>
+                  <MenuItem checked={!tab.console.schema} onSelect={() => void setTabSchema(tab.id, null)}>
+                    Default schema
+                  </MenuItem>
+                  {catalog?.schemas.map((schema) => (
+                    <MenuItem key={schema.name} checked={tab.console.schema === schema.name} onSelect={() => void setTabSchema(tab.id, schema.name)}>
+                      {schema.name}
+                    </MenuItem>
+                  ))}
+                </MenuContent>
+              </Menu.Root>
+              {environment && (
+                <>
+                  <Separator />
+                  <span
+                    data-testid="environment-marker"
+                    className={cx("shrink-0 text-ui-10", environment === "Production" ? "text-danger" : environment === "Staging" ? "text-amber" : "text-dim")}
+                  >
+                    {environment === "Local" ? "Develop" : environment}
+                  </span>
+                </>
+              )}
+            </>
           )}
         </div>
 
@@ -245,7 +285,7 @@ export function TopBar({ hosted }: { hosted: HostedWindow | null }) {
             </>
           )}
 
-          {tab && (
+          {tab && !notebook && (
             <Button
               data-testid="format-btn"
               title="Format the selection or the marked statement (⌘⌥L)"
@@ -263,8 +303,9 @@ export function TopBar({ hosted }: { hosted: HostedWindow | null }) {
             </span>
           )}
 
-          {tab && <span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-border" />}
+          {tab && !notebook && <span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-border" />}
           {tab &&
+            !notebook &&
             (cancellable ? (
               <Button
                 data-testid="cancel-btn"
@@ -286,6 +327,11 @@ export function TopBar({ hosted }: { hosted: HostedWindow | null }) {
               <RunButton busy={busy} environment={environment} explainable={!!config && explainSupported(config.databaseKind) && !isBrowsing(tab)} />
             ))}
 
+          {notebook && (
+            <IconButton data-testid="new-query-cell" aria-label="Add SQL cell" title="Add SQL cell" onClick={() => openSqlTab()}>
+              <PlusIcon size={14} />
+            </IconButton>
+          )}
           {layout.rightPanel === null && (
             <>
               <div className="mx-1 h-5 w-px bg-border" />

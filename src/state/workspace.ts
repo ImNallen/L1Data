@@ -22,7 +22,7 @@ import { useLive } from "./live";
 import type { ResultPick } from "./status";
 
 /** A tab's console target. A tab never names a connection without a database. */
-export type ConsoleTarget = { db: DatabaseRef | null; mode: TxnMode };
+export type ConsoleTarget = { db: DatabaseRef | null; mode: TxnMode; schema?: string | null };
 
 /** The table a tab opened from the sidebar browses, in the tab's console database. */
 export type TableBrowse = { schema: string; table: string; page: number; query: TableQuery; exactRowCount?: number };
@@ -105,7 +105,7 @@ const DEFAULT_LAYOUT: Layout = {
   results: true,
   rightPanel: null,
   resultsHeight: 320,
-  sidebarWidth: 256,
+  sidebarWidth: 280,
   rightPanelWidth: 341,
   assistantChat: null,
 };
@@ -138,7 +138,13 @@ export function tabFromSnapshot(t: TabSnapshot, configs: Record<ConnectionId, Co
   const config = t.console.connectionId ? configs[t.console.connectionId] : undefined;
   const db = config ? (t.console.database == null ? homeDb(config) : { connectionId: config.id, database: t.console.database }) : null;
   const table = db && t.table && { schema: t.table.schema, table: t.table.table, page: t.table.page, query: t.table.query };
-  return { id: t.id, title: t.title, console: { db, mode: t.console.mode }, table, file: t.file && { binding: t.file.binding, health: "ok" } };
+  return {
+    id: t.id,
+    title: t.title,
+    console: { db, mode: t.console.mode, ...(t.console.schema && { schema: t.console.schema }) },
+    table,
+    file: t.file && { binding: t.file.binding, health: "ok" },
+  };
 }
 
 export type Buffers = { textOf(id: TabId): string; isDirty(id: TabId): boolean };
@@ -154,7 +160,7 @@ export function workspaceSnapshot(s: Pick<WorkspaceData, "tabs" | "order" | "act
         id: t.id,
         title: t.title,
         text: buffers.textOf(t.id),
-        console: { connectionId: db?.connectionId ?? null, database: db?.database ?? null, schema: null, mode },
+        console: { connectionId: db?.connectionId ?? null, database: db?.database ?? null, schema: t.console.schema ?? null, mode },
         table: t.table && { schema: t.table.schema, table: t.table.table, page: t.table.page, query: t.table.query },
         file: t.file && { binding: t.file.binding, dirty: buffers.isDirty(t.id) },
       },

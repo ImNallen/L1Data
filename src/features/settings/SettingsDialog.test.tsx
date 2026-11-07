@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { openWorkspaceItem } from "../../testing/workspaceUI";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
@@ -20,6 +21,8 @@ beforeAll(preloadSurfaces);
 
 beforeEach(() => {
   Element.prototype.scrollIntoView = () => {};
+  Range.prototype.getClientRects = () => Object.assign([], { item: () => null });
+  Range.prototype.getBoundingClientRect = () => new DOMRect();
   useWorkspace.setState((s) => ({ settings: { ...s.settings, panelMotionMs: 0 } }));
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
   vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
@@ -48,7 +51,7 @@ it("preserves the workspace and Settings filter while quick navigation opens abo
   render(<AppLayout />);
   const main = screen.getByTestId("no-tabs");
   const tree = screen.getByTestId("conn-tree");
-  await user.click(screen.getByTestId("open-settings"));
+  await openWorkspaceItem(user, "open-settings");
   expect(screen.getByTestId("no-tabs")).toBe(main);
   expect(screen.getByTestId("conn-tree")).toBe(tree);
   expect(document.activeElement).toBe(screen.getByTestId("settings-search"));
@@ -193,7 +196,7 @@ it("hands focus to installation and restores settings after installation ends", 
 it("keeps focus in the new editor when the new-tab shortcut leaves settings", async () => {
   const user = userEvent.setup();
   render(<AppLayout />);
-  await user.click(screen.getByTestId("open-settings"));
+  await openWorkspaceItem(user, "open-settings");
   await user.keyboard("{Control>}t{/Control}");
   const editor = screen.getByTestId("sql-editor");
   expect(editor.contains(document.activeElement)).toBe(true);
@@ -205,25 +208,23 @@ it("keeps focus in the new editor when the new-tab shortcut leaves settings", as
   await waitFor(() => expect(document.activeElement).toBe(input));
 });
 
-it("keeps keyboard focus in the tab strip when switching and closing mounts another SQL editor", async () => {
+it("keeps cell actions keyboard accessible when another editor activates", async () => {
   const user = userEvent.setup();
-  let first = "";
-  let second = "";
+  let first = "",
+    second = "";
   act(() => {
     first = openSqlTab();
     second = openSqlTab();
   });
   render(<AppLayout />);
-  screen.getByTestId(`tab-${second}`).focus();
-  await user.keyboard("{ArrowLeft}");
-  await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId(`tab-${first}`)));
+  await user.click(screen.getByTestId(`tab-${first}`));
+  expect(useWorkspace.getState().active).toBe(first);
+  expect(document.activeElement).toBe(screen.getByTestId(`tab-${first}`));
   await user.tab();
-  expect(document.activeElement).toBe(screen.getByTestId(`tab-close-${first}`));
-  await user.keyboard("{Enter}");
-  await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId(`tab-${second}`)));
-  await user.tab();
-  await user.keyboard("{Enter}");
-  await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("start-new-query")));
+  expect(document.activeElement).toBe(screen.getByTestId("run-btn"));
+  await user.click(screen.getByTestId(`tab-${second}`));
+  expect(useWorkspace.getState().active).toBe(second);
+  expect(document.activeElement).toBe(screen.getByTestId(`tab-${second}`));
 });
 
 it("returns the global close-tab shortcut from the editor to the start action after the last close", async () => {

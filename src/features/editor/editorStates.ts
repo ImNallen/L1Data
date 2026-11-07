@@ -13,6 +13,7 @@ import {
   keymap,
   layer,
   lineNumbers,
+  placeholder,
   type DecorationSet,
   type LayerMarker,
 } from "@codemirror/view";
@@ -224,6 +225,7 @@ function createState(text: string): EditorState {
     extensions: [
       behavior,
       lineNumbers(),
+      placeholder("Write SQL, or ask the assistant to add a query…"),
       highlightActiveLineGutter(),
       highlightActiveLine(),
       history(),

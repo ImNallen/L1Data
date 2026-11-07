@@ -1699,9 +1699,9 @@ impl Default for Layout {
         Self {
             sidebar: true,
             results: true,
-            right_panel: None,
+            right_panel: Some(RightPanel::Assistant),
             results_height: 320,
-            sidebar_width: 256,
+            sidebar_width: 280,
             right_panel_width: 341,
             assistant_chat: None,
         }
@@ -3294,7 +3294,7 @@ mod tests {
         let schema: Layout = serde_json::from_value(json!({ "sidebar": true, "results": true, "rightPanel": "Schema", "resultsHeight": 280 })).unwrap();
         assert_eq!(schema.right_panel, Some(RightPanel::Assistant));
         assert_eq!(layout.results_height, 280);
-        assert_eq!(layout.sidebar_width, 256);
+        assert_eq!(layout.sidebar_width, 280);
         assert_eq!(layout.right_panel_width, 341);
     }
 

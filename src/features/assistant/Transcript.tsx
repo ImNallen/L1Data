@@ -7,6 +7,7 @@ import { Button } from "../../ui/primitives";
 import { agentErrorText, contextChip, type ProviderVoice } from "./assistantText";
 import { sendMessage } from "./assistantActions";
 import { ReplyText } from "./ReplyText";
+import { ChatChoices } from "./ChatChoices";
 import { ToolCard } from "./ToolCard";
 
 const PIN_SLACK_PX = 32;
@@ -15,7 +16,7 @@ function UserMessage({ seq, entry }: { seq: number; entry: UserEntry }) {
   const chip = contextChip(entry);
   return (
     <div data-testid={`chat-user-${seq}`} className="flex flex-col items-end gap-1 pl-8">
-      <p className="selectable rounded-xl bg-pill px-3 py-2 text-ui-13 leading-relaxed break-words whitespace-pre-wrap text-fg">{entry.text}</p>
+      <p className="selectable rounded-lg bg-selected p-3 text-ui-13 leading-[22px] break-words whitespace-pre-wrap text-fg">{entry.text}</p>
       {chip && <p className="px-1 text-right text-ui-11.5 text-dim">{chip}</p>}
     </div>
   );
@@ -71,18 +72,9 @@ function EndBody({
   switch (outcome.kind) {
     case "Completed":
       if (!last) return null;
-      return end.suggestions.map((s) => (
-        <button
-          key={s}
-          type="button"
-          data-testid="suggestion-chip"
-          disabled={!idle}
-          onClick={() => void sendMessage(chatId, s, false)}
-          className="rounded-lg border border-control px-2.5 py-1 text-left text-ui-12.5 text-muted transition-colors hover:bg-hover hover:text-fg disabled:opacity-40"
-        >
-          {s}
-        </button>
-      ));
+      return end.suggestions.length > 0 ? (
+        <ChatChoices options={end.suggestions} disabled={!idle} multiple onContinue={(choices) => void sendMessage(chatId, choices.join("\n"), false)} />
+      ) : null;
     case "Stopped":
       return <p className="text-ui-12.5 text-dim">Stopped</p>;
     case "Lost":
@@ -127,11 +119,7 @@ function Turn({ chat, view, last, voice }: { chat: ChatState; view: TurnView; la
       ))}
       {waiting && <p className="animate-pulse text-ui-12.5 text-dim">{phase === "Starting" ? `Starting ${voice.name}…` : "Thinking…"}</p>}
       {view.end && (
-        <div
-          data-testid={`chat-end-${view.end.seq}`}
-          data-outcome={view.end.entry.outcome.kind}
-          className="flex flex-wrap items-center gap-x-2 gap-y-1.5 empty:hidden"
-        >
+        <div data-testid={`chat-end-${view.end.seq}`} data-outcome={view.end.entry.outcome.kind} className="flex flex-col gap-2 empty:hidden">
           <EndBody chatId={chat.id} end={view.end.entry} user={view.user?.entry ?? null} last={last} idle={status.kind === "Idle"} voice={voice} />
         </div>
       )}
@@ -245,7 +233,7 @@ export function Transcript({ chat }: { chat: ChatState }) {
       {/* A log, but a quiet one: streamed tokens would be read a fragment at a time. The regions above speak for it. */}
       <div ref={content} role="log" aria-live="off" aria-label="Chat transcript" className="flex flex-col gap-6 px-4 pt-2 pb-6">
         {turns.length === 0 ? (
-          <p className="pt-10 text-center text-ui-12.5 text-dim">Ask for help with your database.</p>
+          <p className="pt-10 text-center text-ui-13 text-dim">Ask for help with your database.</p>
         ) : (
           turns.map((t, i) => <Turn key={t.turn} chat={chat} view={t} last={i === turns.length - 1} voice={voice} />)
         )}

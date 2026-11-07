@@ -1,15 +1,15 @@
 import * as Menu from "@radix-ui/react-dropdown-menu";
-import { ArrowUpIcon, BrainIcon, ChevronDownIcon, LockIcon, LockOpenIcon, PaperclipIcon, SquareIcon, TableIcon, TriangleAlertIcon, XIcon } from "lucide-react";
+import { ArrowUpIcon, ChevronDownIcon, LockIcon, LockOpenIcon, PlusIcon, DatabaseIcon, SquareIcon, TableIcon, TriangleAlertIcon, XIcon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { commands, type ChatOptions, type ChatState, type ModelOption, type Permission } from "../../ipc/bindings";
+import { useCatalog, viewFor } from "../../state/catalog";
 import { useLive } from "../../state/live";
 import { databaseKindFor } from "../../state/databaseKind";
 import { tabTarget, useWorkspace } from "../../state/workspace";
-import { cx, IconButton, MenuContent, MenuItem, MenuLabel } from "../../ui/primitives";
+import { IconButton, MenuContent, MenuItem, MenuLabel } from "../../ui/primitives";
 import { pluralRows } from "../results/format";
 import { configureChat, effortFor, gridResult, sendMessage, stopTurn } from "./assistantActions";
 import { providerBanner, type ProviderBanner } from "./assistantText";
-import { PROVIDER_ICONS } from "./providerIcons";
 
 const MAX_INPUT_PX = 200;
 
@@ -35,19 +35,13 @@ function Picker({ testId, label, icon, disabled, children }: { testId: string; l
   );
 }
 
-const Divider = () => <span aria-hidden className="mx-0.5 h-4 w-px shrink-0 bg-border" />;
-
 function Pickers({ chat, models }: { chat: ChatState; models: ModelOption[] }) {
-  const full = useWorkspace((s) => s.settings.assistantAccess === "Full");
   const { options } = chat;
-  const Icon = PROVIDER_ICONS[options.provider];
   const model = models.find((m) => m.id === options.model);
-  const efforts = model?.efforts ?? [];
   const configure = (patch: Partial<ChatOptions>) => void configureChat(chat.id, { ...options, ...patch });
-  const permission = PERMISSIONS[options.permission];
   return (
     <div className="flex min-w-0 items-center">
-      <Picker testId="assistant-model" label={model?.label ?? options.model} icon={<Icon size={13} />}>
+      <Picker testId="assistant-model" label={model?.label ?? options.model} icon={null}>
         {models.length === 0 && <MenuLabel>Models appear once the provider is checked.</MenuLabel>}
         {models.map((m) => (
           <MenuItem key={m.id} checked={m.id === options.model} onSelect={() => configure({ model: m.id, effort: effortFor(m, options.effort) })}>
@@ -56,33 +50,6 @@ function Pickers({ chat, models }: { chat: ChatState; models: ModelOption[] }) {
           </MenuItem>
         ))}
       </Picker>
-      {efforts.length > 0 && (
-        <>
-          <Divider />
-          <Picker
-            testId="assistant-effort"
-            label={efforts.find((e) => e.id === options.effort)?.label ?? "Effort"}
-            icon={<BrainIcon size={13} className="shrink-0" />}
-          >
-            {efforts.map((e) => (
-              <MenuItem key={e.id} checked={e.id === options.effort} onSelect={() => configure({ effort: e.id })}>
-                {e.label}
-              </MenuItem>
-            ))}
-          </Picker>
-        </>
-      )}
-      {full && <Divider />}
-      {full && (
-        <Picker testId="assistant-permission" label={permission.label} icon={<permission.Icon size={13} className="shrink-0" />}>
-          {(Object.keys(PERMISSIONS) as Permission[]).map((p) => (
-            <MenuItem key={p} checked={p === options.permission} onSelect={() => configure({ permission: p })}>
-              {PERMISSIONS[p].label}
-              <span className="ml-auto pl-4 text-ui-11.5 text-dim">{PERMISSIONS[p].hint}</span>
-            </MenuItem>
-          ))}
-        </Picker>
-      )}
     </div>
   );
 }
@@ -141,6 +108,10 @@ export function Composer({ chat }: { chat: ChatState | undefined }) {
     if (!db) return "No database selected";
     return `${s.configs[db.connectionId]?.name ?? "Unknown connection"} / ${db.database}`;
   });
+  const db = useWorkspace((s) => tabTarget(s.active ? s.tabs[s.active] : undefined));
+  const schema = useWorkspace((s) => (s.active ? s.tabs[s.active]?.console.schema : null));
+  const catalog = useCatalog((s) => viewFor(s.views, db)?.catalog);
+  const contextLabel = db ? `${db.database} / ${schema ?? catalog?.defaultSchema ?? "default"}` : targetLabel;
   const tabTitle = useWorkspace((s) => (s.active ? s.tabs[s.active]?.title : undefined));
   const sqlServer = useWorkspace((s) => databaseKindFor(tabTarget(s.active ? s.tabs[s.active] : undefined), s.configs) === "SqlServer");
   const picked = useWorkspace((s) => (s.active ? s.activeResult[s.active] : undefined));
@@ -161,6 +132,10 @@ export function Composer({ chat }: { chat: ChatState | undefined }) {
   const state = useLive((s) => (provider ? s.providers[provider] : undefined));
   const banner = chat ? providerBanner(config, state) : null;
   const models = state?.outcome?.kind === "Ready" ? state.outcome.models : [];
+  const efforts = models.find((m) => m.id === chat?.options.model)?.efforts ?? [];
+  const configure = (patch: Partial<ChatOptions>) => {
+    if (chat) void configureChat(chat.id, { ...chat.options, ...patch });
+  };
   const running = chat?.status.kind === "Running";
   const canSend = chat !== undefined && !running && !sending && banner?.kind !== "Off" && text.trim() !== "";
 
@@ -185,31 +160,10 @@ export function Composer({ chat }: { chat: ChatState | undefined }) {
   return (
     <div className="shrink-0 px-3 pb-3">
       {banner && <Banner banner={banner} />}
-      {sqlServer && (
-        <p data-testid="assistant-sqlserver-limit" className="mb-2 text-ui-12 leading-relaxed text-dim">
-          The assistant can inspect SQL Server schema and suggest SQL. Its run_query tool is unavailable for SQL Server. Open suggested SQL in a tab to run it.
-        </p>
-      )}
-      <div data-testid="assistant-access" className="mb-2 text-ui-12 leading-relaxed text-dim">
-        <p className="mb-1">
-          {full
-            ? "Editor SQL and errors are sent. Chat text is sent as written."
-            : "Schema structure and your chat text are sent, including anything you paste."}
-        </p>
-        <div className="flex min-w-0 items-center gap-2">
-          <span data-testid="assistant-target" title={targetLabel} className="min-w-0 flex-1 truncate text-muted">
-            {targetLabel}
-          </span>
-          <button
-            type="button"
-            className="shrink-0 text-muted underline-offset-2 hover:underline"
-            onClick={() => useWorkspace.getState().openSettings("general")}
-          >
-            {full ? "Full access" : "Schema only"}
-          </button>
-        </div>
+      <div data-testid="assistant-access" className="sr-only">
+        {full ? "Editor SQL and errors are sent. Chat text is sent as written." : "Schema structure and your chat text are sent, including anything you paste."}
       </div>
-      <div className="rounded-xl border border-control bg-raised focus-within:border-focus">
+      <div className="chat-composer">
         {attaching && (
           <div className="flex px-3 pt-2.5">
             <span
@@ -237,31 +191,55 @@ export function Composer({ chat }: { chat: ChatState | undefined }) {
           aria-label="Message the assistant"
           rows={2}
           value={text}
-          placeholder={full ? "Ask about your data, send follow-ups, or attach a result" : "Ask for SQL help using your schema"}
+          placeholder="Message assistant…"
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
             e.preventDefault();
             void send();
           }}
-          className="block w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-ui-13 leading-relaxed text-fg outline-none placeholder:text-dim"
+          className="block w-full resize-none bg-transparent text-fg outline-none placeholder:text-dim"
         />
-        <div className="flex items-center gap-1 px-1.5 pb-1.5">
+        <div className="mt-2 flex items-center gap-1">
+          <Menu.Root modal={false}>
+            <Menu.Trigger asChild>
+              <IconButton data-testid="assistant-options" aria-label="Assistant options" title="Add context and options">
+                <PlusIcon size={16} />
+              </IconButton>
+            </Menu.Trigger>
+            <MenuContent>
+              {full && (
+                <MenuItem testId="assistant-attach" disabled={!shown} onSelect={() => setAttach((a) => !a)}>
+                  <TableIcon size={13} />
+                  {attaching ? "Remove result attachment" : "Attach current result"}
+                </MenuItem>
+              )}
+              {efforts.length > 0 && <MenuLabel>Reasoning effort</MenuLabel>}
+              {efforts.map((effort) => (
+                <MenuItem key={effort.id} checked={chat?.options.effort === effort.id} onSelect={() => configure({ effort: effort.id })}>
+                  {effort.label}
+                </MenuItem>
+              ))}
+              {full && <MenuLabel>Query permissions</MenuLabel>}
+              {full &&
+                (["AskFirst", "Auto"] as const).map((permission) => (
+                  <MenuItem
+                    key={permission}
+                    testId={`assistant-permission-${permission}`}
+                    checked={chat?.options.permission === permission}
+                    onSelect={() => configure({ permission })}
+                  >
+                    {PERMISSIONS[permission].label}
+                    <span className="ml-auto pl-3 text-ui-11 text-dim">{PERMISSIONS[permission].hint}</span>
+                  </MenuItem>
+                ))}
+              <MenuLabel>Sharing</MenuLabel>
+              <MenuItem onSelect={() => useWorkspace.getState().openSettings("general")}>{full ? "Full access" : "Schema only"}</MenuItem>
+              <MenuLabel>{full ? "Editor SQL, errors and chat text are shared." : "Schema and chat text, including pasted text."}</MenuLabel>
+            </MenuContent>
+          </Menu.Root>
           {chat && <Pickers chat={chat} models={models} />}
           <div className="flex-1" />
-          {full && (
-            <IconButton
-              data-testid="assistant-attach"
-              aria-label="Attach the result this tab shows"
-              aria-pressed={attaching}
-              title={shown ? "Attach the result this tab shows" : "Run a query to attach its result"}
-              disabled={!shown}
-              onClick={() => setAttach((a) => !a)}
-              className={cx(attaching && "bg-pill text-fg")}
-            >
-              <PaperclipIcon size={15} />
-            </IconButton>
-          )}
           {running ? (
             <button
               type="button"
@@ -269,7 +247,7 @@ export function Composer({ chat }: { chat: ChatState | undefined }) {
               aria-label="Stop"
               title="Stop"
               onClick={() => stopTurn(chat.id)}
-              className="grid size-7 place-items-center rounded-full bg-muted text-bg transition-colors hover:bg-fg"
+              className="grid size-7 place-items-center rounded-full bg-fg text-bg transition-colors hover:opacity-85"
             >
               <SquareIcon fill="currentColor" size={12} />
             </button>
@@ -281,13 +259,38 @@ export function Composer({ chat }: { chat: ChatState | undefined }) {
               title="Send"
               disabled={!canSend}
               onClick={() => void send()}
-              className="grid size-7 place-items-center rounded-full bg-muted text-bg transition-colors hover:bg-fg disabled:pointer-events-none disabled:opacity-40"
+              className="grid size-7 place-items-center rounded-full bg-fg text-bg transition-colors hover:opacity-85 disabled:pointer-events-none disabled:opacity-40"
             >
               <ArrowUpIcon size={15} strokeWidth={2.25} />
             </button>
           )}
         </div>
       </div>
+      {db || attaching ? (
+        <div className="chat-composer-details">
+          <DatabaseIcon size={12} className="shrink-0" />
+          <span data-testid="assistant-target" title={targetLabel} className="min-w-0 flex-1 truncate">
+            {contextLabel}
+          </span>
+          <button
+            type="button"
+            title={full ? "Editor SQL, errors and chat text are shared" : "Schema and chat text are shared, including anything you paste"}
+            onClick={() => useWorkspace.getState().openSettings("general")}
+            className="shrink-0 hover:text-fg"
+          >
+            {full ? "Full access" : "Schema only"}
+          </button>
+        </div>
+      ) : (
+        <span data-testid="assistant-target" title={targetLabel} className="sr-only">
+          {targetLabel}
+        </span>
+      )}
+      {sqlServer && (
+        <p data-testid="assistant-sqlserver-limit" className="sr-only">
+          SQL Server assistant tools inspect schema only; run suggested SQL manually in chat or a notebook cell.
+        </p>
+      )}
     </div>
   );
 }

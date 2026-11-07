@@ -55,8 +55,8 @@ import { docText } from "./docText";
 const ws = () => useWorkspace.getState();
 const notify = (text: string) => ws().notify(text);
 
-function consoleConfig({ db, mode }: ConsoleTarget): ConsoleConfig | null {
-  return db && { connectionId: db.connectionId, database: db.database, schema: null, mode };
+function consoleConfig({ db, mode, schema }: ConsoleTarget): ConsoleConfig | null {
+  return db && { connectionId: db.connectionId, database: db.database, schema: schema ?? null, mode };
 }
 
 function sameConfig(a: ConsoleConfig, b: ConsoleConfig): boolean {
@@ -389,6 +389,8 @@ async function reconfigure(tabId: TabId, patch: Partial<ConsoleTarget>) {
   ws().patchConsole(tabId, patch);
 }
 
+export const setTabSchema = (tabId: TabId, schema: string | null) => reconfigure(tabId, { schema });
+
 export const setTabMode = (tabId: TabId, mode: TxnMode) => reconfigure(tabId, { mode });
 
 export function setTabTarget(tabId: TabId, db: DatabaseRef): Promise<void> {
@@ -398,7 +400,10 @@ export function setTabTarget(tabId: TabId, db: DatabaseRef): Promise<void> {
     notify("Submit or revert the pending changes first.");
     return Promise.resolve();
   }
-  return reconfigure(tabId, { db: resolveDb(db, useLive.getState().connections[db.connectionId]) });
+  return reconfigure(tabId, {
+    db: resolveDb(db, useLive.getState().connections[db.connectionId]),
+    ...(!sameDb(ws().tabs[tabId]?.console.db, db) && { schema: null }),
+  });
 }
 
 function defaultTarget(): DatabaseRef | null {
@@ -411,15 +416,18 @@ function defaultTarget(): DatabaseRef | null {
   return config ? homeDb(config, live[config.id]) : null;
 }
 
-export function openSqlTab(opts: { db?: DatabaseRef | null; text?: string; title?: string } = {}): TabId {
+export function openSqlTab(opts: { db?: DatabaseRef | null; schema?: string | null; text?: string; title?: string } = {}): TabId {
   const id = crypto.randomUUID();
+  const current = ws();
+  const inheritedSchema = current.active ? current.tabs[current.active]?.console.schema : undefined;
+  const schema = opts.schema !== undefined ? opts.schema : opts.db === undefined ? inheritedSchema : undefined;
   const target = opts.db === undefined ? defaultTarget() : opts.db;
   const db = target && resolveDb(target, useLive.getState().connections[target.connectionId]);
   seedEditor(id, opts.text ?? "");
   ws().addTab({
     id,
     title: opts.title ?? nextUntitled(Object.values(ws().tabs)),
-    console: { db, mode: "AutoCommit" },
+    console: { db, mode: "AutoCommit", ...(schema && { schema }) },
     table: null,
     file: null,
   });

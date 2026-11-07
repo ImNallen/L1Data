@@ -11,6 +11,7 @@ import { connectedState, connectionConfig, databaseState } from "../../testing/c
 import { shopCatalog } from "../../testing/shopCatalog";
 import { dropEditor, seedEditor, textOf } from "../editor/editorStates";
 import { Sidebar } from "./Sidebar";
+import { ConnectionTreeHarness } from "../../testing/ConnectionTreeHarness";
 
 const shop = { connectionId: "p", database: "shop" };
 
@@ -53,19 +54,19 @@ const tabStops = () => screen.getAllByRole("treeitem").filter((r) => r.tabIndex 
 
 it("is one Tab stop that starts on the first row and returns to the row last focused", async () => {
   const user = userEvent.setup();
-  render(<Sidebar hosted={null} />);
+  render(<ConnectionTreeHarness />);
   expect(tabStops()).toEqual([row("prod")]);
   expect(row("prod").getAttribute("aria-level")).toBe("1");
   expect(row("prod/shop/public/orders").getAttribute("aria-level")).toBe("4");
 
-  screen.getByTestId("new-connection").focus();
+  screen.getByTestId("before-tree").focus();
   await user.tab();
   expect(focusedPath()).toBe("prod");
 
   await user.keyboard("{ArrowDown}{ArrowDown}");
   expect(focusedPath()).toBe("prod/shop/public");
   await user.tab();
-  expect(document.activeElement).toBe(screen.getByTestId("open-settings"));
+  expect(document.activeElement).toBe(screen.getByTestId("after-tree"));
   await user.tab({ shift: true });
   expect(focusedPath()).toBe("prod/shop/public");
   expect(tabStops()).toEqual([row("prod/shop/public")]);
@@ -73,7 +74,7 @@ it("is one Tab stop that starts on the first row and returns to the row last foc
 
 it("moves with the arrows, Home and End, and opens and closes rows with Right and Left", async () => {
   const user = userEvent.setup();
-  render(<Sidebar hosted={null} />);
+  render(<ConnectionTreeHarness />);
   row("prod/shop/public/orders").focus();
 
   await user.keyboard("{ArrowRight}");
@@ -103,7 +104,7 @@ it("moves with the arrows, Home and End, and opens and closes rows with Right an
 it("reaches rows scrolled out of the rendered window, and keeps the focused row rendered", async () => {
   viewport = 100;
   const user = userEvent.setup();
-  render(<Sidebar hosted={null} />);
+  render(<ConnectionTreeHarness />);
   expect(screen.queryByTestId("tree-node-prod/shop/public/#functions")).toBeNull();
   row("prod").focus();
 
@@ -126,7 +127,7 @@ it("reaches rows scrolled out of the rendered window, and keeps the focused row 
 
 it("opens a table with Enter, as a double-click does", async () => {
   const user = userEvent.setup();
-  render(<Sidebar hosted={null} />);
+  render(<ConnectionTreeHarness />);
   row("prod/shop/public/orders").focus();
   await user.keyboard("{Enter}");
   await waitFor(() => expect(Object.values(useWorkspace.getState().tabs).map((t) => t.title)).toEqual(["orders"]));
@@ -141,7 +142,7 @@ it("inserts a routine's template with Enter, and toggles a row that has no doubl
   });
   seedEditor("t1", "");
   const user = userEvent.setup();
-  render(<Sidebar hosted={null} />);
+  render(<ConnectionTreeHarness />);
   row("prod/shop/public/#functions").focus();
 
   await user.keyboard("{Enter}");
@@ -155,7 +156,7 @@ it("inserts a routine's template with Enter, and toggles a row that has no doubl
 it("walks the search results the same way, entered from the search box with Down", async () => {
   useWorkspace.setState({ treeQuery: "order" });
   const user = userEvent.setup();
-  render(<Sidebar hosted={null} />);
+  render(<ConnectionTreeHarness />);
   screen.getByTestId("sidebar-search").focus();
 
   await user.keyboard("{ArrowDown}");
@@ -180,7 +181,7 @@ it("shows environment-colored database icons for connected, disconnected and fil
       n: connectionConfig("n", "unset"),
     },
   });
-  render(<Sidebar hosted={null} />);
+  render(<ConnectionTreeHarness />);
   for (const { name, label, tone } of [
     { name: "prod", label: "Production", tone: "text-danger" },
     { name: "stage", label: "Staging", tone: "text-amber" },

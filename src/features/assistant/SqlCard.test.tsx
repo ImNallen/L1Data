@@ -10,19 +10,19 @@ const card = (props: { vetted?: boolean; complete: boolean }) =>
   renderToStaticMarkup(<SqlCard sql={SQL} relations={["orders", "customers"]} vetted={props.vetted ?? true} complete={props.complete} db={DB} />);
 const button = (html: string, id: string) => new RegExp(`<button[^>]*data-testid="${id}"[^>]*>`).exec(html)?.[0] ?? null;
 const disabled = (html: string, ids: string[]) => ids.map((id) => button(html, id)?.includes('disabled=""') ?? null);
-const ACTIONS = ["sql-run-new-tab", "sql-insert", "sql-replace", "sql-card-copy"];
+const ACTIONS = ["sql-run-here", "sql-add-cell", "sql-card-copy"];
 
 it("names the relations the SQL uses and holds every action until the block is complete", () => {
   const streaming = card({ complete: false });
   expect(/data-testid="sql-card-uses"[^>]*>(.*?)<\/span>/.exec(streaming)?.[1]).toBe("Uses orders, customers");
-  expect(disabled(streaming, ACTIONS)).toEqual([true, true, true, true]);
-  expect(disabled(card({ complete: true }), ACTIONS)).toEqual([false, false, false, false]);
+  expect(disabled(streaming, ACTIONS)).toEqual([true, true, true]);
+  expect(disabled(card({ complete: true }), ACTIONS)).toEqual([false, false, false]);
 });
 
 it("offers Open in new tab instead of Run when the engine did not vet the SQL", () => {
   const html = card({ vetted: false, complete: true });
-  expect([button(html, "sql-run-new-tab"), disabled(html, ["sql-open-new-tab"])]).toEqual([null, [false]]);
-  expect(html).toContain(">Open in new tab</button>");
+  expect([button(html, "sql-run-here"), disabled(html, ["sql-open-new-tab"])]).toEqual([null, [false]]);
+  expect(html).toContain(">Add to cell</button>");
 });
 
 it("colors SQL with the editor's token classes and draws a keyword-named call as a plain name", () => {

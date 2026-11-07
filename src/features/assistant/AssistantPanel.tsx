@@ -1,3 +1,4 @@
+import { ChevronDownIcon } from "lucide-react";
 import { useEffect } from "react";
 import { useLive } from "../../state/live";
 import { useWorkspace } from "../../state/workspace";
@@ -16,6 +17,10 @@ export function AssistantPanel() {
   }, [chatId, deleted, opened]);
   return (
     <div data-testid="assistant-panel" className="flex min-h-0 flex-1 flex-col">
+      <div className="flex h-8 shrink-0 items-center gap-2 px-4 text-ui-12 font-medium">
+        <span className="min-w-0 truncate">{chat?.title || "New conversation"}</span>
+        <ChevronDownIcon size={10} className="text-dim" />
+      </div>
       {chat && !deleted ? <Transcript key={chat.id} chat={chat} /> : <div className="flex-1" />}
       <Composer chat={deleted ? undefined : chat} />
     </div>
