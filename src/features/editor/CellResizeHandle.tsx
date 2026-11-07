@@ -47,7 +47,6 @@ export function CellResizeHandle({ label, testId, value, min, max, lineColor, on
     e.preventDefault();
     onResize(clamp(value + step, min, max));
   };
-  const look = handleLook("horizontal", lineColor);
   return (
     <div
       data-testid={testId}
@@ -61,15 +60,13 @@ export function CellResizeHandle({ label, testId, value, min, max, lineColor, on
       aria-valuemax={max}
       tabIndex={0}
       data-separator={dragging ? "active" : undefined}
-      className={`${look.root} cursor-ns-resize`}
+      className={`${handleLook("horizontal", lineColor)} cursor-ns-resize`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerEnd}
       onPointerCancel={onPointerEnd}
       onKeyDown={onKeyDown}
       onDoubleClick={() => onResize(null)}
-    >
-      <div className={look.pill} />
-    </div>
+    />
   );
 }

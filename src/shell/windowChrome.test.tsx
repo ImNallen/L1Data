@@ -203,15 +203,16 @@ it("insets the sidebar toggle from the window's left edge by the same amount in 
   }
 });
 
-const SIDEBAR_RESIZE = /<div[^>]*data-testid="sidebar-resize"[^>]*>(.*?)<\/div><\/div>/;
+// An empty element: the line itself is the handle, with no pill inside it.
+const handle = (html: string, id: string) => html.match(new RegExp(`<div[^>]*data-testid="${id}"[^>]*></div>`))?.[0];
 
-it("puts a labelled resize handle with a centered pill on the open sidebar's edge", () => {
+it("puts a labelled resize line on the open sidebar's edge that shows hover, focus, and drag", () => {
   withLayout({ sidebar: true });
   const html = renderToStaticMarkup(<AppLayout />);
-  const separator = html.match(SIDEBAR_RESIZE);
-  expect(separator?.[0]).toContain('role="separator"');
-  expect(separator?.[0]).toContain('aria-label="Resize sidebar"');
-  expect(separator?.[1]).toContain("rounded-full");
+  const separator = handle(html, "sidebar-resize");
+  expect(separator).toContain('role="separator"');
+  expect(separator).toContain('aria-label="Resize sidebar"');
+  for (const state of ["hover:bg-handle-hover", "focus-visible:bg-focus", "data-[separator=active]:bg-run"]) expect(separator).toContain(state);
   expect(html.indexOf('data-testid="sidebar-header"')).toBeLessThan(html.indexOf('data-testid="sidebar-resize"'));
 });
 
@@ -221,8 +222,6 @@ it("drops the sidebar resize handle while the sidebar is hidden", () => {
   expect(html).not.toContain('data-testid="sidebar-resize"');
   expect(html).not.toContain('aria-label="Resize sidebar"');
 });
-
-const handle = (html: string, id: string) => html.match(new RegExp(`<div[^>]*data-testid="${id}"[^>]*>(.*?)</div></div>`));
 
 function withQueryTab() {
   const tab: Tab = { id: "t1", title: "Untitled-1.sql", console: { db: null, mode: "AutoCommit" }, table: null, file: null };
@@ -268,13 +267,12 @@ it("lists the start commands with their shortcuts when no tab is open", () => {
   expect(html).not.toContain("No open tabs.");
 });
 
-it("makes the open right panel a resizable panel after the main area, behind its own pill handle", () => {
+it("makes the open right panel a resizable panel after the main area, behind its own resize line", () => {
   withLayout({ rightPanel: "Assistant" });
   const html = renderToStaticMarkup(<AppLayout />);
   const right = handle(html, "right-panel-resize");
-  expect(right?.[0]).toContain('role="separator"');
-  expect(right?.[0]).toContain('aria-label="Resize right panel"');
-  expect(right?.[1]).toContain("h-8 w-[5px]");
+  expect(right).toContain('role="separator"');
+  expect(right).toContain('aria-label="Resize right panel"');
   const order = ['data-testid="main"', 'data-testid="right-panel-resize"', 'data-testid="right"', 'data-testid="right-panel"'].map((m) => html.indexOf(m));
   expect(order.every((at) => at >= 0)).toBe(true);
   expect(order).toEqual([...order].sort((a, b) => a - b));
