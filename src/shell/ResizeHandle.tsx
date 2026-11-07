@@ -2,32 +2,20 @@ import { Separator } from "react-resizable-panels";
 import { cx } from "../ui/primitives";
 
 // The line runs vertically between side-by-side panels and horizontally between stacked ones. A keyboard focus turns the
-// pill the focus colour, the only sign of focus the handle has. The library's own `focus` state also follows a click, so
+// line the focus colour, the only sign of focus the handle has. The library's own `focus` state also follows a click, so
 // it is not used.
 const LINE = {
-  vertical: {
-    line: "w-px after:inset-y-0 after:-inset-x-1",
-    pill: "top-1/2 -left-0.5 h-8 w-[5px] -translate-y-1/2",
-  },
-  horizontal: {
-    line: "h-px after:inset-x-0 after:-inset-y-1",
-    pill: "left-1/2 -top-0.5 h-[5px] w-8 -translate-x-1/2",
-  },
+  vertical: "w-px after:inset-y-0 after:-inset-x-1",
+  horizontal: "h-px after:inset-x-0 after:-inset-y-1",
 } as const;
 
-export const handleLook = (line: keyof typeof LINE, lineColor: string) => ({
-  root: cx("group relative z-10 outline-none after:absolute", LINE[line].line, lineColor),
-  pill: cx(
-    "pointer-events-none absolute rounded-full bg-handle transition-colors group-hover:bg-handle-hover group-data-[separator=hover]:bg-handle-hover group-focus-visible:bg-focus group-data-[separator=active]:bg-run",
-    LINE[line].pill,
-  ),
-});
+export const handleLook = (line: keyof typeof LINE, lineColor: string) =>
+  cx(
+    "relative z-10 outline-none transition-colors after:absolute hover:bg-handle-hover data-[separator=hover]:bg-handle-hover focus-visible:bg-focus data-[separator=active]:bg-run",
+    LINE[line],
+    lineColor,
+  );
 
 export function ResizeHandle({ id, label, line, lineColor }: { id: string; label: string; line: keyof typeof LINE; lineColor: string }) {
-  const look = handleLook(line, lineColor);
-  return (
-    <Separator id={id} aria-label={label} className={look.root}>
-      <div className={look.pill} />
-    </Separator>
-  );
+  return <Separator id={id} aria-label={label} className={handleLook(line, lineColor)} />;
 }

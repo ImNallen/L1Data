@@ -118,7 +118,6 @@ export function PixelColumn({ column, open, children }: { column: Column; open: 
   if (phase === "closed") return null;
   const sliding = phase !== "open";
 
-  const look = handleLook("vertical", line);
   const separator = (
     <div
       id={handle}
@@ -133,16 +132,14 @@ export function PixelColumn({ column, open, children }: { column: Column; open: 
       aria-valuemax={max}
       tabIndex={0}
       data-separator={dragged === null ? undefined : "active"}
-      className={`${look.root} shrink-0 cursor-ew-resize`}
+      className={`${handleLook("vertical", line)} shrink-0 cursor-ew-resize`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerEnd}
       onPointerCancel={onPointerEnd}
       onKeyDown={onKeyDown}
       onDoubleClick={() => save(COLUMNS[column].reset)}
-    >
-      <div className={look.pill} />
-    </div>
+    />
   );
   const content = (
     <div
