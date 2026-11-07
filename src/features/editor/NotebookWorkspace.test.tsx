@@ -264,3 +264,17 @@ it("brings the focused cell back into view when a resize ends, not while it runs
   fireEvent.keyDown(handle, { key: "ArrowDown" });
   expect(scroll).toHaveBeenCalledTimes(2);
 });
+
+it("follows a focused cell's results while they grow, and stops once they reach the viewport", async () => {
+  withRowCounts({ a: [2] });
+  await renderNotebook();
+  const scroll = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+
+  act(() => withRowCounts({ a: [1000] }));
+  expect(resultsHeight("a")).toBe(FILLED);
+  expect(scroll).toHaveBeenCalledTimes(1);
+
+  act(() => withRowCounts({ a: [2000] }));
+  act(() => withRowCounts({ a: [3000] }));
+  expect(scroll).toHaveBeenCalledTimes(1);
+});

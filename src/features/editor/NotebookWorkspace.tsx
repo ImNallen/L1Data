@@ -63,9 +63,19 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
   const hasResults = showResults && ((tab?.table != null && active) || (console !== undefined && console.run.kind !== "Idle"));
   const rowCounts = console ? rowResults(console.run).map((result) => result.meta.rowCount) : [];
   const rows = rowCounts.length > 0 ? Math.max(...rowCounts) : undefined;
+  const heights = cellHeights({
+    viewport,
+    lines: text.split("\n").length,
+    lineHeight: Math.round(codeSize * 1.54),
+    results: hasResults
+      ? { table: tab?.table != null, rows, rowHeight: gridRowHeight(codeSize, density), chrome: Math.round(80 * DENSITY_FACTOR[density]) }
+      : null,
+    focused,
+    dragged,
+  });
   useEffect(() => {
     if (focused && !dragging) cell.current?.scrollIntoView({ block: "nearest" });
-  }, [focused, dragging, dragged, hasResults, rows, viewport]);
+  }, [focused, dragging, dragged, heights.results, viewport]);
   if (!tab) return null;
   const activate = (focus = false) => {
     setFocusOnActivate(focus);
@@ -75,16 +85,6 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
   const busy = isBusy(console);
   const pending = hasUncommittedWork(console);
   const cancellable = canCancel(console);
-  const heights = cellHeights({
-    viewport,
-    lines: text.split("\n").length,
-    lineHeight: Math.round(codeSize * 1.54),
-    results: hasResults
-      ? { table: tab.table !== null, rows, rowHeight: gridRowHeight(codeSize, density), chrome: Math.round(80 * DENSITY_FACTOR[density]) }
-      : null,
-    focused,
-    dragged,
-  });
   const editorHandle = {
     label: `Resize query in ${tab.title}`,
     testId: "cell-editor-resize",
