@@ -54,7 +54,7 @@ export function TablePageSizeSetting() {
     <Row
       setting="tablePageSize"
       labelFor="setting-page-size"
-      hint="Rows per page when browsing a table."
+      hint="Rows per page in query results and table tabs."
       control={<NumberInput key={tablePageSize} id="setting-page-size" field="tablePageSize" value={tablePageSize} />}
     />
   );

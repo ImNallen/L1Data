@@ -2,13 +2,16 @@ import { DENSITY_FACTOR, gridRowHeight } from "../../shell/appearance";
 import { StartCommands } from "../../shell/StartCommands";
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import { EllipsisIcon, ListIndentIncreaseIcon, PlayIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { TabId } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
 import { canCancel, hasUncommittedWork, isBusy, rowResults } from "../../state/status";
 import { useWorkspace } from "../../state/workspace";
 import { Button, cx, IconButton, MenuContent, MenuItem } from "../../ui/primitives";
+import { hasResultPager } from "../results/format";
 import { ResultsPane } from "../results/ResultsPane";
+import { CellResizeHandle } from "./CellResizeHandle";
+import { CELL_SCROLL_MARGIN, cellHeights, EDITOR_MIN, type DraggedHeights } from "./cellSizing";
 import { closeTab } from "./closeTab";
 import { activateEditor, isDirty, onBuffersChanged, textOf } from "./editorStates";
 import { cancelActive, explainActive, explainSupported, formatActive, openSqlTab, runActive } from "./runActions";
@@ -34,12 +37,13 @@ function AddCell({ after }: { after?: TabId }) {
   );
 }
 
-function NotebookCell({ id, index }: { id: TabId; index: number }) {
+function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: number; viewport: number; focused: boolean }) {
   const tab = useWorkspace((s) => s.tabs[id]);
   const active = useWorkspace((s) => s.active === id);
   const showResults = useWorkspace((s) => s.layout.results);
   const codeSize = useWorkspace((s) => s.settings.codeFont.size);
   const density = useWorkspace((s) => s.settings.density);
+  const pageSize = useWorkspace((s) => s.settings.tablePageSize);
   const databaseKind = useWorkspace((s) => databaseKindFor(s.tabs[id]?.console.db ?? null, s.configs));
   const console = useLive((s) => s.consoles[id]);
   const text = useSyncExternalStore(
@@ -56,9 +60,32 @@ function NotebookCell({ id, index }: { id: TabId; index: number }) {
   const [focusOnActivate, setFocusOnActivate] = useState(active);
   const [renaming, setRenaming] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
+  const [dragged, setDragged] = useState<DraggedHeights>({ editor: null, results: null });
+  const [dragging, setDragging] = useState(false);
+  const hasResults = showResults && ((tab?.table != null && active) || (console !== undefined && console.run.kind !== "Idle"));
+  const rowCounts = console ? rowResults(console.run).map((result) => result.meta.rowCount) : [];
+  const largest = rowCounts.length > 0 ? Math.max(...rowCounts) : undefined;
+  const table = tab?.table != null;
+  const rows = table || largest === undefined ? largest : Math.min(largest, pageSize);
+  const heights = cellHeights({
+    viewport,
+    lines: text.split("\n").length,
+    lineHeight: Math.round(codeSize * 1.54),
+    results: hasResults
+      ? {
+          table,
+          rows,
+          rowHeight: gridRowHeight(codeSize, density),
+          chrome: Math.round(80 * DENSITY_FACTOR[density]),
+          pager: !table && largest !== undefined && hasResultPager(largest),
+        }
+      : null,
+    focused,
+    dragged,
+  });
   useEffect(() => {
-    if (active) cell.current?.scrollIntoView({ block: "nearest" });
-  }, [active]);
+    if (focused && !dragging) cell.current?.scrollIntoView({ block: "nearest" });
+  }, [focused, dragging, dragged, heights.results, viewport]);
   if (!tab) return null;
   const activate = (focus = false) => {
     setFocusOnActivate(focus);
@@ -68,16 +95,32 @@ function NotebookCell({ id, index }: { id: TabId; index: number }) {
   const busy = isBusy(console);
   const pending = hasUncommittedWork(console);
   const cancellable = canCancel(console);
-  const hasResults = showResults && ((tab.table !== null && active) || (console && console.run.kind !== "Idle"));
-  const editorHeight = Math.max(64, Math.min(300, text.split("\n").length * Math.round(codeSize * 1.54) + 28));
-  const rows = console ? rowResults(console.run)[0]?.meta.rowCount : undefined;
-  const resultsHeight = tab.table ? 380 : Math.max(128, Math.round(80 * DENSITY_FACTOR[density]) + Math.min(rows ?? 4, 10) * gridRowHeight(codeSize, density));
+  const editorHandle = {
+    label: `Resize query in ${tab.title}`,
+    testId: "cell-editor-resize",
+    value: heights.editor,
+    min: EDITOR_MIN,
+    max: heights.editorMax,
+    onResize: (px: number | null) => setDragged((current) => ({ ...current, editor: px })),
+  };
+  const lowerHandle =
+    heights.results === null
+      ? editorHandle
+      : {
+          label: `Resize results in ${tab.title}`,
+          testId: "cell-results-resize",
+          value: heights.results,
+          min: heights.resultsMin,
+          max: heights.resultsMax,
+          onResize: (px: number | null) => setDragged((current) => ({ ...current, results: px })),
+        };
   return (
     <>
       <section
         ref={cell}
         data-testid={`notebook-cell-${id}`}
         data-active={active}
+        style={{ scrollMarginBlock: CELL_SCROLL_MARGIN }}
         className={cx("notebook-cell", active && "notebook-cell-active")}
         onFocusCapture={() => {
           if (!active) activate();
@@ -202,7 +245,7 @@ function NotebookCell({ id, index }: { id: TabId; index: number }) {
         </div>
         <div
           className="notebook-editor"
-          style={{ height: editorHeight }}
+          style={{ height: heights.editor }}
           onMouseDown={() => {
             if (!active) activate(true);
           }}
@@ -213,28 +256,74 @@ function NotebookCell({ id, index }: { id: TabId; index: number }) {
             <SqlText mode="view" text={text} databaseKind={databaseKind} label={`SQL in ${tab.title}`} testId={`cell-preview-${id}`} />
           )}
         </div>
-        {hasResults && (
-          <div
-            className="notebook-results"
-            style={{ height: resultsHeight }}
-            onMouseDown={() => {
-              if (!active) activate();
-            }}
-          >
-            <ResultsPane tabId={id} />
-          </div>
+        {heights.results !== null && (
+          <>
+            <CellResizeHandle {...editorHandle} lineColor="bg-border" onDragChange={setDragging} />
+            <div
+              className="notebook-results"
+              style={{ height: heights.results }}
+              onMouseDown={() => {
+                if (!active) activate();
+              }}
+            >
+              <ResultsPane tabId={id} />
+            </div>
+          </>
         )}
       </section>
+      <CellResizeHandle {...lowerHandle} lineColor="bg-transparent" onDragChange={setDragging} />
       <AddCell after={id} />
     </>
   );
 }
 
+function useFocusAfterClick() {
+  const active = useWorkspace((s) => s.active);
+  const [focused, setFocused] = useState(active);
+  const pressed = useRef(false);
+  useLayoutEffect(() => {
+    if (!pressed.current) setFocused(active);
+  }, [active]);
+  useEffect(() => {
+    const release = () => {
+      if (!pressed.current) return;
+      pressed.current = false;
+      setTimeout(() => setFocused(useWorkspace.getState().active), 0);
+    };
+    window.addEventListener("pointerup", release, true);
+    window.addEventListener("pointercancel", release, true);
+    return () => {
+      window.removeEventListener("pointerup", release, true);
+      window.removeEventListener("pointercancel", release, true);
+    };
+  }, []);
+  const onPointerDownCapture = () => {
+    pressed.current = true;
+  };
+  return { focused, onPointerDownCapture };
+}
+
 export function NotebookWorkspace() {
   const order = useWorkspace((s) => s.order);
+  const { focused, onPointerDownCapture } = useFocusAfterClick();
+  const scroller = useRef<HTMLDivElement>(null);
+  const [viewport, setViewport] = useState(0);
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const measure = () => setViewport(el.clientHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   return (
-    <div data-testid="notebook" className="notebook-workspace">
-      {order.length === 0 ? <StartCommands /> : order.map((id, index) => <NotebookCell key={id} id={id} index={index} />)}
+    <div ref={scroller} data-testid="notebook" className="notebook-workspace" onPointerDownCapture={onPointerDownCapture}>
+      {order.length === 0 ? (
+        <StartCommands />
+      ) : (
+        order.map((id, index) => <NotebookCell key={id} id={id} index={index} viewport={viewport} focused={focused === id} />)
+      )}
     </div>
   );
 }

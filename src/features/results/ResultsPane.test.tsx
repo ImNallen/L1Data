@@ -103,6 +103,8 @@ it.each([
     expect.soft(screen.getByRole("button", { name: "Next page" }).hasAttribute("disabled"), "Next page disabled").toBe(isLast);
     expect.soft(screen.getByRole("button", { name: "Last page" }).hasAttribute("disabled"), "Last page disabled").toBe(isLast);
     expect(screen.getByRole("button", { name: `${range}, rows per page` })).toBe(screen.getByTestId("table-page"));
+    expect(screen.getByTestId("table-pager")).toBeTruthy();
+    expect(screen.queryByTestId("result-pager")).toBeNull();
     expect(screen.getByTestId("result-status").textContent).toContain(`100 of ${rowsSeen.toLocaleString("en-US")} rows (${limit})`);
   },
 );

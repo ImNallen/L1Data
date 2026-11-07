@@ -24,6 +24,7 @@ import {
 import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
 import {
   memo,
+  useCallback,
   useEffect,
   useId,
   useImperativeHandle,
@@ -36,10 +37,20 @@ import {
   type MouseEvent as ReactMouseEvent,
   type Ref,
 } from "react";
-import { commands, type ColumnMeta, type ColSpan, type Density, type FontSetting, type ResultMeta, type RowSpan, type TypeCategory } from "../../ipc/bindings";
+import {
+  commands,
+  type ColumnMeta,
+  type ColSpan,
+  type Density,
+  type FontSetting,
+  type ResultCell,
+  type ResultMeta,
+  type RowSpan,
+  type TypeCategory,
+} from "../../ipc/bindings";
 import { DENSITY_FACTOR, gridRowHeight } from "../../shell/appearance";
 import { isMac } from "../../shell/hostedWindow";
-import { rowCacheFor, type Row, type RowCache } from "../../state/rowCache";
+import { rowCacheFor, windowedRows, type Row, type RowView } from "../../state/rowCache";
 import { findRelation, isPrimaryKey, useCatalog, viewFor, type CatalogView } from "../../state/catalog";
 import { sameDb, type DbKey } from "../../state/dbKey";
 import {
@@ -61,7 +72,7 @@ import { ContextMenuArea, ContextMenuItem, ContextMenuSeparator, IconButton, cx 
 import { openTableTab } from "../editor/runActions";
 import { useKeyLinks, type KeyLink } from "./foreignKeys";
 import { cellAt, DEFAULT, EMPTY_MARK, GridEditor, GridRow, NULL_MARK, rowNumberAt, type Cell } from "./GridRows";
-import { groupDigits, isNumeric, toTsv } from "./format";
+import { groupDigits, isNumeric, toTsv, type RowWindow } from "./format";
 import { formatSelectionTotals, type SelectionSlot } from "./selectionTotals";
 import { useResultFind } from "./useResultFind";
 import { referencedRows, type SortKey } from "./tableQuery";
@@ -171,7 +182,7 @@ const headerTextWidth = (name: string, { interfaceFont }: GridLook) =>
 const markWidth = (text: string, { interfaceFont, density }: GridLook) =>
   textWidth(text, (11 * interfaceFont.size) / 13, fontStack("interface", interfaceFont.family), "italic 400", SANS_EM) + 8 * DENSITY_FACTOR[density] + 2;
 
-function naturalWidths(columns: ColumnMeta[], cache: RowCache, sampleRows: number, headerExtra: number, look: GridLook): number[] {
+function naturalWidths(columns: ColumnMeta[], cache: RowView, sampleRows: number, headerExtra: number, look: GridLook): number[] {
   const charW = codeCharWidth(look);
   // Padding, gaps, and header controls are spacing utilities, so they follow the density's scale.
   const factor = DENSITY_FACTOR[look.density];
@@ -261,7 +272,7 @@ function selectionTouchesPending(
   rowCount: number,
   columns: ColumnMeta[],
   edits: TableEdits,
-  cache: RowCache,
+  cache: RowView,
   keyOf: (row: number) => string | null,
 ): boolean {
   const { r0, r1, c0, c1 } = selectionBounds(sel);
@@ -296,7 +307,7 @@ function inSelection(sel: Selection, row: number, col: number): boolean {
 
 /** `pending(row, col)` is the value a pending edit or new row shows there, or undefined for the stored value. */
 async function copySelection(
-  cache: RowCache,
+  cache: RowView,
   sel: NonNullable<Selection>,
   rowCount: number,
   total: number,
@@ -429,6 +440,8 @@ type GridProps = {
   editing: GridEditing | null;
   actionsRef?: Ref<GridActions | null>;
   onSelectionTotals?: (slot: SelectionSlot) => void;
+  rowWindow?: RowWindow | null;
+  onFindOutsideWindow?: (row: number) => void;
 };
 
 /**
@@ -455,6 +468,13 @@ export function ResultGrid(props: GridProps) {
   );
   const reportsTotals = props.onSelectionTotals !== undefined;
   const onSelectionTotals = useMemo(() => (reportsTotals ? (slot: SelectionSlot) => latest.current.onSelectionTotals?.(slot) : undefined), [reportsTotals]);
+  const onFindOutsideWindow = useCallback((row: number) => latest.current.onFindOutsideWindow?.(row), []);
+  const windowStart = props.rowWindow?.start;
+  const windowLength = props.rowWindow?.length;
+  const rowWindow = useMemo(
+    () => (windowStart === undefined || windowLength === undefined ? null : { start: windowStart, length: windowLength }),
+    [windowStart, windowLength],
+  );
   return (
     <GridView
       meta={props.meta}
@@ -463,17 +483,27 @@ export function ResultGrid(props: GridProps) {
       editing={props.editing}
       actionsRef={props.actionsRef}
       onSelectionTotals={onSelectionTotals}
+      rowWindow={rowWindow}
+      onFindOutsideWindow={onFindOutsideWindow}
     />
   );
 }
 
-const GridView = memo(function GridView({ meta, done, query, editing, actionsRef, onSelectionTotals }: GridProps) {
-  const cache = rowCacheFor(meta.ref);
-  const cacheVersion = useSyncExternalStore(cache.subscribe, cache.getVersion);
+const GridView = memo(function GridView({ meta, done, query, editing, actionsRef, onSelectionTotals, rowWindow, onFindOutsideWindow }: GridProps) {
+  const stored = rowCacheFor(meta.ref);
+  const cacheVersion = useSyncExternalStore(stored.subscribe, stored.getVersion);
+  const cache = useMemo<RowView>(() => (rowWindow ? windowedRows(stored, rowWindow.start, meta.rowCount) : stored), [stored, rowWindow, meta.rowCount]);
   const scroller = useRef<HTMLDivElement>(null);
   const [selection, setSelection] = useState<Selection>(null);
   const dragging = useRef<"cells" | "rows" | null>(null);
-  const { rowCount, columns } = meta;
+  const { columns } = meta;
+  const rowOffset = rowWindow?.start ?? 0;
+  const rowCount = rowWindow ? rowWindow.length : meta.rowCount;
+  const [selectedIn, setSelectedIn] = useState(rowOffset);
+  if (selectedIn !== rowOffset) {
+    setSelectedIn(rowOffset);
+    setSelection(null);
+  }
   const catalogView = useCatalog((s) => viewFor(s.views, meta.db));
   const pk = useMemo(() => primaryKeysIn(catalogView, columns), [catalogView, columns]);
   const tabId = meta.ref.tabId;
@@ -523,7 +553,7 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
   const look = useMemo(() => ({ codeFont, interfaceFont, density }), [codeFont, interfaceFont, density]);
   const rowH = gridRowHeight(codeFont.size, density);
   const headerH = Math.round(HEADER_H * DENSITY_FACTOR[density]);
-  const rowNumW = Math.max(ROWNUM_W, String(total).length * codeCharWidth(look) + 14);
+  const rowNumW = Math.max(ROWNUM_W, String(rowOffset + total).length * codeCharWidth(look) + 14);
 
   const [measured, setMeasured] = useState<{ look: GridLook; widths: number[] } | null>(null);
   const sampled = Math.min(rowCount, 64);
@@ -610,6 +640,15 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
     rows.measure();
   }, [rows, rowH, headerH]);
 
+  const previousRowOffset = useRef(rowOffset);
+  useLayoutEffect(() => {
+    if (previousRowOffset.current === rowOffset) return;
+    const oldFirstRow = previousRowOffset.current - rowOffset;
+    previousRowOffset.current = rowOffset;
+    if (oldFirstRow >= 0 && oldFirstRow < rowCount) rows.scrollToIndex(oldFirstRow, { align: "start" });
+    else rows.scrollToOffset(0);
+  }, [rowOffset, rowCount, rows]);
+
   const virtualRows = rows.getVirtualItems();
   const firstRow = virtualRows[0]?.index ?? 0;
   const lastRow = virtualRows.at(-1)?.index ?? 0;
@@ -665,7 +704,7 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
       return;
     }
     publishTotals(epoch, pending ? "excludes pending edits" : null);
-    const job = { epoch, rows: span.rows, cols: span.cols, pending };
+    const job = { epoch, rows: { start: rowOffset + span.rows.start, end: rowOffset + span.rows.end }, cols: span.cols, pending };
     const run = (next: typeof job) => {
       inflightTotals.current += 1;
       void commands
@@ -718,7 +757,7 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
   const openCell = async (row: number, col: number) => {
     const value = await fullValue(row, col);
     if (value === undefined) return;
-    useWorkspace.getState().open({ kind: "cell", title: `${columns[col]?.name ?? ""} · row ${row + 1}`, value });
+    useWorkspace.getState().open({ kind: "cell", title: `${columns[col]?.name ?? ""} · row ${rowOffset + row + 1}`, value });
   };
   const links = useKeyLinks(meta);
   const follow = async (row: number, link: KeyLink) => {
@@ -729,7 +768,7 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
   const openRecord = (row: number) => {
     if (row >= rowCount) return;
     scroller.current?.focus();
-    useWorkspace.getState().open({ kind: "record", meta, row });
+    useWorkspace.getState().open({ kind: "record", meta, row: rowOffset + row });
   };
 
   // `draft` is the text the editor opens with. The editor keeps what is typed after that.
@@ -915,12 +954,20 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
   };
 
   const findInput = useRef<HTMLInputElement>(null);
-  const find = useResultFind(meta.ref, rowCount, (cell) => {
+  const [foundCell, setFoundCell] = useState<ResultCell | null>(null);
+  const find = useResultFind(meta.ref, meta.rowCount, (cell) => {
     if (document.activeElement !== findInput.current) return;
+    setFoundCell(cell);
+    if (rowWindow && (cell.row < rowOffset || cell.row >= rowOffset + rowCount)) onFindOutsideWindow?.(cell.row);
+  });
+  useLayoutEffect(() => {
+    if (!foundCell || (rowWindow && (foundCell.row < rowOffset || foundCell.row >= rowOffset + rowCount))) return;
+    const cell = { row: foundCell.row - rowOffset, col: foundCell.col };
+    setFoundCell(null);
     rows.scrollToIndex(cell.row);
     cols.scrollToIndex(cell.col);
     setSelection({ anchor: cell, focus: cell });
-  });
+  }, [foundCell, rowWindow, rowOffset, rowCount, rows, cols]);
   const showFind = () => {
     ++opening.current;
     find.show();
@@ -933,7 +980,8 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
     find.close();
     scroller.current?.focus();
   };
-  const activeMatch = find.state.kind === "ready" ? find.state.result.target?.cell : undefined;
+  const activeCell = find.state.kind === "ready" ? find.state.result.target?.cell : undefined;
+  const activeMatch = useMemo(() => activeCell && { row: activeCell.row - rowOffset, col: activeCell.col }, [activeCell, rowOffset]);
   const matchQuery = find.open ? find.query : "";
 
   const virtualCols = cols.getVirtualItems();
@@ -963,12 +1011,12 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
     <div
       ref={scroller}
       data-testid="result-grid"
-      data-row-count={rowCount}
+      data-row-count={meta.rowCount}
       data-pending={edits.inserts.length + Object.keys(edits.updates).length + Object.keys(edits.deletes).length}
       tabIndex={0}
       role="grid"
       aria-label="Result"
-      aria-rowcount={total + 1}
+      aria-rowcount={meta.rowCount + edits.inserts.length + 1}
       aria-colcount={columns.length + 1}
       aria-multiselectable
       aria-readonly={!editable}
@@ -1019,6 +1067,7 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
               activeMatch={activeMatch}
               key={vr.key}
               index={index}
+              rowOffset={rowOffset}
               top={vr.start}
               height={rowH}
               rowNumW={rowNumW}

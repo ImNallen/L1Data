@@ -326,7 +326,7 @@ textarea,
 .notebook-workspace {
   height: 100%;
   overflow: auto;
-  padding: 0 24px 32px;
+  padding: 0 24px calc(32px + var(--notebook-drag-slack, 0px));
   background: var(--color-canvas);
 }
 .notebook-cell {
@@ -370,10 +370,7 @@ textarea,
   background: transparent;
 }
 .notebook-results {
-  min-height: 120px;
-  border-top: 1px solid var(--color-border);
-  resize: vertical;
-  overflow: auto;
+  overflow: hidden;
 }
 .notebook-results [data-testid="cursor-position"] {
   display: none;

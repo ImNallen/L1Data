@@ -36,7 +36,7 @@ import {
 } from "../editor/runActions";
 import { ExportMenu } from "./ExportMenu";
 import { FilterBar } from "./FilterBar";
-import { groupDigits, pageStatus, pluralRows } from "./format";
+import { groupDigits, hasResultPager, PAGE_SIZES, pageStatus, pluralRows, resultPage, type RowWindow } from "./format";
 import { ErrorBlock, OutputPanel } from "./OutputPanel";
 import { PlanView } from "./PlanView";
 import { gridEditing, ResultGrid, type GridActions, type GridEditing, type GridQuery } from "./ResultGrid";
@@ -45,30 +45,37 @@ import { cycleTableOrder, filterForValue, useFilterDrafts, useTableOrder } from 
 
 const NO_OUTPUT: OutputLog = { entries: [], dropped: 0 };
 
-const PAGE_SIZES = [10, 100, 250, 500, 1000];
-
-function TablePager({ tab, rows }: { tab: TableTab; rows: number }) {
+function PagerBar({
+  testId,
+  pageTestId,
+  page,
+  label,
+  isLast,
+  lastDisabled,
+  onPage,
+  onLast,
+}: {
+  testId: string;
+  pageTestId: string;
+  page: number;
+  label: string;
+  isLast: boolean;
+  lastDisabled: boolean;
+  onPage: (page: number) => void;
+  onLast: () => void;
+}) {
   const size = useWorkspace((s) => s.settings.tablePageSize);
-  const busy = useLive((s) => isBusy(s.consoles[tab.id]));
-  const { schema, table, page, query, exactRowCount } = tab.table;
-  const estimate = useCatalog(
-    (s) =>
-      viewFor(s.views, tab.console.db)
-        ?.catalog.schemas.find((sc) => sc.name === schema)
-        ?.relations.find((r) => r.name === table)?.rowEstimate ?? null,
-  );
-  const { label, isLast } = pageStatus(page, size, rows, isFiltered(query) ? null : estimate, exactRowCount);
   return (
-    <div data-testid="table-pager" className="flex h-9 shrink-0 items-center justify-center gap-0.5 border-t border-grid bg-bg px-2 text-ui-12.5 text-muted">
-      <IconButton aria-label="First page" disabled={page === 0} onClick={() => setTablePage(tab.id, 0)}>
+    <div data-testid={testId} className="flex h-9 shrink-0 items-center justify-center gap-0.5 border-t border-grid bg-bg px-2 text-ui-12.5 text-muted">
+      <IconButton aria-label="First page" disabled={page === 0} onClick={() => onPage(0)}>
         <ChevronFirstIcon size={15} />
       </IconButton>
-      <IconButton aria-label="Previous page" disabled={page === 0} onClick={() => setTablePage(tab.id, page - 1)}>
+      <IconButton aria-label="Previous page" disabled={page === 0} onClick={() => onPage(page - 1)}>
         <ChevronLeftIcon size={15} />
       </IconButton>
       <Menu.Root modal={false}>
         <Menu.Trigger
-          data-testid="table-page"
+          data-testid={pageTestId}
           className="inline-flex h-7 items-center gap-1 rounded-md pr-1.5 pl-2 whitespace-nowrap text-fg tabular-nums hover:bg-hover data-[state=open]:bg-hover"
         >
           {label}
@@ -84,13 +91,38 @@ function TablePager({ tab, rows }: { tab: TableTab; rows: number }) {
           ))}
         </MenuContent>
       </Menu.Root>
-      <IconButton aria-label="Next page" disabled={isLast} onClick={() => setTablePage(tab.id, page + 1)}>
+      <IconButton aria-label="Next page" disabled={isLast} onClick={() => onPage(page + 1)}>
         <ChevronRightIcon size={15} />
       </IconButton>
-      <IconButton aria-label="Last page" disabled={isLast || busy} onClick={() => void lastTablePage(tab.id)}>
+      <IconButton aria-label="Last page" disabled={lastDisabled} onClick={onLast}>
         <ChevronLastIcon size={15} />
       </IconButton>
     </div>
+  );
+}
+
+function TablePager({ tab, rows }: { tab: TableTab; rows: number }) {
+  const size = useWorkspace((s) => s.settings.tablePageSize);
+  const busy = useLive((s) => isBusy(s.consoles[tab.id]));
+  const { schema, table, page, query, exactRowCount } = tab.table;
+  const estimate = useCatalog(
+    (s) =>
+      viewFor(s.views, tab.console.db)
+        ?.catalog.schemas.find((sc) => sc.name === schema)
+        ?.relations.find((r) => r.name === table)?.rowEstimate ?? null,
+  );
+  const { label, isLast } = pageStatus(page, size, rows, isFiltered(query) ? null : estimate, exactRowCount);
+  return (
+    <PagerBar
+      testId="table-pager"
+      pageTestId="table-page"
+      page={page}
+      label={label}
+      isLast={isLast}
+      lastDisabled={isLast || busy}
+      onPage={(next) => setTablePage(tab.id, next)}
+      onLast={() => void lastTablePage(tab.id)}
+    />
   );
 }
 
@@ -254,6 +286,8 @@ function ResultBody({
   editing,
   actions,
   onSelectionTotals,
+  rowWindow,
+  onFindOutsideWindow,
 }: {
   run: RunState;
   view: ResultView;
@@ -262,6 +296,8 @@ function ResultBody({
   editing: GridEditing | null;
   actions: RefObject<GridActions | null>;
   onSelectionTotals: (slot: SelectionSlot) => void;
+  rowWindow: RowWindow | null;
+  onFindOutsideWindow: (row: number) => void;
 }) {
   switch (view.kind) {
     case "rows":
@@ -274,6 +310,8 @@ function ResultBody({
           editing={editing}
           actionsRef={actions}
           onSelectionTotals={onSelectionTotals}
+          rowWindow={rowWindow}
+          onFindOutsideWindow={onFindOutsideWindow}
         />
       );
     case "plan":
@@ -356,6 +394,15 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
   };
   const selectionText = view.kind === "rows" && totals?.key === shownRef ? totals.text : null;
   const pageSize = useWorkspace((s) => s.settings.tablePageSize);
+  const [pageAnchor, setPageAnchor] = useState<{ key: string; row: number } | null>(null);
+  if ((pageAnchor?.key ?? "") !== shownRef) setPageAnchor({ key: shownRef, row: 0 });
+  const anchorRow = pageAnchor?.key === shownRef ? pageAnchor.row : 0;
+  const showRow = (row: number) => setPageAnchor({ key: shownRef, row });
+  const rowsPerPage = Math.max(1, pageSize);
+  const queryPage =
+    view.kind === "rows" && !browsingTable && hasResultPager(view.result.meta.rowCount)
+      ? resultPage(view.result.meta.rowCount, rowsPerPage, Math.floor(anchorRow / rowsPerPage))
+      : null;
   const exporting = console?.export ?? null;
   const importing = console?.import ?? null;
 
@@ -464,9 +511,31 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
       {browsingTable && <FilterBar tab={browsingTable} />}
 
       <div className="relative flex min-h-0 flex-1 flex-col">
-        <ResultBody run={run} view={view} output={output} query={gridQuery} editing={editing} actions={actions} onSelectionTotals={onSelectionTotals} />
+        <ResultBody
+          run={run}
+          view={view}
+          output={output}
+          query={gridQuery}
+          editing={editing}
+          actions={actions}
+          onSelectionTotals={onSelectionTotals}
+          rowWindow={queryPage?.window ?? null}
+          onFindOutsideWindow={showRow}
+        />
       </div>
       {pager && <TablePager tab={pager} rows={shown?.meta.rowsSeen ?? 0} />}
+      {queryPage && (
+        <PagerBar
+          testId="result-pager"
+          pageTestId="result-page"
+          page={queryPage.page}
+          label={queryPage.label}
+          isLast={queryPage.isLast}
+          lastDisabled={queryPage.isLast}
+          onPage={(page) => showRow(page * rowsPerPage)}
+          onLast={() => showRow(queryPage.lastPage * rowsPerPage)}
+        />
+      )}
     </section>
   );
 }

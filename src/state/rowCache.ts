@@ -152,6 +152,20 @@ export class RowCache {
   }
 }
 
+export type RowView = Pick<RowCache, "ref" | "get" | "isCut" | "ensure" | "loadFull" | "subscribe" | "getVersion">;
+
+export function windowedRows(cache: RowCache, start: number, totalRowCount: number): RowView {
+  return {
+    ref: cache.ref,
+    subscribe: cache.subscribe,
+    getVersion: cache.getVersion,
+    get: (row) => cache.get(start + row),
+    isCut: (row, col) => cache.isCut(start + row, col),
+    ensure: (range, windowLength) => cache.ensure({ start: start + range.start, end: start + Math.min(range.end, windowLength) }, totalRowCount),
+    loadFull: (row, col) => cache.loadFull(start + row, col),
+  };
+}
+
 const caches = new Map<string, RowCache>();
 
 export function rowCacheFor(ref: ResultRef): RowCache {

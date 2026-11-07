@@ -21,7 +21,7 @@ export const SETTINGS_INDEX = [
         keywords: "ai privacy schema only full access data contents rows attachments editor context global chat",
       },
       { id: "maxRows", label: "Row limit per result", group: "Results", keywords: "queries max rows limit results" },
-      { id: "tablePageSize", label: "Table page size", group: "Results", keywords: "queries rows per page paging browse" },
+      { id: "tablePageSize", label: "Results page size", group: "Results", keywords: "queries table rows per page paging browse" },
       { id: "stopOnError", label: "Stop a script at the first error", group: "Scripts", keywords: "queries errors script abort fail skip" },
       { id: "appVersion", label: "Version", group: "Updates", keywords: "about version update check download install restart release" },
       { id: "updateTrack", label: "Update track", group: "Updates", keywords: "about update release channel track stable nightly downgrade switch" },
