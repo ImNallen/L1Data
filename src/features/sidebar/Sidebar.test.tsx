@@ -68,7 +68,7 @@ it("switches table and view categories without losing access to routines", async
   expect(screen.getByTestId("tree-node-Postgres/shop/public/#functions")).toBeTruthy();
 });
 
-it("keeps updates keyboard reachable in workspace options", async () => {
+it("keeps updates visible and keyboard reachable at the right end of the sidebar header", async () => {
   useLive.setState({
     updates: {
       rev: 1,
@@ -80,9 +80,12 @@ it("keeps updates keyboard reachable in workspace options", async () => {
   });
   const user = userEvent.setup();
   render(<Sidebar hosted={null} />);
-  await user.click(screen.getByRole("button", { name: "Workspace options" }));
-  await user.keyboard("{End}");
-  expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Download L1 Data 0.2.0" }));
+  const header = screen.getByTestId("sidebar-header");
+  const update = within(header).getByRole("button", { name: "Download L1 Data 0.2.0" });
+  expect(header.lastElementChild).toBe(update);
+  screen.getByRole("button", { name: "Workspace options" }).focus();
+  await user.tab();
+  expect(document.activeElement).toBe(update);
 });
 
 function addSecondDatabase() {

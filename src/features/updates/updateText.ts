@@ -14,6 +14,7 @@ export type UpdateButtonView = {
   /** Whole percent for the ring. null draws an indeterminate ring. */
   percent: number | null;
   label: string;
+  heading: string;
   tooltip: string;
   /** Draws the accent dot when a click takes the next step of an update. */
   attention: boolean;
@@ -47,11 +48,12 @@ function progressText(percent: number | null): string {
 
 export function updateButtonView(u: UpdateState, nowMs: number): UpdateButtonView | null {
   const status = u.status;
-  const view = (glyph: UpdateGlyph, label: string, tooltip: string) => ({
+  const view = (glyph: UpdateGlyph, label: string, tooltip: string, heading = `L1 Data ${u.currentVersion}`) => ({
     action: updateAction(status),
     glyph,
     percent: null,
     label,
+    heading,
     tooltip,
     attention: false,
   });
@@ -59,7 +61,7 @@ export function updateButtonView(u: UpdateState, nowMs: number): UpdateButtonVie
     case "Disabled":
       return null;
     case "Idle":
-      return view("check", "Check for updates", `L1 Data ${u.currentVersion}. Click to check for updates.`);
+      return view("check", "Check for updates", `L1 Data ${u.currentVersion}`, "Check for updates");
     case "UpToDate": {
       const checked = u.checkedAtMs === null ? "" : ` Checked ${timeAgo(nowMs, u.checkedAtMs)}.`;
       return view("check", "Check for updates", `L1 Data ${u.currentVersion} is up to date.${checked} Click to check again.`);
@@ -67,26 +69,26 @@ export function updateButtonView(u: UpdateState, nowMs: number): UpdateButtonVie
     case "Checking":
       return view("spinner", "Checking for updates", "Checking for updates…");
     case "Available": {
-      const older = status.downgrade ? " It is the latest Stable build, older than this nightly." : "";
+      const older = status.downgrade ? ". It is the latest Stable build, older than this nightly." : "";
       return {
-        ...view("available", `Download L1 Data ${status.version}`, `L1 Data ${status.version} is available.${older} Click to download it.`),
+        ...view("available", `Download L1 Data ${status.version}`, `Update available · Click the icon to download${older}`, `L1 Data ${status.version}`),
         attention: true,
       };
     }
     case "Downloading":
       return {
-        ...view("ring", `Downloading L1 Data ${status.version}`, `Downloading L1 Data ${status.version}…${progressText(status.percent)}`),
+        ...view("ring", `Downloading L1 Data ${status.version}`, `Downloading…${progressText(status.percent)}`, `L1 Data ${status.version}`),
         percent: status.percent,
       };
     case "Downloaded":
       return {
-        ...view("restart", `Restart to install L1 Data ${status.version}`, `L1 Data ${status.version} is ready. Click to restart and install it.`),
+        ...view("restart", `Restart to install L1 Data ${status.version}`, "Ready to install · Restart required", `L1 Data ${status.version}`),
         attention: true,
       };
     case "Installing":
-      return view("spinner", "Restarting", `Restarting into L1 Data ${status.version}…`);
+      return view("spinner", "Restarting", "Restarting to install…", `L1 Data ${status.version}`);
     case "Failed":
-      return view("error", "Update failed", `${updateFailureText(status.failure)} Click to try again.`);
+      return view("error", "Update failed", `${updateFailureText(status.failure)} Click to try again.`, "Update failed");
     default: {
       const unreachable: never = status;
       return unreachable;
@@ -97,11 +99,11 @@ export function updateButtonView(u: UpdateState, nowMs: number): UpdateButtonVie
 export type ChangeSection = { heading: string; items: { title: string; credit: string | null }[] };
 
 function credit({ author, pr }: ChangeItem): string | null {
-  const parts = [author !== null && `by @${author}`, pr !== null && `in #${pr}`].filter((part) => part !== false);
-  return parts.length === 0 ? null : parts.join(" ");
+  const parts = [author !== null && `@${author}`, pr !== null && `#${pr}`].filter((part) => part !== false);
+  return parts.length === 0 ? null : parts.join(" · ");
 }
 
-/** The update button's hover card: the offered release's changes, then each skipped release's. Empty hides the card. */
+/** The offered release's changes, then each skipped release's. Empty omits the release-notes section. */
 export function changeSections(status: UpdateStatus): ChangeSection[] {
   if (status.kind !== "Available" && status.kind !== "Downloading" && status.kind !== "Downloaded") return [];
   return status.changes

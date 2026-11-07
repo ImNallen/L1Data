@@ -46,13 +46,13 @@ describe("the update button", () => {
     const views = EVERY.map((s) => updateButtonView(state(s), NOW));
     expect(views.map((v) => v && [v.glyph, v.attention, v.tooltip])).toEqual([
       null,
-      ["check", false, "L1 Data 0.1.0. Click to check for updates."],
+      ["check", false, "L1 Data 0.1.0"],
       ["spinner", false, "Checking for updates…"],
       ["check", false, "L1 Data 0.1.0 is up to date. Checked 5m ago. Click to check again."],
-      ["available", true, "L1 Data 0.2.0 is available. Click to download it."],
-      ["ring", false, "Downloading L1 Data 0.2.0… 42%"],
-      ["restart", true, "L1 Data 0.2.0 is ready. Click to restart and install it."],
-      ["spinner", false, "Restarting into L1 Data 0.2.0…"],
+      ["available", true, "Update available · Click the icon to download"],
+      ["ring", false, "Downloading… 42%"],
+      ["restart", true, "Ready to install · Restart required"],
+      ["spinner", false, "Restarting to install…"],
       ["error", false, "Couldn't reach GitHub for updates. Click to try again."],
     ]);
   });
@@ -60,9 +60,10 @@ describe("the update button", () => {
   it("names an older stable as one, and draws an indeterminate ring when the size is unknown", () => {
     const nightly = "0.1.1-nightly.20261023.5";
     const older = updateButtonView(state({ kind: "Available", version: "0.1.0", downgrade: true, changes: [] }, nightly), NOW);
-    expect(older?.tooltip).toBe("L1 Data 0.1.0 is available. It is the latest Stable build, older than this nightly. Click to download it.");
+    expect(older?.heading).toBe("L1 Data 0.1.0");
+    expect(older?.tooltip).toBe("Update available · Click the icon to download. It is the latest Stable build, older than this nightly.");
     const unknown = updateButtonView(state({ kind: "Downloading", version: "0.2.0", downgrade: false, percent: null, changes: [] }), NOW);
-    expect([unknown?.percent, unknown?.tooltip]).toEqual([null, "Downloading L1 Data 0.2.0…"]);
+    expect([unknown?.heading, unknown?.percent, unknown?.tooltip]).toEqual(["L1 Data 0.2.0", null, "Downloading…"]);
   });
 });
 
@@ -90,14 +91,14 @@ describe("the update's change list", () => {
       {
         heading: "What's changed",
         items: [
-          { title: "feat(app): name the run target", credit: "by @ImNallen in #50" },
-          { title: "fix(ui): cancel a cell edit on Escape", credit: "in #51" },
+          { title: "feat(app): name the run target", credit: "@ImNallen · #50" },
+          { title: "fix(ui): cancel a cell edit on Escape", credit: "#51" },
         ],
       },
       {
         heading: "Changes in 0.1.1",
         items: [
-          { title: "chore(ui): tighten the footer", credit: "by @ImNallen" },
+          { title: "chore(ui): tighten the footer", credit: "@ImNallen" },
           { title: "docs(readme): list the shortcuts", credit: null },
         ],
       },

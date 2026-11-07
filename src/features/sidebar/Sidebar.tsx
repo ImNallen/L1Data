@@ -109,9 +109,9 @@ export function Sidebar({ hosted }: { hosted: HostedWindow | null }) {
                 <BookmarkIcon size={14} />
                 Saved queries
               </MenuItem>
-              <UpdateButton menu />
             </MenuContent>
           </Menu.Root>
+          <UpdateButton />
         </div>
         <SidebarSearch
           showCount={false}
