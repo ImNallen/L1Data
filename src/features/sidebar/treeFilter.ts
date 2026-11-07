@@ -17,6 +17,8 @@ import { instanceOf } from "../../state/live";
 import type { RelationRef } from "../../state/workspace";
 import { matchRanges, startsWords, type TextRange } from "../../ui/textMatch";
 
+export type ObjectFilterScope = { db: DatabaseRef; category: "tables" | "views" | "all" };
+
 export type FilteredColumn = { column: ColumnInfo; ranges: TextRange[] };
 /** `ranges` is null when the relation shows only as the parent of a matching column. */
 export type FilteredRelation = { rel: Relation; ranges: TextRange[] | null; columns: FilteredColumn[] };
@@ -57,13 +59,16 @@ export function filterTree(
   configs: Record<ConnectionId, ConnectionConfig>,
   connections: Record<ConnectionId, ConnectionState>,
   views: Record<DbKey, CatalogView>,
+  scope?: ObjectFilterScope | null,
 ): TreeFilter {
   let count = 0;
   let searched = 0;
+  const extras = !scope || scope.category === "all";
   const filtered = Object.values(configs)
+    .filter((config) => !scope || config.id === scope.db.connectionId)
     .sort((a, b) => a.name.localeCompare(b.name))
     .flatMap((config): FilteredConnection[] => {
-      const shown = instanceOf(connections[config.id])?.databases.filter((d) => d.shown) ?? [];
+      const shown = instanceOf(connections[config.id])?.databases.filter((d) => d.shown && (!scope || d.name === scope.db.database)) ?? [];
       const databases = shown.flatMap((state): FilteredDatabase[] => {
         const db = { connectionId: config.id, database: state.name };
         const view = viewFor(views, db);
@@ -73,20 +78,22 @@ export function filterTree(
           const schema = view.catalog.schemas.find((s) => s.name === name);
           if (!schema) return [];
           const ordered = [...schema.relations.filter((r) => !isViewKind(r.kind)), ...schema.relations.filter((r) => isViewKind(r.kind))];
-          const relations = ordered.flatMap((rel) => filterRelation(tokens, rel) ?? []);
-          const functions = schema.functions.flatMap((fn) => {
+          const relations = ordered
+            .filter((rel) => extras || isViewKind(rel.kind) === (scope?.category === "views"))
+            .flatMap((rel) => filterRelation(tokens, rel) ?? []);
+          const functions = (extras ? schema.functions : []).flatMap((fn) => {
             const ranges = matchRanges(tokens, fn.name);
             return ranges ? [{ fn, ranges }] : [];
           });
-          const sequences = schema.sequences.flatMap((seq) => {
+          const sequences = (extras ? schema.sequences : []).flatMap((seq) => {
             const ranges = matchRanges(tokens, seq.name);
             return ranges ? [{ seq, ranges }] : [];
           });
-          const types = schema.types.flatMap((type) => {
+          const types = (extras ? schema.types : []).flatMap((type) => {
             const ranges = matchRanges(tokens, type.name);
             return ranges ? [{ type, ranges }] : [];
           });
-          const synonyms = schema.synonyms.flatMap((syn) => {
+          const synonyms = (extras ? schema.synonyms : []).flatMap((syn) => {
             const ranges = matchRanges(tokens, syn.name);
             return ranges ? [{ syn, ranges }] : [];
           });
@@ -96,7 +103,7 @@ export function filterTree(
             ? [{ name, relations, functions, sequences, types, synonyms }]
             : [];
         });
-        const extensions = view.catalog.extensions.flatMap((ext) => {
+        const extensions = (extras ? view.catalog.extensions : []).flatMap((ext) => {
           const ranges = matchRanges(tokens, ext.name);
           return ranges ? [{ ext, ranges }] : [];
         });

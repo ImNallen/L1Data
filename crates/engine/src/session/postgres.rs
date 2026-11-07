@@ -121,6 +121,8 @@ impl PgSession {
     pub async fn set_search_path(&mut self, schema: Option<&str>) -> Result<(), tokio_postgres::Error> {
         if let Some(s) = schema {
             self.client.batch_execute(&format!("SET search_path TO {}", quote_ident(s))).await?;
+        } else {
+            self.client.batch_execute("RESET search_path").await?;
         }
         self.search_path = schema.map(str::to_owned);
         Ok(())

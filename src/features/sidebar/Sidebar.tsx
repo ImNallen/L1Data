@@ -1,7 +1,7 @@
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import { BookmarkIcon, ChartNoAxesColumnIcon, ClockIcon, PlusIcon, SlidersHorizontalIcon, ChevronDownIcon } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
-import type { DatabaseRef, TabId } from "../../ipc/bindings";
+import type { DatabaseRef } from "../../ipc/bindings";
 import { isViewKind, useCatalog, viewFor } from "../../state/catalog";
 import { useLive } from "../../state/live";
 import { tabTarget, useWorkspace } from "../../state/workspace";
@@ -14,16 +14,16 @@ import { UpdateButton } from "../updates/UpdateButton";
 import { ConnectionTree } from "./ConnectionTree";
 import { SidebarSearch } from "./SidebarSearch";
 import { focusFirstRow } from "./treeFocus";
-import { filterTree, firstRelation, type TreeFilter } from "./treeFilter";
+import { filterTree, firstRelation, type TreeFilter, type ObjectFilterScope } from "./treeFilter";
 
-function useTreeFilter(query: string): TreeFilter | null {
+function useTreeFilter(query: string, scope?: ObjectFilterScope | null): TreeFilter | null {
   const configs = useWorkspace((s) => s.configs);
   const connections = useLive((s) => s.connections);
   const views = useCatalog((s) => s.views);
   return useMemo(() => {
     const tokens = parseQuery(query);
-    return tokens.length > 0 ? filterTree(tokens, configs, connections, views) : null;
-  }, [query, configs, connections, views]);
+    return tokens.length > 0 && scope !== null ? filterTree(tokens, configs, connections, views, scope) : null;
+  }, [query, configs, connections, views, scope]);
 }
 
 export function Sidebar({ hosted }: { hosted: HostedWindow | null }) {
@@ -34,26 +34,26 @@ export function Sidebar({ hosted }: { hosted: HostedWindow | null }) {
   const openSettings = useWorkspace((s) => s.openSettings);
   const query = useWorkspace((s) => s.treeQuery);
   const setTreeQuery = useWorkspace((s) => s.setTreeQuery);
-  const [picked, setPicked] = useState<{ active: TabId | null; db: DatabaseRef } | null>(null);
+  const [picked, setPicked] = useState<DatabaseRef | null>(null);
   const [objectQuery, setObjectQuery] = useState("");
   const [category, setCategory] = useState<"tables" | "views" | "all">("tables");
   const first = Object.values(configs)[0];
   const db = useMemo(
-    () => (picked?.active === active ? picked.db : (target ?? (first ? { connectionId: first.id, database: first.database } : null))),
+    () => (active ? target : (picked ?? (first ? { connectionId: first.id, database: first.database } : null))),
     [picked, active, target, first],
   );
   const catalog = useCatalog((s) => viewFor(s.views, db)?.catalog);
   const selectDatabase = useCallback(
     (db: DatabaseRef) => {
-      setPicked({ active, db });
       if (active) void setTabTarget(active, db);
+      else setPicked(db);
     },
     [active],
   );
   const databaseScope = useMemo(() => ({ kind: "databases" as const, selected: db, select: selectDatabase }), [db, selectDatabase]);
   const objectScope = useMemo(() => db && { kind: "objects" as const, db, category }, [db, category]);
   const filter = useTreeFilter(query);
-  const objectFilter = useTreeFilter(objectQuery);
+  const objectFilter = useTreeFilter(objectQuery, objectScope);
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const fromMenu = (action: () => void) => {
     menuTrigger.current?.focus();
