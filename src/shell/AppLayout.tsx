@@ -5,6 +5,7 @@ import { NotebookWorkspace } from "../features/editor/NotebookWorkspace";
 import { StatementChooser } from "../features/editor/StatementChooser";
 import { HistoryPalette } from "../features/history/HistoryPalette";
 import { NavigationPalette } from "../features/navigation/NavigationPalette";
+import { NotebookSwitcher } from "../features/notebooks/NotebookSwitcher";
 import { SavedPalette } from "../features/saved/SavedPalette";
 import { Sidebar } from "../features/sidebar/Sidebar";
 import { InstallingOverlay } from "../features/updates/InstallingOverlay";
@@ -70,6 +71,7 @@ export function AppLayout() {
       </PixelColumn>
       {settingsMounted && <SettingsDialog />}
       <NavigationPalette />
+      <NotebookSwitcher />
       <CommandPalette />
       <HistoryPalette />
       <SavedPalette />

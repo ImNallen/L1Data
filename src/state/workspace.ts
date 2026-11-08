@@ -7,6 +7,7 @@ import type {
   FileBinding,
   FileSaved,
   Layout,
+  NotebookId,
   NotebookSnapshot,
   ResultMeta,
   SavedQueryId,
@@ -20,7 +21,19 @@ import type {
 import type { SettingsSectionId } from "../features/settings/settingsIndex";
 import { homeDb, resolveDb, sameDb } from "./dbKey";
 import { useLive } from "./live";
-import { followActive, NO_DATABASE, newNotebook, notebookFor, notebookOf, settle, type Notebook, type Notebooks, type Shown } from "./notebooks";
+import {
+  followActive,
+  NO_DATABASE,
+  newNotebook,
+  notebookFor,
+  notebookOf,
+  settle,
+  showDatabase,
+  showNotebook,
+  type Notebook,
+  type Notebooks,
+  type Shown,
+} from "./notebooks";
 import type { ChartSpec } from "../features/results/chart";
 import type { ResultDisplay, ResultPick } from "./status";
 
@@ -62,6 +75,7 @@ export type Overlay =
   | { kind: "none" }
   | { kind: "history" }
   | { kind: "navigation" }
+  | { kind: "notebooks" }
   | { kind: "commands" }
   | { kind: "usage" }
   | { kind: "saved"; entry: SavedEntry }
@@ -82,8 +96,14 @@ export type Question<C extends string> = {
   title: string;
   body: string;
   statements?: readonly string[];
+  /** Plain rows under the body, each a label with a dim detail at the right. */
+  rows?: readonly QuestionRow[];
+  /** A dim line under the rows. */
+  note?: string;
   choices: readonly Choice<C>[];
 };
+
+export type QuestionRow = { label: string; detail: string };
 
 /** Command context; the workspace stays mounted beneath settings. `query` lists matches instead of `section`. */
 export type Screen = { kind: "workspace" } | { kind: "settings"; section: SettingsSectionId; query: string };
@@ -156,7 +176,7 @@ export function tabFromSnapshot(t: TabSnapshot, configs: Record<ConnectionId, Co
 
 /** A notebook on a connection that is gone has no connection, as its cells do. */
 function notebookFromSnapshot(n: NotebookSnapshot, configs: Record<ConnectionId, ConnectionConfig>): Notebook {
-  return { id: n.id, title: n.title, db: n.db && configs[n.db.connectionId] ? n.db : null, cells: n.cells, active: n.active };
+  return { id: n.id, title: n.title, db: n.db && configs[n.db.connectionId] ? n.db : null, cells: n.cells, active: n.active, shownAtMs: n.shownAtMs };
 }
 
 type Shows = Pick<WorkspaceData, "notebooks" | "shown">;
@@ -224,7 +244,7 @@ export function workspaceSnapshot(s: Pick<WorkspaceData, "tabs" | "notebooks" | 
     tabs,
     active: activeId(s),
     layout: s.layout,
-    notebooks: Object.values(s.notebooks).map((n) => ({ id: n.id, title: n.title, db: n.db, cells: n.cells, active: n.active })),
+    notebooks: Object.values(s.notebooks).map((n) => ({ id: n.id, title: n.title, db: n.db, cells: n.cells, active: n.active, shownAtMs: n.shownAtMs })),
     shown: s.shown.kind === "notebook" ? s.shown.id : null,
   };
 }
@@ -251,11 +271,19 @@ type WorkspaceActions = {
   resolveDatabases(connections: Record<ConnectionId, ConnectionState>): void;
   /** Adds `tab` to the notebook for its database, at the end or right after `after`, and shows it active. */
   addTab(tab: Tab, after?: TabId): void;
-  /** Closing a notebook's last cell drops the notebook and shows the start commands on its database. */
+  /** Starts a new notebook on the tab's database with `tab` as its first cell, and shows it. */
+  addNotebook(tab: Tab): void;
+  /**
+   * Closing a notebook's last cell drops the notebook. When it was shown, the most recent other notebook on its database
+   * shows, else the start commands on it.
+   */
   closeTab(id: TabId): void;
   setActive(id: TabId): void;
-  /** Shows the notebook for `db`, or the start commands on it when it has none. Never touches a cell. */
+  /** Shows the most recent notebook on `db`, or the start commands on it when it has none. Never touches a cell. */
   showDatabase(db: DatabaseRef | null): void;
+  showNotebook(id: NotebookId): void;
+  /** A blank title keeps the old one. */
+  renameNotebook(id: NotebookId, title: string): void;
   renameTab(id: TabId, title: string): void;
   bindFile(id: TabId, file: FileSaved): void;
   setFileHealth(id: TabId, health: FileHealth): void;
@@ -289,7 +317,7 @@ let toastSeq = 0;
  */
 function homeFor(s: Shows, db: DatabaseRef | null, after: TabId | undefined): Notebook {
   const candidates = [after ? notebookOf(s.notebooks, after) : undefined, shownNotebook(s)];
-  return candidates.find((n) => n && sameDb(n.db, db)) ?? notebookFor(s.notebooks, db) ?? newNotebook(db);
+  return candidates.find((n) => n && sameDb(n.db, db)) ?? notebookFor(s.notebooks, db) ?? newNotebook(Object.values(s.notebooks), db);
 }
 
 /** Moves each cell whose database changed into the notebook for its new database, and keeps the active cell in view. */
@@ -357,10 +385,14 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
       const home = homeFor(s, tab.console.db, after);
       const at = after === undefined ? -1 : home.cells.indexOf(after);
       const cells = at < 0 ? [...home.cells, tab.id] : [...home.cells.slice(0, at + 1), tab.id, ...home.cells.slice(at + 1)];
+      return { tabs: { ...s.tabs, [tab.id]: tab }, ...showNotebook({ ...s.notebooks, [home.id]: { ...home, cells, active: tab.id } }, home.id) };
+    }),
+  addNotebook: (tab) =>
+    set((s) => {
+      const notebook = newNotebook(Object.values(s.notebooks), tab.console.db);
       return {
         tabs: { ...s.tabs, [tab.id]: tab },
-        notebooks: { ...s.notebooks, [home.id]: { ...home, cells, active: tab.id } },
-        shown: { kind: "notebook", id: home.id },
+        ...showNotebook({ ...s.notebooks, [notebook.id]: { ...notebook, cells: [tab.id], active: tab.id } }, notebook.id),
       };
     }),
   closeTab: (id) =>
@@ -374,8 +406,8 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
       const cells = notebook.cells.filter((c) => c !== id);
       if (cells.length === 0) {
         const { [notebook.id]: ____, ...notebooks } = s.notebooks;
-        const shown = s.shown.kind === "notebook" && s.shown.id === notebook.id ? { kind: "start" as const, db: notebook.db } : s.shown;
-        return { tabs, notebooks, shown, activeResult, resultDisplay };
+        const wasShown = s.shown.kind === "notebook" && s.shown.id === notebook.id;
+        return { tabs, ...(wasShown ? showDatabase(notebooks, notebook.db) : { notebooks }), activeResult, resultDisplay };
       }
       const active = notebook.active === id ? (cells[Math.min(index, cells.length - 1)] ?? null) : notebook.active;
       return { tabs, notebooks: { ...s.notebooks, [notebook.id]: { ...notebook, cells, active } }, activeResult, resultDisplay };
@@ -384,13 +416,20 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
     set((s) => {
       const notebook = notebookOf(s.notebooks, id);
       if (!notebook || (notebook.active === id && shownNotebook(s) === notebook)) return {};
-      return { notebooks: { ...s.notebooks, [notebook.id]: { ...notebook, active: id } }, shown: { kind: "notebook", id: notebook.id } };
+      return showNotebook({ ...s.notebooks, [notebook.id]: { ...notebook, active: id } }, notebook.id);
     }),
   showDatabase: (db) =>
     set((s) => {
       const notebook = notebookFor(s.notebooks, db);
-      if (notebook) return shownNotebook(s) === notebook ? {} : { shown: { kind: "notebook", id: notebook.id } };
-      return s.shown.kind === "start" && sameDb(s.shown.db, db) ? {} : { shown: { kind: "start", db } };
+      if (notebook) return shownNotebook(s) === notebook ? {} : showNotebook(s.notebooks, notebook.id);
+      return s.shown.kind === "start" && sameDb(s.shown.db, db) ? {} : showDatabase(s.notebooks, db);
+    }),
+  showNotebook: (id) => set((s) => (s.notebooks[id] && shownNotebook(s)?.id !== id ? showNotebook(s.notebooks, id) : {})),
+  renameNotebook: (id, title) =>
+    set((s) => {
+      const notebook = s.notebooks[id];
+      const trimmed = title.trim();
+      return notebook && trimmed && trimmed !== notebook.title ? { notebooks: { ...s.notebooks, [id]: { ...notebook, title: trimmed } } } : {};
     }),
   renameTab: (id, title) =>
     set((s) => {
@@ -448,7 +487,7 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
   removeConfig: (id) =>
     set((s) => {
       const { [id]: _, ...configs } = s.configs;
-      return { configs };
+      return shownDb(s)?.connectionId === id ? { configs, shown: NO_DATABASE } : { configs };
     }),
   setSettings: (settings) => set({ settings }),
   select: (selected) => set({ selected }),
@@ -490,6 +529,8 @@ export function ask<C extends string>(q: Question<C>): Promise<C | null> {
       title: q.title,
       body: q.body,
       statements: q.statements ?? [],
+      rows: q.rows ?? [],
+      note: q.note ?? "",
       choices: q.choices,
       settle,
     });
@@ -497,13 +538,15 @@ export function ask<C extends string>(q: Question<C>): Promise<C | null> {
 }
 
 /** A question with one danger button, `confirm-btn`, in a `confirm-dialog`. Resolves `true` when it is pressed. */
-export async function confirm(q: { title: string; body: string; statements?: readonly string[]; confirmLabel: string }): Promise<boolean> {
+export async function confirm(q: Pick<Question<string>, "title" | "body" | "statements" | "rows" | "note"> & { confirmLabel: string }): Promise<boolean> {
   return (
     (await ask({
       testId: "confirm",
       title: q.title,
       body: q.body,
       statements: q.statements,
+      rows: q.rows,
+      note: q.note,
       choices: [{ id: "btn", label: q.confirmLabel, variant: "danger" }],
     })) === "btn"
   );

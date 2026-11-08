@@ -69,6 +69,17 @@ function AskDialog({ question }: { question: Extract<Overlay, { kind: "ask" }> }
           ))}
         </div>
       )}
+      {question.rows.length > 0 && (
+        <ul data-testid={`${question.testId}-rows`} className="-mt-1 mb-4 flex flex-col gap-1.5">
+          {question.rows.map((row, i) => (
+            <li key={i} className="flex items-baseline justify-between gap-4 text-ui-13">
+              <span className="min-w-0 truncate text-fg">{row.label}</span>
+              <span className="shrink-0 text-ui-12 text-dim">{row.detail}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {question.note && <p className="-mt-1 mb-4 text-ui-12 text-dim">{question.note}</p>}
       <div className="flex justify-end gap-2">
         <Button ref={cancel} variant="ghost" data-testid={`${question.testId}-cancel`} onClick={close}>
           Cancel

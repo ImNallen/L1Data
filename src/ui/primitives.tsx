@@ -163,10 +163,20 @@ export function DialogSurface({ className, ...props }: ComponentProps<typeof Dia
   );
 }
 
-export function MenuContent({ children, align = "start", className }: { children: ReactNode; align?: "start" | "end"; className?: string }) {
+export function MenuContent({
+  children,
+  align = "start",
+  className,
+  onCloseAutoFocus,
+}: {
+  children: ReactNode;
+  align?: "start" | "end";
+  className?: string;
+  onCloseAutoFocus?: (event: Event) => void;
+}) {
   return (
     <Menu.Portal>
-      <Menu.Content align={align} sideOffset={6} className={cx(MENU_PANEL, className)}>
+      <Menu.Content align={align} sideOffset={6} className={cx(MENU_PANEL, className)} onCloseAutoFocus={onCloseAutoFocus}>
         {children}
       </Menu.Content>
     </Menu.Portal>

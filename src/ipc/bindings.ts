@@ -1107,7 +1107,7 @@ export type ModelOption = {
 /**  Minted by the frontend (`crypto.randomUUID()`). */
 export type NotebookId = string;
 
-/**  A database's notebook. Every cell in it is on `db`. */
+/**  One of a database's notebooks. Every cell in it is on `db`. */
 export type NotebookSnapshot = {
 	id: NotebookId,
 	title: string,
@@ -1116,6 +1116,8 @@ export type NotebookSnapshot = {
 	/**  The notebook's cells in order. Each id is a `TabSnapshot` in `Workspace.tabs`. */
 	cells: TabId[],
 	active: TabId | null,
+	/**  When the notebook was last shown, in Unix milliseconds. Choosing a database shows its most recent notebook. */
+	shownAtMs: number,
 };
 
 /**  The DDL that creates one object. */

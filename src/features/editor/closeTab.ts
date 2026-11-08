@@ -14,13 +14,14 @@ const exists = (id: TabId) => ws().tabs[id] !== undefined;
 /**
  * Asks about each kind of work closing the tab would lose, and closes it only if every answer lets it. A question
  * whose answer loses nothing comes before one that destroys something: staged edits are dropped only at `forgetTab`,
- * and the rollback happens only in the last `consoleClose`, so a Cancel at any step loses nothing.
+ * and the rollback happens only in the last `consoleClose`, so a Cancel at any step loses nothing. `rollBack` is for a
+ * caller that already said open transactions roll back, so it does not ask again.
  */
-export async function closeTab(tabId: TabId): Promise<void> {
+export async function closeTab(tabId: TabId, { rollBack = false } = {}): Promise<void> {
   const dropped = await keepText(tabId, null);
   if (dropped === false || !exists(tabId)) return;
   if (!(await dropEdits(tabId)) || !exists(tabId)) return;
-  if (!(await closeConsole(tabId)) || !exists(tabId)) return;
+  if (!(await closeConsole(tabId, rollBack)) || !exists(tabId)) return;
   // Text typed while an earlier step waited is not covered by any answer yet.
   if ((await keepText(tabId, dropped)) === false || !exists(tabId)) return;
   forgetTab(tabId);
@@ -69,20 +70,20 @@ async function dropEdits(id: TabId): Promise<boolean> {
   });
 }
 
-async function closeConsole(id: TabId): Promise<boolean> {
+async function closeConsole(id: TabId, rollBack: boolean): Promise<boolean> {
   if (!useLive.getState().consoles[id]) return true;
-  const res = await commands.consoleClose(id, false);
+  const res = await commands.consoleClose(id, rollBack);
   if (res.status === "ok") return true;
   if (res.error.kind !== "OpenTransactions") {
     ws().notify(disconnectErrorText(res.error));
     return false;
   }
-  const rollBack = await confirm({
+  const agreed = await confirm({
     title: "Close tab with an open transaction?",
     body: "Closing rolls back the uncommitted work in this tab.",
     confirmLabel: "Roll back and close",
   });
-  if (!rollBack || !exists(id)) return false;
+  if (!agreed || !exists(id)) return false;
   await commands.consoleClose(id, true);
   return true;
 }
