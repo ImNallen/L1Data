@@ -5,7 +5,7 @@ import { commands, type ChatOptions, type ChatState, type ModelOption, type Perm
 import { useCatalog, viewFor } from "../../state/catalog";
 import { useLive } from "../../state/live";
 import { databaseKindFor } from "../../state/databaseKind";
-import { tabTarget, useWorkspace } from "../../state/workspace";
+import { activeId, activeTab, tabTarget, useWorkspace } from "../../state/workspace";
 import { IconButton, MenuContent, MenuItem, MenuLabel } from "../../ui/primitives";
 import { pluralRows } from "../results/format";
 import { configureChat, effortFor, gridResult, sendMessage, stopTurn } from "./assistantActions";
@@ -101,20 +101,20 @@ export function Composer({ chat }: { chat: ChatState | undefined }) {
   const [sending, setSending] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
 
-  const active = useWorkspace((s) => s.active);
+  const active = useWorkspace(activeId);
   const full = useWorkspace((s) => s.settings.assistantAccess === "Full");
   const targetLabel = useWorkspace((s) => {
-    const db = tabTarget(s.active ? s.tabs[s.active] : undefined);
+    const db = tabTarget(activeTab(s));
     if (!db) return "No database selected";
     return `${s.configs[db.connectionId]?.name ?? "Unknown connection"} / ${db.database}`;
   });
-  const db = useWorkspace((s) => tabTarget(s.active ? s.tabs[s.active] : undefined));
-  const schema = useWorkspace((s) => (s.active ? s.tabs[s.active]?.console.schema : null));
+  const db = useWorkspace((s) => tabTarget(activeTab(s)));
+  const schema = useWorkspace((s) => activeTab(s)?.console.schema);
   const catalog = useCatalog((s) => viewFor(s.views, db)?.catalog);
   const contextLabel = db ? `${db.database} / ${schema ?? catalog?.defaultSchema ?? "default"}` : targetLabel;
-  const tabTitle = useWorkspace((s) => (s.active ? s.tabs[s.active]?.title : undefined));
-  const sqlServer = useWorkspace((s) => databaseKindFor(tabTarget(s.active ? s.tabs[s.active] : undefined), s.configs) === "SqlServer");
-  const picked = useWorkspace((s) => (s.active ? s.activeResult[s.active] : undefined));
+  const tabTitle = useWorkspace((s) => activeTab(s)?.title);
+  const sqlServer = useWorkspace((s) => databaseKindFor(tabTarget(activeTab(s)), s.configs) === "SqlServer");
+  const picked = useWorkspace((s) => (active ? s.activeResult[active] : undefined));
   const run = useLive((s) => (active ? s.consoles[active]?.run : undefined));
   const hasOutput = useLive((s) => (active ? (s.output[active]?.entries.length ?? 0) : 0) > 0);
   const shown = gridResult(run, picked, hasOutput);

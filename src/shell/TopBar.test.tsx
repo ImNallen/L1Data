@@ -5,13 +5,14 @@ import { connectedState, connectionConfig, databaseState } from "../testing/conn
 import { useLive } from "../state/live";
 import { useWorkspace, type Tab } from "../state/workspace";
 import { TopBar, databaseChoices } from "./TopBar";
+import { cellsState } from "../testing/notebooks";
 
 const workspace = useWorkspace.getInitialState();
 const live = useLive.getInitialState();
-const saved = { tabs: workspace.tabs, active: workspace.active, configs: workspace.configs, consoles: live.consoles };
+const saved = { tabs: workspace.tabs, notebooks: workspace.notebooks, shown: workspace.shown, configs: workspace.configs, consoles: live.consoles };
 
 afterEach(() => {
-  Object.assign(workspace, { tabs: saved.tabs, active: saved.active, configs: saved.configs });
+  Object.assign(workspace, { tabs: saved.tabs, notebooks: saved.notebooks, shown: saved.shown, configs: saved.configs });
   live.consoles = saved.consoles;
 });
 
@@ -30,8 +31,7 @@ function onConnection(environment: Environment | null, txn: TxnState = "Idle", d
     run: { kind: "Idle" },
   };
   Object.assign(workspace, {
-    tabs: { [tab.id]: tab },
-    active: tab.id,
+    ...cellsState([tab]),
     configs: { c1: { ...connectionConfig("c1", "prod-postgres"), environment, databaseKind } },
   });
   live.consoles = { [tab.id]: state };
@@ -89,7 +89,7 @@ function lostSession(transaction: TransactionLoss): string {
     import: null,
     run: { kind: "Idle" },
   };
-  Object.assign(workspace, { tabs: { [tab.id]: tab }, active: tab.id });
+  Object.assign(workspace, cellsState([tab]));
   live.consoles = { [tab.id]: state };
   return renderToStaticMarkup(<TopBar hosted={null} />);
 }

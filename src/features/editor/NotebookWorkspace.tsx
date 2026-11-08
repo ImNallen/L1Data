@@ -6,7 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } fr
 import type { TabId } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
 import { canCancel, hasUncommittedWork, isBusy, resultKey, rowResults, shownResult } from "../../state/status";
-import { useWorkspace } from "../../state/workspace";
+import { activeId, shownNotebook, useWorkspace } from "../../state/workspace";
 import { Button, cx, IconButton, MenuContent, MenuItem } from "../../ui/primitives";
 import { hasResultPager } from "../results/format";
 import { ResultsPane } from "../results/ResultsPane";
@@ -31,7 +31,7 @@ function AddCell({ after }: { after?: TabId }) {
 
 function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: number; viewport: number; focused: boolean }) {
   const tab = useWorkspace((s) => s.tabs[id]);
-  const active = useWorkspace((s) => s.active === id);
+  const active = useWorkspace((s) => activeId(s) === id);
   const showResults = useWorkspace((s) => s.layout.results);
   const codeSize = useWorkspace((s) => s.settings.codeFont.size);
   const density = useWorkspace((s) => s.settings.density);
@@ -275,7 +275,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
 }
 
 function useFocusAfterClick() {
-  const active = useWorkspace((s) => s.active);
+  const active = useWorkspace(activeId);
   const [focused, setFocused] = useState(active);
   const pressed = useRef(false);
   useLayoutEffect(() => {
@@ -285,7 +285,7 @@ function useFocusAfterClick() {
     const release = () => {
       if (!pressed.current) return;
       pressed.current = false;
-      setTimeout(() => setFocused(useWorkspace.getState().active), 0);
+      setTimeout(() => setFocused(activeId(useWorkspace.getState())), 0);
     };
     window.addEventListener("pointerup", release, true);
     window.addEventListener("pointercancel", release, true);
@@ -300,8 +300,10 @@ function useFocusAfterClick() {
   return { focused, onPointerDownCapture };
 }
 
+const NO_CELLS: TabId[] = [];
+
 export function NotebookWorkspace() {
-  const order = useWorkspace((s) => s.order);
+  const cells = useWorkspace((s) => shownNotebook(s)?.cells ?? NO_CELLS);
   const { focused, onPointerDownCapture } = useFocusAfterClick();
   const scroller = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState(0);
@@ -316,10 +318,10 @@ export function NotebookWorkspace() {
   }, []);
   return (
     <div ref={scroller} data-testid="notebook" className="notebook-workspace" onPointerDownCapture={onPointerDownCapture}>
-      {order.length === 0 ? (
+      {cells.length === 0 ? (
         <StartCommands />
       ) : (
-        order.map((id, index) => <NotebookCell key={id} id={id} index={index} viewport={viewport} focused={focused === id} />)
+        cells.map((id, index) => <NotebookCell key={id} id={id} index={index} viewport={viewport} focused={focused === id} />)
       )}
     </div>
   );

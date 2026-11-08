@@ -1,10 +1,11 @@
 import type { TabId } from "../../ipc/bindings";
 import { homeDb, resolveDb, sameDb } from "../../state/dbKey";
 import { instanceOf, useLive } from "../../state/live";
-import { useWorkspace } from "../../state/workspace";
+import { notebookFor } from "../../state/notebooks";
+import { activeId, useWorkspace } from "../../state/workspace";
 import { focusEditor } from "../editor/editorStates";
 import { openSqlTab, openTableTab } from "../editor/runActions";
-import { sqlTabForDatabase, type Destination } from "./navigationItems";
+import { type Destination } from "./navigationItems";
 
 export function openNavigation(): void {
   const workspace = useWorkspace.getState();
@@ -32,10 +33,9 @@ export async function activateDestination(destination: Destination): Promise<Tab
         return null;
       }
       workspace.closeSettings();
-      const tab = sqlTabForDatabase(workspace, db);
-      if (!tab) return openSqlTab({ db });
-      workspace.setActive(tab.id);
-      return tab.id;
+      if (!notebookFor(workspace.notebooks, db)) return openSqlTab({ db });
+      workspace.showDatabase(db);
+      return activeId(useWorkspace.getState());
     }
     case "relation":
       workspace.closeSettings();
@@ -50,7 +50,7 @@ export async function activateDestination(destination: Destination): Promise<Tab
 export function focusDestination(tabId: TabId): void {
   requestAnimationFrame(() => {
     const workspace = useWorkspace.getState();
-    if (workspace.active !== tabId || workspace.overlay.kind !== "none" || workspace.screen.kind !== "workspace") return;
+    if (activeId(workspace) !== tabId || workspace.overlay.kind !== "none" || workspace.screen.kind !== "workspace") return;
     const grid = workspace.tabs[tabId]?.table && document.querySelector<HTMLElement>('[data-testid="result-grid"]');
     if (grid) grid.focus();
     else focusEditor();

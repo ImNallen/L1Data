@@ -9,7 +9,7 @@ import { openSqlTab } from "../editor/runActions";
 import { chooseTrack, runUpdateAction, startUpdateSync } from "./updateActions";
 
 afterEach(() => {
-  for (const id of useWorkspace.getState().order) dropEditor(id);
+  for (const id of Object.keys(useWorkspace.getState().tabs)) dropEditor(id);
   useWorkspace.setState(useWorkspace.getInitialState(), true);
   useLive.setState(useLive.getInitialState(), true);
   useTableEdits.setState(useTableEdits.getInitialState(), true);

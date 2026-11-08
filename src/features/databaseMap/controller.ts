@@ -3,7 +3,7 @@ import { commands, type DatabaseRef, type MapCursor, type MapError, type MapQuer
 import { useCatalog, viewFor } from "../../state/catalog";
 import { dbKey, sameDb } from "../../state/dbKey";
 import { useLive, wantedCatalogs } from "../../state/live";
-import { tabTarget, useWorkspace } from "../../state/workspace";
+import { activeId, activeTab, tabTarget, useWorkspace } from "../../state/workspace";
 import { clearMapHighlights, editorContextOf, highlightMapSource, onEditorContextChanged, sameEditorContext, type EditorContext } from "../editor/editorStates";
 import { EDGE_LIMIT, emptyGraph, mergeNeighborhood, type Graph, type Page, type Point, type Viewport } from "./graph";
 
@@ -195,8 +195,7 @@ export function moveMapNode(oid: number, position: Point): void {
 }
 
 function contextFor(map: Exploring): EditorContext | null {
-  const { active, tabs } = useWorkspace.getState();
-  const tab = active ? tabs[active] : undefined;
+  const tab = activeTab(useWorkspace.getState());
   return tab && sameDb(tabTarget(tab), map.db) ? editorContextOf(tab.id) : null;
 }
 
@@ -291,9 +290,9 @@ async function analyze(captured: Exploring, context: EditorContext, ticket: numb
 export function startMapLifecycle(): () => void {
   const offEditor = onEditorContextChanged(scheduleAnalysis);
   const offWorkspace = useWorkspace.subscribe((next, prev) => {
-    const before = prev.active ? prev.tabs[prev.active] : undefined;
-    const after = next.active ? next.tabs[next.active] : undefined;
-    if (next.active !== prev.active || !sameDb(tabTarget(before), tabTarget(after))) scheduleAnalysis();
+    const before = activeTab(prev);
+    const after = activeTab(next);
+    if (activeId(next) !== activeId(prev) || !sameDb(tabTarget(before), tabTarget(after))) scheduleAnalysis();
   });
   const offLive = useLive.subscribe(() => {
     const map = useDatabaseMap.getState().map;

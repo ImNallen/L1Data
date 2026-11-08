@@ -5,7 +5,7 @@ import { isDirty, onBuffersChanged } from "../features/editor/editorStates";
 import type { TabId } from "../ipc/bindings";
 import { useLive } from "../state/live";
 import { hasUncommittedWork } from "../state/status";
-import { useWorkspace, type Tab } from "../state/workspace";
+import { activeId, shownNotebook, useWorkspace, type Tab } from "../state/workspace";
 import { cx } from "../ui/primitives";
 
 function fileTooltip(tab: Tab): string | undefined {
@@ -29,7 +29,7 @@ function fileTooltip(tab: Tab): string | undefined {
 
 function TabItem({ id, onClose }: { id: TabId; onClose: (id: TabId, trigger: HTMLButtonElement, keyboard: boolean) => void }) {
   const tab = useWorkspace((s) => s.tabs[id]);
-  const active = useWorkspace((s) => s.active === id);
+  const active = useWorkspace((s) => activeId(s) === id);
   const setActive = useWorkspace((s) => s.setActive);
   const renameTab = useWorkspace((s) => s.renameTab);
   const dirty = useLive((s) => hasUncommittedWork(s.consoles[id]));
@@ -134,8 +134,10 @@ function TabItem({ id, onClose }: { id: TabId; onClose: (id: TabId, trigger: HTM
   );
 }
 
+const NO_CELLS: TabId[] = [];
+
 export function TabBar() {
-  const order = useWorkspace((s) => s.order);
+  const order = useWorkspace((s) => shownNotebook(s)?.cells ?? NO_CELLS);
   const strip = useRef<HTMLDivElement>(null);
   const focusTab = (id: TabId | null) => {
     const target = Array.from(strip.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? []).find((el) => el.dataset.tabId === id);
@@ -146,9 +148,9 @@ export function TabBar() {
     await closeTab(id);
     if (!keyboard) return;
     requestAnimationFrame(() => {
-      const { tabs, active } = useWorkspace.getState();
+      const { tabs } = useWorkspace.getState();
       if (tabs[id]) trigger.focus();
-      else if (!focusTab(active)) document.querySelector<HTMLButtonElement>('[data-testid="start-new-query"]')?.focus();
+      else if (!focusTab(activeId(useWorkspace.getState()))) document.querySelector<HTMLButtonElement>('[data-testid="start-new-query"]')?.focus();
     });
   };
   return (

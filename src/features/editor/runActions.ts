@@ -25,6 +25,8 @@ import { canCancel, isBusy } from "../../state/status";
 import { NO_EDITS, pendingCount, toChanges, useTableEdits, type TableEdits } from "../../state/tableEdits";
 import {
   EMPTY_QUERY,
+  activeId,
+  activeTab,
   confirm,
   isTableTab,
   nextUntitled,
@@ -126,13 +128,13 @@ export function selectionTarget(state: EditorState): RunTarget {
 
 /** Formats the statements the selection touches, or the statement ⌘↵ would run, as one undoable edit. */
 export async function formatActive(): Promise<void> {
-  const id = ws().active;
+  const id = activeId(ws());
   const tab = id ? ws().tabs[id] : undefined;
   if (!id || !tab || isBrowsing(tab)) return;
   const state = editorStateOf(id);
   const target = textTarget(tab);
   const res = await commands.editorFormat(state.doc.toString(), selectionTarget(state), target.databaseKind);
-  if (ws().active !== id || !sameTextTarget(id, target)) return;
+  if (activeId(ws()) !== id || !sameTextTarget(id, target)) return;
   if (res.status === "error") {
     if (res.error.kind === "Unsafe") notify("Couldn't format this statement safely.");
     if (res.error.kind === "Unsupported") notify("Formatting is not supported for this SQL construct.");
@@ -243,7 +245,7 @@ async function runTab(tabId: TabId, target?: PageTarget, script?: RunTarget, mod
   const browsing = isBrowsing(tab);
   const valid = () =>
     runIntents.get(tabId) === intent &&
-    (browsing || ws().active === tabId) &&
+    (browsing || activeId(ws()) === tabId) &&
     ws().tabs[tabId]?.console === tab.console &&
     editorStateOf(tabId).doc === state.doc &&
     (browsing || editorStateOf(tabId).selection.eq(state.selection)) &&
@@ -298,7 +300,7 @@ async function runTab(tabId: TabId, target?: PageTarget, script?: RunTarget, mod
 }
 
 export function explainActive(mode: "Explain" | "ExplainAnalyze"): void {
-  const id = ws().active;
+  const id = activeId(ws());
   const tab = id ? ws().tabs[id] : undefined;
   if (!id || !tab || isBrowsing(tab) || !explainSupported(databaseKindFor(tabTarget(tab), ws().configs))) return;
   void runTab(id, undefined, undefined, mode);
@@ -306,7 +308,7 @@ export function explainActive(mode: "Explain" | "ExplainAnalyze"): void {
 
 /** Runs the selection or the statement at the cursor, or `script` when given. A browsing table tab loads its page. */
 export function runActive(script?: RunTarget): void {
-  const id = ws().active;
+  const id = activeId(ws());
   if (id) void runTab(id, undefined, script);
 }
 
@@ -315,7 +317,7 @@ export function runActive(script?: RunTarget): void {
  * statements, it opens the chooser instead.
  */
 export async function runOrChoose(ask = false): Promise<void> {
-  const id = ws().active;
+  const id = activeId(ws());
   const tab = id ? ws().tabs[id] : undefined;
   if (!id || !tab) return;
   const state = editorStateOf(id);
@@ -326,7 +328,8 @@ export async function runOrChoose(ask = false): Promise<void> {
   const target = textTarget(tab);
   const outline = await commands.scriptOutline(text, sel.head, target.databaseKind);
   const now = editorStateOf(id);
-  if (ws().active !== id || !sameTextTarget(id, target) || now.doc !== state.doc || !now.selection.main.empty || now.selection.main.head !== sel.head) return;
+  if (activeId(ws()) !== id || !sameTextTarget(id, target) || now.doc !== state.doc || !now.selection.main.empty || now.selection.main.head !== sel.head)
+    return;
   const { statements, atCursor } = outline;
   if (statements.length === 0 || (atCursor !== null && (!ask || statements.length < 2))) return runTab(id, undefined, { kind: "cursor", offset: sel.head });
   const anchor = cursorAnchor();
@@ -336,7 +339,7 @@ export async function runOrChoose(ask = false): Promise<void> {
 }
 
 export function cancelActive(): boolean {
-  const id = ws().active;
+  const id = activeId(ws());
   if (!id || !canCancel(useLive.getState().consoles[id])) return false;
   queuedPages.delete(id);
   if (databaseKindFor(tabTarget(ws().tabs[id]), ws().configs) === "SqlServer" && useLive.getState().consoles[id]?.work !== "Import")
@@ -371,7 +374,7 @@ export async function endTransaction(tabId: TabId, verb: "commit" | "rollback"):
   if (res.status === "error") notify(txnErrorText(res.error));
 }
 
-async function reconfigure(tabId: TabId, patch: Partial<ConsoleTarget>) {
+async function reconfigure(tabId: TabId, patch: Partial<Pick<ConsoleTarget, "mode" | "schema">>) {
   const tab = ws().tabs[tabId];
   if (!tab) return;
   const target = { ...tab.console, ...patch };
@@ -394,34 +397,20 @@ export const setTabSchema = (tabId: TabId, schema: string | null) => reconfigure
 
 export const setTabMode = (tabId: TabId, mode: TxnMode) => reconfigure(tabId, { mode });
 
-export function setTabTarget(tabId: TabId, db: DatabaseRef): Promise<void> {
-  const edits = useTableEdits.getState().byTab[tabId];
-  // Staged edits name a table, not a database, so submitting them after a switch would write to another database.
-  if (edits && pendingCount(edits) > 0) {
-    notify("Submit or revert the pending changes first.");
-    return Promise.resolve();
-  }
-  return reconfigure(tabId, {
-    db: resolveDb(db, useLive.getState().connections[db.connectionId]),
-    ...(!sameDb(ws().tabs[tabId]?.console.db, db) && { schema: null }),
-  });
-}
-
 function defaultTarget(): DatabaseRef | null {
   const s = ws();
-  const active = s.active ? s.tabs[s.active] : undefined;
-  if (active) return tabTarget(active);
+  if (s.shown.kind === "notebook") return s.notebooks[s.shown.id]?.db ?? null;
+  if (s.shown.db) return s.shown.db;
   const live = useLive.getState().connections;
   const configs = Object.values(s.configs);
   const config = configs.find((c) => live[c.id]?.status.kind === "Connected") ?? configs[0];
   return config ? homeDb(config, live[config.id]) : null;
 }
 
-/** Opens a SQL cell at the end, or right after `after`. */
+/** Opens a SQL cell in the notebook for its database, at the end or right after `after`, and shows that notebook. */
 export function openSqlTab(opts: { db?: DatabaseRef | null; schema?: string | null; text?: string; title?: string; after?: TabId } = {}): TabId {
   const id = crypto.randomUUID();
-  const current = ws();
-  const inheritedSchema = current.active ? current.tabs[current.active]?.console.schema : undefined;
+  const inheritedSchema = activeTab(ws())?.console.schema;
   const schema = opts.schema !== undefined ? opts.schema : opts.db === undefined ? inheritedSchema : undefined;
   const target = opts.db === undefined ? defaultTarget() : opts.db;
   const db = target && resolveDb(target, useLive.getState().connections[target.connectionId]);
@@ -702,7 +691,7 @@ async function markRunTarget(): Promise<void> {
 }
 
 async function markOnce(): Promise<void> {
-  const id = ws().active;
+  const id = activeId(ws());
   const tab = id ? ws().tabs[id] : undefined;
   if (!id || !tab) return;
   const state = editorStateOf(id);
@@ -712,7 +701,8 @@ async function markOnce(): Promise<void> {
   const outline = await commands.scriptOutline(docText(state.doc), sel.head, target.databaseKind);
   const now = editorStateOf(id);
   // A stale reply is dropped: the change that made it stale already scheduled a newer pass.
-  if (ws().active !== id || !sameTextTarget(id, target) || now.doc !== state.doc || !now.selection.main.empty || now.selection.main.head !== sel.head) return;
+  if (activeId(ws()) !== id || !sameTextTarget(id, target) || now.doc !== state.doc || !now.selection.main.empty || now.selection.main.head !== sel.head)
+    return;
   showRunTarget(id, outline.atCursor === null ? null : (outline.statements[outline.atCursor] ?? null));
 }
 
@@ -736,9 +726,11 @@ export function installRunBehavior(): void {
   useLive.subscribe(showRunErrors);
   useLive.subscribe(runQueuedPages);
   useWorkspace.subscribe((s, prev) => {
-    if (s.active !== prev.active && prev.active) {
-      const previous = s.tabs[prev.active];
-      if (previous && !isBrowsing(previous)) runIntents.delete(prev.active);
+    const active = activeId(s);
+    const before = activeId(prev);
+    if (active !== before && before) {
+      const previous = s.tabs[before];
+      if (previous && !isBrowsing(previous)) runIntents.delete(before);
     }
     for (const [id, before] of Object.entries(prev.tabs)) {
       const now = s.tabs[id];
@@ -747,15 +739,15 @@ export function installRunBehavior(): void {
         forgetParams(id);
     }
     cancelStaleParams();
-    const tab = s.active ? s.tabs[s.active] : undefined;
-    const before = prev.active ? prev.tabs[prev.active] : undefined;
+    const tab = activeTab(s);
+    const was = activeTab(prev);
     if (
-      s.active !== prev.active ||
-      !sameDb(tabTarget(tab), tabTarget(before)) ||
-      databaseKindFor(tabTarget(tab), s.configs) !== databaseKindFor(tabTarget(before), prev.configs)
+      active !== before ||
+      !sameDb(tabTarget(tab), tabTarget(was)) ||
+      databaseKindFor(tabTarget(tab), s.configs) !== databaseKindFor(tabTarget(was), prev.configs)
     ) {
       closeChooser();
-      if (s.active) showRunTarget(s.active, null);
+      if (active) showRunTarget(active, null);
       refreshRunMark();
     }
   });
@@ -773,8 +765,7 @@ export function installRunBehavior(): void {
     EditorView.updateListener.of((u) => {
       if (u.docChanged) for (const l of docListeners) l();
       if (u.docChanged || u.selectionSet) {
-        const active = ws().active;
-        const tab = active ? ws().tabs[active] : undefined;
+        const tab = activeTab(ws());
         if (tab && !isBrowsing(tab)) runIntents.delete(tab.id);
         cancelStaleParams();
         ws().setCursor(cursorOf(u.state));

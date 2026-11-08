@@ -8,7 +8,7 @@ import { docOf, dropEditor, replaceDoc, seedEditor } from "../features/editor/ed
 import { browseTemplate, openSqlTab } from "../features/editor/runActions";
 import { useCatalog } from "../state/catalog";
 import { useLive } from "../state/live";
-import { ask, EMPTY_QUERY, useWorkspace } from "../state/workspace";
+import { allCells, ask, EMPTY_QUERY, useWorkspace } from "../state/workspace";
 import { AppLayout } from "./AppLayout";
 import { preloadSurfaces } from "./lazySurfaces";
 import { CommandPalette } from "./CommandPalette";
@@ -34,7 +34,7 @@ beforeEach(() => {
 afterEach(async () => {
   cleanup();
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-  for (const id of useWorkspace.getState().order) dropEditor(id);
+  for (const id of Object.keys(useWorkspace.getState().tabs)) dropEditor(id);
   useWorkspace.setState(useWorkspace.getInitialState(), true);
   useLive.setState(useLive.getInitialState(), true);
   useCatalog.setState(useCatalog.getInitialState(), true);
@@ -101,14 +101,14 @@ it("wraps arrow selection, guards composition keys and Escape, and runs Enter on
   fireEvent.keyDown(input, { key: "Enter" });
   fireEvent.keyDown(input, { key: "Escape" });
   expect(screen.getByRole("option", { selected: true })).toBe(screen.getByTestId("command-item-new-query"));
-  expect(useWorkspace.getState().order).toHaveLength(0);
+  expect(allCells(useWorkspace.getState())).toHaveLength(0);
   expect(useWorkspace.getState().overlay.kind).toBe("commands");
   fireEvent.compositionEnd(input);
   fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
-  expect(useWorkspace.getState().order).toHaveLength(0);
+  expect(allCells(useWorkspace.getState())).toHaveLength(0);
   fireEvent.keyDown(input, { key: "Enter" });
   fireEvent.keyDown(input, { key: "Enter" });
-  expect(useWorkspace.getState().order).toHaveLength(1);
+  expect(allCells(useWorkspace.getState())).toHaveLength(1);
   await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("SQL editor"));
 });
 
@@ -128,7 +128,7 @@ it("filters unavailable actions reactively and rechecks a stale selection before
     return null;
   });
   act(() => {
-    useWorkspace.setState({ active: null });
+    useWorkspace.setState({ shown: { kind: "start", db: null } });
     fireEvent.click(row);
   });
   expect(useWorkspace.getState().overlay.kind).toBe("commands");
@@ -139,7 +139,7 @@ it("filters unavailable actions reactively and rechecks a stale selection before
     useWorkspace.getState().open({ kind: "history" });
     fireEvent.click(screen.getByTestId("command-item-new-query"));
   });
-  expect(useWorkspace.getState().order).toHaveLength(1);
+  expect(allCells(useWorkspace.getState())).toHaveLength(1);
   expect(useWorkspace.getState().overlay).not.toBe(replacement);
   expect(useWorkspace.getState().overlay.kind).toBe("history");
 });
@@ -230,7 +230,7 @@ it("preserves Settings and its filter on cancel, shows accurate labels, and can 
   await user.keyboard("{Control>}{Shift>}p{/Shift}{/Control}");
   await user.click(screen.getByTestId("command-item-close-tab"));
   expect(useWorkspace.getState().screen.kind).toBe("workspace");
-  expect(useWorkspace.getState().order).toHaveLength(1);
+  expect(allCells(useWorkspace.getState())).toHaveLength(1);
   await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("SQL editor"));
 });
 

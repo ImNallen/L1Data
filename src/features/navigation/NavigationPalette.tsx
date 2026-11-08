@@ -10,8 +10,8 @@ import { navigationItems, searchNavigation, type NavigationItem } from "./naviga
 
 function NavigationBrowser({ activate }: { activate: (item: NavigationItem) => void }) {
   const tabs = useWorkspace((s) => s.tabs);
-  const order = useWorkspace((s) => s.order);
-  const active = useWorkspace((s) => s.active);
+  const notebooks = useWorkspace((s) => s.notebooks);
+  const shown = useWorkspace((s) => s.shown);
   const configs = useWorkspace((s) => s.configs);
   const connections = useLive((s) => s.connections);
   const views = useCatalog((s) => s.views);
@@ -19,7 +19,7 @@ function NavigationBrowser({ activate }: { activate: (item: NavigationItem) => v
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const composing = useRef(false);
   const listId = useId();
-  const { items, total } = searchNavigation(navigationItems({ tabs, order, active, configs, connections, views }), query);
+  const { items, total } = searchNavigation(navigationItems({ tabs, notebooks, shown, configs, connections, views }), query);
   const selectedIndex = Math.max(
     0,
     items.findIndex((item) => item.id === selectedId),

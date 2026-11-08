@@ -5,7 +5,7 @@ import { commands, type HistoryFilter, type HistoryOutcome } from "../../ipc/bin
 import { isMac } from "../../shell/hostedWindow";
 import { sameDb } from "../../state/dbKey";
 import { useLive } from "../../state/live";
-import { confirm, tabTarget, useWorkspace } from "../../state/workspace";
+import { activeTab, confirm, tabTarget, useWorkspace } from "../../state/workspace";
 import { day } from "../../ui/day";
 import { ACTIVE_OPTION, Button, cx, DialogSurface, Kbd, DatabaseBadge, StatusDot } from "../../ui/primitives";
 import { focusEditor } from "../editor/editorStates";
@@ -76,7 +76,7 @@ function HistoryBrowser({ close, restoreEditorFocus }: { close: () => void; rest
   const { list, selected, detail, error } = history;
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  const active = useWorkspace((s) => (s.active ? s.tabs[s.active] : undefined));
+  const active = useWorkspace(activeTab);
   const activeDb = active ? tabTarget(active) : null;
   const insertEnabled = active !== undefined;
   const mod = isMac(navigator.userAgent) ? "⌘" : "Ctrl+";

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ConsoleState, DisconnectError, FileSaved, FileWriteError } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
 import { setCell, useTableEdits } from "../../state/tableEdits";
-import { useWorkspace } from "../../state/workspace";
+import { allCells, useWorkspace } from "../../state/workspace";
 import { closeTab } from "./closeTab";
 import { dropEditor, insertAtCursor, seedEditor } from "./editorStates";
 import { openSqlTab } from "./runActions";
@@ -50,7 +50,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  for (const id of ws().order) dropEditor(id);
+  for (const id of Object.keys(ws().tabs)) dropEditor(id);
   useWorkspace.setState(useWorkspace.getInitialState(), true);
   useLive.setState(useLive.getInitialState(), true);
   useTableEdits.setState(useTableEdits.getInitialState(), true);
@@ -79,7 +79,7 @@ const stageEdit = (id: string) => useTableEdits.getState().edit(id, (e) => setCe
 it("closes a tab with nothing to lose without asking", async () => {
   const id = openSqlTab();
   await closeTab(id);
-  expect([ws().order, question(), closes]).toEqual([[], null, []]);
+  expect([allCells(ws()), question(), closes]).toEqual([[], null, []]);
 });
 
 it("asks to discard staged edits, then to roll back, and closes only after both", async () => {
@@ -90,10 +90,10 @@ it("asks to discard staged edits, then to roll back, and closes only after both"
   await vi.waitFor(() => expect(question()).toBe("Close tab with unsaved changes?"));
   ws().answer("btn");
   await vi.waitFor(() => expect(question()).toBe("Close tab with an open transaction?"));
-  expect(ws().order).toEqual([id]);
+  expect(allCells(ws())).toEqual([id]);
   ws().answer("btn");
   await closing;
-  expect([ws().order, closes]).toEqual([[], [false, true]]);
+  expect([allCells(ws()), closes]).toEqual([[], [false, true]]);
 });
 
 it("keeps the tab and its transaction when the rollback question is cancelled", async () => {
@@ -104,7 +104,7 @@ it("keeps the tab and its transaction when the rollback question is cancelled", 
   ws().close();
   await closing;
   await flush();
-  expect([ws().order, closes]).toEqual([[id], [false]]);
+  expect([allCells(ws()), closes]).toEqual([[id], [false]]);
 });
 
 it("keeps the tab and its staged edits when the discard question is cancelled", async () => {
@@ -114,7 +114,7 @@ it("keeps the tab and its staged edits when the discard question is cancelled", 
   await vi.waitFor(() => expect(question()).toBe("Close tab with unsaved changes?"));
   ws().close();
   await closing;
-  expect([ws().order, closes, Object.keys(useTableEdits.getState().byTab)]).toEqual([[id], [], [id]]);
+  expect([allCells(ws()), closes, Object.keys(useTableEdits.getState().byTab)]).toEqual([[id], [], [id]]);
 });
 
 function dirtyFileTab(): string {
@@ -138,7 +138,7 @@ it("asks to save a file tab whose text differs from its file, and Don't Save clo
   });
   ws().answer("discard");
   await closing;
-  expect([ws().order, saves]).toEqual([[], []]);
+  expect([allCells(ws()), saves]).toEqual([[], []]);
 });
 
 it("keeps a dirty file tab open when the save question is cancelled", async () => {
@@ -147,7 +147,7 @@ it("keeps a dirty file tab open when the save question is cancelled", async () =
   await vi.waitFor(() => expect(question()).toBe("Save changes to a.sql?"));
   ws().close();
   await closing;
-  expect([ws().order, saves, closes]).toEqual([[id], [], []]);
+  expect([allCells(ws()), saves, closes]).toEqual([[id], [], []]);
 });
 
 it("saves, then asks to roll back, then closes", async () => {
@@ -160,7 +160,7 @@ it("saves, then asks to roll back, then closes", async () => {
   expect(saves).toEqual(["-- edited select 1;"]);
   ws().answer("btn");
   await closing;
-  expect([ws().order, closes]).toEqual([[], [false, true]]);
+  expect([allCells(ws()), closes]).toEqual([[], [false, true]]);
 });
 
 it("asks again when the text changes while the close-time save is under way", async () => {
@@ -174,10 +174,10 @@ it("asks again when the text changes while the close-time save is under way", as
   insertAtCursor(id, "-- later ");
   release();
   await vi.waitFor(() => expect(question()).toBe("Save changes to a.sql?"));
-  expect([ws().order, saves]).toEqual([[id], ["-- edited select 1;"]]);
+  expect([allCells(ws()), saves]).toEqual([[id], ["-- edited select 1;"]]);
   ws().answer("save");
   await closing;
-  expect([ws().order, saves]).toEqual([[], ["-- edited select 1;", "-- edited -- later select 1;"]]);
+  expect([allCells(ws()), saves]).toEqual([[], ["-- edited select 1;", "-- edited -- later select 1;"]]);
 });
 
 it("keeps the tab open when its save fails", async () => {
@@ -187,7 +187,7 @@ it("keeps the tab open when its save fails", async () => {
   await vi.waitFor(() => expect(question()).toBe("Save changes to a.sql?"));
   ws().answer("save");
   await closing;
-  expect([ws().order, closes, ws().toast?.text]).toEqual([[id], [], "You don't have permission to save /q/a.sql. Use Save As to save a copy elsewhere."]);
+  expect([allCells(ws()), closes, ws().toast?.text]).toEqual([[id], [], "You don't have permission to save /q/a.sql. Use Save As to save a copy elsewhere."]);
 });
 
 it("closes a file tab that matches its file without asking", async () => {
@@ -195,5 +195,5 @@ it("closes a file tab that matches its file without asking", async () => {
   seedEditor(id, "select 1;", "seeded");
   ws().bindFile(id, { binding: { path: "/q/a.sql", stamp: "s1", format: { bom: false, crlf: false } }, name: "a.sql" });
   await closeTab(id);
-  expect([ws().order, question()]).toEqual([[], null]);
+  expect([allCells(ws()), question()]).toEqual([[], null]);
 });

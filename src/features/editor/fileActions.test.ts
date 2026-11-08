@@ -1,7 +1,7 @@
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { FileBinding, FileOpened, FileReadError, FileWriteError, SaveTarget, Workspace } from "../../ipc/bindings";
-import { useWorkspace } from "../../state/workspace";
+import { activeId, allCells, useWorkspace } from "../../state/workspace";
 import { docOf, dropEditor, insertAtCursor, isDirty, seedEditor, textOf } from "./editorStates";
 import { closeTab } from "./closeTab";
 import { defaultFileName, judgeFile, openFiles, reconcileFiles, saveTab, type FileRead } from "./fileActions";
@@ -63,7 +63,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  for (const id of ws().order) dropEditor(id);
+  for (const id of Object.keys(ws().tabs)) dropEditor(id);
   useWorkspace.setState(useWorkspace.getInitialState(), true);
 });
 
@@ -71,7 +71,7 @@ async function openFile(path: string, text: string): Promise<string> {
   writeDisk(path, text);
   dialogAnswers.push([path]);
   await openFiles();
-  return ws().active!;
+  return activeId(ws())!;
 }
 
 const binding = (stamp: string): FileBinding => ({ path: "/q/a.sql", stamp, format: PLAIN });
@@ -104,8 +104,8 @@ it("opens each picked file in a clean tab named after it, and switches to a file
   writeDisk("/q/b.sql", "select 2;");
   dialogAnswers.push(["/q/a.sql", "/q/b.sql"]);
   await openFiles();
-  const b = ws().active!;
-  expect(ws().order).toEqual([a, b]);
+  const b = activeId(ws())!;
+  expect(allCells(ws())).toEqual([a, b]);
   expect([ws().tabs[b]?.title, textOf(b), isDirty(b), ws().tabs[b]?.file?.health]).toEqual(["b.sql", "select 2;", false, "ok"]);
   expect(calls.filter((c) => c.cmd === "file_open").map((c) => c.args.path)).toEqual(["/q/a.sql", "/q/b.sql"]);
 });
@@ -114,7 +114,7 @@ it("toasts a file it cannot read and still opens the rest", async () => {
   writeDisk("/q/b.sql", "select 2;");
   dialogAnswers.push(["/q/gone.sql", "/q/b.sql"]);
   await openFiles();
-  expect([ws().toast?.text, ws().order.map((id) => ws().tabs[id]?.title)]).toEqual(["/q/gone.sql no longer exists.", ["b.sql"]]);
+  expect([ws().toast?.text, allCells(ws()).map((id) => ws().tabs[id]?.title)]).toEqual(["/q/gone.sql no longer exists.", ["b.sql"]]);
 });
 
 it("saves the workspace with the text before it writes that same text to the file", async () => {

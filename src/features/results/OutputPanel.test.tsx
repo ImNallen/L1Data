@@ -7,6 +7,7 @@ import { OUTPUT_LIMIT, useLive } from "../../state/live";
 import { useWorkspace } from "../../state/workspace";
 import { OutputPanel } from "./OutputPanel";
 import { ResultsPane } from "./ResultsPane";
+import { cellsState } from "../../testing/notebooks";
 
 const at = new Date(2026, 9, 15, 9, 5, 7).getTime();
 const entry = (runId: number, body: OutputBody): OutputEntry => ({ atMs: at, runId, body });
@@ -68,7 +69,7 @@ it("leaves the lines on screen untouched while batches arrive past the cap", () 
   const send = (from: number, count: number) =>
     act(() => useLive.getState().apply({ kind: "ConsoleOutput", tabId: "t1", entries: Array.from({ length: count }, (_, i) => info(from + i)) }));
   const tab = { id: "t1", title: "Query", console: { db: { connectionId: "c1", database: "shop" }, mode: "AutoCommit" as const }, table: null, file: null };
-  useWorkspace.setState({ tabs: { t1: tab }, order: ["t1"], active: "t1" });
+  useWorkspace.setState(cellsState([tab]));
   send(0, OUTPUT_LIMIT);
   render(<ResultsPane tabId="t1" />);
   const panel = screen.getByTestId("output-panel");

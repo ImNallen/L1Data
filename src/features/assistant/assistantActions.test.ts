@@ -7,10 +7,11 @@ import { useLive } from "../../state/live";
 import { useWorkspace, type Tab } from "../../state/workspace";
 import { dropEditor, editorStateOf, insertAtCursor, seedEditor, textOf } from "../editor/editorStates";
 import { confirmDeleteChat, effortFor, openChat, replaceTabSql, sendMessage, startAssistantSync, tabContext } from "./assistantActions";
+import { cellsState } from "../../testing/notebooks";
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  for (const id of useWorkspace.getState().order) dropEditor(id);
+  for (const id of Object.keys(useWorkspace.getState().tabs)) dropEditor(id);
   useWorkspace.setState(useWorkspace.getInitialState(), true);
   useLive.setState(useLive.getInitialState(), true);
 });
@@ -60,7 +61,7 @@ function showTab(text: string, live?: ConsoleState) {
   useWorkspace.setState((s) => ({ settings: { ...s.settings, assistantAccess: "Full" } }));
   seedEditor(TAB.id, "");
   insertAtCursor(TAB.id, text);
-  useWorkspace.setState({ tabs: { [TAB.id]: TAB }, order: [TAB.id], active: TAB.id });
+  useWorkspace.setState(cellsState([TAB]));
   if (live) useLive.setState({ consoles: { [TAB.id]: live } });
 }
 
@@ -299,7 +300,7 @@ it("uses the active tab at send time for the same chat, then sends no target whe
   seedEditor(second.id, "select 2");
   useWorkspace.getState().addTab(second);
   expect(await sendMessage("same-chat", "Second", false)).toBe(true);
-  useWorkspace.setState({ active: null });
+  useWorkspace.setState({ shown: { kind: "start", db: null } });
   expect(await sendMessage("same-chat", "No target", false)).toBe(true);
   expect(sent.map((s) => s.request.tab?.db ?? null)).toEqual([TAB.console.db, second.console.db, null]);
 });

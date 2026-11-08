@@ -20,7 +20,7 @@ export function startPersistence(): void {
     timer = setTimeout(() => void save(), SAVE_DEBOUNCE_MS);
   };
   useWorkspace.subscribe((s, prev) => {
-    if (s.tabs !== prev.tabs || s.order !== prev.order || s.active !== prev.active || s.layout !== prev.layout) schedule();
+    if (s.tabs !== prev.tabs || s.notebooks !== prev.notebooks || s.shown !== prev.shown || s.layout !== prev.layout) schedule();
   });
   onBuffersChanged(schedule);
 }

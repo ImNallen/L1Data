@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { commands, type DatabaseRef, type RowPage } from "../../ipc/bindings";
 import { configureErrorText, runErrorText } from "../../ipc/errors";
-import { useWorkspace } from "../../state/workspace";
+import { activeTab, useWorkspace } from "../../state/workspace";
 import { sameDb } from "../../state/dbKey";
 import { useLive } from "../../state/live";
 import { useNow } from "../../ui/useNow";
@@ -26,7 +26,7 @@ export function useInlineQuery(sql: string, db: DatabaseRef | null) {
     setError(null);
     try {
       const workspace = useWorkspace.getState();
-      const active = workspace.active ? workspace.tabs[workspace.active] : undefined;
+      const active = activeTab(workspace);
       const schema = sameDb(active?.console.db, db) ? (active?.console.schema ?? null) : null;
       const config = await commands.consoleConfigure(id, { ...db, schema, mode: "AutoCommit" });
       if (!alive.current) {

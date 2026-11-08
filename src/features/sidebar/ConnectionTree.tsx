@@ -48,7 +48,7 @@ import { dbKey, sameDb, type DbKey } from "../../state/dbKey";
 import { instanceOf, useLive } from "../../state/live";
 import { detailKey, useRelationDetail, type DetailEntry } from "../../state/relationDetail";
 import { connectionTone, type Tone } from "../../state/status";
-import { tabTarget, useWorkspace, type RelationRef } from "../../state/workspace";
+import { activeTab, tabTarget, useWorkspace, type RelationRef } from "../../state/workspace";
 import { ContextMenuItem, ContextMenuSeparator, ContextSubmenu, Highlight, Spinner, StatusDot, cx } from "../../ui/primitives";
 import { matchRanges, parseQuery, type TextRange } from "../../ui/textMatch";
 import { connect, confirmDelete, disconnect, refreshCatalog, refreshConnection } from "../connections/connectionActions";
@@ -392,8 +392,10 @@ function relationRow(b: Build, path: string, depth: number, db: DatabaseRef, sch
 
 /** Inserts the routine's call template at the active tab's cursor, when that tab's database is of the routine's kind. */
 export function insertRoutine(db: DatabaseRef, fn: FunctionInfo): void {
-  const { active, tabs, configs, notify } = useWorkspace.getState();
-  const target = tabTarget(active ? tabs[active] : undefined);
+  const workspace = useWorkspace.getState();
+  const { configs, notify } = workspace;
+  const active = activeTab(workspace);
+  const target = tabTarget(active);
   if (!active || !target || !configs[target.connectionId]) {
     notify("Choose a tab with a saved connection before inserting a routine.");
     return;
@@ -407,7 +409,7 @@ export function insertRoutine(db: DatabaseRef, fn: FunctionInfo): void {
     notify(`Choose a ${DATABASE_LABEL[sourceKind]} tab to insert this routine.`);
     return;
   }
-  insertAtCursor(active, fn.insertText);
+  insertAtCursor(active.id, fn.insertText);
 }
 
 function functionRow(b: Build, path: string, depth: number, db: DatabaseRef, fn: FunctionInfo, ranges?: readonly TextRange[]) {

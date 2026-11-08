@@ -89,6 +89,8 @@ function bootWith(savedQueries: SavedQueries): BootSnapshot {
       tabs: [],
       active: null,
       layout: { sidebar: true, results: true, rightPanel: null, resultsHeight: 320, sidebarWidth: 256, rightPanelWidth: 341, assistantChat: null },
+      notebooks: [],
+      shown: null,
     },
     settings: {
       maxRows: 1,
@@ -157,6 +159,8 @@ describe("live.apply", () => {
         tabs: [],
         active: null,
         layout: { sidebar: true, results: true, rightPanel: null, resultsHeight: 320, sidebarWidth: 256, rightPanelWidth: 341, assistantChat: null },
+        notebooks: [],
+        shown: null,
       },
       settings: {
         maxRows: 1,
@@ -203,6 +207,8 @@ describe("live.apply", () => {
         tabs: [],
         active: null,
         layout: { sidebar: true, results: true, rightPanel: null, resultsHeight: 320, sidebarWidth: 256, rightPanelWidth: 341, assistantChat: CHAT },
+        notebooks: [],
+        shown: null,
       },
       settings: {
         maxRows: 1,

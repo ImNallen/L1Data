@@ -7,7 +7,7 @@ import { commandForKey } from "../../shell/commands";
 import { isMac } from "../../shell/hostedWindow";
 import { databaseKindFor } from "../../state/databaseKind";
 import { useLive } from "../../state/live";
-import { tabTarget, useWorkspace, type SavedEntry } from "../../state/workspace";
+import { activeTab, tabTarget, useWorkspace, type SavedEntry } from "../../state/workspace";
 import { day } from "../../ui/day";
 import { ACTIVE_OPTION, Button, cx, DatabaseBadge, DialogSurface, Highlight, inputClass, Kbd } from "../../ui/primitives";
 import { focusEditor } from "../editor/editorStates";
@@ -44,7 +44,10 @@ export function SavedPalette() {
 
 function SavedDialog({ entry, close, ref }: { entry: SavedEntry; close: () => void; ref?: Ref<HTMLDivElement> }) {
   const items = useLive((s) => s.savedQueries.items);
-  const activeKind = useWorkspace((s) => (s.active && s.tabs[s.active] ? databaseKindFor(tabTarget(s.tabs[s.active]), s.configs) : null));
+  const activeKind = useWorkspace((s) => {
+    const tab = activeTab(s);
+    return tab ? databaseKindFor(tabTarget(tab), s.configs) : null;
+  });
   const [text, setText] = useState("");
   const ranked = useMemo(() => rankSaved(items, text), [items, text]);
   const [pick, setPick] = useState<{ id: SavedQueryId | null; index: number }>(() => {

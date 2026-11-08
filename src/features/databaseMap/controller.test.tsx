@@ -13,6 +13,7 @@ import { activateEditor, dropEditor, editorContextOf, editorStateOf, moveCursor,
 import { DatabaseMap } from "./DatabaseMap";
 import { closeDatabaseMap, expandMapNode, openDatabaseMap, selectMap, startMapLifecycle, toggleMapOverlay, useDatabaseMap, type Exploring } from "./controller";
 import { CARD_HEIGHT, CARD_WIDTH, EDGE_LIMIT, NODE_LIMIT, emptyGraph, fitViewport, mergeNeighborhood } from "./graph";
+import { cellsState, moveCell } from "../../testing/notebooks";
 
 const db = { connectionId: "map-test", database: "shop" };
 const sql = "SELECT * FROM public.orders a JOIN public.people b ON a.id=b.id";
@@ -82,7 +83,7 @@ function marks(): number[][] {
 beforeEach(() => {
   useLive.setState({ connections: { [db.connectionId]: connectedState(db.connectionId, [databaseState("shop", true, ["public"])]) } });
   useCatalog.setState({ views: { [dbKey(db)]: buildCatalogView(shopCatalog(db.connectionId, 1)) } });
-  useWorkspace.setState({ active: "sql", tabs: { sql: { id: "sql", title: "Query", console: { db, mode: "AutoCommit" }, table: null, file: null } } });
+  useWorkspace.setState(cellsState([{ id: "sql", title: "Query", console: { db, mode: "AutoCommit" }, table: null, file: null }]));
   seedEditor("sql", sql);
   activateEditor("sql");
   vi.spyOn(commands, "databaseMapNeighborhood").mockImplementation(async (_db, oid) => ({ status: "ok", data: page(oid, oid === 1 ? [2, 3, 4] : []) }));
@@ -216,14 +217,11 @@ it.each(["edit", "cursor", "tab", "database", "root", "disconnect", "catalog", "
       break;
     case "tab":
       seedEditor("other", sql);
-      useWorkspace.setState({
-        active: "other",
-        tabs: { ...useWorkspace.getState().tabs, other: { id: "other", title: "Other", console: { db, mode: "AutoCommit" }, table: null, file: null } },
-      });
+      useWorkspace.getState().addTab({ id: "other", title: "Other", console: { db, mode: "AutoCommit" }, table: null, file: null });
       activateEditor("other");
       break;
     case "database":
-      useWorkspace.getState().patchConsole("sql", { db: { ...db, database: "reporting" } });
+      moveCell("sql", { ...db, database: "reporting" });
       break;
     case "root":
       openDatabaseMap(db, 9);
@@ -304,10 +302,10 @@ it.each(["cursor", "tab", "database", "disconnect", "catalog", "overlay", "close
       moveCursor("sql", 7);
       break;
     case "tab":
-      useWorkspace.setState({ active: null });
+      useWorkspace.getState().showDatabase({ ...db, database: "reporting" });
       break;
     case "database":
-      useWorkspace.getState().patchConsole("sql", { db: { ...db, database: "reporting" } });
+      moveCell("sql", { ...db, database: "reporting" });
       break;
     case "disconnect":
       useLive.setState({ connections: {} });

@@ -7,7 +7,7 @@ import { AppLayout } from "../../shell/AppLayout";
 import { preloadSurfaces } from "../../shell/lazySurfaces";
 import { useCatalog } from "../../state/catalog";
 import { useLive } from "../../state/live";
-import { useWorkspace } from "../../state/workspace";
+import { activeId, activeTab, useWorkspace } from "../../state/workspace";
 import { connectedState, connectionConfig, databaseState } from "../../testing/connections";
 import { dropEditor, textOf } from "../editor/editorStates";
 import { openSqlTab } from "../editor/runActions";
@@ -34,7 +34,7 @@ beforeEach(() => {
 afterEach(async () => {
   cleanup();
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-  for (const id of useWorkspace.getState().order) dropEditor(id);
+  for (const id of Object.keys(useWorkspace.getState().tabs)) dropEditor(id);
   useWorkspace.setState(useWorkspace.getInitialState(), true);
   useLive.setState(useLive.getInitialState(), true);
   useCatalog.setState(useCatalog.getInitialState(), true);
@@ -70,7 +70,7 @@ it("opens globally from the editor with a hidden sidebar, retains its query on r
   expect(document.activeElement).toBe(screen.getByTestId("navigation-close"));
   await user.keyboard("{Enter}");
   await waitFor(() => expect(document.activeElement).toBe(editor));
-  expect(useWorkspace.getState().active).toBe(current);
+  expect(activeId(useWorkspace.getState())).toBe(current);
 });
 
 it("navigates with arrows and Enter, ignores IME Enter, and focuses the selected tab's editor", async () => {
@@ -83,13 +83,13 @@ it("navigates with arrows and Enter, ignores IME Enter, and focuses the selected
   expect(screen.getAllByRole("option").map((row) => row.getAttribute("aria-selected"))).toEqual(["true", "false"]);
   fireEvent.compositionStart(input);
   fireEvent.keyDown(input, { key: "Enter", isComposing: true });
-  expect(useWorkspace.getState().active).toBe(second);
+  expect(activeId(useWorkspace.getState())).toBe(second);
   expect(screen.getByTestId("navigation-palette")).toBeTruthy();
   fireEvent.compositionEnd(input);
   await user.keyboard("{ArrowUp}");
   expect(input.getAttribute("aria-activedescendant")).toBe(screen.getAllByRole("option")[1]?.id);
   await user.keyboard("{ArrowDown}{Enter}");
-  expect(useWorkspace.getState().active).toBe(first);
+  expect(activeId(useWorkspace.getState())).toBe(first);
   await waitFor(() => expect(screen.queryByTestId("navigation-palette")).toBeNull());
   await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("SQL editor"));
   expect(textOf(first)).toBe("select 'first'");
@@ -111,7 +111,7 @@ it("preserves selected identity when matches change and falls back to a present 
   expect(screen.getByRole("option", { selected: true }).textContent).toContain("first.sql");
   expect(input.getAttribute("aria-activedescendant")).toBe(screen.getByRole("option").id);
   await user.keyboard("{Enter}");
-  expect(useWorkspace.getState().active).toBe(first);
+  expect(activeId(useWorkspace.getState())).toBe(first);
 });
 
 it("opens the same navigation from Settings and activates a database without changing the previous query target", async () => {
@@ -128,8 +128,8 @@ it("opens the same navigation from Settings and activates a database without cha
   expect(screen.getByRole("option").textContent).toContain("Open new query in this database");
   await user.click(screen.getByRole("option"));
   expect(useWorkspace.getState().screen.kind).toBe("workspace");
-  const { active, tabs } = useWorkspace.getState();
-  expect(active && tabs[active]?.console.db).toEqual({ connectionId: "c", database: "reporting" });
+  const { tabs } = useWorkspace.getState();
+  expect(activeTab(useWorkspace.getState())?.console.db).toEqual({ connectionId: "c", database: "reporting" });
   expect(tabs[previous]).toBe(original);
   await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("SQL editor"));
 });
