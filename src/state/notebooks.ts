@@ -79,6 +79,20 @@ export function stampShown(notebooks: Notebooks, id: NotebookId, now = Date.now(
 }
 
 /**
+ * A notebook whose cells all moved to one other database moves with them, keeping its identity, title and file. A
+ * title that only named the old database names the new one.
+ */
+function followCells(dbOf: (cell: TabId) => DatabaseRef | null | undefined): (n: Notebook) => Notebook {
+  return (n) => {
+    const dbs = n.cells.map(dbOf).filter((db) => db !== undefined);
+    const [first] = dbs;
+    if (first === undefined || dbs.length !== n.cells.length || sameDb(first, n.db) || !dbs.every((db) => sameDb(db, first))) return n;
+    const title = n.file === null && n.title === notebookTitle(n.db) ? notebookTitle(first) : n.title;
+    return { ...n, db: first, title };
+  };
+}
+
+/**
  * Puts every cell in exactly one notebook on the cell's own database. A notebook keeps its cells that are still on its
  * database, in order. Every other cell, `order` first, joins the end of the most recent notebook on its database, or a
  * new one. A notebook that loses its active cell takes the active cell that moved in, else its first. An empty notebook
@@ -87,7 +101,7 @@ export function stampShown(notebooks: Notebooks, id: NotebookId, now = Date.now(
 export function settle(notebooks: Iterable<Notebook>, dbOf: (cell: TabId) => DatabaseRef | null | undefined, order: Iterable<TabId> = []): Notebooks {
   const placed = new Set<TabId>();
   const wasActive = new Set<TabId>();
-  const kept = [...notebooks].map((n) => {
+  const kept = [...notebooks].map(followCells(dbOf)).map((n) => {
     if (n.active) wasActive.add(n.active);
     const cells = n.cells.filter((id) => {
       const db = dbOf(id);

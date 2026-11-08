@@ -433,3 +433,22 @@ it("leaves a notebook typed in while its file was being read", async () => {
   await reconciling;
   expect([textOf(cellId), ws().notebooks[id]?.file?.health]).toEqual(["-- typed select 1;", "ok"]);
 });
+
+it("keeps a file notebook bound to its file when a new connection gives its cells a database", async () => {
+  const id = await openFile("/q/a.sql", plainFile("select 1;"));
+  expect(ws().notebooks[id]?.db).toBeNull();
+  ws().upsertConfig(pg("c1", "local"));
+  const after = ws().notebooks[id];
+  expect([after?.db, after?.title, after?.file?.binding.path, notebookDirty(id)]).toEqual([{ connectionId: "c1", database: "shop" }, "a", "/q/a.sql", false]);
+});
+
+it("takes the keys another program changed when it keeps a file whose cells did not change", async () => {
+  const header = (owner: string): NotebookHeader => ({ ...NO_HEADER, unknown: [{ key: "owner", value: owner }] });
+  const id = await openFile("/q/a.sql", { plain: false, header: header("ana"), cells: [cell("select 1;", { unknown: [{ key: "tag", value: "old" }] })] });
+  writeDisk("/q/a.sql", { plain: false, header: header("bo"), cells: [cell("select 1;", { unknown: [{ key: "tag", value: "new" }] })] });
+  await reconcileNotebookFiles();
+  insertAtCursor(ws().notebooks[id]!.cells[0]!, "-- edit ");
+  await saveNotebook(id);
+  const written = saves().at(-1)?.notebook;
+  expect([written?.header.unknown, written?.cells[0]?.meta.unknown]).toEqual([[{ key: "owner", value: "bo" }], [{ key: "tag", value: "new" }]]);
+});

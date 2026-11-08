@@ -288,6 +288,8 @@ async function reconcile(id: NotebookId, binding: FileBinding): Promise<string |
   // A verdict applies only to the cells its read started with.
   if (!notebook?.file || !sameBinding(id, binding) || !sameAnswer(started, answeredOf(notebook))) return null;
   const verdict = judgeNotebook(binding, currentCells(notebook), notebookDirty(id), read);
+  // The verdict compares known keys only, so a file kept in place still brings the keys another program changed.
+  const kept = () => notebook.cells.flatMap((cell) => ws().tabs[cell] ?? []);
   switch (verdict.kind) {
     case "adopt":
       ws().setNotebookFile(id, {
@@ -295,11 +297,18 @@ async function reconcile(id: NotebookId, binding: FileBinding): Promise<string |
         binding: verdict.file.binding,
         health: "ok",
         plain: verdict.file.notebook.plain,
+        unknown: unknownKeys(verdict.file, kept()),
         saved: currentCells(notebook),
       });
       return null;
     case "same":
-      ws().setNotebookFile(id, { ...notebook.file, health: "ok", plain: verdict.file.notebook.plain, saved: savedCells(verdict.file.notebook.cells) });
+      ws().setNotebookFile(id, {
+        ...notebook.file,
+        health: "ok",
+        plain: verdict.file.notebook.plain,
+        unknown: unknownKeys(verdict.file, kept()),
+        saved: savedCells(verdict.file.notebook.cells),
+      });
       return null;
     case "reload":
       reload(notebook, verdict.file);
