@@ -8,8 +8,10 @@ import { preloadSurfaces } from "../../shell/lazySurfaces";
 import { useCatalog } from "../../state/catalog";
 import { useLive } from "../../state/live";
 import { activeId, shownDb, shownNotebook, useWorkspace } from "../../state/workspace";
+import { displayPath } from "../../state/notebookFile";
 import { connectionConfig } from "../../testing/connections";
-import { dropEditor } from "../editor/editorStates";
+import { bindToFile } from "../../testing/notebooks";
+import { dropEditor, insertAtCursor } from "../editor/editorStates";
 import { openSqlTab } from "../editor/runActions";
 
 beforeAll(preloadSurfaces);
@@ -109,6 +111,35 @@ it("opens from the Notebooks button, groups the notebooks, starts on the first o
   ws().showDatabase(postgres);
   ws().showDatabase(shop);
   expect(shownNotebook(ws())?.id).toBe(revenue);
+});
+
+it("shows each notebook's file, with the home folder as ~, finds a notebook by its path, and marks the shown one unsaved", async () => {
+  const user = userEvent.setup();
+  const { revenue, refunds } = threeNotebooks();
+  useLive.setState({ homeDir: "/Users/a" });
+  bindToFile(revenue, "/Users/a/reports/revenue.sql");
+  bindToFile(refunds, "/srv/shared/refunds.sql");
+  render(<AppLayout />);
+  expect(screen.getByRole("button", { name: "Notebooks" }).title).toBe("Refunds");
+  act(() => insertAtCursor(ws().notebooks[refunds]!.cells[0]!, "-- edited "));
+  const button = screen.getByRole("button", { name: "Notebooks, unsaved changes" });
+  expect(button.title).toBe("Refunds has unsaved changes");
+  await user.click(button);
+  const context = (name: string) => screen.getByRole("option", { name }).querySelector("[title]")?.textContent;
+  expect([context("Refunds"), context("Revenue"), context("Nightly")]).toEqual([
+    "/srv/shared/refunds.sql",
+    "~/reports/revenue.sql",
+    "Not saved to a file · postgres · Local · Open transaction",
+  ]);
+  await user.type(screen.getByRole("combobox", { name: "Search notebooks" }), "reports/");
+  expect(rows().map(([title]) => title)).toEqual(["Revenue", "New notebook"]);
+});
+
+it("shows a path under the home folder from ~", () => {
+  expect(displayPath("/Users/a/q.sql", "/Users/a")).toBe("~/q.sql");
+  expect(displayPath("/Users/ab/q.sql", "/Users/a")).toBe("/Users/ab/q.sql");
+  expect(displayPath("C:\\Users\\a\\q.sql", "C:\\Users\\a")).toBe("~\\q.sql");
+  expect(displayPath("/Users/a/q.sql", null)).toBe("/Users/a/q.sql");
 });
 
 it("switches the database with a notebook from another one, and opens from the command panel", async () => {

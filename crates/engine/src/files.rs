@@ -138,6 +138,12 @@ fn canonical(path: &str) -> io::Result<String> {
     Ok(plain_windows_path(joined))
 }
 
+pub(crate) fn home_dir() -> Option<String> {
+    let home = std::env::home_dir()?;
+    let canonical = fs::canonicalize(&home).unwrap_or(home).into_os_string().into_string().ok()?;
+    Some(plain_windows_path(canonical))
+}
+
 const WINDOWS_DEVICES: [&str; 22] = [
     "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3",
     "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
@@ -415,6 +421,13 @@ mod tests {
         assert_eq!(stamp(b"abc"), FileStamp("3:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad".into()));
         assert_eq!(stamp(b"abc"), stamp(b"abc"));
         assert_ne!(stamp(b"abc"), stamp(b"abd"));
+    }
+
+    #[test]
+    fn a_binding_under_the_home_folder_starts_with_home_dir() {
+        let (Some(home), Some(raw)) = (home_dir(), std::env::home_dir()) else { return eprintln!("skipped: no home folder") };
+        let path = canonical(&s(&raw.join("report.sql"))).unwrap();
+        assert!(path.starts_with(&home) && path.len() > home.len(), "{path} under {home}");
     }
 
     #[test]

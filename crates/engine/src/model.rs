@@ -2140,6 +2140,8 @@ pub struct BootSnapshot {
     pub chats: Vec<ChatState>,
     pub updates: UpdateState,
     pub saved_queries: SavedQueries,
+    /// Spelled as a file binding's folder is, so the paths under it start with it. The UI shows it as `~`.
+    pub home_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]

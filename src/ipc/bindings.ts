@@ -182,6 +182,8 @@ export type BootSnapshot = {
 	chats: ChatState[],
 	updates: UpdateState,
 	savedQueries: SavedQueries,
+	/**  Spelled as a file binding's folder is, so the paths under it start with it. The UI shows it as `~`. */
+	homeDir: string | null,
 };
 
 export type Catalog = {

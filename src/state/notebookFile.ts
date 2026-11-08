@@ -42,6 +42,12 @@ export function notebookText(notebook: Notebook, cells: readonly NotebookCell[],
   };
 }
 
+/** `~` for the home folder at the start of the path. */
+export function displayPath(path: string, home: string | null): string {
+  if (!home || !path.startsWith(home) || !/^[\\/]/.test(path.slice(home.length))) return path;
+  return `~${path.slice(home.length)}`;
+}
+
 export function fileName(path: string): string {
   return path.split(/[\\/]/).at(-1) ?? path;
 }

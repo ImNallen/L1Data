@@ -823,7 +823,7 @@ impl Engine {
             eprintln!("saved queries load failed: {e}");
             SavedQueries { rev: 0, items: Vec::new() }
         });
-        BootSnapshot { connections: saved.configs, unreadable_connections: saved.unreadable, live, consoles, workspace, settings: s.settings(), providers: s.provider_states(), chats, updates: s.updates.state(), saved_queries }
+        BootSnapshot { connections: saved.configs, unreadable_connections: saved.unreadable, live, consoles, workspace, settings: s.settings(), providers: s.provider_states(), chats, updates: s.updates.state(), saved_queries, home_dir: files::home_dir() }
     }
 
     pub async fn save_connection(&self, d: ConnectionDraft) -> Result<ConnectionConfig, SaveError> {
