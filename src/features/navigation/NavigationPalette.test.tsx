@@ -7,11 +7,12 @@ import { AppLayout } from "../../shell/AppLayout";
 import { preloadSurfaces } from "../../shell/lazySurfaces";
 import { useCatalog } from "../../state/catalog";
 import { useLive } from "../../state/live";
-import { activeId, activeTab, useWorkspace } from "../../state/workspace";
+import { activeId, activeTab, EMPTY_QUERY, useWorkspace } from "../../state/workspace";
 import { connectedState, connectionConfig, databaseState } from "../../testing/connections";
+import { cellsState } from "../../testing/notebooks";
 import { dropEditor, textOf } from "../editor/editorStates";
 import { openSqlTab } from "../editor/runActions";
-import { openNavigation } from "./navigationActions";
+import { focusDestination, openNavigation } from "./navigationActions";
 import { NavigationPalette } from "./NavigationPalette";
 
 // Settings and the connection dialog load from their own chunks; loaded, they open in the same pass.
@@ -144,4 +145,22 @@ it("leaves an empty search with no active descendant and ignores Enter", async (
   expect(screen.queryAllByRole("option")).toEqual([]);
   expect(screen.getByTestId("navigation-empty").textContent).toContain("No destinations");
   expect(useWorkspace.getState().overlay.kind).toBe("navigation");
+});
+
+it("focuses the grid of the table cell it opened, not the first grid in the notebook", async () => {
+  const db = { connectionId: "c", database: "shop" };
+  const tab = (id: string) => ({
+    id,
+    title: id,
+    console: { db, mode: "AutoCommit" as const },
+    table: { schema: "public", table: id, page: 0, query: EMPTY_QUERY },
+    file: null,
+  });
+  useWorkspace.setState(cellsState([tab("first"), tab("opened")], "opened"));
+  document.body.innerHTML = ["first", "opened"]
+    .map((id) => `<section data-testid="notebook-cell-${id}"><div data-testid="result-grid" tabindex="0" data-cell="${id}"></div></section>`)
+    .join("");
+  focusDestination("opened");
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  expect((document.activeElement as HTMLElement | null)?.dataset.cell).toBe("opened");
 });

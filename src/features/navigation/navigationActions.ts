@@ -51,7 +51,7 @@ export function focusDestination(tabId: TabId): void {
   requestAnimationFrame(() => {
     const workspace = useWorkspace.getState();
     if (activeId(workspace) !== tabId || workspace.overlay.kind !== "none" || workspace.screen.kind !== "workspace") return;
-    const grid = workspace.tabs[tabId]?.table && document.querySelector<HTMLElement>('[data-testid="result-grid"]');
+    const grid = workspace.tabs[tabId]?.table && document.querySelector<HTMLElement>(`[data-testid="notebook-cell-${tabId}"] [data-testid="result-grid"]`);
     if (grid) grid.focus();
     else focusEditor();
   });
