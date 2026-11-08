@@ -31,6 +31,9 @@ const UNSURE_ALIAS: Refusal = "Write AS before the alias of each grouped column.
 const ALIAS_KEY: Refusal = "A GROUP BY alias could also name a table column. Group by position instead.";
 const NOT_SELECTED: Refusal = "Each GROUP BY key must also be a column of the result.";
 
+/// The refusals of a result that has no groups at all, so it has no rows behind a point to read.
+pub(crate) const UNGROUPED: [Refusal; 3] = [NOT_SELECT, NO_FROM, NO_GROUP_BY];
+
 const COMMENT_CHARS: usize = 80;
 
 /// Words before a trailing word that make it an operand rather than an alias.

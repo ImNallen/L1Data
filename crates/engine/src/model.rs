@@ -1282,6 +1282,27 @@ pub struct ChartSeries {
     pub capped: bool,
 }
 
+/// The chart point to open the rows behind. `Probe` asks only whether the result allows it.
+#[derive(Debug, Clone, Deserialize, Type)]
+#[serde(tag = "kind", rename_all_fields = "camelCase")]
+pub enum DrillPoint {
+    Probe,
+    /// A stored row of the result, which is the chart's point at that index. `title` names the
+    /// result's tab in the comment the SQL starts with.
+    Row { row: u32, title: String },
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(tag = "kind", rename_all_fields = "camelCase")]
+pub enum DrillError {
+    Gone,
+    OutOfRange,
+    /// The result's SQL is not a `SELECT` with `FROM` and `GROUP BY`, so a point stands for no group of rows.
+    Ungrouped,
+    /// The result's SQL cannot be rewritten to read exactly the rows behind a point.
+    Unsupported { reason: String },
+}
+
 /// What one stored column holds. Every stored row is read.
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]

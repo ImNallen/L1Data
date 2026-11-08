@@ -140,6 +140,7 @@ routes! { e;
     result_aggregate(result_ref: ResultRef, rows: RowSpan, cols: ColSpan) => e.result_aggregate(result_ref, rows, cols).await;
     result_series(result_ref: ResultRef, x: Option<u16>, y: u16, max_points: u32) => e.result_series(result_ref, x, y, max_points).await;
     result_profile(result_ref: ResultRef, col: u16) => e.result_profile(result_ref, col).await;
+    result_drill(result_ref: ResultRef, point: DrillPoint) => e.result_drill(result_ref, point);
     result_plan(result_ref: ResultRef) => e.result_plan(result_ref);
     result_export(result_ref: ResultRef, format: ExportFormat, scope: ExportScope, path: String) => e.result_export(result_ref, format, scope, path).await;
     file_open(path: String) => e.file_open(path).await;

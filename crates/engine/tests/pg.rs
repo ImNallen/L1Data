@@ -445,6 +445,52 @@ async fn mockup_query_returns_six_regions_with_bigint_orders() {
 }
 
 #[tokio::test]
+async fn a_drilled_group_reads_exactly_the_rows_it_counted() {
+    let mut h = Harness::start().await;
+    let tab = h.sql_tab(TxnMode::AutoCommit).await;
+    let rows_tab = h.sql_tab(TxnMode::AutoCommit).await;
+    let queries = [
+        "SELECT c.region, count(*) AS n FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.status = 'paid' GROUP BY 1 ORDER BY 2 DESC",
+        "SELECT date_trunc('month', o.created_at) AS month, count(*) AS n FROM orders o WHERE o.status <> 'cancelled' GROUP BY 1 ORDER BY 1",
+        "SELECT o.metadata->>'gift' AS gift, count(*) AS n FROM orders o GROUP BY 1",
+        "SELECT count(*) AS n, c.region, o.status FROM orders o JOIN customers c ON c.id = o.customer_id GROUP BY c.region, status HAVING count(*) > 1",
+        "WITH t(k) AS (VALUES ('a'), ('a'), (NULL), (NULL), (NULL), (E'it''s \\\\ here')) SELECT k, count(*) AS n FROM t GROUP BY k",
+    ];
+    for sql in queries {
+        let state = h.run_ok(tab, sql).await;
+        let meta = Harness::result(&state, 0);
+        assert_eq!(h.engine.result_drill(meta.r#ref, DrillPoint::Probe).unwrap(), "", "{sql}");
+        let n = meta.columns.iter().position(|c| c.name == "n").unwrap();
+        let rows = h.page(&meta, 0, meta.row_count);
+        assert!(rows.len() > 1, "{sql} has groups to drill into");
+        for (row, cells) in rows.into_iter().enumerate() {
+            let drilled = h.engine.result_drill(meta.r#ref, DrillPoint::Row { row: row as u32, title: "Untitled-1.sql".into() }).unwrap();
+            let behind = Harness::result(&h.run_ok(rows_tab, &drilled).await, 0);
+            assert_eq!(Some(behind.rows_seen.to_string()), cells[n], "{drilled}");
+        }
+    }
+    let gift = Harness::result(&h.run_ok(tab, "SELECT o.metadata->>'gift' AS gift, count(*) AS n FROM orders o GROUP BY 1 ORDER BY 1 NULLS FIRST").await, 0);
+    let drilled = h.engine.result_drill(gift.r#ref, DrillPoint::Row { row: 0, title: "Gifts".into() }).unwrap();
+    assert_eq!(drilled, "-- Rows behind NULL in Gifts\nSELECT *\nFROM orders o\nWHERE (o.metadata->>'gift') IS NULL");
+
+    for (sql, reason) in [
+        ("SELECT status, count(*) FROM orders GROUP BY 1 UNION ALL SELECT 'all', count(*) FROM orders", "The chart's query uses UNION, INTERSECT, or EXCEPT."),
+        ("SELECT status, count(*) FROM orders WHERE pg_sleep(0) IS NOT NULL GROUP BY 1", "The chart's query calls functions that may not be safe to run again."),
+    ] {
+        let state = h.run_ok(tab, sql).await;
+        let meta = Harness::result(&state, 0);
+        assert!(matches!(h.engine.result_drill(meta.r#ref, DrillPoint::Probe), Err(DrillError::Unsupported { reason: r }) if r == reason), "{sql}");
+    }
+    let raw = Harness::result(&h.run_ok(tab, "SELECT status, total FROM orders LIMIT 5").await, 0);
+    assert!(matches!(h.engine.result_drill(raw.r#ref, DrillPoint::Probe), Err(DrillError::Ungrouped)), "a point of an ungrouped result is one row");
+    let page = h.engine.console_run(tab, RunRequest::TablePage { schema: "public".into(), table: "orders".into(), page: 0, query: TableQuery::default() }, None).await.unwrap();
+    let meta = Harness::result(&h.wait_finished(tab, page.run_id).await, 0);
+    assert!(matches!(h.engine.result_drill(meta.r#ref, DrillPoint::Probe), Err(DrillError::Unsupported { .. })), "a table page filters instead");
+    h.run_ok(tab, "SELECT 1").await;
+    assert!(matches!(h.engine.result_drill(meta.r#ref, DrillPoint::Probe), Err(DrillError::Gone)));
+}
+
+#[tokio::test]
 async fn type_zoo_cells_equal_postgres_text_output() {
     let mut h = Harness::start().await;
     let tab = h.sql_tab(TxnMode::AutoCommit).await;
