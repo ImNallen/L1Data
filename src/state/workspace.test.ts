@@ -84,3 +84,15 @@ describe("file tabs", () => {
     expect(tabFromSnapshot(snap.tabs[0]!, {}).file).toEqual({ binding: saved.binding, health: "ok" });
   });
 });
+
+describe("workspace.setResultDisplay", () => {
+  it("keeps each result's choice within a run and forgets the run before", () => {
+    const ws = useWorkspace.getState();
+    ws.setResultDisplay("t", { key: "t:1:0", display: "chart", chart: { kind: "Bar", x: 0, y: 1 } });
+    ws.setResultDisplay("t", { key: "t:1:1", display: "rows", chart: null });
+    expect(useWorkspace.getState().resultDisplay.t?.["t:1:0"]?.display).toBe("chart");
+    expect(useWorkspace.getState().resultDisplay.t?.["t:1:1"]?.display).toBe("rows");
+    ws.setResultDisplay("t", { key: "t:2:0", display: "chart", chart: null });
+    expect(Object.keys(useWorkspace.getState().resultDisplay.t ?? {})).toEqual(["t:2:0"]);
+  });
+});

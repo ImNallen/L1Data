@@ -387,8 +387,8 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
   const summary = runSummary(run, picked, now);
   const output = useLive((s) => (tabId ? s.output[tabId] : undefined)) ?? NO_OUTPUT;
   const shownRef = shown ? resultKey(shown) : "";
-  const storedPref = useWorkspace((s) => (tabId ? s.resultDisplay[tabId] : undefined));
-  const pref: ResultDisplayPref = storedPref?.key === shownRef ? storedPref : { key: shownRef, display: "default", chart: null };
+  const storedPref = useWorkspace((s) => (tabId ? s.resultDisplay[tabId]?.[shownRef] : undefined));
+  const pref: ResultDisplayPref = storedPref ?? { key: shownRef, display: "default", chart: null };
   const setDisplayPref = (next: ResultDisplayPref) => {
     if (tabId) useWorkspace.getState().setResultDisplay(tabId, next);
   };

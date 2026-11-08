@@ -15,7 +15,7 @@ const CHAR_PX = 6.5;
 const MARGIN = { top: 12, right: 16, bottom: 24, left: 8 };
 
 const compact = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 2 });
-const exact = new Intl.NumberFormat(undefined, { maximumFractionDigits: 6 });
+const exact = new Intl.NumberFormat(undefined, { maximumSignificantDigits: 15 });
 
 function Chip({ label, value, testId, children }: { label: string; value: string; testId: string; children: ReactNode }) {
   return (
@@ -88,7 +88,8 @@ function Plot({ series, kind, xName, yName }: { series: ChartSeries; kind: Chart
   const ticks = niceTicks(lo, hi);
   const domainLo = ticks[0] ?? lo;
   const domainHi = ticks.at(-1) ?? hi;
-  const tickText = ticks.map((t) => compact.format(t));
+  const compactText = ticks.map((t) => compact.format(t));
+  const tickText = new Set(compactText).size === ticks.length ? compactText : ticks.map((t) => exact.format(t));
   const left = MARGIN.left + Math.max(...tickText.map((t) => t.length)) * CHAR_PX + 8;
   const plotW = Math.max(0, size.width - left - MARGIN.right);
   const plotH = Math.max(0, size.height - MARGIN.top - MARGIN.bottom);

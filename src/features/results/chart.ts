@@ -35,7 +35,9 @@ export function niceTicks(min: number, max: number): number[] {
     const step = m * magnitude;
     const lo = Math.floor(min / step);
     const hi = Math.ceil(max / step);
-    if (hi - lo <= 4) return Array.from({ length: hi - lo + 1 }, (_, i) => Number(((lo + i) * step).toPrecision(12)));
+    // Rounding at the step's own resolution strips float noise without merging ticks on a large offset.
+    const decimals = Math.min(100, Math.max(0, 2 - Math.floor(Math.log10(step))));
+    if (hi - lo <= 4) return Array.from({ length: hi - lo + 1 }, (_, i) => Number(((lo + i) * step).toFixed(decimals)));
   }
   return [min, max];
 }

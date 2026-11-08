@@ -79,13 +79,20 @@ it("shows the hovered bar's label and exact value", async () => {
   const plot = await screen.findByRole("img");
   fireEvent.pointerMove(plot, { clientX: 100 });
   const tip = screen.getByTestId("chart-tooltip");
-  expect(tip.textContent).toContain("1,234.567891");
+  expect(tip.textContent).toContain("1,234.5678912");
   expect(tip.textContent).toContain("revenue");
   expect(tip.textContent).toContain("north");
   fireEvent.pointerMove(plot, { clientX: 500 });
   expect(screen.getByTestId("chart-tooltip").textContent).toContain("south");
   fireEvent.pointerLeave(plot);
   expect(screen.queryByTestId("chart-tooltip")).toBeNull();
+});
+
+it("keeps the digits of a value too small for fixed decimals", async () => {
+  vi.spyOn(commands, "resultSeries").mockResolvedValue(ok({ labels: ["a"], values: [0.0000001], capped: false }));
+  render(<ChartView result={result(1)} spec={bars} onSpec={() => {}} />);
+  fireEvent.pointerMove(await screen.findByRole("img"), { clientX: 300 });
+  expect(screen.getByTestId("chart-tooltip").textContent).toContain("0.0000001");
 });
 
 it("says so when there are no rows", async () => {

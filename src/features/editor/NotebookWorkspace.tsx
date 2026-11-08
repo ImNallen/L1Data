@@ -68,9 +68,9 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
   const table = tab?.table != null;
   const rows = table || largest === undefined ? largest : Math.min(largest, pageSize);
   const picked = useWorkspace((s) => s.activeResult[id]);
-  const display = useWorkspace((s) => s.resultDisplay[id]);
   const shown = console ? shownResult(console.run, picked) : undefined;
-  const chart = shown !== undefined && display?.key === resultKey(shown) && display.display === "chart";
+  const shownKey = shown ? resultKey(shown) : "";
+  const chart = useWorkspace((s) => s.resultDisplay[id]?.[shownKey]?.display === "chart");
   const heights = cellHeights({
     viewport,
     lines: text.split("\n").length,

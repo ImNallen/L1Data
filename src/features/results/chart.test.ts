@@ -77,4 +77,11 @@ describe("niceTicks", () => {
       expect(ticks.at(-1)).toBeGreaterThanOrEqual(max);
     }
   });
+
+  it("keeps ticks distinct on a large offset with a small range", () => {
+    const ticks = niceTicks(1_000_000_000_000, 1_000_000_000_002);
+    expect(new Set(ticks).size).toBe(ticks.length);
+    expect(ticks[0]).toBeLessThanOrEqual(1_000_000_000_000);
+    expect(ticks.at(-1)).toBeGreaterThanOrEqual(1_000_000_000_002);
+  });
 });

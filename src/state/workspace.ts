@@ -93,8 +93,8 @@ export type WorkspaceData = {
   layout: Layout;
   configs: Record<ConnectionId, ConnectionConfig>;
   activeResult: Record<TabId, ResultPick>;
-  /** Rows, plan, or chart for the result named by `key`. A newer result starts from the default. */
-  resultDisplay: Record<TabId, ResultDisplayPref>;
+  /** Rows, plan, or chart for each result of the tab's latest run, keyed by `resultKey`. A new run starts from the default. */
+  resultDisplay: Record<TabId, Record<string, ResultDisplayPref>>;
   settings: Settings;
   selected: RelationRef | null;
   overlay: Overlay;
@@ -313,7 +313,12 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
     }),
   setLayout: (patch) => set((s) => ({ layout: { ...s.layout, ...patch } })),
   setActiveResult: (id, pick) => set((s) => ({ activeResult: { ...s.activeResult, [id]: pick } })),
-  setResultDisplay: (id, pref) => set((s) => ({ resultDisplay: { ...s.resultDisplay, [id]: pref } })),
+  setResultDisplay: (id, pref) =>
+    set((s) => {
+      const run = pref.key.slice(0, pref.key.lastIndexOf(":"));
+      const sameRun = Object.entries(s.resultDisplay[id] ?? {}).filter(([key]) => key.slice(0, key.lastIndexOf(":")) === run);
+      return { resultDisplay: { ...s.resultDisplay, [id]: { ...Object.fromEntries(sameRun), [pref.key]: pref } } };
+    }),
   upsertConfig: (c) =>
     set((s) => {
       const previous = s.configs[c.id];
