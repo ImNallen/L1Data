@@ -1668,8 +1668,8 @@ impl<'de> Deserialize<'de> for Workspace {
     }
 }
 
-/// A database's notebook. Every cell in it is on `db`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+/// One of a database's notebooks. Every cell in it is on `db`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct NotebookSnapshot {
     pub id: NotebookId,
@@ -1679,6 +1679,28 @@ pub struct NotebookSnapshot {
     /// The notebook's cells in order. Each id is a `TabSnapshot` in `Workspace.tabs`.
     pub cells: Vec<TabId>,
     pub active: Option<TabId>,
+    /// When the notebook was last shown, in Unix milliseconds. Choosing a database shows its most recent notebook.
+    pub shown_at_ms: u64,
+}
+
+// Hand-written so a notebook saved before `shown_at_ms` loads as never shown. `#[serde(default)]` would mark the field
+// optional in the TS bindings.
+impl<'de> Deserialize<'de> for NotebookSnapshot {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Saved {
+            id: NotebookId,
+            title: String,
+            db: Option<DatabaseRef>,
+            cells: Vec<TabId>,
+            active: Option<TabId>,
+            #[serde(default)]
+            shown_at_ms: u64,
+        }
+        let Saved { id, title, db, cells, active, shown_at_ms } = Saved::deserialize(d)?;
+        Ok(Self { id, title, db, cells, active, shown_at_ms })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -3255,7 +3277,15 @@ mod tests {
     const NOTEBOOK: &str = "00000000-0000-0000-0000-000000000003";
 
     fn notebook_json() -> serde_json::Value {
-        json!({ "id": NOTEBOOK, "title": "shop", "db": { "connectionId": CONN, "database": "shop" }, "cells": [TAB], "active": TAB })
+        json!({ "id": NOTEBOOK, "title": "shop", "db": { "connectionId": CONN, "database": "shop" }, "cells": [TAB], "active": TAB, "shownAtMs": 1_700_000_000_000_u64 })
+    }
+
+    #[test]
+    fn a_notebook_saved_before_shown_at_ms_loads_as_never_shown() {
+        let mut old = notebook_json();
+        old.as_object_mut().unwrap().remove("shownAtMs");
+        let n: NotebookSnapshot = serde_json::from_value(old).unwrap();
+        assert_eq!((n.title.as_str(), n.cells.len(), n.shown_at_ms), ("shop", 1, 0));
     }
 
     fn workspace_json(notebooks: serde_json::Value, shown: serde_json::Value) -> serde_json::Value {
@@ -3280,6 +3310,7 @@ mod tests {
             db: Some(DatabaseRef { connection_id: ConnectionId(uuid(CONN)), database: "shop".into() }),
             cells: vec![TabId(uuid(TAB))],
             active: Some(TabId(uuid(TAB))),
+            shown_at_ms: 1_700_000_000_000,
         };
         assert_eq!((&w.notebooks, w.shown), (&vec![notebook], Some(NotebookId(uuid(NOTEBOOK)))));
         let again: Workspace = serde_json::from_value(serde_json::to_value(&w).unwrap()).unwrap();

@@ -163,8 +163,8 @@ describe("notebooks", () => {
 
   it("keeps each cell in one notebook on its database, and puts the cells no notebook claims into the one for their database", () => {
     const [a, b, c] = oldWorkspace.tabs;
-    const mine = { id: "n1", title: "Mine", db: shop, cells: ["a", "closed"], active: "closed" };
-    const pg = { id: "n2", title: "Postgres", db: postgres, cells: ["a", "b"], active: "a" };
+    const mine = { id: "n1", title: "Mine", db: shop, cells: ["a", "closed"], active: "closed", shownAtMs: 0 };
+    const pg = { id: "n2", title: "Postgres", db: postgres, cells: ["a", "b"], active: "a", shownAtMs: 0 };
     ws().restore({ ...oldWorkspace, tabs: [a!, b!, c!], notebooks: [mine, pg], shown: "n1" }, [config("c")], DEFAULT_SETTINGS);
     expect(shape()).toEqual([
       ["Mine", ["a", "c"], "a"],
@@ -210,6 +210,54 @@ describe("notebooks", () => {
     ws().setActive("a");
     ws().closeTab("a");
     expect([shownDb(ws()), activeId(ws())]).toEqual([shop, "b"]);
+  });
+
+  it("shows the notebook on a database shown most recently, and still does after a reload", () => {
+    ws().upsertConfig(config("c"));
+    ws().addTab(cell("a"));
+    ws().addNotebook(cell("b"));
+    ws().addTab(cell("p", postgres));
+    ws().showDatabase(shop);
+    expect(activeId(ws())).toBe("b");
+    ws().setActive("a");
+    ws().showDatabase(postgres);
+    ws().showDatabase(shop);
+    expect(activeId(ws())).toBe("a");
+    const saved = workspaceSnapshot(ws(), { textOf: () => "", isDirty: () => false });
+    useWorkspace.setState(useWorkspace.getInitialState(), true);
+    ws().restore(saved, [config("c")], DEFAULT_SETTINGS);
+    ws().showDatabase(postgres);
+    ws().showDatabase(shop);
+    expect(activeId(ws())).toBe("a");
+    ws().addTab(cell("loose"));
+    expect(shape()).toContainEqual(["shop", ["a", "loose"], "loose"]);
+  });
+
+  it("names a new notebook after its database, then with the lowest free number, and keeps a renamed title", () => {
+    for (const id of ["a", "b", "c"]) ws().addNotebook(cell(id));
+    ws().addNotebook(cell("p", postgres));
+    expect(shape().map(([title]) => title)).toEqual(["shop", "shop 2", "shop 3", "postgres"]);
+    ws().closeTab("b");
+    const [first] = Object.keys(ws().notebooks);
+    ws().renameNotebook(first!, "  Revenue  ");
+    ws().renameNotebook(first!, "   ");
+    ws().addNotebook(cell("d"));
+    ws().addNotebook(cell("e"));
+    expect(shape().map(([title]) => title)).toEqual(["Revenue", "shop 3", "postgres", "shop", "shop 2"]);
+  });
+
+  it("shows the next most recent notebook on the database when the shown one loses its last cell", () => {
+    ws().addTab(cell("a"));
+    ws().addNotebook(cell("b"));
+    ws().addNotebook(cell("c"));
+    ws().setActive("a");
+    ws().setActive("c");
+    ws().closeTab("c");
+    expect(activeId(ws())).toBe("a");
+    ws().closeTab("a");
+    expect(activeId(ws())).toBe("b");
+    ws().closeTab("b");
+    expect(ws().shown).toEqual({ kind: "start", db: shop });
   });
 
   it("moves cells with no connection into the notebook of the connection saved for them, and keeps showing the active one", () => {

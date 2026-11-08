@@ -108,6 +108,7 @@ async fn restored_targets_catalogs_table_results_and_history_share_the_canonical
         db: Some(DatabaseRef { connection_id: config.id, database: database.into() }),
         active: cells.first().copied(),
         cells,
+        shown_at_ms: 0,
     };
     let notebooks = vec![notebook("SHOP", vec![table.id]), notebook("Shop", vec![distinct.id])];
     engine.save_workspace(Workspace { tabs: vec![table.clone(), distinct.clone()], active: Some(table.id), notebooks: notebooks.clone(), ..Workspace::default() });
