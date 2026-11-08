@@ -51,7 +51,7 @@ export const commands = {
 	resultAggregate: (resultRef: ResultRef, rows: RowSpan, cols: ColSpan) => typedError<CellAggregate, ResultError>(__TAURI_INVOKE("result_aggregate", { resultRef, rows, cols })),
 	resultSeries: (resultRef: ResultRef, x: number | null, y: number, maxPoints: number) => typedError<ChartSeries, ResultError>(__TAURI_INVOKE("result_series", { resultRef, x, y, maxPoints })),
 	resultProfile: (resultRef: ResultRef, col: number) => typedError<ColumnProfile, ResultError>(__TAURI_INVOKE("result_profile", { resultRef, col })),
-	resultDrill: (resultRef: ResultRef, point: DrillPoint) => typedError<string, DrillError>(__TAURI_INVOKE("result_drill", { resultRef, point })),
+	resultDrill: (resultRef: ResultRef, point: DrillPoint) => typedError<DrillQuery, DrillError>(__TAURI_INVOKE("result_drill", { resultRef, point })),
 	resultPlan: (resultRef: ResultRef) => typedError<Plan, ResultError>(__TAURI_INVOKE("result_plan", { resultRef })),
 	resultExport: (resultRef: ResultRef, format: ExportFormat, scope: ExportScope, path: string) => typedError<ExportSummary, ExportError>(__TAURI_INVOKE("result_export", { resultRef, format, scope, path })),
 	fileOpen: (path: string) => typedError<FileOpened, FileReadError>(__TAURI_INVOKE("file_open", { path })),
@@ -593,6 +593,17 @@ export type DrillPoint = { kind: "Probe" } |
  *  result's tab in the comment the SQL starts with.
  */
 { kind: "Row"; row: number; title: string };
+
+/**
+ *  The SQL behind a chart point, with the database and schema the result was read from. The new cell
+ *  runs there, not wherever the chart's cell points now.
+ */
+export type DrillQuery = {
+	/**  Empty for a probe. */
+	sql: string,
+	db: DatabaseRef,
+	schema: string | null,
+};
 
 /**  An effort level as its provider names it (`high`). Valid only for a model that lists it. */
 export type EffortId = string;

@@ -448,7 +448,7 @@ export async function openDrill(r: ResultRef, row: number): Promise<void> {
     notify(res.error.kind === "Unsupported" ? res.error.reason : "The result is gone. Run the query again.");
     return;
   }
-  openSqlTab({ db: tab.console.db, schema: tab.console.schema ?? null, text: res.data, after: tab.id });
+  openSqlTab({ db: res.data.db, schema: res.data.schema, text: res.data.sql, after: tab.id });
   runActive({ kind: "all" });
 }
 

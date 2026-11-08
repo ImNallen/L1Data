@@ -459,23 +459,25 @@ async fn a_drilled_group_reads_exactly_the_rows_it_counted() {
     for sql in queries {
         let state = h.run_ok(tab, sql).await;
         let meta = Harness::result(&state, 0);
-        assert_eq!(h.engine.result_drill(meta.r#ref, DrillPoint::Probe).unwrap(), "", "{sql}");
+        assert_eq!(h.engine.result_drill(meta.r#ref, DrillPoint::Probe).unwrap().sql, "", "{sql}");
         let n = meta.columns.iter().position(|c| c.name == "n").unwrap();
         let rows = h.page(&meta, 0, meta.row_count);
         assert!(rows.len() > 1, "{sql} has groups to drill into");
         for (row, cells) in rows.into_iter().enumerate() {
-            let drilled = h.engine.result_drill(meta.r#ref, DrillPoint::Row { row: row as u32, title: "Untitled-1.sql".into() }).unwrap();
+            let drilled = h.engine.result_drill(meta.r#ref, DrillPoint::Row { row: row as u32, title: "Untitled-1.sql".into() }).unwrap().sql;
             let behind = Harness::result(&h.run_ok(rows_tab, &drilled).await, 0);
             assert_eq!(Some(behind.rows_seen.to_string()), cells[n], "{drilled}");
         }
     }
     let gift = Harness::result(&h.run_ok(tab, "SELECT o.metadata->>'gift' AS gift, count(*) AS n FROM orders o GROUP BY 1 ORDER BY 1 NULLS FIRST").await, 0);
     let drilled = h.engine.result_drill(gift.r#ref, DrillPoint::Row { row: 0, title: "Gifts".into() }).unwrap();
-    assert_eq!(drilled, "-- Rows behind NULL in Gifts\nSELECT *\nFROM orders o\nWHERE (o.metadata->>'gift') IS NULL");
+    assert_eq!(drilled.sql, "-- Rows behind NULL in Gifts\nSELECT *\nFROM orders o\nWHERE (o.metadata->>'gift') IS NULL");
+    assert_eq!((drilled.db, drilled.schema), (gift.db.clone(), None), "the drill reads where the result was read");
 
     for (sql, reason) in [
         ("SELECT status, count(*) FROM orders GROUP BY 1 UNION ALL SELECT 'all', count(*) FROM orders", "The chart's query uses UNION, INTERSECT, or EXCEPT."),
         ("SELECT status, count(*) FROM orders WHERE pg_sleep(0) IS NOT NULL GROUP BY 1", "The chart's query calls functions that may not be safe to run again."),
+        ("SELECT ROW(status, customer_id) AS k, count(*) FROM orders GROUP BY 1", "A grouped column is an anonymous ROW, which cannot be compared to its text."),
     ] {
         let state = h.run_ok(tab, sql).await;
         let meta = Harness::result(&state, 0);

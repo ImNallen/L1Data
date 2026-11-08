@@ -1720,7 +1720,7 @@ impl Engine {
 
     /// The SQL of the rows behind one row of a grouped PostgreSQL result. It rewrites the SQL that
     /// produced the result, and only the SQL that may run again unasked.
-    pub fn result_drill(&self, r: ResultRef, point: DrillPoint) -> Result<String, DrillError> {
+    pub fn result_drill(&self, r: ResultRef, point: DrillPoint) -> Result<DrillQuery, DrillError> {
         let set = self.shared.result_set(r).ok_or(DrillError::Gone)?;
         let unsupported = |reason: &str| DrillError::Unsupported { reason: reason.into() };
         if set.database_kind != DatabaseKind::Postgres {
@@ -1735,12 +1735,17 @@ impl Engine {
             results::Rerun::Refused(reason) => return Err(unsupported(reason)),
         };
         let drill = sql::drill::plan(sql).map_err(|reason| if sql::drill::UNGROUPED.contains(&reason) { DrillError::Ungrouped } else { unsupported(reason) })?;
+        let keys = drill.columns().map(|c| set.columns.get(usize::from(c))).collect::<Option<Vec<_>>>().ok_or(DrillError::OutOfRange)?;
+        // PostgreSQL cannot read a text literal as an anonymous record, so `(ROW(a, b)) = '(1,2)'` always fails.
+        if keys.iter().any(|k| k.r#type.display == "record") {
+            return Err(unsupported("A grouped column is an anonymous ROW, which cannot be compared to its text."));
+        }
+        let query = |sql: String| DrillQuery { sql, db: set.db.clone(), schema: set.origin.schema.clone() };
         match point {
-            DrillPoint::Probe if drill.columns().all(|c| usize::from(c) < set.columns.len()) => Ok(String::new()),
-            DrillPoint::Probe => Err(DrillError::OutOfRange),
+            DrillPoint::Probe => Ok(query(String::new())),
             DrillPoint::Row { row, title } => {
                 let values = drill.columns().map(|c| set.cell(row, c)).collect::<Option<Vec<_>>>().ok_or(DrillError::OutOfRange)?;
-                Ok(drill.sql(&values, &title))
+                Ok(query(drill.sql(&values, &title)))
             }
         }
     }

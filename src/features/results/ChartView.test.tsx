@@ -155,8 +155,13 @@ it("refetches at most every 300 ms while rows stream", async () => {
 const db = { connectionId: "c1", database: "shop" };
 const cell = (id: string, title: string): Tab => ({ id, title, console: { db, mode: "AutoCommit", schema: "sales" }, table: null, file: null });
 
+const resultDb = { connectionId: "c1", database: "archive" };
+
 function drillAnswers(sql: string) {
-  return vi.spyOn(commands, "resultDrill").mockImplementation(async (_ref, point: DrillPoint) => ({ status: "ok", data: point.kind === "Probe" ? "" : sql }));
+  return vi.spyOn(commands, "resultDrill").mockImplementation(async (_ref, point: DrillPoint) => ({
+    status: "ok",
+    data: { sql: point.kind === "Probe" ? "" : sql, db: resultDb, schema: "reporting" },
+  }));
 }
 
 function acceptRuns() {
@@ -165,7 +170,7 @@ function acceptRuns() {
   return vi.spyOn(commands, "consoleRun").mockResolvedValue({ status: "ok", data: { runId: 1, statements: [] } });
 }
 
-it("opens the rows behind a clicked bar in a new cell after the chart's cell, and runs it", async () => {
+it("opens the rows behind a clicked bar in a new cell after the chart's cell, on the result's database, and runs it", async () => {
   useWorkspace.setState({ tabs: { t1: cell("t1", "Revenue"), t2: cell("t2", "Later") }, order: ["t1", "t2"], active: "t1" });
   vi.spyOn(commands, "resultSeries").mockResolvedValue(ok({ labels: ["north", "south"], values: [10, 4], capped: false }));
   const drill = drillAnswers("-- Rows behind south in Revenue\nSELECT * FROM orders WHERE (region) = 'south'");
@@ -185,7 +190,7 @@ it("opens the rows behind a clicked bar in a new cell after the chart's cell, an
   const opened = order[1]!;
   expect([order[0], order[2]]).toEqual(["t1", "t2"]);
   expect(active).toBe(opened);
-  expect(tabs[opened]?.console).toEqual({ db, mode: "AutoCommit", schema: "sales" });
+  expect(tabs[opened]?.console).toEqual({ db: resultDb, mode: "AutoCommit", schema: "reporting" });
   expect(textOf(opened)).toBe("-- Rows behind south in Revenue\nSELECT * FROM orders WHERE (region) = 'south'");
   expect(run).toHaveBeenCalledWith(opened, { kind: "script", text: textOf(opened), target: { kind: "all" }, mode: "Run", params: [] }, null);
 });

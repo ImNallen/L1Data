@@ -1292,6 +1292,17 @@ pub enum DrillPoint {
     Row { row: u32, title: String },
 }
 
+/// The SQL behind a chart point, with the database and schema the result was read from. The new cell
+/// runs there, not wherever the chart's cell points now.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DrillQuery {
+    /// Empty for a probe.
+    pub sql: String,
+    pub db: DatabaseRef,
+    pub schema: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(tag = "kind", rename_all_fields = "camelCase")]
 pub enum DrillError {
