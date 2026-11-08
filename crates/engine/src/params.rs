@@ -151,9 +151,7 @@ fn literal(value: Option<&str>, kind: DatabaseKind) -> String {
     match value {
         None => "NULL".into(),
         Some(value) => match kind {
-            DatabaseKind::Postgres => {
-                format!("E'{}'", value.replace('\\', "\\\\").replace('\'', "''"))
-            }
+            DatabaseKind::Postgres => text::quote_escaped_literal(value),
             DatabaseKind::SqlServer => format!("N'{}'", value.replace('\'', "''")),
         },
     }
