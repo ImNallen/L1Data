@@ -96,8 +96,14 @@ export type Question<C extends string> = {
   title: string;
   body: string;
   statements?: readonly string[];
+  /** Plain rows under the body, each a label with a dim detail at the right. */
+  rows?: readonly QuestionRow[];
+  /** A dim line under the rows. */
+  note?: string;
   choices: readonly Choice<C>[];
 };
+
+export type QuestionRow = { label: string; detail: string };
 
 /** Command context; the workspace stays mounted beneath settings. `query` lists matches instead of `section`. */
 export type Screen = { kind: "workspace" } | { kind: "settings"; section: SettingsSectionId; query: string };
@@ -523,6 +529,8 @@ export function ask<C extends string>(q: Question<C>): Promise<C | null> {
       title: q.title,
       body: q.body,
       statements: q.statements ?? [],
+      rows: q.rows ?? [],
+      note: q.note ?? "",
       choices: q.choices,
       settle,
     });
@@ -530,13 +538,15 @@ export function ask<C extends string>(q: Question<C>): Promise<C | null> {
 }
 
 /** A question with one danger button, `confirm-btn`, in a `confirm-dialog`. Resolves `true` when it is pressed. */
-export async function confirm(q: { title: string; body: string; statements?: readonly string[]; confirmLabel: string }): Promise<boolean> {
+export async function confirm(q: Pick<Question<string>, "title" | "body" | "statements" | "rows" | "note"> & { confirmLabel: string }): Promise<boolean> {
   return (
     (await ask({
       testId: "confirm",
       title: q.title,
       body: q.body,
       statements: q.statements,
+      rows: q.rows,
+      note: q.note,
       choices: [{ id: "btn", label: q.confirmLabel, variant: "danger" }],
     })) === "btn"
   );

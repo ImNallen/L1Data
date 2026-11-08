@@ -1,6 +1,8 @@
 import { commands, type ConnectError, type ConnectionId, type DatabaseRef, type SshError, type ViewEdit } from "../../ipc/bindings";
 import { catalogErrorText, connectErrorText, disconnectErrorText } from "../../ipc/errors";
 import { confirm, useWorkspace } from "../../state/workspace";
+import { plural } from "../editor/runActions";
+import { closeCells, holdsTransaction } from "../notebooks/notebookActions";
 
 const ws = () => useWorkspace.getState();
 
@@ -46,14 +48,24 @@ export async function disconnect(id: ConnectionId): Promise<void> {
   if (rollBack) await commands.connectionDisconnect(id, true);
 }
 
+/**
+ * Names the notebooks on the connection's databases, which go with it. Their cells close first, rolling back open
+ * transactions; a changed file still asks to save, and a Cancel there keeps the connection.
+ */
 export async function confirmDelete(id: ConnectionId): Promise<void> {
   const name = ws().configs[id]?.name ?? "this connection";
+  const notebooks = Object.values(ws().notebooks)
+    .filter((n) => n.db?.connectionId === id)
+    .sort((a, b) => b.shownAtMs - a.shownAtMs);
+  const cells = notebooks.flatMap((n) => n.cells);
   const ok = await confirm({
     title: `Delete ${name}?`,
-    body: "This removes the saved connection and its stored password. Query history is kept.",
+    body: notebooks.length > 0 ? "Removes the connection, its password, and these notebooks:" : "Removes the connection and its password.",
+    rows: notebooks.map((n) => ({ label: n.title, detail: `${n.db?.database} · ${plural(n.cells.length, "cell")}` })),
+    note: holdsTransaction(cells) ? "Any open transactions are rolled back." : undefined,
     confirmLabel: "Delete",
   });
-  if (!ok) return;
+  if (!ok || !(await closeCells(cells))) return;
   const res = await commands.connectionDelete(id);
   if (res.status === "error") ws().notify(disconnectErrorText(res.error));
   else ws().removeConfig(id);
