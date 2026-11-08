@@ -60,6 +60,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ipc::result_aggregate,
             ipc::result_series,
             ipc::result_profile,
+            ipc::result_drill,
             ipc::result_plan,
             ipc::result_export,
             ipc::file_open,
@@ -466,7 +467,7 @@ mod tests {
             }
             checked += 1;
         }
-        assert_eq!(checked, 30, "the sync commands in ipc.rs");
+        assert_eq!(checked, 31, "the sync commands in ipc.rs");
     }
 
     /// The engine decides what to install and when. A webview that could call the plugin would

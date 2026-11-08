@@ -354,7 +354,16 @@ function ResultBody({
     case "plan":
       return <PlanView result={view.result} />;
     case "chart":
-      return chart ? <ChartView result={view.result} spec={chart} onSpec={onChart} /> : <Empty>No number column to chart.</Empty>;
+      return chart ? (
+        <ChartView
+          result={view.result}
+          spec={chart}
+          onSpec={onChart}
+          onFilter={query ? (column, value) => query.onFilterValue(column, value, false) : undefined}
+        />
+      ) : (
+        <Empty>No number column to chart.</Empty>
+      );
     case "output":
       return <OutputPanel log={output} />;
     case "tail": {

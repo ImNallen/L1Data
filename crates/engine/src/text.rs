@@ -191,6 +191,11 @@ pub fn quote_literal(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
+/// An `E'…'` literal, which reads a backslash the same whatever `standard_conforming_strings` is.
+pub fn quote_escaped_literal(value: &str) -> String {
+    format!("E'{}'", value.replace('\\', "\\\\").replace('\'', "''"))
+}
+
 pub fn quote_ident_in(kind: DatabaseKind, name: &str) -> String {
     match kind {
         DatabaseKind::Postgres => quote_ident(name),

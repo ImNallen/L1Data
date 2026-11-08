@@ -1,4 +1,5 @@
 mod classify;
+pub(crate) mod drill;
 mod format;
 mod history;
 mod keywords;

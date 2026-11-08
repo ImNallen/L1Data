@@ -5,6 +5,7 @@ import {
   type ConsoleConfig,
   type DatabaseRef,
   type DatabaseKind,
+  type ResultRef,
   type RunMode,
   type RunRequest,
   type RunTarget,
@@ -416,7 +417,8 @@ function defaultTarget(): DatabaseRef | null {
   return config ? homeDb(config, live[config.id]) : null;
 }
 
-export function openSqlTab(opts: { db?: DatabaseRef | null; schema?: string | null; text?: string; title?: string } = {}): TabId {
+/** Opens a SQL cell at the end, or right after `after`. */
+export function openSqlTab(opts: { db?: DatabaseRef | null; schema?: string | null; text?: string; title?: string; after?: TabId } = {}): TabId {
   const id = crypto.randomUUID();
   const current = ws();
   const inheritedSchema = current.active ? current.tabs[current.active]?.console.schema : undefined;
@@ -424,14 +426,30 @@ export function openSqlTab(opts: { db?: DatabaseRef | null; schema?: string | nu
   const target = opts.db === undefined ? defaultTarget() : opts.db;
   const db = target && resolveDb(target, useLive.getState().connections[target.connectionId]);
   seedEditor(id, opts.text ?? "");
-  ws().addTab({
-    id,
-    title: opts.title ?? nextUntitled(Object.values(ws().tabs)),
-    console: { db, mode: "AutoCommit", ...(schema && { schema }) },
-    table: null,
-    file: null,
-  });
+  ws().addTab(
+    {
+      id,
+      title: opts.title ?? nextUntitled(Object.values(ws().tabs)),
+      console: { db, mode: "AutoCommit", ...(schema && { schema }) },
+      table: null,
+      file: null,
+    },
+    opts.after,
+  );
   return id;
+}
+
+/** Opens the rows behind one row of a query result in a new cell after the result's own, and runs it. */
+export async function openDrill(r: ResultRef, row: number): Promise<void> {
+  const tab = ws().tabs[r.tabId];
+  if (!tab) return;
+  const res = await commands.resultDrill(r, { kind: "Row", row, title: tab.title });
+  if (res.status === "error") {
+    notify(res.error.kind === "Unsupported" ? res.error.reason : "The result is gone. Run the query again.");
+    return;
+  }
+  openSqlTab({ db: res.data.db, schema: res.data.schema, text: res.data.sql, after: tab.id });
+  runActive({ kind: "all" });
 }
 
 function showResults() {

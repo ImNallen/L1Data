@@ -1,9 +1,10 @@
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import { ChevronDownIcon } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import { commands, type ChartSeries } from "../../ipc/bindings";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { commands, type ChartSeries, type ResultMeta } from "../../ipc/bindings";
 import type { RowResult } from "../../state/status";
 import { cx, MenuContent, MenuItem } from "../../ui/primitives";
+import { openDrill } from "../editor/runActions";
 import { niceTicks, yColumns, type ChartKind, type ChartSpec } from "./chart";
 import { groupDigits } from "./format";
 
@@ -63,7 +64,48 @@ function linePath(values: (number | null)[], xAt: (i: number) => number, yAt: (v
   return d;
 }
 
-function Plot({ series, kind, xName, yName }: { series: ChartSeries; kind: ChartKind; xName: string; yName: string }) {
+/** What a click on a point does, and the tooltip line that says so. `open` is null when the hint only explains why nothing happens. */
+type Drill = { hint: string; open: ((row: number) => void) | null };
+
+/**
+ * A table tab filters the table to the clicked point's x value. A query result opens the rows behind the clicked point
+ * when the engine can rewrite the result's SQL for it, which it answers once per result.
+ */
+function useDrill(meta: ResultMeta, x: number | null, onFilter: ((column: string, value: string | null) => void) | undefined): Drill | null {
+  const refKey = `${meta.ref.tabId}:${meta.ref.runId}:${meta.ref.index}`;
+  const filters = onFilter !== undefined;
+  const [probe, setProbe] = useState<{ key: string; drill: Drill | null } | null>(null);
+  useEffect(() => {
+    if (filters) return;
+    let live = true;
+    void commands.resultDrill(meta.ref, { kind: "Probe" }).then((res) => {
+      if (!live) return;
+      const drill =
+        res.status === "ok"
+          ? { hint: "Click to open these rows", open: (row: number) => void openDrill(meta.ref, row) }
+          : res.error.kind === "Unsupported"
+            ? { hint: res.error.reason, open: null }
+            : null;
+      setProbe({ key: refKey, drill });
+    });
+    return () => {
+      live = false;
+    };
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the key names the ref's fields; each console snapshot brings a new ref object
+  }, [refKey, filters]);
+  if (onFilter) {
+    const column = x === null ? undefined : meta.columns[x]?.name;
+    if (x === null || column === undefined) return null;
+    const filter = async (row: number) => {
+      const full = await commands.resultCell(meta.ref, row, x);
+      if (full.status === "ok") onFilter(column, full.data);
+    };
+    return { hint: "Click to filter the table to this value", open: (row) => void filter(row) };
+  }
+  return probe?.key === refKey ? probe.drill : null;
+}
+
+function Plot({ series, kind, xName, yName, drill }: { series: ChartSeries; kind: ChartKind; xName: string; yName: string; drill: Drill | null }) {
   const box = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [active, setActive] = useState<number | null>(null);
@@ -106,12 +148,16 @@ function Plot({ series, kind, xName, yName }: { series: ChartSeries; kind: Chart
   };
   const shown = active !== null && active < n ? active : null;
 
-  const pick = (e: PointerEvent<SVGSVGElement>) => {
+  const pointAt = (e: MouseEvent<SVGSVGElement>) => {
     const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
-    if (band <= 0 || x < left || x > left + plotW) return setActive(null);
-    setActive(Math.min(n - 1, Math.floor((x - left) / band)));
+    return band <= 0 || x < left || x > left + plotW ? null : Math.min(n - 1, Math.floor((x - left) / band));
   };
+  const open = drill?.open;
   const step = (e: KeyboardEvent<SVGSVGElement>) => {
+    if (e.key === "Enter" && open && shown !== null) {
+      e.preventDefault();
+      return open(shown);
+    }
     const move = { ArrowLeft: -1, ArrowRight: 1, Home: -n, End: n }[e.key];
     if (move === undefined || n === 0) return;
     e.preventDefault();
@@ -128,8 +174,15 @@ function Plot({ series, kind, xName, yName }: { series: ChartSeries; kind: Chart
         tabIndex={0}
         width={size.width}
         height={size.height}
-        className="absolute inset-0 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-focus"
-        onPointerMove={pick}
+        className={cx(
+          "absolute inset-0 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-focus",
+          open && shown !== null && "cursor-pointer",
+        )}
+        onPointerMove={(e) => setActive(pointAt(e))}
+        onClick={(e) => {
+          const at = pointAt(e);
+          if (open && at !== null) open(at);
+        }}
         onPointerLeave={() => setActive(null)}
         onKeyDown={step}
         onBlur={() => setActive(null)}
@@ -179,14 +232,31 @@ function Plot({ series, kind, xName, yName }: { series: ChartSeries; kind: Chart
           <div className="font-medium text-fg tabular-nums">{value == null ? "No value" : exact.format(value)}</div>
           <div className="truncate text-muted">{yName}</div>
           <div className="truncate text-dim">{series.labels[shown] ?? "NULL"}</div>
+          {drill && (
+            <div data-testid="chart-drill-hint" className="mt-1 text-ui-11 text-dim">
+              {drill.hint}
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-export function ChartView({ result, spec, onSpec }: { result: RowResult; spec: ChartSpec; onSpec: (spec: ChartSpec) => void }) {
+/** `onFilter` is set for a table tab's page, which a click filters instead of opening the rows behind a point. */
+export function ChartView({
+  result,
+  spec,
+  onSpec,
+  onFilter,
+}: {
+  result: RowResult;
+  spec: ChartSpec;
+  onSpec: (spec: ChartSpec) => void;
+  onFilter?: (column: string, value: string | null) => void;
+}) {
   const { meta } = result;
+  const drill = useDrill(meta, spec.x, onFilter);
   const columns = meta.columns;
   const key = `${meta.ref.tabId}:${meta.ref.runId}:${meta.ref.index}:${spec.x}:${spec.y}`;
   const [loaded, setLoaded] = useState<{ key: string; series: ChartSeries } | null>(null);
@@ -252,7 +322,7 @@ export function ChartView({ result, spec, onSpec }: { result: RowResult; spec: C
         <div className="grid flex-1 place-items-center bg-bg text-ui-13 text-dim">No rows to chart.</div>
       ) : (
         <div className={cx("flex min-h-0 flex-1 flex-col pb-2", loaded?.key !== key && "opacity-60")}>
-          {series && <Plot series={series} kind={spec.kind} xName={xName} yName={yName} />}
+          {series && <Plot series={series} kind={spec.kind} xName={xName} yName={yName} drill={drill} />}
         </div>
       )}
     </div>

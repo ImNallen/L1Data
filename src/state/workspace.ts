@@ -194,7 +194,8 @@ export function tabTarget(tab: Tab | undefined): DatabaseRef | null {
 type WorkspaceActions = {
   restore(w: Workspace, connections: ConnectionConfig[], settings: Settings): void;
   resolveDatabases(connections: Record<ConnectionId, ConnectionState>): void;
-  addTab(tab: Tab): void;
+  /** Adds `tab` at the end, or right after `after`, and makes it active. */
+  addTab(tab: Tab, after?: TabId): void;
   closeTab(id: TabId): void;
   setActive(id: TabId): void;
   renameTab(id: TabId, title: string): void;
@@ -269,7 +270,12 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
       const selected = s.selected && selectedDb && selectedDb !== s.selected.db ? { ...s.selected, db: selectedDb } : s.selected;
       return { ...(changed && { tabs }), ...(selected !== s.selected && { selected }) };
     }),
-  addTab: (tab) => set((s) => ({ tabs: { ...s.tabs, [tab.id]: tab }, order: [...s.order, tab.id], active: tab.id })),
+  addTab: (tab, after) =>
+    set((s) => {
+      const at = after === undefined ? -1 : s.order.indexOf(after);
+      const order = at < 0 ? [...s.order, tab.id] : [...s.order.slice(0, at + 1), tab.id, ...s.order.slice(at + 1)];
+      return { tabs: { ...s.tabs, [tab.id]: tab }, order, active: tab.id };
+    }),
   closeTab: (id) =>
     set((s) => {
       const index = s.order.indexOf(id);

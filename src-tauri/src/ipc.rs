@@ -235,6 +235,12 @@ pub async fn result_profile(engine: State<'_, Arc<Engine>>, result_ref: ResultRe
 
 #[tauri::command]
 #[specta::specta]
+pub fn result_drill(engine: State<'_, Arc<Engine>>, result_ref: ResultRef, point: DrillPoint) -> Result<DrillQuery, DrillError> {
+    engine.result_drill(result_ref, point)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn result_plan(engine: State<'_, Arc<Engine>>, result_ref: ResultRef) -> Result<Plan, ResultError> {
     engine.result_plan(result_ref)
 }

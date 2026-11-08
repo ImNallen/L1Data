@@ -1718,6 +1718,38 @@ impl Engine {
             .expect("result_profile task panicked")
     }
 
+    /// The SQL of the rows behind one row of a grouped PostgreSQL result. It rewrites the SQL that
+    /// produced the result, and only the SQL that may run again unasked.
+    pub fn result_drill(&self, r: ResultRef, point: DrillPoint) -> Result<DrillQuery, DrillError> {
+        let set = self.shared.result_set(r).ok_or(DrillError::Gone)?;
+        let unsupported = |reason: &str| DrillError::Unsupported { reason: reason.into() };
+        if set.database_kind != DatabaseKind::Postgres {
+            return Err(unsupported("Drill-down works on PostgreSQL results for now."));
+        }
+        if set.origin.page {
+            return Err(unsupported("A table page filters the table instead."));
+        }
+        let sql = match &set.origin.rerun {
+            results::Rerun::Ready(sql) => sql,
+            results::Rerun::Unvetted { .. } => return Err(unsupported("The chart's query calls functions that may not be safe to run again.")),
+            results::Rerun::Refused(reason) => return Err(unsupported(reason)),
+        };
+        let drill = sql::drill::plan(sql).map_err(|reason| if sql::drill::UNGROUPED.contains(&reason) { DrillError::Ungrouped } else { unsupported(reason) })?;
+        let keys = drill.columns().map(|c| set.columns.get(usize::from(c))).collect::<Option<Vec<_>>>().ok_or(DrillError::OutOfRange)?;
+        // PostgreSQL cannot read a text literal as an anonymous record, so `(ROW(a, b)) = '(1,2)'` always fails.
+        if keys.iter().any(|k| k.r#type.display == "record") {
+            return Err(unsupported("A grouped column is an anonymous ROW, which cannot be compared to its text."));
+        }
+        let query = |sql: String| DrillQuery { sql, db: set.db.clone(), schema: set.origin.schema.clone() };
+        match point {
+            DrillPoint::Probe => Ok(query(String::new())),
+            DrillPoint::Row { row, title } => {
+                let values = drill.columns().map(|c| set.cell(row, c)).collect::<Option<Vec<_>>>().ok_or(DrillError::OutOfRange)?;
+                Ok(query(drill.sql(&values, &title)))
+            }
+        }
+    }
+
     pub fn result_plan(&self, r: ResultRef) -> Result<Plan, ResultError> {
         let set = self.shared.result_set(r).ok_or(ResultError::Gone)?;
         if set.meta().truncated.is_some() {
