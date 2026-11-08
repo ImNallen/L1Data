@@ -3,6 +3,7 @@ import { openFiles, saveTab, type SaveMode } from "../features/editor/fileAction
 import { isBrowsing, openSqlTab, submitEdits } from "../features/editor/runActions";
 import { saveActiveQuery } from "../features/saved/savedActions";
 import { openNavigation } from "../features/navigation/navigationActions";
+import { openNotebookSwitcher } from "../features/notebooks/notebookActions";
 import { pendingCount, useTableEdits } from "../state/tableEdits";
 import { activeId, activeTab, shownDb, useWorkspace, type Overlay } from "../state/workspace";
 import { isMac } from "./hostedWindow";
@@ -74,6 +75,26 @@ export const START_COMMANDS: Command[] = [
   },
 ];
 
+export const SWITCH_NOTEBOOK: Command = { id: "switch-notebook", group: "Workspace", label: "Switch notebook…", run: openNotebookSwitcher };
+
+const startCommand = (id: string) => START_COMMANDS.find((c) => c.id === id)!;
+
+/** The start commands in their sections: a database with no notebook offers notebooks, no database offers everything. */
+export function startSections(hasDatabase: boolean): Command[][] {
+  const ids = hasDatabase
+    ? [
+        ["new-query", "open-file"],
+        ["navigation", "saved-queries"],
+      ]
+    : [
+        ["new-query", "open-file", "new-connection"],
+        ["navigation", "saved-queries", "settings"],
+      ];
+  const sections = ids.map((section) => section.map(startCommand));
+  if (hasDatabase) sections[0]!.push(SWITCH_NOTEBOOK);
+  return sections;
+}
+
 const CLOSE_TAB: Command = {
   id: "close-tab",
   group: "Query",
@@ -136,6 +157,7 @@ export const COMMANDS: Command[] = [
     label: "Reset panel sizes",
     run: () => ws().setLayout({ sidebarWidth: 240, rightPanelWidth: 360, resultsHeight: 320 }),
   },
+  SWITCH_NOTEBOOK,
   CLOSE_TAB,
   SAVE,
   SAVE_AS,

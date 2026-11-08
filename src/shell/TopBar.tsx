@@ -1,5 +1,5 @@
 import * as Menu from "@radix-ui/react-dropdown-menu";
-import { ChevronDownIcon, DatabaseIcon, ListIndentIncreaseIcon, PlayIcon, PlusIcon, SquareIcon } from "lucide-react";
+import { BookOpenIcon, ChevronDownIcon, DatabaseIcon, ListIndentIncreaseIcon, PlayIcon, PlusIcon, SquareIcon } from "lucide-react";
 import { ConnectionColorDot } from "../features/connections/connectionColors";
 import {
   cancelActive,
@@ -19,7 +19,8 @@ import { homeDb } from "../state/dbKey";
 import { instanceOf, useLive } from "../state/live";
 import { canCancel, connectionTone, hasUncommittedWork, isBusy } from "../state/status";
 import { notebookFor } from "../state/notebooks";
-import { activeTab, shownDb, useWorkspace } from "../state/workspace";
+import { openNotebookSwitcher } from "../features/notebooks/notebookActions";
+import { activeTab, shownDb, shownNotebook, useWorkspace } from "../state/workspace";
 import { Button, CONNECTION_TONE_LABEL, Kbd, MenuContent, MenuItem, MenuLabel, StatusDot, IconButton, cx } from "../ui/primitives";
 import { SidebarToggle, WindowEdgeActions, windowEdgeInset, windowLeadingInset } from "./WindowEdgeActions";
 import type { HostedWindow } from "./hostedWindow";
@@ -118,6 +119,8 @@ export function TopBar({ hosted, notebook = false }: { hosted: HostedWindow | nu
   const tab = useWorkspace(activeTab);
   const db = useWorkspace(shownDb);
   const unconnected = useWorkspace((s) => notebookFor(s.notebooks, null) !== undefined);
+  const notebookTitle = useWorkspace((s) => shownNotebook(s)?.title);
+  const switching = useWorkspace((s) => s.overlay.kind === "notebooks");
   const showDatabase = useWorkspace((s) => s.showDatabase);
   const configs = useWorkspace((s) => s.configs);
   const layout = useWorkspace((s) => s.layout);
@@ -335,6 +338,18 @@ export function TopBar({ hosted, notebook = false }: { hosted: HostedWindow | nu
               <RunButton busy={busy} environment={environment} explainable={!!config && explainSupported(config.databaseKind) && !isBrowsing(tab)} />
             ))}
 
+          {notebook && (
+            <IconButton
+              data-testid="notebook-switcher-btn"
+              aria-label="Notebooks"
+              aria-pressed={switching}
+              title={notebookTitle ?? "Notebooks"}
+              className={cx(switching && "bg-badge-bg text-badge hover:bg-badge-bg hover:text-badge")}
+              onClick={openNotebookSwitcher}
+            >
+              <BookOpenIcon size={14} />
+            </IconButton>
+          )}
           {notebook && (
             <IconButton data-testid="new-query-cell" aria-label="Add SQL cell" title="Add SQL cell" onClick={() => openSqlTab()}>
               <PlusIcon size={14} />

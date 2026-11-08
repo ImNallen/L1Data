@@ -94,7 +94,7 @@ it("wraps arrow selection, guards composition keys and Escape, and runs Enter on
   const input = screen.getByTestId("command-input");
   expect(screen.getByRole("option", { selected: true })).toBe(screen.getByTestId("command-item-new-query"));
   await user.keyboard("{ArrowUp}");
-  expect(screen.getByRole("option", { selected: true })).toBe(screen.getByTestId("command-item-reset-panels"));
+  expect(screen.getByRole("option", { selected: true })).toBe(screen.getByTestId("command-item-switch-notebook"));
   await user.keyboard("{ArrowDown}");
   fireEvent.compositionStart(input);
   fireEvent.keyDown(input, { key: "ArrowDown" });
