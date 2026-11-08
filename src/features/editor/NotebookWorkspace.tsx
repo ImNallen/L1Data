@@ -20,17 +20,9 @@ import { SqlText } from "./SqlText";
 import { databaseKindFor } from "../../state/databaseKind";
 
 function AddCell({ after }: { after?: TabId }) {
-  const add = () => {
-    const id = openSqlTab();
-    if (!after) return;
-    const { order } = useWorkspace.getState();
-    const remaining = order.filter((cell) => cell !== id);
-    const at = remaining.indexOf(after);
-    useWorkspace.setState({ order: [...remaining.slice(0, at + 1), id, ...remaining.slice(at + 1)] });
-  };
   return (
     <div className="notebook-add">
-      <IconButton aria-label="Add SQL cell" data-testid="add-cell" onClick={add} title="Add SQL cell">
+      <IconButton aria-label="Add SQL cell" data-testid="add-cell" onClick={() => openSqlTab({ after })} title="Add SQL cell">
         <PlusIcon size={14} />
       </IconButton>
     </div>

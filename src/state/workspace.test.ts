@@ -19,6 +19,19 @@ const config = (id: string): ConnectionConfig => ({
   sqlServerAuth: null,
 });
 
+describe("workspace.addTab", () => {
+  it("adds a tab at the end, or right after the tab it names, and activates it", () => {
+    const tab = (id: string) => ({ id, title: id, console: { db: null, mode: "AutoCommit" as const }, table: null, file: null });
+    const ws = useWorkspace.getState();
+    ws.addTab(tab("a"));
+    ws.addTab(tab("b"));
+    ws.addTab(tab("c"), "a");
+    ws.addTab(tab("d"), "gone");
+    expect(useWorkspace.getState().order).toEqual(["a", "c", "b", "d"]);
+    expect(useWorkspace.getState().active).toBe("d");
+  });
+});
+
 describe("workspace.upsertConfig", () => {
   it("binds tabs that have no connection and leaves bound tabs alone", () => {
     const ws = useWorkspace.getState();

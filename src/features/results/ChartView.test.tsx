@@ -2,8 +2,10 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { commands, type ChartSeries, type ColumnMeta } from "../../ipc/bindings";
+import { commands, type ChartSeries, type ColumnMeta, type ConsoleState, type DrillPoint } from "../../ipc/bindings";
 import type { RowResult } from "../../state/status";
+import { useWorkspace, type Tab } from "../../state/workspace";
+import { dropEditor, textOf } from "../editor/editorStates";
 import type { ChartSpec } from "./chart";
 import { ChartView } from "./ChartView";
 
@@ -36,6 +38,7 @@ const ok = (series: ChartSeries) => ({ status: "ok" as const, data: series });
 const bars: ChartSpec = { kind: "Bar", x: 0, y: 1 };
 
 beforeEach(() => {
+  vi.spyOn(commands, "resultDrill").mockResolvedValue({ status: "error", error: { kind: "Ungrouped" } });
   vi.stubGlobal("PointerEvent", class extends MouseEvent {});
   vi.stubGlobal(
     "ResizeObserver",
@@ -51,6 +54,8 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  for (const id of useWorkspace.getState().order) dropEditor(id);
+  useWorkspace.setState(useWorkspace.getInitialState(), true);
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -145,4 +150,103 @@ it("refetches at most every 300 ms while rows stream", async () => {
   view.rerender(<ChartView result={result(5)} spec={bars} onSpec={() => {}} />);
   await act(async () => vi.advanceTimersByTimeAsync(0));
   expect(series).toHaveBeenCalledTimes(3);
+});
+
+const db = { connectionId: "c1", database: "shop" };
+const cell = (id: string, title: string): Tab => ({ id, title, console: { db, mode: "AutoCommit", schema: "sales" }, table: null, file: null });
+
+function drillAnswers(sql: string) {
+  return vi.spyOn(commands, "resultDrill").mockImplementation(async (_ref, point: DrillPoint) => ({ status: "ok", data: point.kind === "Probe" ? "" : sql }));
+}
+
+function acceptRuns() {
+  vi.spyOn(commands, "consoleConfigure").mockResolvedValue({ status: "ok", data: {} as ConsoleState });
+  vi.spyOn(commands, "scriptParams").mockResolvedValue({ status: "ok", data: [] });
+  return vi.spyOn(commands, "consoleRun").mockResolvedValue({ status: "ok", data: { runId: 1, statements: [] } });
+}
+
+it("opens the rows behind a clicked bar in a new cell after the chart's cell, and runs it", async () => {
+  useWorkspace.setState({ tabs: { t1: cell("t1", "Revenue"), t2: cell("t2", "Later") }, order: ["t1", "t2"], active: "t1" });
+  vi.spyOn(commands, "resultSeries").mockResolvedValue(ok({ labels: ["north", "south"], values: [10, 4], capped: false }));
+  const drill = drillAnswers("-- Rows behind south in Revenue\nSELECT * FROM orders WHERE (region) = 'south'");
+  const run = acceptRuns();
+  render(<ChartView result={result(2)} spec={bars} onSpec={() => {}} />);
+  const plot = await screen.findByRole("img");
+  await waitFor(() => expect(drill).toHaveBeenCalledWith({ tabId: "t1", runId: 1, index: 0 }, { kind: "Probe" }));
+  fireEvent.pointerMove(plot, { clientX: 500 });
+  expect((await screen.findByTestId("chart-drill-hint")).textContent).toBe("Click to open these rows");
+  expect(plot.getAttribute("class")).toContain("cursor-pointer");
+
+  fireEvent.click(plot, { clientX: 500 });
+  await waitFor(() => expect(run).toHaveBeenCalled());
+  expect(drill).toHaveBeenLastCalledWith({ tabId: "t1", runId: 1, index: 0 }, { kind: "Row", row: 1, title: "Revenue" });
+  const { order, active, tabs } = useWorkspace.getState();
+  expect(order).toHaveLength(3);
+  const opened = order[1]!;
+  expect([order[0], order[2]]).toEqual(["t1", "t2"]);
+  expect(active).toBe(opened);
+  expect(tabs[opened]?.console).toEqual({ db, mode: "AutoCommit", schema: "sales" });
+  expect(textOf(opened)).toBe("-- Rows behind south in Revenue\nSELECT * FROM orders WHERE (region) = 'south'");
+  expect(run).toHaveBeenCalledWith(opened, { kind: "script", text: textOf(opened), target: { kind: "all" }, mode: "Run", params: [] }, null);
+});
+
+it("opens the keyboard-focused point's rows on Enter", async () => {
+  useWorkspace.setState({ tabs: { t1: cell("t1", "Revenue") }, order: ["t1"], active: "t1" });
+  vi.spyOn(commands, "resultSeries").mockResolvedValue(ok({ labels: ["north", "south"], values: [10, 4], capped: false }));
+  const drill = drillAnswers("SELECT 1");
+  const run = acceptRuns();
+  render(<ChartView result={result(2)} spec={bars} onSpec={() => {}} />);
+  const plot = await screen.findByRole("img");
+  await waitFor(() => expect(drill).toHaveBeenCalledTimes(1));
+  fireEvent.keyDown(plot, { key: "ArrowRight" });
+  fireEvent.keyDown(plot, { key: "Enter" });
+  await waitFor(() => expect(run).toHaveBeenCalled());
+  expect(drill).toHaveBeenLastCalledWith({ tabId: "t1", runId: 1, index: 0 }, { kind: "Row", row: 0, title: "Revenue" });
+});
+
+it("explains a refused drill-down and opens nothing on a click", async () => {
+  useWorkspace.setState({ tabs: { t1: cell("t1", "Revenue") }, order: ["t1"], active: "t1" });
+  vi.spyOn(commands, "resultSeries").mockResolvedValue(ok({ labels: ["north", "south"], values: [10, 4], capped: false }));
+  const drill = vi
+    .spyOn(commands, "resultDrill")
+    .mockResolvedValue({ status: "error", error: { kind: "Unsupported", reason: "The chart's query uses UNION, INTERSECT, or EXCEPT." } });
+  render(<ChartView result={result(2)} spec={bars} onSpec={() => {}} />);
+  const plot = await screen.findByRole("img");
+  await waitFor(() => expect(drill).toHaveBeenCalledTimes(1));
+  fireEvent.pointerMove(plot, { clientX: 100 });
+  expect((await screen.findByTestId("chart-drill-hint")).textContent).toBe("The chart's query uses UNION, INTERSECT, or EXCEPT.");
+  expect(plot.getAttribute("class")).not.toContain("cursor-pointer");
+  fireEvent.click(plot, { clientX: 100 });
+  fireEvent.keyDown(plot, { key: "Enter" });
+  await act(async () => {});
+  expect(drill).toHaveBeenCalledTimes(1);
+  expect(useWorkspace.getState().order).toEqual(["t1"]);
+});
+
+it("says nothing about drill-down on a chart of ungrouped rows", async () => {
+  vi.spyOn(commands, "resultSeries").mockResolvedValue(ok({ labels: ["north"], values: [10], capped: false }));
+  render(<ChartView result={result(1)} spec={bars} onSpec={() => {}} />);
+  const plot = await screen.findByRole("img");
+  await waitFor(() => expect(commands.resultDrill).toHaveBeenCalledTimes(1));
+  fireEvent.pointerMove(plot, { clientX: 300 });
+  expect(screen.getByTestId("chart-tooltip")).toBeTruthy();
+  expect(screen.queryByTestId("chart-drill-hint")).toBeNull();
+});
+
+it("filters a table tab to the clicked bar's whole x value without asking the engine to rewrite", async () => {
+  vi.spyOn(commands, "resultSeries").mockResolvedValue(ok({ labels: ["north", "sou"], values: [10, 4], capped: false }));
+  const full = vi.spyOn(commands, "resultCell").mockResolvedValue({ status: "ok", data: "south and beyond" });
+  const onFilter = vi.fn();
+  const view = render(<ChartView result={result(2)} spec={bars} onSpec={() => {}} onFilter={onFilter} />);
+  const plot = await screen.findByRole("img");
+  fireEvent.pointerMove(plot, { clientX: 500 });
+  expect(screen.getByTestId("chart-drill-hint").textContent).toBe("Click to filter the table to this value");
+  fireEvent.click(plot, { clientX: 500 });
+  await waitFor(() => expect(onFilter).toHaveBeenCalledWith("region", "south and beyond"));
+  expect(full).toHaveBeenCalledWith({ tabId: "t1", runId: 1, index: 0 }, 1, 0);
+  expect(commands.resultDrill).not.toHaveBeenCalled();
+
+  view.rerender(<ChartView result={result(2)} spec={{ ...bars, x: null }} onSpec={() => {}} onFilter={onFilter} />);
+  fireEvent.pointerMove(await screen.findByRole("img"), { clientX: 500 });
+  expect(screen.queryByTestId("chart-drill-hint")).toBeNull();
 });
