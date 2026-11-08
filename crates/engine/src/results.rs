@@ -334,6 +334,14 @@ impl ResultSet {
         Ok(copied)
     }
 
+    /// Every stored cell of one column, whole.
+    pub(crate) fn column(&self, col: u16) -> Result<ColumnText, ResultError> {
+        let a = self.data.read().unwrap();
+        let meta = self.columns.get(col as usize).filter(|_| (col as usize) < a.ncols).ok_or(ResultError::OutOfRange)?;
+        let cells = (0..a.row_count() as usize).map(|r| a.cell(r, col as usize).map(str::to_owned)).collect();
+        Ok(ColumnText { display: meta.r#type.display.clone(), category: meta.r#type.category, cells })
+    }
+
     pub(crate) fn series(&self, x: Option<u16>, y: u16, max_points: u32) -> Result<ChartSeries, ResultError> {
         let a = self.data.read().unwrap();
         if x.is_some_and(|x| x as usize >= a.ncols) || y as usize >= a.ncols {
@@ -602,6 +610,19 @@ mod tests {
         assert!(matches!(rs.copy_rect(RowSpan { start: 0, end: 2 }, ColSpan { start: 0, end: 0 }), Err(ResultError::OutOfRange)));
         assert!(matches!(rs.copy_rect(RowSpan { start: 0, end: 1 }, ColSpan { start: 1, end: 0 }), Err(ResultError::OutOfRange)));
         assert!(matches!(rs.copy_rect(RowSpan { start: 0, end: 1 }, ColSpan { start: 0, end: 2 }), Err(ResultError::OutOfRange)));
+    }
+
+    #[test]
+    fn column_reads_every_stored_cell_and_rejects_a_column_outside_the_result() {
+        let mut rs = set(2);
+        rs.columns[1].r#type = SqlTypeRef { display: "numeric".into(), category: TypeCategory::Numeric };
+        assert_eq!(rs.column(1).unwrap().cells, Vec::<Option<String>>::new());
+        rs.push_row([Some("a"), Some("1.5")].into_iter(), &NO_CAPS);
+        rs.push_row([Some("b"), None].into_iter(), &NO_CAPS);
+        let column = rs.column(1).unwrap();
+        assert_eq!((column.display.as_str(), column.category), ("numeric", TypeCategory::Numeric));
+        assert_eq!(column.cells, vec![Some("1.5".to_owned()), None]);
+        assert!(matches!(rs.column(2), Err(ResultError::OutOfRange)));
     }
 
     #[test]

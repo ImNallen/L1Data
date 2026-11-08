@@ -229,6 +229,12 @@ pub async fn result_series(engine: State<'_, Arc<Engine>>, result_ref: ResultRef
 
 #[tauri::command]
 #[specta::specta]
+pub async fn result_profile(engine: State<'_, Arc<Engine>>, result_ref: ResultRef, col: u16) -> Result<ColumnProfile, ResultError> {
+    engine.result_profile(result_ref, col).await
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn result_plan(engine: State<'_, Arc<Engine>>, result_ref: ResultRef) -> Result<Plan, ResultError> {
     engine.result_plan(result_ref)
 }

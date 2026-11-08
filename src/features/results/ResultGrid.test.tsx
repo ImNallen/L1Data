@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -9,6 +9,7 @@ import {
   commands,
   type CellAggregate,
   type ColumnMeta,
+  type ColumnProfile,
   type DatabaseKind,
   type RelationDetail,
   type ResultMeta,
@@ -742,4 +743,159 @@ it("names the editor, the full-value button, and each row's staged state for ass
   expect(screen.getByRole("button", { name: "Show the full value" })).toBe(screen.getByTestId("grid-cut-2-1"));
   await user.dblClick(screen.getByText("7"));
   expect(screen.getByRole("textbox", { name: "customer_id" })).toBe(screen.getByTestId("grid-editor"));
+});
+
+const profileOk = (profile: ColumnProfile) => ({ status: "ok" as const, data: profile });
+const idProfile: ColumnProfile = {
+  rows: 6915,
+  nulls: 0,
+  distinct: 6915,
+  summary: {
+    kind: "Numeric",
+    min: "1",
+    mean: "3458.000000",
+    max: "6915",
+    histogram: [
+      { lo: 1, hi: 3458, count: 3457 },
+      { lo: 3458, hi: 6915, count: 3458 },
+    ],
+  },
+};
+const statusProfile: ColumnProfile = {
+  rows: 4,
+  nulls: 1,
+  distinct: 2,
+  summary: {
+    kind: "Values",
+    top: [
+      { value: "paid", count: 2 },
+      { value: "shipped", count: 1 },
+    ],
+  },
+};
+const STATUS_COLUMNS = [
+  { name: "id", attnum: 1 },
+  { name: "status", attnum: null },
+];
+
+it("profiles a query result's column from its header and closes on Escape", async () => {
+  const user = userEvent.setup();
+  const profile = vi.spyOn(commands, "resultProfile").mockResolvedValue(profileOk(idProfile));
+  const meta = queryResult([["1", "42"]]);
+  render(<ResultGrid meta={meta} done query={null} editing={null} />);
+  await user.click(await screen.findByTestId("grid-header-0"));
+  const popover = await screen.findByTestId("column-profile");
+  expect(profile).toHaveBeenCalledWith(meta.ref, 0);
+  await within(popover).findByText("From all 6,915 stored rows.");
+  const stats = Object.fromEntries([...popover.querySelectorAll("dt")].map((dt) => [dt.textContent, dt.nextElementSibling?.textContent]));
+  expect(stats).toEqual({ Rows: "6,915", Nulls: "0", Distinct: "6,915", Min: "1", Mean: "3,458.000000", Max: "6,915" });
+  expect(within(popover).getByRole("img", { name: "Histogram of 2 bins" })).toBeTruthy();
+  fireEvent.mouseEnter(screen.getByTestId("profile-bin-1"));
+  expect(screen.getByTestId("profile-bin-tooltip").textContent).toBe(`${(3458).toLocaleString()} – ${(6915).toLocaleString()} · 3,458 rows`);
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByTestId("column-profile")).toBeNull());
+});
+
+it("closes the profile when its header is clicked again or a click lands outside it", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(commands, "resultProfile").mockResolvedValue(profileOk(idProfile));
+  render(<ResultGrid meta={queryResult([["1", "42"]])} done query={null} editing={null} />);
+  await user.click(await screen.findByTestId("grid-header-0"));
+  await screen.findByText("From all 6,915 stored rows.");
+  await user.click(screen.getByTestId("grid-header-0"));
+  await waitFor(() => expect(screen.queryByTestId("column-profile")).toBeNull());
+  await user.click(screen.getByTestId("grid-header-0"));
+  await screen.findByTestId("column-profile");
+  await user.click(screen.getByText("42"));
+  await waitFor(() => expect(screen.queryByTestId("column-profile")).toBeNull());
+});
+
+it("lists a text column's most frequent values with their counts", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(commands, "resultProfile").mockResolvedValue(profileOk(statusProfile));
+  render(<ResultGrid meta={queryResult([["1", "paid"]], { columns: STATUS_COLUMNS })} done query={null} editing={null} />);
+  await user.click(await screen.findByTestId("grid-header-1"));
+  const values = await screen.findByRole("list", { name: "Most frequent values" });
+  expect([...values.querySelectorAll("li")].map((li) => li.textContent)).toEqual(["paid2", "shipped1"]);
+  const popover = screen.getByTestId("column-profile");
+  expect(within(popover).queryByText("Min")).toBeNull();
+  expect(within(popover).getByText("From all 4 stored rows.")).toBeTruthy();
+});
+
+it("says a truncated result's profile covers only the stored rows", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(commands, "resultProfile").mockResolvedValue(profileOk({ ...statusProfile, rows: 2000 }));
+  const meta = { ...queryResult([["1", "paid"]], { columns: STATUS_COLUMNS }), rowsSeen: 6915, truncated: "RowLimit" as const };
+  render(<ResultGrid meta={meta} done query={null} editing={null} />);
+  await user.click(await screen.findByTestId("grid-header-1"));
+  expect(await screen.findByText("From the 2,000 stored rows of 6,915 read (row limit).")).toBeTruthy();
+});
+
+it("keeps sorting on a table tab's header and profiles from its right-click menu", async () => {
+  const user = userEvent.setup();
+  const onSort = vi.fn();
+  vi.spyOn(commands, "resultProfile").mockResolvedValue(profileOk({ ...statusProfile, rows: 100 }));
+  render(<ResultGrid meta={queryResult([["1", "paid"]], { columns: STATUS_COLUMNS })} done query={sortingQuery(onSort)} editing={null} />);
+  await user.click(await screen.findByTestId("grid-header-1"));
+  expect(onSort.mock.calls).toEqual([["status", false]]);
+  expect(screen.queryByTestId("column-profile")).toBeNull();
+  await user.pointer({ keys: "[MouseRight]", target: screen.getByTestId("grid-header-1") });
+  await user.click(await screen.findByRole("menuitem", { name: "Profile column" }));
+  expect(await screen.findByText("From the 100 rows on this page.")).toBeTruthy();
+});
+
+it("profiles the selected cell's column from the cell menu, which the keyboard opens", async () => {
+  const user = userEvent.setup();
+  const profile = vi.spyOn(commands, "resultProfile").mockResolvedValue(profileOk(statusProfile));
+  const meta = queryResult([["1", "paid"]], { columns: STATUS_COLUMNS });
+  render(<ResultGrid meta={meta} done query={null} editing={null} />);
+  await user.click(await screen.findByText("paid"));
+  await user.keyboard("{Shift>}{F10}{/Shift}");
+  await user.click(await screen.findByRole("menuitem", { name: "Profile status" }));
+  await screen.findByTestId("column-profile");
+  expect(profile).toHaveBeenCalledWith(meta.ref, 1);
+});
+
+it("closes quietly when the result is gone", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(commands, "resultProfile").mockResolvedValue({ status: "error", error: { kind: "Gone" } });
+  render(<ResultGrid meta={queryResult([["1", "42"]])} done query={null} editing={null} />);
+  await user.click(await screen.findByTestId("grid-header-0"));
+  await waitFor(() => expect(screen.queryByTestId("column-profile")).toBeNull());
+});
+
+it("shows the reply to the latest profile request when an earlier one arrives later", async () => {
+  const user = userEvent.setup();
+  const replies: ((value: { status: "ok"; data: ColumnProfile }) => void)[] = [];
+  vi.spyOn(commands, "resultProfile").mockImplementation(() => new Promise((resolve) => replies.push(resolve)));
+  render(<ResultGrid meta={queryResult([["1", "paid"]], { columns: STATUS_COLUMNS })} done query={null} editing={null} />);
+  await user.click(await screen.findByTestId("grid-header-1"));
+  expect(await screen.findByText("Profiling…")).toBeTruthy();
+  await user.click(screen.getByTestId("grid-header-0"));
+  await waitFor(() => expect(replies).toHaveLength(2));
+  replies[1]!(profileOk(idProfile));
+  replies[0]!(profileOk(statusProfile));
+  expect(await screen.findByText("From all 6,915 stored rows.")).toBeTruthy();
+  expect(screen.queryByRole("list", { name: "Most frequent values" })).toBeNull();
+});
+
+it("names a bin's edges finely enough to tell a tiny range from 0, without float noise", async () => {
+  const user = userEvent.setup();
+  const tiny = (lo: number, hi: number, count: number) => ({ lo, hi, count });
+  vi.spyOn(commands, "resultProfile").mockResolvedValue(
+    profileOk({
+      ...idProfile,
+      summary: {
+        kind: "Numeric",
+        min: "0.0000001",
+        mean: "0.0000002",
+        max: "0.0000003",
+        histogram: [tiny(0.0000001, 0.0000002, 1), tiny(0.0000002, 0.0000003, 1)],
+      },
+    }),
+  );
+  render(<ResultGrid meta={queryResult([["1", "42"]])} done query={null} editing={null} />);
+  await user.click(await screen.findByTestId("grid-header-0"));
+  fireEvent.mouseEnter(await screen.findByTestId("profile-bin-0"));
+  expect(screen.getByTestId("profile-bin-tooltip").textContent).toBe("0.0000001 – 0.0000002 · 1 row");
 });

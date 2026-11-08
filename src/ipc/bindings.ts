@@ -50,6 +50,7 @@ export const commands = {
 	resultCellMatches: (resultRef: ResultRef, cell: ResultCell, query: string) => typedError<boolean, ResultError>(__TAURI_INVOKE("result_cell_matches", { resultRef, cell, query })),
 	resultAggregate: (resultRef: ResultRef, rows: RowSpan, cols: ColSpan) => typedError<CellAggregate, ResultError>(__TAURI_INVOKE("result_aggregate", { resultRef, rows, cols })),
 	resultSeries: (resultRef: ResultRef, x: number | null, y: number, maxPoints: number) => typedError<ChartSeries, ResultError>(__TAURI_INVOKE("result_series", { resultRef, x, y, maxPoints })),
+	resultProfile: (resultRef: ResultRef, col: number) => typedError<ColumnProfile, ResultError>(__TAURI_INVOKE("result_profile", { resultRef, col })),
 	resultPlan: (resultRef: ResultRef) => typedError<Plan, ResultError>(__TAURI_INVOKE("result_plan", { resultRef })),
 	resultExport: (resultRef: ResultRef, format: ExportFormat, scope: ExportScope, path: string) => typedError<ExportSummary, ExportError>(__TAURI_INVOKE("result_export", { resultRef, format, scope, path })),
 	fileOpen: (path: string) => typedError<FileOpened, FileReadError>(__TAURI_INVOKE("file_open", { path })),
@@ -348,6 +349,16 @@ export type ColumnMeta = {
 	name: string,
 	type: SqlTypeRef,
 	source: ColumnSource | null,
+};
+
+/**  What one stored column holds. Every stored row is read. */
+export type ColumnProfile = {
+	/**  Stored rows read. */
+	rows: number,
+	nulls: number,
+	/**  Exact count of distinct non-null texts. */
+	distinct: number,
+	summary: ProfileSummary,
 };
 
 export type ColumnSource = {
@@ -762,6 +773,13 @@ export type FunctionInfo = {
 	insertText: string,
 };
 
+/**  Values from `lo` up to `hi`. The last bin also holds `hi`. */
+export type HistogramBin = {
+	lo: number | null,
+	hi: number | null,
+	count: number,
+};
+
 export type HistoryBrowsePage = {
 	groups: HistoryGroupSummary[],
 	counts: HistoryCounts,
@@ -1160,6 +1178,16 @@ export type Preset = "All" | "DefaultOnly" | "None";
 export type ProbeOutcome = { kind: "Ready"; version: string; plan: string | null; models: ModelOption[] } | { kind: "SignedOut"; version: string } | { kind: "NotFound"; binary: string } | 
 /**  Found, but the version check, the sign-in check, or the handshake failed or timed out. */
 { kind: "Broken"; version: string | null; message: string };
+
+export type ProfileSummary = 
+/**
+ *  An integer or numeric column, not `money` or `smallmoney`, whose every non-null text parses.
+ *  `min`, `mean`, and `max` are exact decimal text, as the selection totals print them.
+ *  The histogram spans the finite values only, and is empty when there are none.
+ */
+{ kind: "Numeric"; min: string; mean: string; max: string; histogram: HistogramBin[] } | 
+/**  Every other column: at most five of the most frequent non-null values, cut like a page cell. */
+{ kind: "Values"; top: ValueCount[] };
 
 export type ProviderConfig = {
 	provider: ProviderKind,
@@ -1853,6 +1881,11 @@ export type UpdateTrack = "Stable" | "Nightly";
 export type UpdatesOff = "DevBuild" | 
 /**  On Linux only the AppImage can replace itself. */
 "NotAppImage" | "UnsupportedTarget" | "UnknownVersion";
+
+export type ValueCount = {
+	value: string,
+	count: number,
+};
 
 /**
  *  One edit to a connection's stored view, sent by the pickers. Each is an intent that the engine

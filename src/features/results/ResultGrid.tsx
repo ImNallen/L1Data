@@ -71,6 +71,7 @@ import { fontStack } from "../../themes/fonts";
 import { ContextMenuArea, ContextMenuItem, ContextMenuSeparator, IconButton, cx } from "../../ui/primitives";
 import { openTableTab } from "../editor/runActions";
 import { useKeyLinks, type KeyLink } from "./foreignKeys";
+import { ColumnProfilePopover } from "./ColumnProfile";
 import { cellAt, DEFAULT, EMPTY_MARK, GridEditor, GridRow, NULL_MARK, rowNumberAt, type Cell } from "./GridRows";
 import { groupDigits, isNumeric, toTsv, type RowWindow } from "./format";
 import { formatSelectionTotals, type SelectionSlot } from "./selectionTotals";
@@ -358,9 +359,22 @@ type HeaderProps = {
   rowNumW: number;
   onResizeStart(e: ReactMouseEvent, col: number): void;
   onResetWidth(col: number): void;
+  onProfile(col: number): void;
 };
 
-const GridHeader = memo(function GridHeader({ columns, virtualCols, pk, focusCol, query, editing, height, rowNumW, onResizeStart, onResetWidth }: HeaderProps) {
+const GridHeader = memo(function GridHeader({
+  columns,
+  virtualCols,
+  pk,
+  focusCol,
+  query,
+  editing,
+  height,
+  rowNumW,
+  onResizeStart,
+  onResetWidth,
+  onProfile,
+}: HeaderProps) {
   return (
     <div role="row" aria-rowindex={1} className="sticky top-0 z-20 border-b border-grid bg-bg" style={{ height }}>
       <div
@@ -381,15 +395,15 @@ const GridHeader = memo(function GridHeader({ columns, virtualCols, pk, focusCol
           <div
             key={vc.key}
             data-testid={`grid-header-${vc.index}`}
+            data-header={vc.index}
             role="columnheader"
             aria-colindex={vc.index + 2}
             aria-sort={sortKey ? (sortKey.desc ? "descending" : "ascending") : undefined}
-            title={`${c.name} ${c.type.display}${editing && !editing.writableColumns.has(c.name) ? "\nRead-only column" : ""}${query ? `\nClick to sort, Shift-click to add to the sort. ${ALT_KEY}S sorts by the selected cell's column.` : ""}`}
-            onClick={query ? (e) => query.onSort(c.name, e.shiftKey) : undefined}
+            title={`${c.name} ${c.type.display}${editing && !editing.writableColumns.has(c.name) ? "\nRead-only column" : ""}${query ? `\nClick to sort, Shift-click to add to the sort. ${ALT_KEY}S sorts by the selected cell's column.\nRight-click to profile.` : "\nClick to profile."}`}
+            onClick={query ? (e) => query.onSort(c.name, e.shiftKey) : () => onProfile(vc.index)}
             className={cx(
-              "group/header absolute top-0 flex h-full items-center gap-1.5 border-r border-grid px-2",
+              "group/header absolute top-0 flex h-full cursor-pointer items-center gap-1.5 border-r border-grid px-2 hover:bg-hover hover:text-fg",
               focusCol === vc.index ? "bg-hover text-fg" : "text-muted",
-              query && "cursor-pointer hover:bg-hover hover:text-fg",
             )}
             style={{ left: vc.start, width: vc.size }}
           >
@@ -562,6 +576,7 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
     if (measured?.look !== look && sampleReady) setMeasured({ look, widths: naturalWidths(columns, cache, sampled, query ? QUERY_CONTROLS : 0, look) });
   }, [measured, look, sampleReady, columns, cache, sampled, query]);
   const [resized, setResized] = useState<Record<number, number>>({});
+  const [profiled, setProfiled] = useState<number | null>(null);
   const widths = useMemo(() => columns.map((_, i) => resized[i] ?? measured?.widths[i] ?? MIN_COL), [columns, measured, resized]);
   const widthsRef = useRef(widths);
   widthsRef.current = widths;
@@ -612,6 +627,7 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
           const { [col]: _, ...rest } = r;
           return rest;
         }),
+      onProfile: (col: number) => setProfiled((open) => (open === col ? null : col)),
     }),
     [],
   );
@@ -992,6 +1008,8 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
   const cellId = (row: number, col: number) => `${gridId}-${row}-${col}`;
   const focusRendered = focus && virtualRows.some((vr) => vr.index === focus.row) && virtualCols.some((vc) => vc.index === focus.col);
   const [menuCell, setMenuCell] = useState<Cell | null>(null);
+  // A right-click on a header opens the header's menu instead of the cell menu.
+  const [menuHeader, setMenuHeader] = useState<number | null>(null);
   const menuColumn = menuCell ? columns[menuCell.col]?.name : undefined;
   const menuValue = menuCell && menuCell.row < rowCount ? cache.get(menuCell.row)?.[menuCell.col] : undefined;
   const menuRowKey = menuCell ? rowKeyOf(menuCell.row) : null;
@@ -1033,8 +1051,11 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
         if (cell) void (canWrite(cell.col) ? startEdit(cell.row, cell.col) : openCell(cell.row, cell.col));
       }}
       onContextMenu={(e) => {
+        const header = (e.target as Element).closest<HTMLElement>("[data-header]");
+        if (header) return setMenuHeader(Number(header.dataset.header));
         const cell = cellAt(e.target);
         if (!cell) return e.preventDefault();
+        setMenuHeader(null);
         setMenuCell(cell);
         if (!inSelection(selection, cell.row, cell.col)) setSelection({ anchor: cell, focus: cell });
       }}
@@ -1053,6 +1074,7 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
           rowNumW={rowNumW}
           onResizeStart={headerActions.onResizeStart}
           onResetWidth={headerActions.onResetWidth}
+          onProfile={headerActions.onProfile}
         />
         {virtualRows.map((vr) => {
           const index = vr.index;
@@ -1095,86 +1117,95 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
   return (
     <ContextMenuArea
       menu={
-        menuCell &&
-        menuColumn !== undefined && (
-          <>
-            {query && (
-              <>
-                <ContextMenuItem testId="grid-menu-sort" keyShortcuts="Alt+S" onSelect={() => query.onSort(menuColumn, false)}>
-                  Sort by {menuColumn}
-                  <KeyHint>{ALT_KEY}S</KeyHint>
-                </ContextMenuItem>
-                {menuValue !== undefined && (
-                  <>
-                    <ContextMenuItem testId="grid-menu-filter-eq" onSelect={() => query.onFilterValue(menuColumn, menuValue, false)}>
-                      {menuValue === null ? `Filter ${menuColumn} is null` : `Filter ${menuColumn} = ${shortValue(menuValue)}`}
-                    </ContextMenuItem>
-                    <ContextMenuItem testId="grid-menu-filter-ne" onSelect={() => query.onFilterValue(menuColumn, menuValue, true)}>
-                      {menuValue === null ? `Filter ${menuColumn} is not null` : `Filter ${menuColumn} ≠ ${shortValue(menuValue)}`}
-                    </ContextMenuItem>
-                  </>
-                )}
-                <ContextMenuItem testId="grid-menu-filter-column" onSelect={() => query.onFilterColumn(menuColumn)}>
-                  Filter {menuColumn}…
-                </ContextMenuItem>
-                <ContextMenuSeparator />
-              </>
-            )}
-            {menuLinks.map((link) => (
-              <ContextMenuItem
-                key={`${link.name}:${link.resultColumns.join(",")}`}
-                testId={`grid-menu-follow-${link.name}`}
-                disabled={!link.resultColumns.every((col) => hasValue(menuCell.row, col))}
-                onSelect={() => void follow(menuCell.row, link)}
-              >
-                {linkLabel(link)}
-              </ContextMenuItem>
-            ))}
-            <ContextMenuItem testId="grid-menu-record" keyShortcuts="Meta+I" disabled={menuCell.row >= rowCount} onSelect={() => openRecord(menuCell.row)}>
-              View as record
-              <KeyHint>{MOD_KEY}I</KeyHint>
-            </ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem testId="grid-menu-widen" keyShortcuts="Alt+ArrowRight" onSelect={() => resizeBy(menuCell.col, RESIZE_STEP)}>
-              Widen column
-              <KeyHint>{ALT_KEY}→</KeyHint>
-            </ContextMenuItem>
-            <ContextMenuItem testId="grid-menu-narrow" keyShortcuts="Alt+ArrowLeft" onSelect={() => resizeBy(menuCell.col, -RESIZE_STEP)}>
-              Narrow column
-              <KeyHint>{ALT_KEY}←</KeyHint>
-            </ContextMenuItem>
-            {resized[menuCell.col] !== undefined && (
-              <ContextMenuItem testId="grid-menu-reset-width" onSelect={() => resetWidth(menuCell.col)}>
-                Reset column width
-              </ContextMenuItem>
-            )}
-            {editable && (
-              <>
-                <ContextMenuSeparator />
-                {!menuRowDeleted && canWrite(menuCell.col) && (
-                  <>
-                    <ContextMenuItem testId="grid-menu-edit" onSelect={() => startEdit(menuCell.row, menuCell.col)}>
-                      Edit cell
-                    </ContextMenuItem>
-                    <ContextMenuItem testId="grid-menu-null" onSelect={() => writeCell(menuCell.row, menuCell.col, null)}>
-                      Set NULL
-                    </ContextMenuItem>
-                    {newRowAt(menuCell.row) && (
-                      <ContextMenuItem testId="grid-menu-default" onSelect={() => writeCell(menuCell.row, menuCell.col, DEFAULT)}>
-                        Set DEFAULT
+        menuHeader !== null ? (
+          <ContextMenuItem testId="grid-menu-profile" onSelect={() => setProfiled(menuHeader)}>
+            Profile column
+          </ContextMenuItem>
+        ) : (
+          menuCell &&
+          menuColumn !== undefined && (
+            <>
+              {query && (
+                <>
+                  <ContextMenuItem testId="grid-menu-sort" keyShortcuts="Alt+S" onSelect={() => query.onSort(menuColumn, false)}>
+                    Sort by {menuColumn}
+                    <KeyHint>{ALT_KEY}S</KeyHint>
+                  </ContextMenuItem>
+                  {menuValue !== undefined && (
+                    <>
+                      <ContextMenuItem testId="grid-menu-filter-eq" onSelect={() => query.onFilterValue(menuColumn, menuValue, false)}>
+                        {menuValue === null ? `Filter ${menuColumn} is null` : `Filter ${menuColumn} = ${shortValue(menuValue)}`}
                       </ContextMenuItem>
-                    )}
-                  </>
-                )}
-                <ContextMenuItem testId="grid-menu-delete" onSelect={deleteSelectedRows}>
-                  {menuRowDeleted ? "Restore row" : "Delete row"}
+                      <ContextMenuItem testId="grid-menu-filter-ne" onSelect={() => query.onFilterValue(menuColumn, menuValue, true)}>
+                        {menuValue === null ? `Filter ${menuColumn} is not null` : `Filter ${menuColumn} ≠ ${shortValue(menuValue)}`}
+                      </ContextMenuItem>
+                    </>
+                  )}
+                  <ContextMenuItem testId="grid-menu-filter-column" onSelect={() => query.onFilterColumn(menuColumn)}>
+                    Filter {menuColumn}…
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                </>
+              )}
+              {menuLinks.map((link) => (
+                <ContextMenuItem
+                  key={`${link.name}:${link.resultColumns.join(",")}`}
+                  testId={`grid-menu-follow-${link.name}`}
+                  disabled={!link.resultColumns.every((col) => hasValue(menuCell.row, col))}
+                  onSelect={() => void follow(menuCell.row, link)}
+                >
+                  {linkLabel(link)}
                 </ContextMenuItem>
-                <ContextMenuItem testId="grid-menu-add" onSelect={() => useTableEdits.getState().addRow(tabId)}>
-                  Add row
+              ))}
+              <ContextMenuItem testId="grid-menu-record" keyShortcuts="Meta+I" disabled={menuCell.row >= rowCount} onSelect={() => openRecord(menuCell.row)}>
+                View as record
+                <KeyHint>{MOD_KEY}I</KeyHint>
+              </ContextMenuItem>
+              <ContextMenuItem testId="grid-menu-cell-profile" onSelect={() => setProfiled(menuCell.col)}>
+                Profile {menuColumn}
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem testId="grid-menu-widen" keyShortcuts="Alt+ArrowRight" onSelect={() => resizeBy(menuCell.col, RESIZE_STEP)}>
+                Widen column
+                <KeyHint>{ALT_KEY}→</KeyHint>
+              </ContextMenuItem>
+              <ContextMenuItem testId="grid-menu-narrow" keyShortcuts="Alt+ArrowLeft" onSelect={() => resizeBy(menuCell.col, -RESIZE_STEP)}>
+                Narrow column
+                <KeyHint>{ALT_KEY}←</KeyHint>
+              </ContextMenuItem>
+              {resized[menuCell.col] !== undefined && (
+                <ContextMenuItem testId="grid-menu-reset-width" onSelect={() => resetWidth(menuCell.col)}>
+                  Reset column width
                 </ContextMenuItem>
-              </>
-            )}
-          </>
+              )}
+              {editable && (
+                <>
+                  <ContextMenuSeparator />
+                  {!menuRowDeleted && canWrite(menuCell.col) && (
+                    <>
+                      <ContextMenuItem testId="grid-menu-edit" onSelect={() => startEdit(menuCell.row, menuCell.col)}>
+                        Edit cell
+                      </ContextMenuItem>
+                      <ContextMenuItem testId="grid-menu-null" onSelect={() => writeCell(menuCell.row, menuCell.col, null)}>
+                        Set NULL
+                      </ContextMenuItem>
+                      {newRowAt(menuCell.row) && (
+                        <ContextMenuItem testId="grid-menu-default" onSelect={() => writeCell(menuCell.row, menuCell.col, DEFAULT)}>
+                          Set DEFAULT
+                        </ContextMenuItem>
+                      )}
+                    </>
+                  )}
+                  <ContextMenuItem testId="grid-menu-delete" onSelect={deleteSelectedRows}>
+                    {menuRowDeleted ? "Restore row" : "Delete row"}
+                  </ContextMenuItem>
+                  <ContextMenuItem testId="grid-menu-add" onSelect={() => useTableEdits.getState().addRow(tabId)}>
+                    Add row
+                  </ContextMenuItem>
+                </>
+              )}
+            </>
+          )
         )
       }
     >
@@ -1255,6 +1286,7 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
           </span>
         </div>
         {grid}
+        <ColumnProfilePopover meta={meta} col={profiled} scope={query ? "page" : "result"} done={done} grid={scroller} onClose={() => setProfiled(null)} />
       </div>
     </ContextMenuArea>
   );

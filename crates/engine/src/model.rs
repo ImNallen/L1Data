@@ -1282,6 +1282,43 @@ pub struct ChartSeries {
     pub capped: bool,
 }
 
+/// What one stored column holds. Every stored row is read.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ColumnProfile {
+    /// Stored rows read.
+    pub rows: u64,
+    pub nulls: u64,
+    /// Exact count of distinct non-null texts.
+    pub distinct: u64,
+    pub summary: ProfileSummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(tag = "kind")]
+pub enum ProfileSummary {
+    /// An integer or numeric column, not `money` or `smallmoney`, whose every non-null text parses.
+    /// `min`, `mean`, and `max` are exact decimal text, as the selection totals print them.
+    /// The histogram spans the finite values only, and is empty when there are none.
+    Numeric { min: String, mean: String, max: String, histogram: Vec<HistogramBin> },
+    /// Every other column: at most five of the most frequent non-null values, cut like a page cell.
+    Values { top: Vec<ValueCount> },
+}
+
+/// Values from `lo` up to `hi`. The last bin also holds `hi`.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+pub struct HistogramBin {
+    pub lo: f64,
+    pub hi: f64,
+    pub count: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct ValueCount {
+    pub value: String,
+    pub count: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryError {
