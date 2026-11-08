@@ -10,6 +10,7 @@ mod export;
 mod import;
 mod explain;
 mod plan;
+mod profile;
 mod params;
 mod showplan;
 mod files;
@@ -1706,6 +1707,15 @@ impl Engine {
             .spawn_blocking(move || set.series(x, y, max_points))
             .await
             .expect("result_series task panicked")
+    }
+
+    pub async fn result_profile(&self, r: ResultRef, col: u16) -> Result<ColumnProfile, ResultError> {
+        let set = self.shared.result_set(r).ok_or(ResultError::Gone)?;
+        self.shared
+            .runtime
+            .spawn_blocking(move || Ok(profile::profile(&set.column(col)?)))
+            .await
+            .expect("result_profile task panicked")
     }
 
     pub fn result_plan(&self, r: ResultRef) -> Result<Plan, ResultError> {

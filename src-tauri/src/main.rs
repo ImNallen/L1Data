@@ -59,6 +59,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ipc::result_cell_matches,
             ipc::result_aggregate,
             ipc::result_series,
+            ipc::result_profile,
             ipc::result_plan,
             ipc::result_export,
             ipc::file_open,
