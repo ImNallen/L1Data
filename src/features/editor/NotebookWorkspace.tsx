@@ -5,7 +5,7 @@ import { EllipsisIcon, ListIndentIncreaseIcon, PlayIcon, PlusIcon, SquareIcon, X
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { TabId } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
-import { canCancel, hasUncommittedWork, isBusy, rowResults } from "../../state/status";
+import { canCancel, hasUncommittedWork, isBusy, resultKey, rowResults, shownResult } from "../../state/status";
 import { useWorkspace } from "../../state/workspace";
 import { Button, cx, IconButton, MenuContent, MenuItem } from "../../ui/primitives";
 import { hasResultPager } from "../results/format";
@@ -67,6 +67,10 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
   const largest = rowCounts.length > 0 ? Math.max(...rowCounts) : undefined;
   const table = tab?.table != null;
   const rows = table || largest === undefined ? largest : Math.min(largest, pageSize);
+  const picked = useWorkspace((s) => s.activeResult[id]);
+  const display = useWorkspace((s) => s.resultDisplay[id]);
+  const shown = console ? shownResult(console.run, picked) : undefined;
+  const chart = shown !== undefined && display?.key === resultKey(shown) && display.display === "chart";
   const heights = cellHeights({
     viewport,
     lines: text.split("\n").length,
@@ -78,6 +82,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
           rowHeight: gridRowHeight(codeSize, density),
           chrome: Math.round(80 * DENSITY_FACTOR[density]),
           pager: !table && largest !== undefined && hasResultPager(largest),
+          chart,
         }
       : null,
     focused,

@@ -70,6 +70,10 @@ export type ResultView =
   | { kind: "output" }
   | { kind: "tail" };
 
+export function resultKey(result: RowResult): string {
+  return `${result.meta.ref.tabId}:${result.meta.ref.runId}:${result.index}`;
+}
+
 /** How the shown result asks to be drawn. "default" is the plan for a plan result, else rows. */
 export type ResultDisplay = "default" | "rows" | "chart";
 

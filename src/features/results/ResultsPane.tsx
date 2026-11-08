@@ -20,6 +20,7 @@ import { useLive, type OutputLog } from "../../state/live";
 import {
   isBusy,
   outputTone,
+  resultKey,
   resultView,
   rowResults,
   runStatements,
@@ -32,7 +33,7 @@ import {
 import { useCatalog, viewFor } from "../../state/catalog";
 import { databaseKindFor } from "../../state/databaseKind";
 import { NO_EDITS, pendingCount, useTableEdits } from "../../state/tableEdits";
-import { isFiltered, isTableTab, useWorkspace, type TableTab } from "../../state/workspace";
+import { isFiltered, isTableTab, useWorkspace, type ResultDisplayPref, type TableTab } from "../../state/workspace";
 import { Button, cx, IconButton, MenuContent, MenuItem, Spinner } from "../../ui/primitives";
 import { isMac } from "../../shell/hostedWindow";
 import { useNow } from "../../ui/useNow";
@@ -264,8 +265,6 @@ function EditBar({
   );
 }
 
-type DisplayPref = { key: string; display: ResultDisplay; chart: ChartSpec | null };
-
 function Segment({ testId, pressed, onClick, children }: { testId: string; pressed: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
@@ -387,11 +386,12 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
   const shown = shownResult(run, picked);
   const summary = runSummary(run, picked, now);
   const output = useLive((s) => (tabId ? s.output[tabId] : undefined)) ?? NO_OUTPUT;
-  const shownRef = shown ? `${shown.meta.ref.tabId}:${shown.meta.ref.runId}:${shown.index}` : "";
-  const fresh: DisplayPref = { key: shownRef, display: "default", chart: null };
-  const [displayPref, setDisplayPref] = useState(fresh);
-  const pref = displayPref.key === shownRef ? displayPref : fresh;
-  if (pref !== displayPref) setDisplayPref(pref);
+  const shownRef = shown ? resultKey(shown) : "";
+  const storedPref = useWorkspace((s) => (tabId ? s.resultDisplay[tabId] : undefined));
+  const pref: ResultDisplayPref = storedPref?.key === shownRef ? storedPref : { key: shownRef, display: "default", chart: null };
+  const setDisplayPref = (next: ResultDisplayPref) => {
+    if (tabId) useWorkspace.getState().setResultDisplay(tabId, next);
+  };
   const chartDefault = shown && !shown.plan ? defaultChart(shown.meta.columns) : null;
   const view = resultView(run, picked, output.entries.length > 0, pref.display);
   const showDisplay = (next: ResultDisplay) => {

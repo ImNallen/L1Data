@@ -10,6 +10,7 @@ export type CellSizingInput = {
     rowHeight: number;
     chrome: number;
     pager: boolean;
+    chart: boolean;
   };
   focused: boolean;
   dragged: DraggedHeights;
@@ -39,6 +40,7 @@ const RESULTS_MIN_TABLE = RESULTS_MIN_QUERY + TABLE_CONTROLS;
 const TABLE_COMPACT = 380;
 const QUERY_COMPACT_ROWS = 10;
 const QUERY_UNRUN_ROWS = 4;
+const CHART_BODY = 260;
 
 export const clamp = (px: number, min: number, max: number) => Math.min(max, Math.max(min, px));
 
@@ -49,14 +51,15 @@ export function cellHeights({ viewport, lines, lineHeight, results, focused, dra
     const editorMax = Math.max(EDITOR_MIN, room);
     return { editor: clamp(dragged.editor ?? editorAuto, EDITOR_MIN, editorMax), results: null, editorMax, resultsMin: 0, resultsMax: 0 };
   }
-  const { table, rows, rowHeight, chrome, pager } = results;
+  const { table, rows, rowHeight, chrome, pager, chart } = results;
   const floor = table ? RESULTS_MIN_TABLE : RESULTS_MIN_QUERY;
   const editorMax = Math.max(EDITOR_MIN, room - floor);
   const editor = clamp(dragged.editor ?? editorAuto, EDITOR_MIN, editorMax);
   const fill = Math.max(floor, room - editor);
   const queryChrome = chrome + (pager ? PAGER : 0);
-  const content = table ? (rows === undefined ? fill : chrome + TABLE_CONTROLS + rows * rowHeight) : queryChrome + (rows ?? QUERY_UNRUN_ROWS) * rowHeight;
-  const compact = table ? TABLE_COMPACT : queryChrome + QUERY_COMPACT_ROWS * rowHeight;
+  const queryContent = chart ? queryChrome + CHART_BODY : queryChrome + (rows ?? QUERY_UNRUN_ROWS) * rowHeight;
+  const content = table ? (rows === undefined ? fill : chrome + TABLE_CONTROLS + rows * rowHeight) : queryContent;
+  const compact = table ? TABLE_COMPACT : chart ? queryContent : queryChrome + QUERY_COMPACT_ROWS * rowHeight;
   const auto = focused ? Math.min(content, fill) : Math.min(content, compact, fill);
   return { editor, results: clamp(dragged.results ?? auto, floor, fill), editorMax, resultsMin: floor, resultsMax: fill };
 }
