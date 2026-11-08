@@ -171,12 +171,13 @@ impl Shared {
         self.store.connection(id).ok()?
     }
 
+    /// A notebook's database resolves as its cells' do, so they still match.
     fn resolve_workspace(&self, workspace: &mut Workspace) {
-        for tab in &mut workspace.tabs {
-            if let (Some(id), Some(database)) = (tab.console.connection_id, &mut tab.console.database) {
-                if let Some(instance) = self.instance(id) {
-                    *database = instance.canonical_database(database).to_owned();
-                }
+        let tabs = workspace.tabs.iter_mut().filter_map(|t| Some((t.console.connection_id?, t.console.database.as_mut()?)));
+        let notebooks = workspace.notebooks.iter_mut().filter_map(|n| n.db.as_mut().map(|db| (db.connection_id, &mut db.database)));
+        for (id, database) in tabs.chain(notebooks) {
+            if let Some(instance) = self.instance(id) {
+                *database = instance.canonical_database(database).to_owned();
             }
         }
     }
@@ -2138,7 +2139,7 @@ mod tests {
             assert!(saved.has_password);
             assert_eq!(password(&engine, saved.id).as_deref(), Some(PLAINTEXT));
             engine.set_settings(Settings { max_rows: 10, ..Settings::default() });
-            engine.save_workspace(Workspace { tabs: vec![], active: None, layout: Layout { sidebar: false, ..Layout::default() } });
+            engine.save_workspace(Workspace { layout: Layout { sidebar: false, ..Layout::default() }, ..Workspace::default() });
             saved
         };
         let engine = Engine::open(cfg()).await.unwrap();

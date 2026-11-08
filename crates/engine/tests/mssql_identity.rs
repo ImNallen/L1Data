@@ -102,7 +102,15 @@ async fn restored_targets_catalogs_table_results_and_history_share_the_canonical
     let config = engine.save_connection(draft("SHOP")).await.unwrap();
     let table = saved(config.id, "SHOP", true);
     let distinct = saved(config.id, "Shop", false);
-    engine.save_workspace(Workspace { tabs: vec![table.clone(), distinct.clone()], active: Some(table.id), layout: Layout::default() });
+    let notebook = |database: &str, cells: Vec<TabId>| NotebookSnapshot {
+        id: NotebookId(uuid::Uuid::new_v4()),
+        title: database.into(),
+        db: Some(DatabaseRef { connection_id: config.id, database: database.into() }),
+        active: cells.first().copied(),
+        cells,
+    };
+    let notebooks = vec![notebook("SHOP", vec![table.id]), notebook("Shop", vec![distinct.id])];
+    engine.save_workspace(Workspace { tabs: vec![table.clone(), distinct.clone()], active: Some(table.id), notebooks: notebooks.clone(), ..Workspace::default() });
     let before = engine.console_configure(table.id, console(config.id, "SHOP")).await.unwrap();
     assert_eq!(before.config.database, "SHOP");
     let state = run(&engine, table.id, RunRequest::TablePage { schema: "dbo".into(), table: "orders".into(), page: 0, query: TableQuery::default() }).await;
@@ -132,7 +140,9 @@ async fn restored_targets_catalogs_table_results_and_history_share_the_canonical
     assert_eq!(restored.tabs[0].console.database.as_deref(), Some("shop"));
     assert_eq!(restored.tabs[1].console.database.as_deref(), Some("Shop"));
     assert_eq!(restored.tabs[0].table, table.table);
-    engine.save_workspace(Workspace { tabs: vec![table, distinct], active: restored.active, layout: restored.layout });
+    let databases = |w: &Workspace| w.notebooks.iter().map(|n| n.db.as_ref().unwrap().database.clone()).collect::<Vec<_>>();
+    assert_eq!(databases(&restored), ["shop", "Shop"], "a notebook resolves as its cells do");
+    engine.save_workspace(Workspace { tabs: vec![table, distinct], active: restored.active, layout: restored.layout, notebooks, shown: None });
     engine.disconnect(config.id, true).await.unwrap();
     drop(engine);
     let reopened = open(dir.path(), keys).await;
@@ -141,6 +151,7 @@ async fn restored_targets_catalogs_table_results_and_history_share_the_canonical
     let restored = &snapshot.workspace.tabs[0];
     assert_eq!(restored.console.database.as_deref(), Some("shop"));
     assert_eq!(snapshot.workspace.tabs[1].console.database.as_deref(), Some("Shop"));
+    assert_eq!(databases(&snapshot.workspace), ["shop", "Shop"]);
     reopened.console_configure(restored.id, console(config.id, restored.console.database.as_deref().unwrap())).await.unwrap();
     let state = run(&reopened, restored.id, query()).await;
     assert_eq!(state.config.database, "shop");
