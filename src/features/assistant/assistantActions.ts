@@ -53,7 +53,7 @@ export function newChat(): Promise<void> {
 
 export function gridResult(run: RunState | undefined, picked: ResultPick | undefined, hasOutput: boolean): RowResult | null {
   if (!run) return null;
-  const view = resultView(run, picked, hasOutput);
+  const view = resultView(run, picked, hasOutput, "default");
   return view.kind === "rows" ? view.result : null;
 }
 

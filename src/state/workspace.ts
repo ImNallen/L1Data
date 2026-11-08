@@ -19,9 +19,12 @@ import type {
 import type { SettingsSectionId } from "../features/settings/settingsIndex";
 import { homeDb, resolveDb, sameDb } from "./dbKey";
 import { useLive } from "./live";
-import type { ResultPick } from "./status";
+import type { ChartSpec } from "../features/results/chart";
+import type { ResultDisplay, ResultPick } from "./status";
 
 /** A tab's console target. A tab never names a connection without a database. */
+export type ResultDisplayPref = { key: string; display: ResultDisplay; chart: ChartSpec | null };
+
 export type ConsoleTarget = { db: DatabaseRef | null; mode: TxnMode; schema?: string | null };
 
 /** The table a tab opened from the sidebar browses, in the tab's console database. */
@@ -90,6 +93,8 @@ export type WorkspaceData = {
   layout: Layout;
   configs: Record<ConnectionId, ConnectionConfig>;
   activeResult: Record<TabId, ResultPick>;
+  /** Rows, plan, or chart for each result of the tab's latest run, keyed by `resultKey`. A new run starts from the default. */
+  resultDisplay: Record<TabId, Record<string, ResultDisplayPref>>;
   settings: Settings;
   selected: RelationRef | null;
   overlay: Overlay;
@@ -200,6 +205,7 @@ type WorkspaceActions = {
   setTableQuery(id: TabId, query: TableQuery): void;
   setLayout(patch: Partial<Layout>): void;
   setActiveResult(id: TabId, pick: ResultPick): void;
+  setResultDisplay(id: TabId, pref: ResultDisplayPref): void;
   upsertConfig(c: ConnectionConfig): void;
   removeConfig(id: ConnectionId): void;
   setSettings(s: Settings): void;
@@ -224,6 +230,7 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
   layout: DEFAULT_LAYOUT,
   configs: {},
   activeResult: {},
+  resultDisplay: {},
   settings: DEFAULT_SETTINGS,
   selected: null,
   overlay: { kind: "none" },
@@ -269,8 +276,9 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
       const order = s.order.filter((t) => t !== id);
       const { [id]: _, ...tabs } = s.tabs;
       const { [id]: __, ...activeResult } = s.activeResult;
+      const { [id]: ___, ...resultDisplay } = s.resultDisplay;
       const active = s.active === id ? (order[Math.min(index, order.length - 1)] ?? null) : s.active;
-      return { tabs, order, active, activeResult };
+      return { tabs, order, active, activeResult, resultDisplay };
     }),
   setActive: (id) => set({ active: id }),
   renameTab: (id, title) =>
@@ -305,6 +313,12 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
     }),
   setLayout: (patch) => set((s) => ({ layout: { ...s.layout, ...patch } })),
   setActiveResult: (id, pick) => set((s) => ({ activeResult: { ...s.activeResult, [id]: pick } })),
+  setResultDisplay: (id, pref) =>
+    set((s) => {
+      const run = pref.key.slice(0, pref.key.lastIndexOf(":"));
+      const sameRun = Object.entries(s.resultDisplay[id] ?? {}).filter(([key]) => key.slice(0, key.lastIndexOf(":")) === run);
+      return { resultDisplay: { ...s.resultDisplay, [id]: { ...Object.fromEntries(sameRun), [pref.key]: pref } } };
+    }),
   upsertConfig: (c) =>
     set((s) => {
       const previous = s.configs[c.id];

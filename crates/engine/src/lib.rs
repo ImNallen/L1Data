@@ -1699,6 +1699,15 @@ impl Engine {
             .expect("result_aggregate task panicked")
     }
 
+    pub async fn result_series(&self, r: ResultRef, x: Option<u16>, y: u16, max_points: u32) -> Result<ChartSeries, ResultError> {
+        let set = self.shared.result_set(r).ok_or(ResultError::Gone)?;
+        self.shared
+            .runtime
+            .spawn_blocking(move || set.series(x, y, max_points))
+            .await
+            .expect("result_series task panicked")
+    }
+
     pub fn result_plan(&self, r: ResultRef) -> Result<Plan, ResultError> {
         let set = self.shared.result_set(r).ok_or(ResultError::Gone)?;
         if set.meta().truncated.is_some() {

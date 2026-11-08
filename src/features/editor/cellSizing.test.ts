@@ -15,8 +15,8 @@ function heights(overrides: Partial<CellSizingInput>) {
     ...overrides,
   });
 }
-const table = (rows?: number) => ({ table: true, rows, rowHeight: ROW, chrome: CHROME, pager: false });
-const query = (rows?: number, pager = false) => ({ table: false, rows, rowHeight: ROW, chrome: CHROME, pager });
+const table = (rows?: number) => ({ table: true, rows, rowHeight: ROW, chrome: CHROME, pager: false, chart: false });
+const query = (rows?: number, pager = false, chart = false) => ({ table: false, rows, rowHeight: ROW, chrome: CHROME, pager, chart });
 const PAGER = 36;
 
 it("fills the room below the editor with a focused table", () => {
@@ -80,4 +80,10 @@ it("leaves the editor more room to grow when the cell shows no results", () => {
 
 it("holds the minimum sizes before the first measure", () => {
   expect(heights({ viewport: 0, results: table(1000) })).toMatchObject({ editor: 64, results: 228 });
+});
+
+it("gives a charted result the chart's height whatever its row count", () => {
+  expect(heights({ results: query(6, false, true) }).results).toBe(340);
+  expect(heights({ results: query(1000, false, true), focused: false }).results).toBe(340);
+  expect(heights({ results: query(6) }).results).toBe(224);
 });

@@ -110,12 +110,12 @@ describe("resultView", () => {
   const withRows = finishedRun(7, [rowsAt(0), rowsAt(1)]);
 
   it("shows an Output pick made on the current run over the grid", () => {
-    expect(resultView(withRows, { kind: "output", runId: 7, result: undefined }, true)).toEqual({ kind: "output" });
+    expect(resultView(withRows, { kind: "output", runId: 7, result: undefined }, true, "default")).toEqual({ kind: "output" });
   });
 
   it("keeps the picked result set behind an Output pick", () => {
     expect(shownResult(withRows, { kind: "output", runId: 7, result: 0 })).toMatchObject({ index: 0 });
-    expect(resultView(withRows, { kind: "output", runId: 7, result: 0 }, false)).toMatchObject({ kind: "rows", result: { index: 0 } });
+    expect(resultView(withRows, { kind: "output", runId: 7, result: 0 }, false, "default")).toMatchObject({ kind: "rows", result: { index: 0 } });
   });
 
   it("forgets the result set behind a lapsed Output pick", () => {
@@ -123,32 +123,39 @@ describe("resultView", () => {
   });
 
   it("drops an Output pick on the next run", () => {
-    expect(resultView(finishedRun(8, [rowsAt(0)]), { kind: "output", runId: 7, result: undefined }, true)).toMatchObject({
+    expect(resultView(finishedRun(8, [rowsAt(0)]), { kind: "output", runId: 7, result: undefined }, true, "default")).toMatchObject({
       kind: "rows",
       result: { index: 0 },
     });
   });
 
   it("prefers the grid to the log without a pick", () => {
-    expect(resultView(withRows, undefined, true)).toMatchObject({ kind: "rows", result: { index: 1 } });
-    expect(resultView(withRows, 0, true)).toMatchObject({ kind: "rows", result: { index: 0 } });
+    expect(resultView(withRows, undefined, true, "default")).toMatchObject({ kind: "rows", result: { index: 1 } });
+    expect(resultView(withRows, 0, true, "default")).toMatchObject({ kind: "rows", result: { index: 0 } });
   });
 
   it("shows the log instead of the tail when the tab has entries", () => {
-    expect(resultView(finishedRun(7, [command(0, "DO", 1)]), undefined, true)).toEqual({ kind: "output" });
+    expect(resultView(finishedRun(7, [command(0, "DO", 1)]), undefined, true, "default")).toEqual({ kind: "output" });
   });
 
   it("shows a plan as a tree until the rows view is chosen", () => {
     const run = finishedRun(7, [planAt(0)]);
-    expect(resultView(run, undefined, false)).toMatchObject({ kind: "plan", result: { index: 0, plan: true } });
-    expect(resultView(run, undefined, false, true)).toMatchObject({ kind: "rows", result: { index: 0, plan: true } });
+    expect(resultView(run, undefined, false, "default")).toMatchObject({ kind: "plan", result: { index: 0, plan: true } });
+    expect(resultView(run, undefined, false, "rows")).toMatchObject({ kind: "rows", result: { index: 0, plan: true } });
     expect(runSummary(finished([planAt(0)]), undefined, 0)).toEqual({ tone: "ok", text: "Plan · 38 ms" });
   });
 
+  it("shows a chart only when asked, and never for a plan", () => {
+    expect(resultView(withRows, 0, false, "chart")).toMatchObject({ kind: "chart", result: { index: 0 } });
+    expect(resultView(withRows, 0, false, "rows")).toMatchObject({ kind: "rows", result: { index: 0 } });
+    expect(resultView(finishedRun(7, [planAt(0)]), undefined, false, "chart")).toMatchObject({ kind: "plan" });
+    expect(resultView(withRows, { kind: "output", runId: 7, result: 0 }, true, "chart")).toEqual({ kind: "output" });
+  });
+
   it("falls back to the tail when the log is empty", () => {
-    expect(resultView(finishedRun(7, [command(0, "DO", 1)]), undefined, false)).toEqual({ kind: "tail" });
-    expect(resultView(finishedRun(7), { kind: "output", runId: 7, result: undefined }, false)).toEqual({ kind: "tail" });
-    expect(resultView({ kind: "Idle" }, undefined, false)).toEqual({ kind: "tail" });
+    expect(resultView(finishedRun(7, [command(0, "DO", 1)]), undefined, false, "default")).toEqual({ kind: "tail" });
+    expect(resultView(finishedRun(7), { kind: "output", runId: 7, result: undefined }, false, "default")).toEqual({ kind: "tail" });
+    expect(resultView({ kind: "Idle" }, undefined, false, "default")).toEqual({ kind: "tail" });
   });
 });
 
@@ -312,6 +319,6 @@ it("keeps every result ordinal from one failed batch, including empty and partia
     [1, 2, "Failed"],
   ]);
   expect(shownResult(run, 0)?.meta.rowCount).toBe(0);
-  expect(resultView(run, 1, true)).toMatchObject({ kind: "rows", result: { index: 1 } });
+  expect(resultView(run, 1, true, "default")).toMatchObject({ kind: "rows", result: { index: 1 } });
   expect(runSummary(run, 1, 0)).toEqual({ tone: "error", text: failure.message });
 });

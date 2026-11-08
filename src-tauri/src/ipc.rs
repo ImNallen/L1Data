@@ -223,6 +223,12 @@ pub async fn result_aggregate(engine: State<'_, Arc<Engine>>, result_ref: Result
 
 #[tauri::command]
 #[specta::specta]
+pub async fn result_series(engine: State<'_, Arc<Engine>>, result_ref: ResultRef, x: Option<u16>, y: u16, max_points: u32) -> Result<ChartSeries, ResultError> {
+    engine.result_series(result_ref, x, y, max_points).await
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn result_plan(engine: State<'_, Arc<Engine>>, result_ref: ResultRef) -> Result<Plan, ResultError> {
     engine.result_plan(result_ref)
 }

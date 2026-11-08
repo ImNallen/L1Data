@@ -3,12 +3,13 @@ use std::time::Instant;
 
 use crate::aggregate::ColumnText;
 use crate::model::{
-    AllRows, ColSpan, ColumnMeta, ConnectionId, DatabaseKind, DatabaseRef, PlanFormat, QueryError, ResultCell, ResultError, ResultFind, ResultFindDirection,
+    AllRows, ChartSeries, ColSpan, ColumnMeta, ConnectionId, DatabaseKind, DatabaseRef, PlanFormat, QueryError, ResultCell, ResultError, ResultFind, ResultFindDirection,
     ResultFindTarget, ResultMeta, ResultRef, RowPage, RowSpan, RunId, RunOutput, TabId, TruncateReason,
 };
 
 pub const CELL_CHAR_LIMIT: usize = 2_000;
 pub const PAGE_LEN_MAX: u32 = 2_000;
+pub const CHART_POINTS_MAX: u32 = 2_000;
 
 const NULL: u32 = u32::MAX;
 
@@ -333,6 +334,30 @@ impl ResultSet {
         Ok(copied)
     }
 
+    pub(crate) fn series(&self, x: Option<u16>, y: u16, max_points: u32) -> Result<ChartSeries, ResultError> {
+        let a = self.data.read().unwrap();
+        if x.is_some_and(|x| x as usize >= a.ncols) || y as usize >= a.ncols {
+            return Err(ResultError::OutOfRange);
+        }
+        let stored = a.row_count();
+        let len = stored.min(max_points.min(CHART_POINTS_MAX));
+        let rows = 0..len as usize;
+        let labels = rows
+            .clone()
+            .map(|r| match x {
+                Some(x) => a.cell(r, x as usize).map(|text| {
+                    let keep = text.char_indices().nth(CELL_CHAR_LIMIT).map_or(text.len(), |(b, _)| b);
+                    text[..keep].to_owned()
+                }),
+                None => Some((r + 1).to_string()),
+            })
+            .collect();
+        let values = rows
+            .map(|r| a.cell(r, y as usize).and_then(|text| text.parse::<f64>().ok()).filter(|v| v.is_finite()))
+            .collect();
+        Ok(ChartSeries { labels, values, capped: len < stored })
+    }
+
     pub fn each_row<E>(&self, mut f: impl FnMut(&[Option<&str>]) -> Result<(), E>) -> Result<(u64, bool), E> {
         let a = self.data.read().unwrap();
         let rows = a.row_count();
@@ -577,6 +602,63 @@ mod tests {
         assert!(matches!(rs.copy_rect(RowSpan { start: 0, end: 2 }, ColSpan { start: 0, end: 0 }), Err(ResultError::OutOfRange)));
         assert!(matches!(rs.copy_rect(RowSpan { start: 0, end: 1 }, ColSpan { start: 1, end: 0 }), Err(ResultError::OutOfRange)));
         assert!(matches!(rs.copy_rect(RowSpan { start: 0, end: 1 }, ColSpan { start: 0, end: 2 }), Err(ResultError::OutOfRange)));
+    }
+
+    #[test]
+    fn series_labels_come_from_the_x_column_with_null_kept() {
+        let rs = set(2);
+        rs.push_row([Some("north"), Some("10")].into_iter(), &NO_CAPS);
+        rs.push_row([None, Some("2.5")].into_iter(), &NO_CAPS);
+        let series = rs.series(Some(0), 1, 100).unwrap();
+        assert_eq!(series.labels, vec![Some("north".to_owned()), None]);
+        assert_eq!(series.values, vec![Some(10.0), Some(2.5)]);
+        assert!(!series.capped);
+    }
+
+    #[test]
+    fn series_labels_are_row_numbers_without_an_x_column() {
+        let rs = set(1);
+        for v in ["3", "1", "2"] {
+            rs.push_row([Some(v)].into_iter(), &NO_CAPS);
+        }
+        let series = rs.series(None, 0, 100).unwrap();
+        assert_eq!(series.labels, vec![Some("1".to_owned()), Some("2".to_owned()), Some("3".to_owned())]);
+        assert_eq!(series.values, vec![Some(3.0), Some(1.0), Some(2.0)]);
+    }
+
+    #[test]
+    fn series_values_are_none_for_null_text_and_non_finite_numbers() {
+        let rs = set(1);
+        for v in [None, Some("abc"), Some(""), Some("NaN"), Some("Infinity"), Some("-inf"), Some("1e400"), Some("-1.5e3")] {
+            rs.push_row([v].into_iter(), &NO_CAPS);
+        }
+        let series = rs.series(None, 0, 100).unwrap();
+        assert_eq!(series.values, vec![None, None, None, None, None, None, None, Some(-1500.0)]);
+    }
+
+    #[test]
+    fn series_reads_at_most_the_cap_and_reports_it() {
+        let rs = set(1);
+        for i in 0..CHART_POINTS_MAX + 5 {
+            rs.push_row([Some(i.to_string().as_str())].into_iter(), &NO_CAPS);
+        }
+        let asked = rs.series(None, 0, 3).unwrap();
+        assert_eq!(asked.values, vec![Some(0.0), Some(1.0), Some(2.0)]);
+        assert!(asked.capped);
+        let most = rs.series(None, 0, u32::MAX).unwrap();
+        assert_eq!(most.values.len(), CHART_POINTS_MAX as usize);
+        assert!(most.capped);
+        let rs = set(1);
+        rs.push_row([Some("1")].into_iter(), &NO_CAPS);
+        assert!(!rs.series(None, 0, 1).unwrap().capped);
+    }
+
+    #[test]
+    fn series_rejects_a_column_outside_the_result() {
+        let rs = set(2);
+        rs.push_row([Some("a"), Some("1")].into_iter(), &NO_CAPS);
+        assert!(matches!(rs.series(None, 2, 10), Err(ResultError::OutOfRange)));
+        assert!(matches!(rs.series(Some(2), 1, 10), Err(ResultError::OutOfRange)));
     }
 
     #[test]

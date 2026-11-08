@@ -1270,6 +1270,18 @@ pub enum CellAggregate {
     Numeric { count: u64, non_null: u64, sum: String, avg: String, min: String, max: String },
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartSeries {
+    /// One label per point: the x column's text as the grid shows it (NULL is None),
+    /// or the 1-based row number when no x column was given.
+    pub labels: Vec<Option<String>>,
+    /// The y column per point. None for NULL, or for text that is not a finite number.
+    pub values: Vec<Option<f64>>,
+    /// True when the result stores more rows than were read.
+    pub capped: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryError {

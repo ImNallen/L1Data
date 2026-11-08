@@ -49,6 +49,7 @@ export const commands = {
 	resultFind: (resultRef: ResultRef, query: string, direction: ResultFindDirection) => typedError<ResultFind, ResultError>(__TAURI_INVOKE("result_find", { resultRef, query, direction })),
 	resultCellMatches: (resultRef: ResultRef, cell: ResultCell, query: string) => typedError<boolean, ResultError>(__TAURI_INVOKE("result_cell_matches", { resultRef, cell, query })),
 	resultAggregate: (resultRef: ResultRef, rows: RowSpan, cols: ColSpan) => typedError<CellAggregate, ResultError>(__TAURI_INVOKE("result_aggregate", { resultRef, rows, cols })),
+	resultSeries: (resultRef: ResultRef, x: number | null, y: number, maxPoints: number) => typedError<ChartSeries, ResultError>(__TAURI_INVOKE("result_series", { resultRef, x, y, maxPoints })),
 	resultPlan: (resultRef: ResultRef) => typedError<Plan, ResultError>(__TAURI_INVOKE("result_plan", { resultRef })),
 	resultExport: (resultRef: ResultRef, format: ExportFormat, scope: ExportScope, path: string) => typedError<ExportSummary, ExportError>(__TAURI_INVOKE("result_export", { resultRef, format, scope, path })),
 	fileOpen: (path: string) => typedError<FileOpened, FileReadError>(__TAURI_INVOKE("file_open", { path })),
@@ -253,6 +254,18 @@ export type ChangeKind = "Insert" | "Update" | "Delete";
 export type ChangeRef = {
 	kind: ChangeKind,
 	index: number,
+};
+
+export type ChartSeries = {
+	/**
+	 *  One label per point: the x column's text as the grid shows it (NULL is None),
+	 *  or the 1-based row number when no x column was given.
+	 */
+	labels: (string | null)[],
+	/**  The y column per point. None for NULL, or for text that is not a finite number. */
+	values: (number | null)[],
+	/**  True when the result stores more rows than were read. */
+	capped: boolean,
 };
 
 export type ChatError = { kind: "UnknownModel"; model: ModelId } | { kind: "UnsupportedEffort"; effort: EffortId } | { kind: "Store"; message: string };
