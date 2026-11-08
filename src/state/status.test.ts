@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ConnectionConfig, ConsoleState, OutputEntry, QueryError, ResultMeta, RunOutput, RunState, StatementRun, Workspace } from "../ipc/bindings";
-import { hasUncommittedWork, outputTone, resultView, rowResults, runSummary, shownResult } from "./status";
+import { hasUncommittedWork, notebookActivity, outputTone, resultView, rowResults, runSummary, shownResult } from "./status";
 import { nextUntitled, tabFromSnapshot, workspaceSnapshot, type Tab } from "./workspace";
 import { cellsState } from "../testing/notebooks";
 
@@ -176,6 +176,18 @@ describe("outputTone", () => {
     expect(outputTone([notice(7, "fyi"), notice(7, "info", "INFO"), error(7)])).toBe("muted");
     expect(outputTone([])).toBe("muted");
   });
+});
+
+it("says a notebook is running before it says it holds a transaction", () => {
+  const consoles = {
+    idle: consoleWith("Manual", "Idle"),
+    open: consoleWith("Manual", "Active"),
+    aborted: consoleWith("Manual", "Aborted"),
+    count: { ...consoleWith("AutoCommit", "Idle"), work: "Count" as const },
+  };
+  expect(notebookActivity(consoles, ["idle", "gone"])).toBeNull();
+  expect(notebookActivity(consoles, ["idle", "aborted"])).toBe("transaction");
+  expect(notebookActivity(consoles, ["open", "count"])).toBe("running");
 });
 
 describe("workspace snapshot", () => {

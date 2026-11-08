@@ -23,6 +23,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   commands,
   type ColumnInfo,
@@ -47,7 +48,7 @@ import { DATABASE_LABEL, databaseKindFor } from "../../state/databaseKind";
 import { dbKey, sameDb, type DbKey } from "../../state/dbKey";
 import { instanceOf, useLive } from "../../state/live";
 import { detailKey, useRelationDetail, type DetailEntry } from "../../state/relationDetail";
-import { connectionTone, type Tone } from "../../state/status";
+import { connectionTone, notebookActivity, type Tone } from "../../state/status";
 import { activeTab, tabTarget, useWorkspace, type RelationRef } from "../../state/workspace";
 import { ContextMenuItem, ContextMenuSeparator, ContextSubmenu, Highlight, Spinner, StatusDot, cx } from "../../ui/primitives";
 import { matchRanges, parseQuery, type TextRange } from "../../ui/textMatch";
@@ -560,6 +561,19 @@ function ConnectionMenu({ config, shown }: { config: ConnectionConfig; shown: Da
   );
 }
 
+/** Switching notebooks leaves their sessions alive, so a database row says when its notebook is still at work. */
+function NotebookMarker({ db, testId }: { db: DatabaseRef; testId: string }) {
+  const cells = useWorkspace(useShallow((s) => Object.values(s.notebooks).flatMap((n) => (sameDb(n.db, db) ? n.cells : []))));
+  const activity = useLive((s) => notebookActivity(s.consoles, cells));
+  if (activity === null) return null;
+  return (
+    <span data-testid={testId} className={cx("flex shrink-0 items-center gap-1 pl-2 text-ui-10.5", activity === "running" ? "text-run" : "text-amber")}>
+      {activity === "running" ? <Spinner className="size-2.5 border-run" /> : <span className="size-1.5 rounded-full bg-amber" />}
+      {activity === "running" ? "Running" : "Open transaction"}
+    </span>
+  );
+}
+
 /** A catalog that is loading or failed, as the live regions outside the tree say it. */
 type CatalogNews = { loading: string[]; failed: string[] };
 
@@ -583,7 +597,12 @@ function databaseRows(b: Build, news: CatalogNews, path: string, db: DatabaseRef
     view: (active) => ({
       icon: <DatabaseIcon size={15} className="text-muted" />,
       label: db.database,
-      trailing: count && <PickerPill target={target} count={count} active={active} testId={`schema-pill-${me}`} />,
+      trailing: (
+        <>
+          {b.browse && <NotebookMarker db={db} testId={`notebook-marker-${me}`} />}
+          {count && <PickerPill target={target} count={count} active={active} testId={`schema-pill-${me}`} />}
+        </>
+      ),
     }),
   });
   if (b.browse) {

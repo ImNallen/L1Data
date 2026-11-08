@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { ConsoleState } from "../../ipc/bindings";
 import * as runActions from "../editor/runActions";
 import { dropEditor } from "../editor/editorStates";
 import { buildCatalogView, useCatalog } from "../../state/catalog";
@@ -136,4 +137,29 @@ it("does not open a search match when the active cell has no database", async ()
   await user.type(screen.getByTestId("object-search"), "orders{Enter}");
   expect(open).not.toHaveBeenCalled();
   expect(screen.queryByRole("tree", { name: "Database objects" })).toBeNull();
+});
+
+it("marks a database whose notebook is still running or holds a transaction", () => {
+  useLive.setState({ connections: { p: connectedState("p", [databaseState("shop", true, ["public"]), databaseState("postgres", true, [])]) } });
+  const shop = runActions.openSqlTab({ db: { connectionId: "p", database: "shop" } });
+  const postgres = runActions.openSqlTab({ db: { connectionId: "p", database: "postgres" } });
+  const console = (tabId: string, patch: Partial<ConsoleState>): ConsoleState => ({
+    tabId,
+    rev: 1,
+    config: { connectionId: "p", database: "shop", schema: null, mode: "Manual" },
+    session: { kind: "Open", backendPid: 1 },
+    txn: "Idle",
+    txnDepth: null,
+    work: null,
+    export: null,
+    import: null,
+    run: { kind: "Idle" },
+    ...patch,
+  });
+  useLive.setState({ consoles: { [shop]: console(shop, { work: "Run" }), [postgres]: console(postgres, { txn: "Active" }) } });
+  render(<Sidebar hosted={null} />);
+  expect(screen.getByTestId("notebook-marker-Postgres/shop").textContent).toBe("Running");
+  expect(screen.getByTestId("notebook-marker-Postgres/postgres").textContent).toBe("Open transaction");
+  act(() => useLive.setState({ consoles: {} }));
+  expect(screen.queryByTestId("notebook-marker-Postgres/shop")).toBeNull();
 });

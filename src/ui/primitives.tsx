@@ -81,10 +81,8 @@ export function StatusDot({ tone, label }: { tone: Tone; label?: string }) {
   );
 }
 
-export function Spinner() {
-  return (
-    <span className="inline-block size-3 rounded-full border-[1.5px] border-dim border-t-transparent" style={{ animation: "spin 0.8s linear infinite" }} />
-  );
+export function Spinner({ className = "size-3 border-dim" }: { className?: string }) {
+  return <span className={cx("inline-block rounded-full border-[1.5px] border-t-transparent", className)} style={{ animation: "spin 0.8s linear infinite" }} />;
 }
 
 type ButtonProps = ComponentProps<"button"> & { variant?: "ghost" | "outline" | "primary" | "danger" };

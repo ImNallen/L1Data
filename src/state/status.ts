@@ -1,4 +1,4 @@
-import type { ConnectionState, ConsoleState, OutputEntry, ResultMeta, RowsState, RunState, StatementRun } from "../ipc/bindings";
+import type { ConnectionState, ConsoleState, OutputEntry, ResultMeta, RowsState, RunState, StatementRun, TabId } from "../ipc/bindings";
 import { formatElapsed, groupDigits, pluralRows } from "../features/results/format";
 
 export function hasUncommittedWork(console: ConsoleState | undefined): boolean {
@@ -15,6 +15,15 @@ export function isBusy(console: ConsoleState | undefined): boolean {
 
 export function canCancel(console: ConsoleState | undefined): boolean {
   return console?.work === "Count" || console?.work === "Export" || console?.work === "Import" || isRunning(console);
+}
+
+/** What a notebook's sessions are doing while it is out of view: running work outranks an open transaction. */
+export type NotebookActivity = "running" | "transaction" | null;
+
+export function notebookActivity(consoles: Record<TabId, ConsoleState>, cells: readonly TabId[]): NotebookActivity {
+  if (cells.some((id) => isBusy(consoles[id]))) return "running";
+  if (cells.some((id) => hasUncommittedWork(consoles[id]))) return "transaction";
+  return null;
 }
 
 export type Tone = "live" | "pending" | "off" | "error";
