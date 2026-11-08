@@ -15,6 +15,7 @@ mod params;
 mod showplan;
 mod files;
 mod history;
+mod notebook_file;
 pub mod model;
 mod provider;
 mod results;
@@ -1783,6 +1784,20 @@ impl Engine {
         self.shared.runtime.spawn_blocking(move || files::save(target, &text)).await.unwrap_or_else(|e| Err(FileWriteError::Io { message: e.to_string() }))
     }
 
+    pub async fn notebook_open(&self, path: String) -> Result<NotebookOpened, FileReadError> {
+        let read = move || files::open(&path).map(|f| NotebookOpened { binding: f.binding, name: f.name, notebook: notebook_file::parse(&f.text) });
+        self.shared.runtime.spawn_blocking(read).await.unwrap_or_else(|e| Err(FileReadError::Io { message: e.to_string() }))
+    }
+
+    /// Prints the notebook in Rust, then writes it as `file_save` writes text.
+    pub async fn notebook_save(&self, target: SaveTarget, notebook: NotebookText) -> Result<NotebookSaved, FileWriteError> {
+        let write = move || {
+            let (text, plain) = notebook_file::print(&notebook);
+            files::save(target, &text).map(|f| NotebookSaved { binding: f.binding, name: f.name, plain })
+        };
+        self.shared.runtime.spawn_blocking(write).await.unwrap_or_else(|e| Err(FileWriteError::Io { message: e.to_string() }))
+    }
+
     pub fn history(&self, q: HistoryQuery) -> HistoryPage {
         self.shared.store.history(&q).unwrap_or_else(|e| {
             eprintln!("history query failed: {e}");
@@ -2052,6 +2067,32 @@ mod tests {
         assert_eq!((reopened.text.as_str(), reopened.binding), ("select 2;\n", saved.binding));
         let missing = engine.file_open(dir.path().join("missing.sql").to_string_lossy().into_owned()).await;
         assert!(matches!(missing, Err(FileReadError::NotFound)), "{missing:?}");
+        engine.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn a_notebook_opens_and_saves_through_the_engine_in_the_files_own_line_breaks() {
+        let (engine, dir) = engine().await;
+        let path = dir.path().join("q.sql");
+        std::fs::write(&path, "select 1;\r\n").unwrap();
+        let opened = engine.notebook_open(path.to_string_lossy().into_owned()).await.unwrap();
+        assert_eq!((opened.name.as_str(), opened.notebook.plain, opened.notebook.cells.len()), ("q.sql", true, 1));
+        assert_eq!(opened.notebook.cells[0].text, "select 1;\n");
+        let saved = engine.notebook_save(SaveTarget::Bound { binding: opened.binding.clone(), overwrite: None }, opened.notebook.clone()).await.unwrap();
+        assert_eq!((std::fs::read(&path).unwrap(), saved.plain), (b"select 1;\r\n".to_vec(), true));
+
+        let mut two = opened.notebook.clone();
+        two.header = NotebookHeader { connection: Some("local".into()), kind: Some(DatabaseKind::Postgres), database: Some("shop".into()), unknown: vec![] };
+        two.cells.push(NotebookCell { text: "select 2;".into(), meta: CellMeta { manual: true, ..CellMeta::default() } });
+        let saved = engine.notebook_save(SaveTarget::Bound { binding: saved.binding, overwrite: None }, two.clone()).await.unwrap();
+        let disk = String::from_utf8(std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(disk, "-- l1 notebook: connection=\"local\" kind=\"postgres\" database=\"shop\"\r\n-- %%\r\nselect 1;\r\n\r\n-- %% mode=\"manual\"\r\nselect 2;\r\n");
+        assert!(!saved.plain);
+        let reopened = engine.notebook_open(saved.binding.path.clone()).await.unwrap();
+        assert_eq!((reopened.notebook, reopened.binding), (NotebookText { plain: false, ..two.clone() }, saved.binding.clone()));
+
+        let stale = engine.notebook_save(SaveTarget::Bound { binding: opened.binding, overwrite: None }, two).await;
+        assert!(matches!(stale, Err(FileWriteError::Changed { .. })), "{stale:?}");
         engine.shutdown().await;
     }
 

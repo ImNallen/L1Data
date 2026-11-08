@@ -56,6 +56,8 @@ export const commands = {
 	resultExport: (resultRef: ResultRef, format: ExportFormat, scope: ExportScope, path: string) => typedError<ExportSummary, ExportError>(__TAURI_INVOKE("result_export", { resultRef, format, scope, path })),
 	fileOpen: (path: string) => typedError<FileOpened, FileReadError>(__TAURI_INVOKE("file_open", { path })),
 	fileSave: (target: SaveTarget, text: string) => typedError<FileSaved, FileWriteError>(__TAURI_INVOKE("file_save", { target, text })),
+	notebookOpen: (path: string) => typedError<NotebookOpened, FileReadError>(__TAURI_INVOKE("notebook_open", { path })),
+	notebookSave: (target: SaveTarget, notebook: NotebookText) => typedError<NotebookSaved, FileWriteError>(__TAURI_INVOKE("notebook_save", { target, notebook })),
 	historyList: (query: HistoryQuery) => __TAURI_INVOKE<HistoryPage>("history_list", { query }),
 	historyBrowse: (query: HistoryBrowseQuery) => typedError<HistoryBrowsePage, HistoryError>(__TAURI_INVOKE("history_browse", { query })),
 	historyGroup: (query: HistoryGroupQuery) => typedError<HistoryGroupPage, HistoryError>(__TAURI_INVOKE("history_group", { query })),
@@ -237,6 +239,23 @@ export type CatalogStatus =
  *  `Numeric` is present only when sum, avg, min, and max all exist.
  */
 export type CellAggregate = { kind: "Counts"; count: number; nonNull: number } | { kind: "Numeric"; count: number; nonNull: number; sum: string; avg: string; min: string; max: string };
+
+export type CellMeta = {
+	title: string | null,
+	/**  The schema the cell runs in. */
+	schema: string | null,
+	/**  The table a browse cell shows. */
+	table: CellTable | null,
+	/**  The cell commits by hand. */
+	manual: boolean,
+	/**  Keys this build does not read, and known keys whose value it cannot, written back as they were. */
+	unknown: MetaPair[],
+};
+
+export type CellTable = {
+	schema: string,
+	table: string,
+};
 
 export type CellWrite = {
 	column: string,
@@ -1091,6 +1110,11 @@ export type MapRelation = {
 
 export type MapResolution = { kind: "CatalogMatch"; oid: number } | { kind: "Tentative"; oid: number } | { kind: "Unresolved"; reason: string };
 
+export type MetaPair = {
+	key: string,
+	value: string,
+};
+
 /**  A model as its provider names it on its command line (`opus`). Valid only against the last probe. */
 export type ModelId = string;
 
@@ -1104,8 +1128,37 @@ export type ModelOption = {
 	recommended: boolean,
 };
 
+export type NotebookCell = {
+	text: string,
+	meta: CellMeta,
+};
+
+/**  Names the database the notebook was on. A file never holds a host, a user, a password, or a connection id. */
+export type NotebookHeader = {
+	/**  The connection's display name. */
+	connection: string | null,
+	kind: DatabaseKind | null,
+	database: string | null,
+	/**  Keys this build does not read, written back as they were. */
+	unknown: MetaPair[],
+};
+
 /**  Minted by the frontend (`crypto.randomUUID()`). */
 export type NotebookId = string;
+
+export type NotebookOpened = {
+	binding: FileBinding,
+	/**  The file's name. */
+	name: string,
+	notebook: NotebookText,
+};
+
+export type NotebookSaved = {
+	binding: FileBinding,
+	name: string,
+	/**  The file holds plain SQL, with no header and no cell marker. */
+	plain: boolean,
+};
 
 /**  One of a database's notebooks. Every cell in it is on `db`. */
 export type NotebookSnapshot = {
@@ -1118,6 +1171,18 @@ export type NotebookSnapshot = {
 	active: TabId | null,
 	/**  When the notebook was last shown, in Unix milliseconds. Choosing a database shows its most recent notebook. */
 	shownAtMs: number,
+};
+
+/**  A notebook as its file holds it. Only `notebook_file` reads or writes the file's text. */
+export type NotebookText = {
+	/**
+	 *  Read: the file has no header and no cell marker, so it is one cell holding the whole file. Save: print the
+	 *  notebook that way while it still reads back the same, as one cell with nothing else to record.
+	 */
+	plain: boolean,
+	header: NotebookHeader,
+	/**  At least one when read. */
+	cells: NotebookCell[],
 };
 
 /**  The DDL that creates one object. */

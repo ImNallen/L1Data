@@ -2670,6 +2670,83 @@ pub enum FileWriteError {
     Io { message: String },
 }
 
+/// A notebook as its file holds it. Only `notebook_file` reads or writes the file's text.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct NotebookText {
+    /// Read: the file has no header and no cell marker, so it is one cell holding the whole file. Save: print the
+    /// notebook that way while it still reads back the same, as one cell with nothing else to record.
+    pub plain: bool,
+    pub header: NotebookHeader,
+    /// At least one when read.
+    pub cells: Vec<NotebookCell>,
+}
+
+/// Names the database the notebook was on. A file never holds a host, a user, a password, or a connection id.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct NotebookHeader {
+    /// The connection's display name.
+    pub connection: Option<String>,
+    pub kind: Option<DatabaseKind>,
+    pub database: Option<String>,
+    /// Keys this build does not read, written back as they were.
+    pub unknown: Vec<MetaPair>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct NotebookCell {
+    pub text: String,
+    pub meta: CellMeta,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CellMeta {
+    pub title: Option<String>,
+    /// The schema the cell runs in.
+    pub schema: Option<String>,
+    /// The table a browse cell shows.
+    pub table: Option<CellTable>,
+    /// The cell commits by hand.
+    pub manual: bool,
+    /// Keys this build does not read, and known keys whose value it cannot, written back as they were.
+    pub unknown: Vec<MetaPair>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CellTable {
+    pub schema: String,
+    pub table: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MetaPair {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct NotebookOpened {
+    pub binding: FileBinding,
+    /// The file's name.
+    pub name: String,
+    pub notebook: NotebookText,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct NotebookSaved {
+    pub binding: FileBinding,
+    pub name: String,
+    /// The file holds plain SQL, with no header and no cell marker.
+    pub plain: bool,
+}
+
 /// Minted by the frontend (`crypto.randomUUID()`), like `TabId`. A chat reaches the store with its
 /// first message; until then it is a draft held in memory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]

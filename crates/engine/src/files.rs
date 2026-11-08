@@ -72,7 +72,7 @@ pub(crate) fn save(target: SaveTarget, text: &str) -> Result<FileSaved, FileWrit
     Ok(FileSaved { name: name_of(&path), binding: FileBinding { path, stamp: stamp(&bytes), format } })
 }
 
-fn decode(bytes: &[u8]) -> Result<(String, FileFormat), FileReadError> {
+pub(crate) fn decode(bytes: &[u8]) -> Result<(String, FileFormat), FileReadError> {
     let (bom, body) = match bytes.strip_prefix(BOM) {
         Some(body) => (true, body),
         None => (false, bytes),
@@ -82,7 +82,7 @@ fn decode(bytes: &[u8]) -> Result<(String, FileFormat), FileReadError> {
     Ok((to_lf(text), FileFormat { bom, crlf }))
 }
 
-fn encode(text: &str, format: FileFormat) -> Vec<u8> {
+pub(crate) fn encode(text: &str, format: FileFormat) -> Vec<u8> {
     let lf = to_lf(text);
     let body = if format.crlf { lf.replace('\n', "\r\n") } else { lf };
     let bom: &[u8] = if format.bom { BOM } else { b"" };

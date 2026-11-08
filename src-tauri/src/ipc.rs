@@ -265,6 +265,18 @@ pub async fn file_save(engine: State<'_, Arc<Engine>>, target: SaveTarget, text:
 
 #[tauri::command]
 #[specta::specta]
+pub async fn notebook_open(engine: State<'_, Arc<Engine>>, path: String) -> Result<NotebookOpened, FileReadError> {
+    engine.notebook_open(path).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn notebook_save(engine: State<'_, Arc<Engine>>, target: SaveTarget, notebook: NotebookText) -> Result<NotebookSaved, FileWriteError> {
+    engine.notebook_save(target, notebook).await
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn history_list(engine: State<'_, Arc<Engine>>, query: HistoryQuery) -> HistoryPage {
     engine.history(query)
 }
