@@ -1123,7 +1123,7 @@ src/                          # frontend
   ipc/bindings.ts             # GENERATED, checked in
   ipc/errors.ts               # typed IPC errors -> user-facing text
   state/{live,workspace,notebooks,catalog,relationDetail,rowCache,status,tableEdits,transcript}.ts
-  shell/{AppLayout,TopBar,TabBar,Overlays,RightPanel,PixelColumn,ResizeHandle,WindowChrome,WindowEdgeActions}.tsx
+  shell/{AppLayout,TopBar,Overlays,RightPanel,PixelColumn,ResizeHandle,WindowChrome,WindowEdgeActions}.tsx
   shell/{theme,hostedWindow,commands}.ts
   shell/lazySurfaces.tsx      # Settings, the connection dialog, the database map, and the assistant load as separate chunks, preloaded on idle
   ui/primitives.tsx           # shared buttons, menus, dialogs, context menus
