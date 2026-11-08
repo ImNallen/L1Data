@@ -8,7 +8,8 @@ import { Overlays } from "../../shell/Overlays";
 import { useLive } from "../../state/live";
 import { allCells, useWorkspace } from "../../state/workspace";
 import { connectionConfig } from "../../testing/connections";
-import { dropEditor } from "../editor/editorStates";
+import { bindToFile } from "../../testing/notebooks";
+import { dropEditor, insertAtCursor } from "../editor/editorStates";
 import { openSqlTab } from "../editor/runActions";
 import { confirmDelete } from "./connectionActions";
 
@@ -93,4 +94,31 @@ it("says only the connection and its password go when it has no notebooks", asyn
   expect(dialog.textContent).toContain("Removes the connection and its password.");
   expect(screen.queryByTestId("confirm-rows")).toBeNull();
   expect(dialog.textContent).not.toContain("rolled back");
+});
+
+it("asks once to save each unsaved file notebook on the connection after the delete, and a Cancel keeps the connection", async () => {
+  const user = userEvent.setup();
+  ws().upsertConfig(connectionConfig("dev", "Dev SQL Server"));
+  const a = openSqlTab({ db: db("dev", "shop"), text: "select 1" });
+  openSqlTab({ db: db("dev", "shop"), text: "select 2" });
+  const notebook = Object.values(ws().notebooks).find((n) => n.cells.includes(a))!;
+  ws().renameNotebook(notebook.id, "Revenue");
+  bindToFile(notebook.id);
+  insertAtCursor(a, "-- edited ");
+  render(<Overlays />);
+  let deleting: Promise<void> | undefined;
+  act(() => {
+    deleting = confirmDelete("dev");
+  });
+  await screen.findByRole("alertdialog", { name: "Delete Dev SQL Server?" });
+  await user.click(screen.getByTestId("confirm-btn"));
+  const save = await screen.findByRole("alertdialog", { name: "Save changes to Revenue?" });
+  expect(
+    within(save)
+      .getAllByRole("button")
+      .map((b) => b.textContent),
+  ).toEqual(expect.arrayContaining(["Cancel", "Don't Save", "Save"]));
+  await user.click(screen.getByTestId("ask-cancel"));
+  await deleting;
+  expect([ws().notebooks[notebook.id]?.cells.length, ws().configs.dev?.name, calls]).toEqual([2, "Dev SQL Server", []]);
 });
