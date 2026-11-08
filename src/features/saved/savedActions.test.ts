@@ -157,3 +157,14 @@ it("never opens a query on a database of the other dialect", () => {
   openSaved(query(1, "Locks", "select * from sys.dm_tran_locks", "SqlServer"));
   expect(active().console.db).toEqual({ connectionId: idle.id, database: "master" });
 });
+
+it("opens a saved query on the shown database when that database has no notebook yet", () => {
+  recordIpc(() => list(2));
+  const pg = connectionConfig("c-pg", "pg");
+  useWorkspace.setState({ configs: { [pg.id]: pg } });
+  openSqlTab({ db: { connectionId: pg.id, database: "shop" }, text: "" });
+  useWorkspace.getState().showDatabase({ connectionId: pg.id, database: "reporting" });
+
+  openSaved(query(1, "Revenue", "select 42"));
+  expect(useWorkspace.getState().tabs[activeId(useWorkspace.getState())!]!.console.db).toEqual({ connectionId: pg.id, database: "reporting" });
+});

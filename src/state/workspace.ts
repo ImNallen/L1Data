@@ -331,10 +331,17 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
           return [id, db === t.console.db ? t : { ...t, console: { ...t.console, db } }];
         }),
       );
-      const notebooks = Object.values(s.notebooks).map((n) => {
+      const notebooks: Notebook[] = [];
+      for (const n of Object.values(s.notebooks)) {
         const db = resolve(n.db);
-        return db === n.db ? n : { ...n, db };
-      });
+        const next = db === n.db ? n : { ...n, db };
+        // Two spellings of one database resolve to the same one, so their cells belong in one notebook. Notebooks that
+        // already shared a database stay apart.
+        const into = notebooks.findIndex((m) => sameDb(m.db, next.db) && (next !== n || m !== s.notebooks[m.id]));
+        const target = notebooks[into];
+        if (target) notebooks[into] = { ...target, cells: [...target.cells, ...next.cells], active: target.active ?? next.active };
+        else notebooks.push(next);
+      }
       const startDb = s.shown.kind === "start" ? resolve(s.shown.db) : null;
       const shown: Shown = s.shown.kind === "start" && startDb !== s.shown.db ? { kind: "start", db: startDb } : s.shown;
       const changed = Object.entries(tabs).some(([id, t]) => t !== s.tabs[id]) || notebooks.some((n) => n !== s.notebooks[n.id]);

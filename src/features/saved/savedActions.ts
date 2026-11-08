@@ -62,7 +62,7 @@ export function insertSaved(q: SavedQuery): void {
 
 function targetFor(kind: DatabaseKind): DatabaseRef | null {
   const s = ws();
-  const active = tabTarget(activeTab(s));
+  const active = tabTarget(activeTab(s)) ?? (s.shown.kind === "start" ? s.shown.db : null);
   if (active && databaseKindFor(active, s.configs) === kind) return active;
   const live = useLive.getState().connections;
   const ofKind = Object.values(s.configs).filter((c) => c.databaseKind === kind);

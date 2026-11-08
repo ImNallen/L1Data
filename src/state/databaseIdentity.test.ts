@@ -71,6 +71,8 @@ it("resolves restored home query and table targets and saves their canonical ide
     "reporting",
     "SHOP",
   ]);
+  const shopNotebooks = Object.values(current.notebooks).filter((n) => n.db?.connectionId === config.id && n.db.database === "shop");
+  expect(shopNotebooks.map((n) => n.cells)).toEqual([[tabs[0]!.id, tabs[1]!.id, tabs[2]!.id]]);
   expect(current.configs[config.id]?.database).toBe("SHOP");
   expect(useLive.getState().connections[config.id]).toEqual(state);
   ws.resolveDatabases(useLive.getState().connections);
