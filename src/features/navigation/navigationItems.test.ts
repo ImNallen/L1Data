@@ -4,15 +4,14 @@ import { dbKey } from "../../state/dbKey";
 import { EMPTY_QUERY, type Tab } from "../../state/workspace";
 import { connectedState, connectionConfig, databaseState } from "../../testing/connections";
 import { shopCatalog } from "../../testing/shopCatalog";
-import { navigationItems, searchNavigation, sqlTabForDatabase, type NavigationItem, type NavigationSource } from "./navigationItems";
+import { cellsState } from "../../testing/notebooks";
+import { navigationItems, searchNavigation, type NavigationItem, type NavigationSource } from "./navigationItems";
 
 const shop = { connectionId: "c", database: "shop" };
 const reporting = { connectionId: "c", database: "reporting" };
 const tab = (id: string, db = shop): Tab => ({ id, title: `${id}.sql`, console: { db, mode: "AutoCommit" }, table: null, file: null });
 const source = (): NavigationSource => ({
-  tabs: {},
-  order: [],
-  active: null,
+  ...cellsState([]),
   configs: { c: connectionConfig("c", "Local"), d: connectionConfig("d", "Offline") },
   connections: { c: connectedState("c", [databaseState("shop", true, ["public"]), databaseState("reporting", false, [])]) },
   views: {},
@@ -58,8 +57,7 @@ it("searches query, file and table tabs by context and full file path", () => {
     file: { health: "ok", binding: { path: "/work/reports/monthly.sql", stamp: "s1", format: { bom: false, crlf: false } } },
   };
   const table: Tab = { ...tab("orders"), table: { schema: "public", table: "orders", page: 0, query: EMPTY_QUERY } };
-  input.tabs = { query, file, orders: table };
-  input.order = ["query", "file", "orders"];
+  Object.assign(input, cellsState([query, file, table]));
   const items = navigationItems(input);
   expect(searchNavigation(items, "LOCAL SHOP query").items[0]?.kindLabel).toBe("Query tab");
   expect(searchNavigation(items, "monthly reports").items[0]).toMatchObject({ kindLabel: "File tab", destination: { kind: "tab", tabId: "file" } });
@@ -89,21 +87,16 @@ it("ranks the entire candidate set before bounding the displayed results and rep
   expect(found.items[0]?.label).toBe("orders");
 });
 
-it("prefers the active SQL tab in the exact database and connection, then another SQL tab, never a table tab", () => {
-  const input = source();
-  input.tabs = {
-    first: tab("first"),
-    active: tab("active"),
-    report: tab("report", reporting),
-    other: tab("other", { connectionId: "d", database: "shop" }),
-    table: { ...tab("table"), table: { schema: "public", table: "orders", page: 0, query: EMPTY_QUERY } },
-  };
-  input.order = ["table", "report", "other", "first", "active"];
-  input.active = "active";
-  expect(sqlTabForDatabase(input, shop)?.id).toBe("active");
-  expect(navigationItems(input).find((item) => item.destination.kind === "database" && item.context.startsWith("Local") && item.label === "shop")?.action).toBe(
-    "Switch to active.sql",
+it("switches a database with a notebook to it, and opens a new query in one without", () => {
+  const input = { ...source(), ...cellsState([tab("first"), tab("report", reporting)], "report") };
+  const action = (label: string) => navigationItems(input).find((item) => item.destination.kind === "database" && item.label === label)?.action;
+  expect([action("shop"), action("reporting")]).toEqual(["Switch to the shop notebook", "Switch to the reporting notebook"]);
+  expect(navigationItems({ ...input, ...cellsState([tab("first")]) }).find((item) => item.label === "reporting")?.action).toBe(
+    "Open new query in this database",
   );
-  input.active = "table";
-  expect(sqlTabForDatabase(input, shop)?.id).toBe("first");
+  expect(
+    navigationItems(input)
+      .filter((item) => item.action === "Focus active tab")
+      .map((item) => item.label),
+  ).toEqual(["report.sql"]);
 });

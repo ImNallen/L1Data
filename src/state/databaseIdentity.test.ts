@@ -3,10 +3,11 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ConnectionState, TabSnapshot } from "../ipc/bindings";
 import { connectionConfig, connectedState } from "../testing/connections";
 import { dropEditor, seedEditor } from "../features/editor/editorStates";
-import { browseTemplate, isBrowsing, loadTableOnce, openSqlTab, setTabTarget } from "../features/editor/runActions";
+import { browseTemplate, isBrowsing, loadTableOnce, openSqlTab } from "../features/editor/runActions";
 import { homeDb, resolveDb } from "./dbKey";
 import { useLive } from "./live";
-import { EMPTY_QUERY, useWorkspace, workspaceSnapshot } from "./workspace";
+import { allCells, EMPTY_QUERY, shownDb, useWorkspace, workspaceSnapshot } from "./workspace";
+import { moveCell } from "../testing/notebooks";
 
 const config = { ...connectionConfig("sql-server", "SQL Server"), databaseKind: "SqlServer" as const, database: "SHOP" };
 
@@ -32,7 +33,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  for (const id of useWorkspace.getState().order) dropEditor(id);
+  for (const id of Object.keys(useWorkspace.getState().tabs)) dropEditor(id);
   useWorkspace.setState(useWorkspace.getInitialState(), true);
   useLive.setState(useLive.getInitialState(), true);
   vi.unstubAllGlobals();
@@ -55,12 +56,12 @@ it("resolves only the exact locator accepted by this connected instance", () => 
 it("resolves restored home query and table targets and saves their canonical identities", () => {
   const tabs = [saved(null), saved("SHOP", true), saved("shop"), saved("Shop"), saved("reporting"), saved("SHOP", false, "other")];
   const ws = useWorkspace.getState();
-  ws.restore({ tabs, active: tabs[0]!.id, layout: ws.layout }, [config, { ...config, id: "other" }], ws.settings);
+  ws.restore({ tabs, active: tabs[0]!.id, layout: ws.layout, notebooks: [], shown: null }, [config, { ...config, id: "other" }], ws.settings);
   const state = connected();
   useLive.getState().apply({ kind: "ConnectionChanged", ...state });
   ws.resolveDatabases(useLive.getState().connections);
   const current = useWorkspace.getState();
-  expect(current.order.map((id) => current.tabs[id]?.console.db?.database)).toEqual(["shop", "shop", "shop", "Shop", "reporting", "SHOP"]);
+  expect(allCells(current).map((id) => current.tabs[id]?.console.db?.database)).toEqual(["shop", "shop", "shop", "Shop", "reporting", "SHOP"]);
   expect(current.tabs[tabs[1]!.id]?.table).toEqual(tabs[1]!.table);
   expect(workspaceSnapshot(current, { textOf: () => "saved text", isDirty: () => false }).tabs.map((tab) => tab.console.database)).toEqual([
     "shop",
@@ -70,6 +71,8 @@ it("resolves restored home query and table targets and saves their canonical ide
     "reporting",
     "SHOP",
   ]);
+  const shopNotebooks = Object.values(current.notebooks).filter((n) => n.db?.connectionId === config.id && n.db.database === "shop");
+  expect(shopNotebooks.map((n) => n.cells)).toEqual([[tabs[0]!.id, tabs[1]!.id, tabs[2]!.id]]);
   expect(current.configs[config.id]?.database).toBe("SHOP");
   expect(useLive.getState().connections[config.id]).toEqual(state);
   ws.resolveDatabases(useLive.getState().connections);
@@ -101,17 +104,17 @@ it("keeps a saved-config edit separate from the old connected home until reconne
   expect(useWorkspace.getState().tabs[table.id]?.console.db?.database).toBe("shop");
 });
 
-it("uses canonical targets for new queries, active defaults and connection selection", async () => {
+it("uses canonical targets for new queries, active defaults and connection selection", () => {
   const ws = useWorkspace.getState();
   ws.upsertConfig(config);
   useLive.getState().apply({ kind: "ConnectionChanged", ...connected() });
   const fresh = openSqlTab();
   expect(useWorkspace.getState().tabs[fresh]?.console.db?.database).toBe("shop");
-  ws.patchConsole(fresh, { db: { connectionId: config.id, database: "SHOP" } });
+  moveCell(fresh, { connectionId: config.id, database: "SHOP" });
   const next = openSqlTab();
   expect(useWorkspace.getState().tabs[next]?.console.db?.database).toBe("shop");
-  await setTabTarget(fresh, homeDb(config));
-  expect(useWorkspace.getState().tabs[fresh]?.console.db?.database).toBe("shop");
+  ws.showDatabase(homeDb(config, useLive.getState().connections[config.id]));
+  expect(shownDb(useWorkspace.getState())?.database).toBe("shop");
 });
 
 it("keeps restored table browsing active when the target gains its canonical spelling", async () => {
@@ -124,7 +127,7 @@ it("keeps restored table browsing active when the target gains its canonical spe
   });
   const ws = useWorkspace.getState();
   const tab = saved("SHOP", true);
-  ws.restore({ tabs: [tab], active: tab.id, layout: ws.layout }, [config], ws.settings);
+  ws.restore({ tabs: [tab], active: tab.id, layout: ws.layout, notebooks: [], shown: null }, [config], ws.settings);
   seedEditor(tab.id, tab.text ?? "");
   await browseTemplate(homeDb(config), "dbo", "orders");
   useLive.getState().apply({ kind: "ConnectionChanged", ...connected() });
@@ -149,7 +152,7 @@ it("uses only the accepted connection revision when resolving restored targets",
   useLive.getState().apply({ kind: "ConnectionChanged", ...connected("SHOP", "unrelated", 1) });
   const ws = useWorkspace.getState();
   const tab = saved("SHOP");
-  ws.restore({ tabs: [tab], active: tab.id, layout: ws.layout }, [config], ws.settings);
+  ws.restore({ tabs: [tab], active: tab.id, layout: ws.layout, notebooks: [], shown: null }, [config], ws.settings);
   ws.resolveDatabases(useLive.getState().connections);
   expect(useWorkspace.getState().tabs[tab.id]?.console.db?.database).toBe("shop");
 });

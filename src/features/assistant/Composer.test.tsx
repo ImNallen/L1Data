@@ -6,6 +6,7 @@ import { useLive } from "../../state/live";
 import { useWorkspace } from "../../state/workspace";
 import { connectionConfig } from "../../testing/connections";
 import { Composer } from "./Composer";
+import { cellsState } from "../../testing/notebooks";
 
 afterEach(() => {
   cleanup();
@@ -16,7 +17,7 @@ afterEach(() => {
 it("shows schema access and only offers query permissions and attachments in Full access", async () => {
   const user = userEvent.setup();
   const db = { connectionId: "c", database: "shop" };
-  useWorkspace.setState({ active: "t", tabs: { t: { id: "t", title: "orders.sql", console: { db, mode: "AutoCommit" }, table: null, file: null } } });
+  useWorkspace.setState(cellsState([{ id: "t", title: "orders.sql", console: { db, mode: "AutoCommit" }, table: null, file: null }]));
   useLive.setState({
     consoles: {
       t: {
@@ -86,23 +87,22 @@ it("shows schema access and only offers query permissions and attachments in Ful
   expect(screen.queryByTestId("assistant-attachment")).toBeNull();
 });
 
-it("follows the active tab's database, including an unconfigured tab and no tab", () => {
+it("follows the shown notebook's active cell, including an unconfigured cell and the start commands", () => {
   const consoleFor = (database: string) => ({ db: { connectionId: "c", database }, mode: "AutoCommit" as const });
   useWorkspace.setState({
-    active: "a",
     configs: { c: connectionConfig("c", "Dev Postgres") },
-    tabs: {
-      a: { id: "a", title: "first.sql", console: consoleFor("shop"), table: null, file: null },
-      b: { id: "b", title: "second.sql", console: consoleFor("reporting"), table: null, file: null },
-      empty: { id: "empty", title: "empty.sql", console: { db: null, mode: "AutoCommit" }, table: null, file: null },
-    },
+    ...cellsState([
+      { id: "a", title: "first.sql", console: consoleFor("shop"), table: null, file: null },
+      { id: "b", title: "second.sql", console: consoleFor("reporting"), table: null, file: null },
+      { id: "empty", title: "empty.sql", console: { db: null, mode: "AutoCommit" }, table: null, file: null },
+    ]),
   });
   render(<Composer chat={undefined} />);
   expect(screen.getByTestId("assistant-target").title).toBe("Dev Postgres / shop");
-  act(() => useWorkspace.setState({ active: "b" }));
+  act(() => useWorkspace.getState().setActive("b"));
   expect(screen.getByTestId("assistant-target").textContent).toBe("reporting / default");
-  act(() => useWorkspace.setState({ active: "empty" }));
+  act(() => useWorkspace.getState().setActive("empty"));
   expect(screen.getByTestId("assistant-target").textContent).toBe("No database selected");
-  act(() => useWorkspace.setState({ active: null }));
+  act(() => useWorkspace.getState().showDatabase({ connectionId: "c", database: "archive" }));
   expect(screen.getByTestId("assistant-target").textContent).toBe("No database selected");
 });

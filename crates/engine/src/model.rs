@@ -11,6 +11,10 @@ pub struct ConnectionId(pub Uuid);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 pub struct TabId(pub Uuid);
 
+/// Minted by the frontend (`crypto.randomUUID()`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+pub struct NotebookId(pub Uuid);
+
 /// Engine-wide monotonic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Type)]
 pub struct RunId(pub u64);
@@ -1624,12 +1628,57 @@ pub enum SavedQueryError {
 }
 
 /// Owned by the frontend, stored verbatim by the engine (single writer: the UI).
-#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Default, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Workspace {
+    /// Every cell of every notebook, so a build from before notebooks still opens them all.
     pub tabs: Vec<TabSnapshot>,
+    /// The shown notebook's active cell, kept so a build from before notebooks still opens it.
     pub active: Option<TabId>,
     pub layout: Layout,
+    pub notebooks: Vec<NotebookSnapshot>,
+    /// `None` shows the start commands.
+    pub shown: Option<NotebookId>,
+}
+
+// Hand-written so a workspace from before notebooks loads with none, and a notebook or a `shown` that a later build
+// wrote and this build cannot read is dropped instead of failing the workspace, which `boot()` would replace with an
+// empty one. The frontend puts the cells no notebook claims into the notebook for their database.
+// `#[serde(default)]` would cover the missing fields, but specta would then mark them optional in the TS bindings.
+impl<'de> Deserialize<'de> for Workspace {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Saved {
+            tabs: Vec<TabSnapshot>,
+            active: Option<TabId>,
+            layout: Layout,
+            #[serde(default)]
+            notebooks: Vec<serde_json::Value>,
+            #[serde(default)]
+            shown: serde_json::Value,
+        }
+        let Saved { tabs, active, layout, notebooks, shown } = Saved::deserialize(d)?;
+        let notebooks = notebooks
+            .into_iter()
+            .filter_map(|n| serde_json::from_value(n).inspect_err(|e| eprintln!("dropped a notebook this build cannot read: {e}")).ok())
+            .collect();
+        let shown = serde_json::from_value(shown).inspect_err(|e| eprintln!("dropped a shown notebook this build cannot read: {e}")).unwrap_or(None);
+        Ok(Self { tabs, active, layout, notebooks, shown })
+    }
+}
+
+/// A database's notebook. Every cell in it is on `db`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct NotebookSnapshot {
+    pub id: NotebookId,
+    pub title: String,
+    /// `None` holds the cells that have no connection.
+    pub db: Option<DatabaseRef>,
+    /// The notebook's cells in order. Each id is a `TabSnapshot` in `Workspace.tabs`.
+    pub cells: Vec<TabId>,
+    pub active: Option<TabId>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -3203,10 +3252,53 @@ mod tests {
         layout: Layout,
     }
 
+    const NOTEBOOK: &str = "00000000-0000-0000-0000-000000000003";
+
+    fn notebook_json() -> serde_json::Value {
+        json!({ "id": NOTEBOOK, "title": "shop", "db": { "connectionId": CONN, "database": "shop" }, "cells": [TAB], "active": TAB })
+    }
+
+    fn workspace_json(notebooks: serde_json::Value, shown: serde_json::Value) -> serde_json::Value {
+        let tab = file_tab(json!({ "binding": binding_json(), "dirty": false }));
+        json!({ "tabs": [tab], "active": TAB, "layout": serde_json::to_value(Layout::default()).unwrap(), "notebooks": notebooks, "shown": shown })
+    }
+
+    #[test]
+    fn a_workspace_saved_before_notebooks_loads_with_none() {
+        let mut old = workspace_json(json!([]), json!(null));
+        old.as_object_mut().unwrap().retain(|k, _| k != "notebooks" && k != "shown");
+        let w: Workspace = serde_json::from_value(old).unwrap();
+        assert_eq!((w.tabs.len(), w.active, w.notebooks.len(), w.shown), (1, Some(TabId(uuid(TAB))), 0, None));
+    }
+
+    #[test]
+    fn notebooks_round_trip_through_the_saved_workspace() {
+        let w: Workspace = serde_json::from_value(workspace_json(json!([notebook_json()]), json!(NOTEBOOK))).unwrap();
+        let notebook = NotebookSnapshot {
+            id: NotebookId(uuid(NOTEBOOK)),
+            title: "shop".into(),
+            db: Some(DatabaseRef { connection_id: ConnectionId(uuid(CONN)), database: "shop".into() }),
+            cells: vec![TabId(uuid(TAB))],
+            active: Some(TabId(uuid(TAB))),
+        };
+        assert_eq!((&w.notebooks, w.shown), (&vec![notebook], Some(NotebookId(uuid(NOTEBOOK)))));
+        let again: Workspace = serde_json::from_value(serde_json::to_value(&w).unwrap()).unwrap();
+        assert_eq!((again.notebooks, again.shown), (w.notebooks, w.shown));
+    }
+
+    #[test]
+    fn a_notebook_or_shown_this_build_cannot_read_is_dropped_and_the_cells_stay() {
+        let later = json!({ "id": "00000000-0000-0000-0000-000000000004", "title": "file", "db": { "path": "/q/a.sql" }, "cells": [TAB], "active": null });
+        let w: Workspace = serde_json::from_value(workspace_json(json!([later, notebook_json(), 7]), json!({ "kind": "File" }))).unwrap();
+        assert_eq!(w.notebooks.iter().map(|n| n.id).collect::<Vec<_>>(), [NotebookId(uuid(NOTEBOOK))]);
+        assert_eq!((w.tabs.len(), w.shown), (1, None));
+    }
+
     #[test]
     fn the_previous_stable_build_loads_a_workspace_this_build_wrote() {
         let tab: TabSnapshot = serde_json::from_value(file_tab(json!({ "binding": binding_json(), "dirty": true }))).unwrap();
-        let workspace = Workspace { tabs: vec![tab], active: Some(TabId(uuid(TAB))), layout: Layout::default() };
+        let notebooks = vec![serde_json::from_value(notebook_json()).unwrap()];
+        let workspace = Workspace { tabs: vec![tab], active: Some(TabId(uuid(TAB))), notebooks, shown: Some(NotebookId(uuid(NOTEBOOK))), ..Workspace::default() };
         let stable: StableWorkspace = serde_json::from_value(serde_json::to_value(&workspace).unwrap()).unwrap();
         let tab = &stable.tabs[0];
         assert_eq!((tab.id, tab.title.as_str(), tab.text.as_deref()), (TabId(uuid(TAB)), "report.sql", Some("select 1;\n")));

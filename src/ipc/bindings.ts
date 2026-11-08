@@ -1104,6 +1104,20 @@ export type ModelOption = {
 	recommended: boolean,
 };
 
+/**  Minted by the frontend (`crypto.randomUUID()`). */
+export type NotebookId = string;
+
+/**  A database's notebook. Every cell in it is on `db`. */
+export type NotebookSnapshot = {
+	id: NotebookId,
+	title: string,
+	/**  `None` holds the cells that have no connection. */
+	db: DatabaseRef | null,
+	/**  The notebook's cells in order. Each id is a `TabSnapshot` in `Workspace.tabs`. */
+	cells: TabId[],
+	active: TabId | null,
+};
+
 /**  The DDL that creates one object. */
 export type ObjectScript = {
 	/**  The tab title: the object's name and `.sql`. */
@@ -1929,9 +1943,14 @@ export type ViewEdit = { kind: "Databases"; preset: Preset } |
 
 /**  Owned by the frontend, stored verbatim by the engine (single writer: the UI). */
 export type Workspace = {
+	/**  Every cell of every notebook, so a build from before notebooks still opens them all. */
 	tabs: TabSnapshot[],
+	/**  The shown notebook's active cell, kept so a build from before notebooks still opens it. */
 	active: TabId | null,
 	layout: Layout,
+	notebooks: NotebookSnapshot[],
+	/**  `None` shows the start commands. */
+	shown: NotebookId | null,
 };
 
 /**  The engine ran nothing. Ask the user, then send the same request again with `digest`. */

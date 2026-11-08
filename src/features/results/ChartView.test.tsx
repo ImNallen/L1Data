@@ -4,10 +4,11 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { commands, type ChartSeries, type ColumnMeta, type ConsoleState, type DrillPoint } from "../../ipc/bindings";
 import type { RowResult } from "../../state/status";
-import { useWorkspace, type Tab } from "../../state/workspace";
+import { activeId, allCells, shownNotebook, useWorkspace, type Tab } from "../../state/workspace";
 import { dropEditor, textOf } from "../editor/editorStates";
 import type { ChartSpec } from "./chart";
 import { ChartView } from "./ChartView";
+import { cellsState } from "../../testing/notebooks";
 
 const columns: ColumnMeta[] = [
   { name: "region", type: { display: "text", category: "Text" }, source: null },
@@ -54,7 +55,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  for (const id of useWorkspace.getState().order) dropEditor(id);
+  for (const id of Object.keys(useWorkspace.getState().tabs)) dropEditor(id);
   useWorkspace.setState(useWorkspace.getInitialState(), true);
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -155,12 +156,10 @@ it("refetches at most every 300 ms while rows stream", async () => {
 const db = { connectionId: "c1", database: "shop" };
 const cell = (id: string, title: string): Tab => ({ id, title, console: { db, mode: "AutoCommit", schema: "sales" }, table: null, file: null });
 
-const resultDb = { connectionId: "c1", database: "archive" };
-
-function drillAnswers(sql: string) {
+function drillAnswers(sql: string, on = db) {
   return vi.spyOn(commands, "resultDrill").mockImplementation(async (_ref, point: DrillPoint) => ({
     status: "ok",
-    data: { sql: point.kind === "Probe" ? "" : sql, db: resultDb, schema: "reporting" },
+    data: { sql: point.kind === "Probe" ? "" : sql, db: on, schema: "reporting" },
   }));
 }
 
@@ -170,8 +169,8 @@ function acceptRuns() {
   return vi.spyOn(commands, "consoleRun").mockResolvedValue({ status: "ok", data: { runId: 1, statements: [] } });
 }
 
-it("opens the rows behind a clicked bar in a new cell after the chart's cell, on the result's database, and runs it", async () => {
-  useWorkspace.setState({ tabs: { t1: cell("t1", "Revenue"), t2: cell("t2", "Later") }, order: ["t1", "t2"], active: "t1" });
+it("opens the rows behind a clicked bar in a new cell after the chart's cell and runs it", async () => {
+  useWorkspace.setState(cellsState([cell("t1", "Revenue"), cell("t2", "Later")]));
   vi.spyOn(commands, "resultSeries").mockResolvedValue(ok({ labels: ["north", "south"], values: [10, 4], capped: false }));
   const drill = drillAnswers("-- Rows behind south in Revenue\nSELECT * FROM orders WHERE (region) = 'south'");
   const run = acceptRuns();
@@ -185,18 +184,32 @@ it("opens the rows behind a clicked bar in a new cell after the chart's cell, on
   fireEvent.click(plot, { clientX: 500 });
   await waitFor(() => expect(run).toHaveBeenCalled());
   expect(drill).toHaveBeenLastCalledWith({ tabId: "t1", runId: 1, index: 0 }, { kind: "Row", row: 1, title: "Revenue" });
-  const { order, active, tabs } = useWorkspace.getState();
+  const order = allCells(useWorkspace.getState());
   expect(order).toHaveLength(3);
   const opened = order[1]!;
   expect([order[0], order[2]]).toEqual(["t1", "t2"]);
-  expect(active).toBe(opened);
-  expect(tabs[opened]?.console).toEqual({ db: resultDb, mode: "AutoCommit", schema: "reporting" });
+  expect(activeId(useWorkspace.getState())).toBe(opened);
+  expect(useWorkspace.getState().tabs[opened]?.console).toEqual({ db, mode: "AutoCommit", schema: "reporting" });
   expect(textOf(opened)).toBe("-- Rows behind south in Revenue\nSELECT * FROM orders WHERE (region) = 'south'");
   expect(run).toHaveBeenCalledWith(opened, { kind: "script", text: textOf(opened), target: { kind: "all" }, mode: "Run", params: [] }, null);
 });
 
+it("opens the rows of a result on another database in that database's notebook", async () => {
+  useWorkspace.setState(cellsState([cell("t1", "Revenue"), cell("t2", "Later")]));
+  vi.spyOn(commands, "resultSeries").mockResolvedValue(ok({ labels: ["north", "south"], values: [10, 4], capped: false }));
+  const archive = { connectionId: "c1", database: "archive" };
+  drillAnswers("SELECT 1", archive);
+  const run = acceptRuns();
+  render(<ChartView result={result(2)} spec={bars} onSpec={() => {}} />);
+  fireEvent.click(await screen.findByRole("img"), { clientX: 500 });
+  await waitFor(() => expect(run).toHaveBeenCalled());
+  const notebook = shownNotebook(useWorkspace.getState());
+  expect([notebook?.db, notebook?.cells.length]).toEqual([archive, 1]);
+  expect(Object.values(useWorkspace.getState().notebooks).map((n) => n.cells.length)).toEqual([2, 1]);
+});
+
 it("opens the keyboard-focused point's rows on Enter", async () => {
-  useWorkspace.setState({ tabs: { t1: cell("t1", "Revenue") }, order: ["t1"], active: "t1" });
+  useWorkspace.setState(cellsState([cell("t1", "Revenue")]));
   vi.spyOn(commands, "resultSeries").mockResolvedValue(ok({ labels: ["north", "south"], values: [10, 4], capped: false }));
   const drill = drillAnswers("SELECT 1");
   const run = acceptRuns();
@@ -210,7 +223,7 @@ it("opens the keyboard-focused point's rows on Enter", async () => {
 });
 
 it("explains a refused drill-down and opens nothing on a click", async () => {
-  useWorkspace.setState({ tabs: { t1: cell("t1", "Revenue") }, order: ["t1"], active: "t1" });
+  useWorkspace.setState(cellsState([cell("t1", "Revenue")]));
   vi.spyOn(commands, "resultSeries").mockResolvedValue(ok({ labels: ["north", "south"], values: [10, 4], capped: false }));
   const drill = vi
     .spyOn(commands, "resultDrill")
@@ -225,7 +238,7 @@ it("explains a refused drill-down and opens nothing on a click", async () => {
   fireEvent.keyDown(plot, { key: "Enter" });
   await act(async () => {});
   expect(drill).toHaveBeenCalledTimes(1);
-  expect(useWorkspace.getState().order).toEqual(["t1"]);
+  expect(allCells(useWorkspace.getState())).toEqual(["t1"]);
 });
 
 it("says nothing about drill-down on a chart of ungrouped rows", async () => {

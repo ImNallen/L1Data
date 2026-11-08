@@ -5,9 +5,10 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ConsoleState, ResultMeta, TabId } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
 import { dropRowCaches } from "../../state/rowCache";
-import { useWorkspace, type Tab } from "../../state/workspace";
+import { activeId, useWorkspace, type Tab } from "../../state/workspace";
 import { dropEditor, seedEditor } from "./editorStates";
 import { NotebookWorkspace } from "./NotebookWorkspace";
+import { cellsState } from "../../testing/notebooks";
 
 const IDS = ["a", "b"];
 const db = { connectionId: "c1", database: "shop" };
@@ -105,9 +106,7 @@ beforeEach(() => {
     throw new Error(`Unexpected IPC command: ${cmd}`);
   });
   useWorkspace.setState({
-    tabs: { a: tab("a"), b: tab("b") },
-    order: IDS,
-    active: "a",
+    ...cellsState([tab("a"), tab("b")]),
     settings: { ...useWorkspace.getState().settings, density: "Standard", codeFont: { ...useWorkspace.getState().settings.codeFont, size: 13 } },
   });
   for (const id of IDS) seedEditor(id, FIVE_LINES);
@@ -240,7 +239,7 @@ it("holds both cells' sizes through a press on an inactive cell until after the 
 
   fireEvent.pointerDown(target);
   fireEvent.mouseDown(target);
-  expect(useWorkspace.getState().active).toBe("b");
+  expect(activeId(useWorkspace.getState())).toBe("b");
   expect(resultsHeights()).toEqual([FILLED, COMPACT]);
 
   fireEvent.mouseUp(target);

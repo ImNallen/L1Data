@@ -3,7 +3,7 @@ import { XIcon } from "lucide-react";
 import { useLayoutEffect, useRef } from "react";
 import type { TabId } from "../../ipc/bindings";
 import { AskOverlay } from "../../shell/Overlays";
-import { useWorkspace, type Screen } from "../../state/workspace";
+import { activeId, useWorkspace, type Screen } from "../../state/workspace";
 import { DialogSurface, IconButton } from "../../ui/primitives";
 import { parseQuery } from "../../ui/textMatch";
 import { SearchResults, SectionBody } from "./sections";
@@ -18,7 +18,7 @@ export function SettingsDialog() {
   const open = screen.kind === "settings";
   const opener = useRef<{ element: Element | null; tabId: TabId | null } | null>(null);
   useLayoutEffect(() => {
-    if (open) opener.current = { element: document.activeElement, tabId: useWorkspace.getState().active };
+    if (open) opener.current = { element: document.activeElement, tabId: activeId(useWorkspace.getState()) };
   }, [open]);
 
   return (
@@ -38,8 +38,8 @@ export function SettingsDialog() {
           }}
           onCloseAutoFocus={(event) => {
             event.preventDefault();
-            const { overlay, active } = useWorkspace.getState();
-            if (overlay.kind !== "none" || active !== opener.current?.tabId) return;
+            const workspace = useWorkspace.getState();
+            if (workspace.overlay.kind !== "none" || activeId(workspace) !== opener.current?.tabId) return;
             const element = opener.current.element;
             if (element instanceof HTMLElement && element.isConnected) element.focus();
           }}

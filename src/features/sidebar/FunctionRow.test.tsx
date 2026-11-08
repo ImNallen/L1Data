@@ -1,10 +1,11 @@
 import { undo } from "@codemirror/commands";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import type { DatabaseRef, FunctionInfo, SchemaInfo } from "../../ipc/bindings";
-import { useWorkspace, type Tab } from "../../state/workspace";
+import { activeId, shownNotebook, useWorkspace, type Tab } from "../../state/workspace";
 import { connectionConfig } from "../../testing/connections";
 import { dropEditor, editorStateOf, insertAtCursor, moveCursor, seedEditor, textOf } from "../editor/editorStates";
 import { filteredSchemaNodes, insertRoutine, schemaNodes } from "./ConnectionTree";
+import { cellsState, moveCell } from "../../testing/notebooks";
 
 const postgres = { connectionId: "pg", database: "shop" };
 const sqlServer = { connectionId: "mssql", database: "shop" };
@@ -42,7 +43,7 @@ const routineRow = (db: DatabaseRef, fn: FunctionInfo) => ({ onDoubleClick: () =
 function target(db: DatabaseRef | null) {
   const tab: Tab = { id: "active", title: "Query", console: { db, mode: "AutoCommit" }, table: null, file: null };
   const other: Tab = { ...tab, id: "other", console: { db: db?.connectionId === postgres.connectionId ? sqlServer : postgres, mode: "AutoCommit" } };
-  useWorkspace.setState({ tabs: { active: tab, other }, order: ["other", "active"], active: "active" });
+  useWorkspace.setState(cellsState([other, tab], "active"));
 }
 
 function prepareEdits(db: DatabaseRef | null) {
@@ -61,7 +62,7 @@ function expectRefused(click: () => void) {
   expect(textOf("active")).toBe("SELECT 42; -- retain suffix");
   expect(textOf("other")).toBe("SELECT 99");
   expect(editorStateOf("active").selection.eq(before.selection)).toBe(true);
-  expect(useWorkspace.getState().active).toBe(workspace.active);
+  expect(activeId(useWorkspace.getState())).toBe(activeId(workspace));
   expect(useWorkspace.getState().tabs).toEqual(workspace.tabs);
   expect(useWorkspace.getState().toast?.text).toBeTruthy();
   let state = editorStateOf("active");
@@ -122,7 +123,10 @@ it.each([
   { name: "no active tab", db: postgres, active: null },
 ])("refuses insertion with $name", ({ db, active }) => {
   prepareEdits(db);
-  useWorkspace.setState({ active });
+  useWorkspace.setState((s) => {
+    const notebook = shownNotebook(s)!;
+    return active === null ? { shown: { kind: "start", db: null } } : { notebooks: { ...s.notebooks, [notebook.id]: { ...notebook, active } } };
+  });
   expectRefused(() => routineRow(postgres, pgFunction).onDoubleClick());
 });
 
@@ -134,7 +138,7 @@ it.each([postgres, sqlServer])("refuses a routine whose source connection was re
 it("checks the destination when double-clicked after its target changes", () => {
   prepareEdits(sqlServer);
   const row = routineRow(sqlServer, msProcedure);
-  useWorkspace.getState().patchConsole("active", { db: postgres });
+  moveCell("active", postgres);
   expectRefused(row.onDoubleClick);
 });
 
@@ -171,7 +175,7 @@ it.each(
   for (const row of rows) {
     if (row.kind !== "row" || !row.onDoubleClick) throw new Error("the routine's row has no double-click action");
     expectRefused(row.onDoubleClick);
-    useWorkspace.getState().patchConsole("active", { db: { ...source, database: "reporting" } });
+    moveCell("active", { ...source, database: "reporting" });
     row.onDoubleClick();
     expect(textOf("active")).toBe(`${fn.insertText}SELECT 42; -- retain suffix`);
     expect(editorStateOf("active").selection.main.head).toBe(fn.insertText.length);

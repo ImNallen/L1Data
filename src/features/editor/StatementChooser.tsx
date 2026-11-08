@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { useWorkspace } from "../../state/workspace";
+import { activeId, useWorkspace } from "../../state/workspace";
 import { MENU_ITEM, MENU_PANEL, cx } from "../../ui/primitives";
 import { moveCursor } from "./editorStates";
 import { onEditorDocChanged, runActive } from "./runActions";
@@ -29,7 +29,7 @@ export function StatementChooser() {
   useEffect(
     () =>
       useWorkspace.subscribe((s, prev) => {
-        if (s.active !== prev.active) closeChooser();
+        if (activeId(s) !== activeId(prev)) closeChooser();
       }),
     [],
   );

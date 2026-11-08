@@ -8,7 +8,7 @@ import { preloadSurfaces } from "../../shell/lazySurfaces";
 import { commandForKey } from "../../shell/commands";
 import { Overlays } from "../../shell/Overlays";
 import { useLive } from "../../state/live";
-import { confirm, useWorkspace } from "../../state/workspace";
+import { activeId, confirm, useWorkspace } from "../../state/workspace";
 import { connectionConfig } from "../../testing/connections";
 import { openSqlTab } from "../editor/runActions";
 import { dropEditor } from "../editor/editorStates";
@@ -38,7 +38,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  for (const id of useWorkspace.getState().order) dropEditor(id);
+  for (const id of Object.keys(useWorkspace.getState().tabs)) dropEditor(id);
   useWorkspace.setState(useWorkspace.getInitialState(), true);
   useLive.setState(useLive.getInitialState(), true);
   vi.unstubAllGlobals();
@@ -218,12 +218,12 @@ it("keeps cell actions keyboard accessible when another editor activates", async
   });
   render(<AppLayout />);
   await user.click(screen.getByTestId(`tab-${first}`));
-  expect(useWorkspace.getState().active).toBe(first);
+  expect(activeId(useWorkspace.getState())).toBe(first);
   expect(document.activeElement).toBe(screen.getByTestId(`tab-${first}`));
   await user.tab();
   expect(document.activeElement).toBe(screen.getByTestId("run-btn"));
   await user.click(screen.getByTestId(`tab-${second}`));
-  expect(useWorkspace.getState().active).toBe(second);
+  expect(activeId(useWorkspace.getState())).toBe(second);
   expect(document.activeElement).toBe(screen.getByTestId(`tab-${second}`));
 });
 

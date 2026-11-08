@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { SavedQueries, SavedQuery, SaveQueryReply } from "../../ipc/bindings";
 import { connectedState, connectionConfig } from "../../testing/connections";
 import { useLive } from "../../state/live";
-import { useWorkspace } from "../../state/workspace";
+import { activeId, useWorkspace } from "../../state/workspace";
 import { dropEditor, moveCursor, textOf } from "../editor/editorStates";
 import { openSqlTab } from "../editor/runActions";
 import { copySaved, insertSaved, openSaved, saveActiveQuery, saveHistoryQuery } from "./savedActions";
@@ -20,7 +20,7 @@ const query = (id: number, name: string, sql: string, databaseKind: SavedQuery["
 const list = (rev: number, ...items: SavedQuery[]): SavedQueries => ({ rev, items });
 
 afterEach(() => {
-  for (const id of useWorkspace.getState().order) dropEditor(id);
+  for (const id of Object.keys(useWorkspace.getState().tabs)) dropEditor(id);
   useWorkspace.setState(useWorkspace.getInitialState(), true);
   useLive.setState(useLive.getInitialState(), true);
   vi.unstubAllGlobals();
@@ -134,11 +134,11 @@ it("opens a query in a new tab on the active tab's database when the dialects ma
   openSqlTab({ db: { connectionId: pg.id, database: "reporting" }, text: "" });
 
   openSaved(query(1, "Revenue", "select 42"));
-  const opened = useWorkspace.getState().tabs[useWorkspace.getState().active!]!;
+  const opened = useWorkspace.getState().tabs[activeId(useWorkspace.getState())!]!;
   expect([opened.title, opened.console.db, textOf(opened.id)]).toEqual(["Revenue", { connectionId: pg.id, database: "reporting" }, "select 42"]);
 
   openSaved(query(2, "Locks", "select * from sys.dm_tran_locks", "SqlServer"));
-  expect(useWorkspace.getState().tabs[useWorkspace.getState().active!]!.console.db).toEqual({ connectionId: ms.id, database: "master" });
+  expect(useWorkspace.getState().tabs[activeId(useWorkspace.getState())!]!.console.db).toEqual({ connectionId: ms.id, database: "master" });
 });
 
 it("never opens a query on a database of the other dialect", () => {
@@ -147,7 +147,7 @@ it("never opens a query on a database of the other dialect", () => {
   const idle = { ...connectionConfig("c-ms-idle", "ms idle"), databaseKind: "SqlServer" as const, database: "master" };
   useWorkspace.setState({ configs: { [pg.id]: pg } });
   openSqlTab({ db: { connectionId: pg.id, database: "shop" }, text: "" });
-  const active = () => useWorkspace.getState().tabs[useWorkspace.getState().active!]!;
+  const active = () => useWorkspace.getState().tabs[activeId(useWorkspace.getState())!]!;
 
   openSaved(query(1, "Locks", "select * from sys.dm_tran_locks", "SqlServer"));
   expect([active().title, active().console.db]).toEqual(["Locks", null]);
@@ -156,4 +156,15 @@ it("never opens a query on a database of the other dialect", () => {
   openSqlTab({ db: { connectionId: pg.id, database: "shop" }, text: "" });
   openSaved(query(1, "Locks", "select * from sys.dm_tran_locks", "SqlServer"));
   expect(active().console.db).toEqual({ connectionId: idle.id, database: "master" });
+});
+
+it("opens a saved query on the shown database when that database has no notebook yet", () => {
+  recordIpc(() => list(2));
+  const pg = connectionConfig("c-pg", "pg");
+  useWorkspace.setState({ configs: { [pg.id]: pg } });
+  openSqlTab({ db: { connectionId: pg.id, database: "shop" }, text: "" });
+  useWorkspace.getState().showDatabase({ connectionId: pg.id, database: "reporting" });
+
+  openSaved(query(1, "Revenue", "select 42"));
+  expect(useWorkspace.getState().tabs[activeId(useWorkspace.getState())!]!.console.db).toEqual({ connectionId: pg.id, database: "reporting" });
 });

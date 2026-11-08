@@ -23,6 +23,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   commands,
   type ColumnInfo,
@@ -47,8 +48,8 @@ import { DATABASE_LABEL, databaseKindFor } from "../../state/databaseKind";
 import { dbKey, sameDb, type DbKey } from "../../state/dbKey";
 import { instanceOf, useLive } from "../../state/live";
 import { detailKey, useRelationDetail, type DetailEntry } from "../../state/relationDetail";
-import { connectionTone, type Tone } from "../../state/status";
-import { tabTarget, useWorkspace, type RelationRef } from "../../state/workspace";
+import { connectionTone, notebookActivity, type Tone } from "../../state/status";
+import { activeTab, tabTarget, useWorkspace, type RelationRef } from "../../state/workspace";
 import { ContextMenuItem, ContextMenuSeparator, ContextSubmenu, Highlight, Spinner, StatusDot, cx } from "../../ui/primitives";
 import { matchRanges, parseQuery, type TextRange } from "../../ui/textMatch";
 import { connect, confirmDelete, disconnect, refreshCatalog, refreshConnection } from "../connections/connectionActions";
@@ -392,8 +393,10 @@ function relationRow(b: Build, path: string, depth: number, db: DatabaseRef, sch
 
 /** Inserts the routine's call template at the active tab's cursor, when that tab's database is of the routine's kind. */
 export function insertRoutine(db: DatabaseRef, fn: FunctionInfo): void {
-  const { active, tabs, configs, notify } = useWorkspace.getState();
-  const target = tabTarget(active ? tabs[active] : undefined);
+  const workspace = useWorkspace.getState();
+  const { configs, notify } = workspace;
+  const active = activeTab(workspace);
+  const target = tabTarget(active);
   if (!active || !target || !configs[target.connectionId]) {
     notify("Choose a tab with a saved connection before inserting a routine.");
     return;
@@ -407,7 +410,7 @@ export function insertRoutine(db: DatabaseRef, fn: FunctionInfo): void {
     notify(`Choose a ${DATABASE_LABEL[sourceKind]} tab to insert this routine.`);
     return;
   }
-  insertAtCursor(active, fn.insertText);
+  insertAtCursor(active.id, fn.insertText);
 }
 
 function functionRow(b: Build, path: string, depth: number, db: DatabaseRef, fn: FunctionInfo, ranges?: readonly TextRange[]) {
@@ -558,6 +561,19 @@ function ConnectionMenu({ config, shown }: { config: ConnectionConfig; shown: Da
   );
 }
 
+/** Switching notebooks leaves their sessions alive, so a database row says when its notebook is still at work. */
+function NotebookMarker({ db, testId }: { db: DatabaseRef; testId: string }) {
+  const cells = useWorkspace(useShallow((s) => Object.values(s.notebooks).flatMap((n) => (sameDb(n.db, db) ? n.cells : []))));
+  const activity = useLive((s) => notebookActivity(s.consoles, cells));
+  if (activity === null) return null;
+  return (
+    <span data-testid={testId} className={cx("flex shrink-0 items-center gap-1 pl-2 text-ui-10.5", activity === "running" ? "text-run" : "text-amber")}>
+      {activity === "running" ? <Spinner className="size-2.5 border-run" /> : <span className="size-1.5 rounded-full bg-amber" />}
+      {activity === "running" ? "Running" : "Open transaction"}
+    </span>
+  );
+}
+
 /** A catalog that is loading or failed, as the live regions outside the tree say it. */
 type CatalogNews = { loading: string[]; failed: string[] };
 
@@ -581,7 +597,12 @@ function databaseRows(b: Build, news: CatalogNews, path: string, db: DatabaseRef
     view: (active) => ({
       icon: <DatabaseIcon size={15} className="text-muted" />,
       label: db.database,
-      trailing: count && <PickerPill target={target} count={count} active={active} testId={`schema-pill-${me}`} />,
+      trailing: (
+        <>
+          {b.browse && <NotebookMarker db={db} testId={`notebook-marker-${me}`} />}
+          {count && <PickerPill target={target} count={count} active={active} testId={`schema-pill-${me}`} />}
+        </>
+      ),
     }),
   });
   if (b.browse) {

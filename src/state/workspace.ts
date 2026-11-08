@@ -7,6 +7,7 @@ import type {
   FileBinding,
   FileSaved,
   Layout,
+  NotebookSnapshot,
   ResultMeta,
   SavedQueryId,
   Settings,
@@ -19,6 +20,7 @@ import type {
 import type { SettingsSectionId } from "../features/settings/settingsIndex";
 import { homeDb, resolveDb, sameDb } from "./dbKey";
 import { useLive } from "./live";
+import { followActive, NO_DATABASE, newNotebook, notebookFor, notebookOf, settle, type Notebook, type Notebooks, type Shown } from "./notebooks";
 import type { ChartSpec } from "../features/results/chart";
 import type { ResultDisplay, ResultPick } from "./status";
 
@@ -88,8 +90,8 @@ export type Screen = { kind: "workspace" } | { kind: "settings"; section: Settin
 
 export type WorkspaceData = {
   tabs: Record<TabId, Tab>;
-  order: TabId[];
-  active: TabId | null;
+  notebooks: Notebooks;
+  shown: Shown;
   layout: Layout;
   configs: Record<ConnectionId, ConnectionConfig>;
   activeResult: Record<TabId, ResultPick>;
@@ -152,11 +154,58 @@ export function tabFromSnapshot(t: TabSnapshot, configs: Record<ConnectionId, Co
   };
 }
 
+/** A notebook on a connection that is gone has no connection, as its cells do. */
+function notebookFromSnapshot(n: NotebookSnapshot, configs: Record<ConnectionId, ConnectionConfig>): Notebook {
+  return { id: n.id, title: n.title, db: n.db && configs[n.db.connectionId] ? n.db : null, cells: n.cells, active: n.active };
+}
+
+type Shows = Pick<WorkspaceData, "notebooks" | "shown">;
+
+export function shownNotebook(s: Shows): Notebook | undefined {
+  return s.shown.kind === "notebook" ? s.notebooks[s.shown.id] : undefined;
+}
+
+export function allCells(s: Pick<WorkspaceData, "notebooks">): TabId[] {
+  return Object.values(s.notebooks).flatMap((n) => n.cells);
+}
+
+export function activeId(s: Shows): TabId | null {
+  return shownNotebook(s)?.active ?? null;
+}
+
+export function activeTab(s: Shows & Pick<WorkspaceData, "tabs">): Tab | undefined {
+  const id = activeId(s);
+  return id ? s.tabs[id] : undefined;
+}
+
+/** The database the workspace is on: the shown notebook's, or the one the start commands offer a notebook on. */
+export function shownDb(s: Shows): DatabaseRef | null {
+  return s.shown.kind === "start" ? s.shown.db : (shownNotebook(s)?.db ?? null);
+}
+
+/**
+ * Cells saved before notebooks, or claimed by no notebook this build could read, join the notebook for their database in
+ * their saved order. The saved `shown` wins, then the notebook holding the saved active cell. A workspace from before
+ * notebooks shows its first notebook when it saved no active cell.
+ */
+function restoreNotebooks(w: Workspace, tabs: Record<TabId, Tab>, configs: Record<ConnectionId, ConnectionConfig>): Shows {
+  const notebooks = settle(
+    w.notebooks.map((n) => notebookFromSnapshot(n, configs)),
+    (id) => tabs[id]?.console.db,
+    w.tabs.map((t) => t.id),
+  );
+  const holding = w.active ? notebookOf(notebooks, w.active) : undefined;
+  const shown = (w.shown ? notebooks[w.shown] : undefined) ?? holding ?? (w.notebooks.length === 0 ? Object.values(notebooks)[0] : undefined);
+  if (!shown) return { notebooks, shown: NO_DATABASE };
+  if (shown === holding && w.active) notebooks[shown.id] = { ...shown, active: w.active };
+  return { notebooks, shown: { kind: "notebook", id: shown.id } };
+}
+
 export type Buffers = { textOf(id: TabId): string; isDirty(id: TabId): boolean };
 
 /** A file tab's `dirty` is read from the same buffer as its `text`, so the two always describe one state. */
-export function workspaceSnapshot(s: Pick<WorkspaceData, "tabs" | "order" | "active" | "layout">, buffers: Buffers): Workspace {
-  const tabs = s.order.flatMap((id): TabSnapshot[] => {
+export function workspaceSnapshot(s: Pick<WorkspaceData, "tabs" | "notebooks" | "shown" | "layout">, buffers: Buffers): Workspace {
+  const tabs = allCells(s).flatMap((id): TabSnapshot[] => {
     const t = s.tabs[id];
     if (!t) return [];
     const { db, mode } = t.console;
@@ -171,7 +220,13 @@ export function workspaceSnapshot(s: Pick<WorkspaceData, "tabs" | "order" | "act
       },
     ];
   });
-  return { tabs, active: s.active, layout: s.layout };
+  return {
+    tabs,
+    active: activeId(s),
+    layout: s.layout,
+    notebooks: Object.values(s.notebooks).map((n) => ({ id: n.id, title: n.title, db: n.db, cells: n.cells, active: n.active })),
+    shown: s.shown.kind === "notebook" ? s.shown.id : null,
+  };
 }
 
 export function nextUntitled(tabs: Iterable<Tab>): string {
@@ -194,14 +249,18 @@ export function tabTarget(tab: Tab | undefined): DatabaseRef | null {
 type WorkspaceActions = {
   restore(w: Workspace, connections: ConnectionConfig[], settings: Settings): void;
   resolveDatabases(connections: Record<ConnectionId, ConnectionState>): void;
-  /** Adds `tab` at the end, or right after `after`, and makes it active. */
+  /** Adds `tab` to the notebook for its database, at the end or right after `after`, and shows it active. */
   addTab(tab: Tab, after?: TabId): void;
+  /** Closing a notebook's last cell drops the notebook and shows the start commands on its database. */
   closeTab(id: TabId): void;
   setActive(id: TabId): void;
+  /** Shows the notebook for `db`, or the start commands on it when it has none. Never touches a cell. */
+  showDatabase(db: DatabaseRef | null): void;
   renameTab(id: TabId, title: string): void;
   bindFile(id: TabId, file: FileSaved): void;
   setFileHealth(id: TabId, health: FileHealth): void;
-  patchConsole(id: TabId, patch: Partial<ConsoleTarget>): void;
+  /** A cell's database is its notebook's, so a patch never moves it. */
+  patchConsole(id: TabId, patch: Partial<Pick<ConsoleTarget, "mode" | "schema">>): void;
   setTablePage(id: TabId, page: number, exactRowCount?: number): void;
   setTableQuery(id: TabId, query: TableQuery): void;
   setLayout(patch: Partial<Layout>): void;
@@ -224,10 +283,28 @@ type WorkspaceActions = {
 
 let toastSeq = 0;
 
+/**
+ * The notebook a new cell on `db` joins: the one holding `after`, else the shown one, when either is on `db`; else the
+ * notebook for `db`, or a new one.
+ */
+function homeFor(s: Shows, db: DatabaseRef | null, after: TabId | undefined): Notebook {
+  const candidates = [after ? notebookOf(s.notebooks, after) : undefined, shownNotebook(s)];
+  return candidates.find((n) => n && sameDb(n.db, db)) ?? notebookFor(s.notebooks, db) ?? newNotebook(db);
+}
+
+/** Moves each cell whose database changed into the notebook for its new database, and keeps the active cell in view. */
+function settled(s: Shows, notebooks: Notebook[], tabs: Record<TabId, Tab>): Shows {
+  return followActive(
+    s.shown,
+    s.notebooks,
+    settle(notebooks, (id) => tabs[id]?.console.db),
+  );
+}
+
 export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get) => ({
   tabs: {},
-  order: [],
-  active: null,
+  notebooks: {},
+  shown: NO_DATABASE,
   layout: DEFAULT_LAYOUT,
   configs: {},
   activeResult: {},
@@ -242,51 +319,79 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
 
   restore: (w, connections, settings) => {
     const configs = Object.fromEntries(connections.map((c) => [c.id, c]));
-    const tabs = w.tabs.map((t) => tabFromSnapshot(t, configs));
-    const order = tabs.map((t) => t.id);
-    set({
-      tabs: Object.fromEntries(tabs.map((t) => [t.id, t])),
-      order,
-      active: w.active && order.includes(w.active) ? w.active : (order[0] ?? null),
-      layout: w.layout,
-      configs,
-      settings,
-    });
+    const tabs = Object.fromEntries(w.tabs.map((t) => [t.id, tabFromSnapshot(t, configs)]));
+    set({ tabs, ...restoreNotebooks(w, tabs, configs), layout: w.layout, configs, settings });
   },
   resolveDatabases: (connections) =>
     set((s) => {
-      const tabs = { ...s.tabs };
-      let changed = false;
-      for (const [id, tab] of Object.entries(tabs)) {
-        const previous = tab.console.db;
-        if (!previous) continue;
-        const db = resolveDb(previous, connections[previous.connectionId]);
-        if (db !== previous) {
-          tabs[id] = { ...tab, console: { ...tab.console, db } };
-          changed = true;
-        }
+      const resolve = (db: DatabaseRef | null) => db && resolveDb(db, connections[db.connectionId]);
+      const tabs = Object.fromEntries(
+        Object.entries(s.tabs).map(([id, t]) => {
+          const db = resolve(t.console.db);
+          return [id, db === t.console.db ? t : { ...t, console: { ...t.console, db } }];
+        }),
+      );
+      const notebooks: Notebook[] = [];
+      for (const n of Object.values(s.notebooks)) {
+        const db = resolve(n.db);
+        const next = db === n.db ? n : { ...n, db };
+        // Two spellings of one database resolve to the same one, so their cells belong in one notebook. Notebooks that
+        // already shared a database stay apart.
+        const into = notebooks.findIndex((m) => sameDb(m.db, next.db) && (next !== n || m !== s.notebooks[m.id]));
+        const target = notebooks[into];
+        if (target) notebooks[into] = { ...target, cells: [...target.cells, ...next.cells], active: target.active ?? next.active };
+        else notebooks.push(next);
       }
+      const startDb = s.shown.kind === "start" ? resolve(s.shown.db) : null;
+      const shown: Shown = s.shown.kind === "start" && startDb !== s.shown.db ? { kind: "start", db: startDb } : s.shown;
+      const changed = Object.entries(tabs).some(([id, t]) => t !== s.tabs[id]) || notebooks.some((n) => n !== s.notebooks[n.id]);
       const selectedDb = s.selected && resolveDb(s.selected.db, connections[s.selected.db.connectionId]);
       const selected = s.selected && selectedDb && selectedDb !== s.selected.db ? { ...s.selected, db: selectedDb } : s.selected;
-      return { ...(changed && { tabs }), ...(selected !== s.selected && { selected }) };
+      return {
+        ...(changed ? { tabs, ...settled({ notebooks: s.notebooks, shown }, notebooks, tabs) } : shown !== s.shown && { shown }),
+        ...(selected !== s.selected && { selected }),
+      };
     }),
   addTab: (tab, after) =>
     set((s) => {
-      const at = after === undefined ? -1 : s.order.indexOf(after);
-      const order = at < 0 ? [...s.order, tab.id] : [...s.order.slice(0, at + 1), tab.id, ...s.order.slice(at + 1)];
-      return { tabs: { ...s.tabs, [tab.id]: tab }, order, active: tab.id };
+      const home = homeFor(s, tab.console.db, after);
+      const at = after === undefined ? -1 : home.cells.indexOf(after);
+      const cells = at < 0 ? [...home.cells, tab.id] : [...home.cells.slice(0, at + 1), tab.id, ...home.cells.slice(at + 1)];
+      return {
+        tabs: { ...s.tabs, [tab.id]: tab },
+        notebooks: { ...s.notebooks, [home.id]: { ...home, cells, active: tab.id } },
+        shown: { kind: "notebook", id: home.id },
+      };
     }),
   closeTab: (id) =>
     set((s) => {
-      const index = s.order.indexOf(id);
-      const order = s.order.filter((t) => t !== id);
       const { [id]: _, ...tabs } = s.tabs;
       const { [id]: __, ...activeResult } = s.activeResult;
       const { [id]: ___, ...resultDisplay } = s.resultDisplay;
-      const active = s.active === id ? (order[Math.min(index, order.length - 1)] ?? null) : s.active;
-      return { tabs, order, active, activeResult, resultDisplay };
+      const notebook = notebookOf(s.notebooks, id);
+      if (!notebook) return { tabs, activeResult, resultDisplay };
+      const index = notebook.cells.indexOf(id);
+      const cells = notebook.cells.filter((c) => c !== id);
+      if (cells.length === 0) {
+        const { [notebook.id]: ____, ...notebooks } = s.notebooks;
+        const shown = s.shown.kind === "notebook" && s.shown.id === notebook.id ? { kind: "start" as const, db: notebook.db } : s.shown;
+        return { tabs, notebooks, shown, activeResult, resultDisplay };
+      }
+      const active = notebook.active === id ? (cells[Math.min(index, cells.length - 1)] ?? null) : notebook.active;
+      return { tabs, notebooks: { ...s.notebooks, [notebook.id]: { ...notebook, cells, active } }, activeResult, resultDisplay };
     }),
-  setActive: (id) => set({ active: id }),
+  setActive: (id) =>
+    set((s) => {
+      const notebook = notebookOf(s.notebooks, id);
+      if (!notebook || (notebook.active === id && shownNotebook(s) === notebook)) return {};
+      return { notebooks: { ...s.notebooks, [notebook.id]: { ...notebook, active: id } }, shown: { kind: "notebook", id: notebook.id } };
+    }),
+  showDatabase: (db) =>
+    set((s) => {
+      const notebook = notebookFor(s.notebooks, db);
+      if (notebook) return shownNotebook(s) === notebook ? {} : { shown: { kind: "notebook", id: notebook.id } };
+      return s.shown.kind === "start" && sameDb(s.shown.db, db) ? {} : { shown: { kind: "start", db } };
+    }),
   renameTab: (id, title) =>
     set((s) => {
       const t = s.tabs[id];
@@ -333,14 +438,12 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
       // to a table stays on the database the table lives in.
       const follows = (db: DatabaseRef | null) =>
         db === null || (previous !== undefined && previous.database !== c.database && sameDb(db, homeDb(previous, connection)));
-      return {
-        configs: { ...s.configs, [c.id]: c },
-        tabs: Object.fromEntries(
-          Object.entries(s.tabs).map(([id, t]) =>
-            t.table === null && follows(t.console.db) ? [id, { ...t, console: { ...t.console, db: homeDb(c, connection) } }] : [id, t],
-          ),
+      const tabs = Object.fromEntries(
+        Object.entries(s.tabs).map(([id, t]) =>
+          t.table === null && follows(t.console.db) ? [id, { ...t, console: { ...t.console, db: homeDb(c, connection) } }] : [id, t],
         ),
-      };
+      );
+      return { configs: { ...s.configs, [c.id]: c }, tabs, ...settled(s, Object.values(s.notebooks), tabs) };
     }),
   removeConfig: (id) =>
     set((s) => {

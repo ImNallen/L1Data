@@ -5,16 +5,17 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { dropEditor, insertAtCursor, seedEditor } from "../features/editor/editorStates";
 import { useLive } from "../state/live";
-import { useWorkspace, type Tab } from "../state/workspace";
+import { activeId, allCells, useWorkspace, type Tab } from "../state/workspace";
 import { handleGlobalKey } from "./commands";
 import { Overlays } from "./Overlays";
 import { TabBar } from "./TabBar";
+import { cellsState } from "../testing/notebooks";
 
 const tab = (id: string): Tab => ({ id, title: `${id}.sql`, console: { db: null, mode: "AutoCommit" }, table: null, file: null });
 const ws = () => useWorkspace.getState();
 
 function Workspace() {
-  const empty = useWorkspace((s) => s.order.length === 0);
+  const empty = useWorkspace((s) => allCells(s).length === 0);
   return (
     <>
       <TabBar />
@@ -27,7 +28,7 @@ function Workspace() {
 beforeEach(() => {
   window.addEventListener("keydown", handleGlobalKey);
   Element.prototype.scrollIntoView = vi.fn();
-  useWorkspace.setState({ tabs: { a: tab("a"), b: tab("b"), c: tab("c") }, order: ["a", "b", "c"], active: "b" });
+  useWorkspace.setState(cellsState([tab("a"), tab("b"), tab("c")], "b"));
   mockIPC(() => null);
 });
 
@@ -56,7 +57,7 @@ it("moves focus and selection through the existing order, wrapping and using Hom
   for (const [key, id] of moves) {
     await user.keyboard(key);
     await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId(`tab-${id}`)));
-    expect(ws().active).toBe(id);
+    expect(activeId(ws())).toBe(id);
     expect(screen.getByTestId(`tab-${id}`).getAttribute("aria-selected")).toBe("true");
   }
   expect(screen.getByTestId("tab-c").scrollIntoView).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" });
@@ -67,10 +68,10 @@ it("activates a focused tab with Enter or Space and keeps close controls outside
   render(<Workspace />);
   screen.getByTestId("tab-a").focus();
   await user.keyboard("{Enter}");
-  expect(ws().active).toBe("a");
+  expect(activeId(ws())).toBe("a");
   screen.getByTestId("tab-c").focus();
   await user.keyboard(" ");
-  expect(ws().active).toBe("c");
+  expect(activeId(ws())).toBe("c");
   expect(screen.getByRole("button", { name: "Close c.sql" }).closest('[role="tab"]')).toBeNull();
 });
 
@@ -79,13 +80,13 @@ it("ignores navigation keys from close and rename controls and returns focus aft
   render(<Workspace />);
   screen.getByTestId("tab-close-b").focus();
   await user.keyboard("{ArrowRight}{Home}{End}");
-  expect(ws().active).toBe("b");
+  expect(activeId(ws())).toBe("b");
   await user.dblClick(screen.getByTestId("tab-b"));
   const input = screen.getByRole("textbox", { name: "Tab name" });
   await user.clear(input);
   await user.type(input, "Revenue by region");
   await user.keyboard("{Home}{ArrowRight}{End}");
-  expect(ws().active).toBe("b");
+  expect(activeId(ws())).toBe("b");
   await user.keyboard("{Enter}");
   expect(ws().tabs.b?.title).toBe("Revenue by region");
   await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("tab-b")));
@@ -111,7 +112,7 @@ it("returns keyboard focus to the selected neighbor, then to the first start act
     expect(ws().tabs[id]).toBeUndefined();
   }
   fireEvent.keyDown(screen.getByRole("tablist"), { key: "ArrowRight" });
-  expect(ws().order).toEqual([]);
+  expect(allCells(ws())).toEqual([]);
 });
 
 it("keeps middle-click close and the existing keyboard close command", async () => {
@@ -135,7 +136,7 @@ it("keeps a dirty file and useful focus when its save question is cancelled", as
   await screen.findByTestId("ask-dialog");
   await user.click(screen.getByTestId("ask-cancel"));
   await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("tab-close-b")));
-  expect(ws().order).toEqual(["a", "b", "c"]);
+  expect(allCells(ws())).toEqual(["a", "b", "c"]);
   expect(screen.getByTestId("tab-unsaved-b")).toBeTruthy();
 });
 

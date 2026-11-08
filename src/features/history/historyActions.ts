@@ -1,5 +1,5 @@
 import type { HistoryGroupSummary } from "../../ipc/bindings";
-import { useWorkspace } from "../../state/workspace";
+import { activeTab, useWorkspace } from "../../state/workspace";
 import { focusEditor, insertAtCursor } from "../editor/editorStates";
 import { openSqlTab, runActive } from "../editor/runActions";
 
@@ -9,9 +9,9 @@ export function openHistoryQuery(group: HistoryGroupSummary, sql: string, run = 
 }
 
 export function insertHistoryQuery(sql: string): boolean {
-  const state = useWorkspace.getState();
-  if (!state.active || !state.tabs[state.active]) return false;
-  insertAtCursor(state.active, sql);
+  const tab = activeTab(useWorkspace.getState());
+  if (!tab) return false;
+  insertAtCursor(tab.id, sql);
   focusEditor();
   return true;
 }

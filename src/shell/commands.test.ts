@@ -2,8 +2,8 @@ import { mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, expect, it, vi } from "vitest";
 import { dropEditor, seedEditor } from "../features/editor/editorStates";
 import { setCell, useTableEdits } from "../state/tableEdits";
-import { ask, EMPTY_QUERY, useWorkspace } from "../state/workspace";
-import { COMMANDS, START_COMMANDS, commandForKey, handleGlobalKey, openCommandPalette } from "./commands";
+import { allCells, ask, EMPTY_QUERY, shownNotebook, useWorkspace } from "../state/workspace";
+import { COMMANDS, START_COMMANDS, commandForKey, commandLabel, handleGlobalKey, openCommandPalette } from "./commands";
 
 type Mods = Partial<Record<"metaKey" | "ctrlKey" | "shiftKey" | "altKey", boolean>>;
 const chord = (key: string, mods: Mods) => ({ key, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods });
@@ -12,7 +12,7 @@ const pressOff = (key: string, mods: Mods) => commandForKey(chord(key, mods), fa
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  for (const id of useWorkspace.getState().order) dropEditor(id);
+  for (const id of Object.keys(useWorkspace.getState().tabs)) dropEditor(id);
   useWorkspace.setState(useWorkspace.getInitialState(), true);
   useTableEdits.setState(useTableEdits.getInitialState(), true);
 });
@@ -200,7 +200,7 @@ it("closes settings, not the active tab, on the close-tab shortcut", () => {
   useWorkspace.getState().addTab({ id: "t1", title: "a.sql", console: { db: null, mode: "AutoCommit" }, table: null, file: null });
   useWorkspace.getState().openSettings();
   press("w")?.run();
-  expect([useWorkspace.getState().screen, useWorkspace.getState().order]).toEqual([{ kind: "workspace" }, ["t1"]]);
+  expect([useWorkspace.getState().screen, allCells(useWorkspace.getState())]).toEqual([{ kind: "workspace" }, ["t1"]]);
 });
 
 it.each(["w", ",", "t"])("drops the settings search when ⌘%s leaves settings, and keeps the tree search", (key) => {
@@ -253,4 +253,17 @@ it("preserves a pending approval and every unrelated overlay on the command-pane
     openCommandPalette();
     expect(useWorkspace.getState().overlay).toBe(overlay);
   }
+});
+
+it("starts the notebook of a database that has none from ⌘T, labelled New notebook", () => {
+  vi.stubGlobal("window", { crypto });
+  const postgres = { connectionId: "c", database: "postgres" };
+  const newQuery = START_COMMANDS.find((c) => c.id === "new-query")!;
+  expect(commandLabel(newQuery)).toBe("New query tab");
+  useWorkspace.getState().showDatabase(postgres);
+  expect(commandLabel(newQuery)).toBe("New notebook");
+  press("t")?.run();
+  const notebook = shownNotebook(useWorkspace.getState());
+  expect([notebook?.db, notebook?.title, notebook?.cells.length]).toEqual([postgres, "postgres", 1]);
+  expect(commandLabel(newQuery)).toBe("New query tab");
 });

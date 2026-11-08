@@ -2,7 +2,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { SearchIcon } from "lucide-react";
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { docOf, focusEditor, onBuffersChanged } from "../features/editor/editorStates";
-import { useWorkspace, type Screen } from "../state/workspace";
+import { activeId, useWorkspace, type Screen } from "../state/workspace";
 import type { TabId } from "../ipc/bindings";
 import { ACTIVE_OPTION, cx, DialogSurface, Kbd } from "../ui/primitives";
 import { COMMAND_GROUPS, COMMANDS, commandAvailable, commandLabel, shortcutLabel, type Command } from "./commands";
@@ -10,7 +10,7 @@ import { COMMAND_GROUPS, COMMANDS, commandAvailable, commandLabel, shortcutLabel
 function CommandBrowser({ activate, composing }: { activate: (command: Command) => void; composing: RefObject<boolean> }) {
   useWorkspace((s) => s.tabs);
   useWorkspace((s) => s.screen);
-  const active = useWorkspace((s) => s.active);
+  const active = useWorkspace(activeId);
   useSyncExternalStore(onBuffersChanged, () => (active ? docOf(active) : undefined));
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -140,8 +140,8 @@ export function CommandPalette() {
           onCompositionStart={() => (composing.current = true)}
           onCompositionEnd={() => (composing.current = false)}
           onOpenAutoFocus={() => {
-            const { active, screen } = useWorkspace.getState();
-            opener.current = { element: document.activeElement, active, screen: screen.kind };
+            const workspace = useWorkspace.getState();
+            opener.current = { element: document.activeElement, active: activeId(workspace), screen: workspace.screen.kind };
           }}
           onEscapeKeyDown={(event) => {
             if (composing.current || event.isComposing || event.keyCode === 229) event.preventDefault();
@@ -150,7 +150,9 @@ export function CommandPalette() {
             event.preventDefault();
             if (!activating.current) return restoreFocus();
             requestAnimationFrame(() => {
-              const { overlay, screen, active } = useWorkspace.getState();
+              const workspace = useWorkspace.getState();
+              const { overlay, screen } = workspace;
+              const active = activeId(workspace);
               if (overlay.kind !== "none" || document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
               if (screen.kind === opener.current?.screen && active === opener.current.active) {
                 if (document.activeElement === document.body) restoreFocus();

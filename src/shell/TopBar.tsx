@@ -10,7 +10,6 @@ import {
   isBrowsing,
   runOrChoose,
   setTabMode,
-  setTabTarget,
   setTabSchema,
   openSqlTab,
 } from "../features/editor/runActions";
@@ -19,7 +18,8 @@ import { useCatalog, viewFor } from "../state/catalog";
 import { homeDb } from "../state/dbKey";
 import { instanceOf, useLive } from "../state/live";
 import { canCancel, connectionTone, hasUncommittedWork, isBusy } from "../state/status";
-import { tabTarget, useWorkspace, type Tab } from "../state/workspace";
+import { notebookFor } from "../state/notebooks";
+import { activeTab, shownDb, useWorkspace } from "../state/workspace";
 import { Button, CONNECTION_TONE_LABEL, Kbd, MenuContent, MenuItem, MenuLabel, StatusDot, IconButton, cx } from "../ui/primitives";
 import { SidebarToggle, WindowEdgeActions, windowEdgeInset, windowLeadingInset } from "./WindowEdgeActions";
 import type { HostedWindow } from "./hostedWindow";
@@ -46,8 +46,9 @@ function Separator() {
   return <span className="mx-1.5 shrink-0 text-ui-14 text-faint">/</span>;
 }
 
-function DatabaseMenu({ tab, db }: { tab: Tab; db: DatabaseRef }) {
+function DatabaseMenu({ db }: { db: DatabaseRef }) {
   const state = useLive((s) => s.connections[db.connectionId]);
+  const showDatabase = useWorkspace((s) => s.showDatabase);
   return (
     <Menu.Root modal={false}>
       <Menu.Trigger data-testid="tab-database" title={db.database} className={cx(TARGET_TRIGGER, "flex-1 text-fg")}>
@@ -55,13 +56,13 @@ function DatabaseMenu({ tab, db }: { tab: Tab; db: DatabaseRef }) {
         <ChevronDownIcon size={12} className="shrink-0 text-dim" />
       </Menu.Trigger>
       <MenuContent>
-        <MenuLabel>Database for this tab</MenuLabel>
+        <MenuLabel>Switch to database</MenuLabel>
         {databaseChoices(db, state).map((name) => (
           <MenuItem
             key={name}
             testId={`tab-database-${name}`}
             checked={name === db.database}
-            onSelect={() => void setTabTarget(tab.id, { connectionId: db.connectionId, database: name })}
+            onSelect={() => showDatabase({ connectionId: db.connectionId, database: name })}
           >
             {name}
           </MenuItem>
@@ -114,10 +115,12 @@ function RunButton({ busy, environment, explainable }: { busy: boolean; environm
 }
 
 export function TopBar({ hosted, notebook = false }: { hosted: HostedWindow | null; notebook?: boolean }) {
-  const tab = useWorkspace((s) => (s.active ? s.tabs[s.active] : undefined));
+  const tab = useWorkspace(activeTab);
+  const db = useWorkspace(shownDb);
+  const unconnected = useWorkspace((s) => notebookFor(s.notebooks, null) !== undefined);
+  const showDatabase = useWorkspace((s) => s.showDatabase);
   const configs = useWorkspace((s) => s.configs);
   const layout = useWorkspace((s) => s.layout);
-  const db = tabTarget(tab);
   const connectionId = db?.connectionId ?? null;
   const liveConsole = useLive((s) => (tab ? s.consoles[tab.id] : undefined));
   const connections = useLive((s) => s.connections);
@@ -152,7 +155,7 @@ export function TopBar({ hosted, notebook = false }: { hosted: HostedWindow | nu
       >
         <div className={cx("flex min-w-0 flex-1 items-center gap-2", expandedActions ? "@max-[760px]:basis-full" : "@max-[520px]:basis-full")}>
           {!layout.sidebar && <SidebarToggle />}
-          {tab ? (
+          {tab || db ? (
             <Menu.Root modal={false}>
               <Menu.Trigger data-testid="tab-connection" title={config?.name} className={cx(TARGET_TRIGGER, "-ml-1 flex-1", config ? "text-fg" : "text-dim")}>
                 {notebook ? (
@@ -164,17 +167,22 @@ export function TopBar({ hosted, notebook = false }: { hosted: HostedWindow | nu
                 <ChevronDownIcon size={12} className="shrink-0 text-dim" />
               </Menu.Trigger>
               <MenuContent>
-                <MenuLabel>Connection for this tab</MenuLabel>
+                <MenuLabel>Switch to connection</MenuLabel>
                 {Object.values(configs).map((c) => {
                   const tone = connectionTone(connections[c.id]);
                   return (
-                    <MenuItem key={c.id} checked={c.id === connectionId} onSelect={() => void setTabTarget(tab.id, homeDb(c))}>
+                    <MenuItem key={c.id} checked={c.id === connectionId} onSelect={() => showDatabase(homeDb(c, connections[c.id]))}>
                       <StatusDot tone={tone} label={CONNECTION_TONE_LABEL[tone]} />
                       <ConnectionColorDot color={c.color} />
                       {c.name}
                     </MenuItem>
                   );
                 })}
+                {unconnected && (
+                  <MenuItem checked={connectionId === null} onSelect={() => showDatabase(null)}>
+                    No connection
+                  </MenuItem>
+                )}
               </MenuContent>
             </Menu.Root>
           ) : (
@@ -183,10 +191,10 @@ export function TopBar({ hosted, notebook = false }: { hosted: HostedWindow | nu
               <span className="truncate">{config?.name ?? ""}</span>
             </span>
           )}
-          {tab && db && config && (
+          {db && config && (
             <div className={cx("flex min-w-0 items-center overflow-hidden", !notebook && "flex-1")}>
               <Separator />
-              <DatabaseMenu tab={tab} db={db} />
+              <DatabaseMenu db={db} />
             </div>
           )}
           {notebook && tab && db && (

@@ -2,7 +2,7 @@ import { mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, expect, it, vi } from "vitest";
 import type { HistoryGroupSummary } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
-import { useWorkspace } from "../../state/workspace";
+import { activeId, activeTab, useWorkspace } from "../../state/workspace";
 import { dropEditor, textOf } from "../editor/editorStates";
 import { openSqlTab, openTableTab } from "../editor/runActions";
 import { insertHistoryQuery, openHistoryQuery } from "./historyActions";
@@ -22,7 +22,7 @@ const group: HistoryGroupSummary = {
   representative: { id: 3, atMs: 123, connectionName: "dev", elapsedMs: 20, outcome: { kind: "Rows", rows: 1 } },
 };
 afterEach(() => {
-  for (const id of useWorkspace.getState().order) dropEditor(id);
+  for (const id of Object.keys(useWorkspace.getState().tabs)) dropEditor(id);
   useWorkspace.setState(useWorkspace.getInitialState(), true);
   useLive.setState(useLive.getInitialState(), true);
   vi.unstubAllGlobals();
@@ -31,8 +31,7 @@ afterEach(() => {
 it("opens the exact saved SQL and database in a new tab without changing the original editor", () => {
   const original = openSqlTab({ text: "select 'untouched'" });
   openHistoryQuery(group, "-- Revenue\nselect 42");
-  const ws = useWorkspace.getState();
-  const tab = ws.active ? ws.tabs[ws.active] : undefined;
+  const tab = activeTab(useWorkspace.getState());
   expect(tab).toMatchObject({ title: "Revenue", console: { db: { connectionId: "saved-connection", database: "reporting" } }, table: null });
   expect(tab && textOf(tab.id)).toBe("-- Revenue\nselect 42");
   expect(textOf(original)).toBe("select 'untouched'");
@@ -45,7 +44,7 @@ it("inserts at the cursor of the active tab's editor, a table tab's too, and nee
     cmd === "table_script" ? { text: "SELECT * FROM public.orders", acceptedTexts: ["SELECT * FROM public.orders", "SELECT * FROM public.orders;"] } : null,
   );
   await openTableTab({ db: { connectionId: "c1", database: "shop" }, schema: "public", relation: "orders" });
-  const tableId = useWorkspace.getState().active!;
+  const tableId = activeId(useWorkspace.getState())!;
   expect(insertHistoryQuery("select 42;\n")).toBe(true);
   expect(textOf(tableId)).toBe("select 42;\nSELECT * FROM public.orders");
   const id = openSqlTab({ text: "select 1;" });

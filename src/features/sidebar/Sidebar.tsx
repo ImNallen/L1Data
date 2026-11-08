@@ -1,15 +1,14 @@
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import { BookmarkIcon, ChartNoAxesColumnIcon, ClockIcon, PlusIcon, SlidersHorizontalIcon, ChevronDownIcon } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
-import type { DatabaseRef } from "../../ipc/bindings";
+import { useMemo, useRef, useState } from "react";
 import { isViewKind, useCatalog, viewFor } from "../../state/catalog";
 import { useLive } from "../../state/live";
-import { tabTarget, useWorkspace } from "../../state/workspace";
+import { shownDb, useWorkspace } from "../../state/workspace";
 import { Button, cx, IconButton, MenuContent, MenuItem } from "../../ui/primitives";
 import { parseQuery } from "../../ui/textMatch";
 import type { HostedWindow } from "../../shell/hostedWindow";
 import { SidebarToggle, windowLeadingInset } from "../../shell/WindowEdgeActions";
-import { openTableTab, setTabTarget } from "../editor/runActions";
+import { openTableTab } from "../editor/runActions";
 import { UpdateButton } from "../updates/UpdateButton";
 import { ConnectionTree } from "./ConnectionTree";
 import { SidebarSearch } from "./SidebarSearch";
@@ -28,29 +27,20 @@ function useTreeFilter(query: string, scope?: ObjectFilterScope | null): TreeFil
 
 export function Sidebar({ hosted }: { hosted: HostedWindow | null }) {
   const configs = useWorkspace((s) => s.configs);
-  const active = useWorkspace((s) => s.active);
-  const target = useWorkspace((s) => tabTarget(s.active ? s.tabs[s.active] : undefined));
+  const shown = useWorkspace(shownDb);
+  const inNotebook = useWorkspace((s) => s.shown.kind === "notebook");
+  const showDatabase = useWorkspace((s) => s.showDatabase);
   const open = useWorkspace((s) => s.open);
   const openSettings = useWorkspace((s) => s.openSettings);
   const query = useWorkspace((s) => s.treeQuery);
   const setTreeQuery = useWorkspace((s) => s.setTreeQuery);
-  const [picked, setPicked] = useState<DatabaseRef | null>(null);
   const [objectQuery, setObjectQuery] = useState("");
   const [category, setCategory] = useState<"tables" | "views" | "all">("tables");
   const first = Object.values(configs)[0];
-  const db = useMemo(
-    () => (active ? target : (picked ?? (first ? { connectionId: first.id, database: first.database } : null))),
-    [picked, active, target, first],
-  );
+  // The start commands with no database chosen browse the first connection's database. A notebook with no connection browses none.
+  const db = useMemo(() => shown ?? (!inNotebook && first ? { connectionId: first.id, database: first.database } : null), [shown, inNotebook, first]);
   const catalog = useCatalog((s) => viewFor(s.views, db)?.catalog);
-  const selectDatabase = useCallback(
-    (db: DatabaseRef) => {
-      if (active) void setTabTarget(active, db);
-      else setPicked(db);
-    },
-    [active],
-  );
-  const databaseScope = useMemo(() => ({ kind: "databases" as const, selected: db, select: selectDatabase }), [db, selectDatabase]);
+  const databaseScope = useMemo(() => ({ kind: "databases" as const, selected: db, select: showDatabase }), [db, showDatabase]);
   const objectScope = useMemo(() => db && { kind: "objects" as const, db, category }, [db, category]);
   const filter = useTreeFilter(query);
   const objectFilter = useTreeFilter(objectQuery, objectScope);

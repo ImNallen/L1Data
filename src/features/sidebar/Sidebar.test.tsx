@@ -2,13 +2,14 @@
 import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { ConsoleState } from "../../ipc/bindings";
 import * as runActions from "../editor/runActions";
 import { dropEditor } from "../editor/editorStates";
 import { buildCatalogView, useCatalog } from "../../state/catalog";
 import { dbKey } from "../../state/dbKey";
 import { useTableEdits } from "../../state/tableEdits";
 import { useLive } from "../../state/live";
-import { useWorkspace } from "../../state/workspace";
+import { activeId, useWorkspace } from "../../state/workspace";
 import { connectedState, connectionConfig, databaseState } from "../../testing/connections";
 import { shopCatalog } from "../../testing/shopCatalog";
 import { Sidebar } from "./Sidebar";
@@ -29,7 +30,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
-  for (const id of useWorkspace.getState().order) dropEditor(id);
+  for (const id of Object.keys(useWorkspace.getState().tabs)) dropEditor(id);
   useWorkspace.setState(useWorkspace.getInitialState(), true);
   useLive.setState(useLive.getInitialState(), true);
   useCatalog.setState(useCatalog.getInitialState(), true);
@@ -110,27 +111,22 @@ it("opens the first visible search match in the selected database and category",
   expect(open).toHaveBeenLastCalledWith({ db: { connectionId: "p", database: "shop" }, schema: "public", relation: "paid_orders" });
 });
 
-it("follows the confirmed cell target after a sidebar selection and a context-row switch", async () => {
+it("shows the picked database's notebook, or its start commands, without moving a cell or its staged edits", async () => {
   addSecondDatabase();
-  const id = runActions.openSqlTab({ db: { connectionId: "p", database: "shop" } });
-  const user = userEvent.setup();
-  render(<Sidebar hosted={null} />);
-  await user.click(screen.getByTestId("tree-node-Postgres/shop"));
-  await act(() => runActions.setTabTarget(id, { connectionId: "q", database: "shop" }));
-  expect(screen.getByTestId("tree-node-Alpha/shop/public/orders")).toBeTruthy();
-  expect(screen.queryByTestId("tree-node-Postgres/shop/public/orders")).toBeNull();
-});
-
-it("keeps browsing the confirmed database when staged edits reject a sidebar switch", async () => {
-  addSecondDatabase();
-  const id = runActions.openSqlTab({ db: { connectionId: "p", database: "shop" } });
+  const shop = { connectionId: "p", database: "shop" };
+  const id = runActions.openSqlTab({ db: shop });
   useTableEdits.getState().addRow(id);
   const user = userEvent.setup();
   render(<Sidebar hosted={null} />);
   await user.click(screen.getByTestId("tree-node-Alpha/shop"));
-  expect(useWorkspace.getState().tabs[id]?.console.db).toEqual({ connectionId: "p", database: "shop" });
+  expect(useWorkspace.getState().shown).toEqual({ kind: "start", db: { connectionId: "q", database: "shop" } });
+  expect(useWorkspace.getState().tabs[id]?.console.db).toEqual(shop);
+  expect(useTableEdits.getState().byTab[id]?.inserts).toHaveLength(1);
+  expect(screen.getByTestId("tree-node-Alpha/shop/public/orders")).toBeTruthy();
+  expect(screen.queryByTestId("tree-node-Postgres/shop/public/orders")).toBeNull();
+  await user.click(screen.getByTestId("tree-node-Postgres/shop"));
+  expect(activeId(useWorkspace.getState())).toBe(id);
   expect(screen.getByTestId("tree-node-Postgres/shop/public/orders")).toBeTruthy();
-  expect(screen.queryByTestId("tree-node-Alpha/shop/public/orders")).toBeNull();
 });
 
 it("does not open a search match when the active cell has no database", async () => {
@@ -141,4 +137,29 @@ it("does not open a search match when the active cell has no database", async ()
   await user.type(screen.getByTestId("object-search"), "orders{Enter}");
   expect(open).not.toHaveBeenCalled();
   expect(screen.queryByRole("tree", { name: "Database objects" })).toBeNull();
+});
+
+it("marks a database whose notebook is still running or holds a transaction", () => {
+  useLive.setState({ connections: { p: connectedState("p", [databaseState("shop", true, ["public"]), databaseState("postgres", true, [])]) } });
+  const shop = runActions.openSqlTab({ db: { connectionId: "p", database: "shop" } });
+  const postgres = runActions.openSqlTab({ db: { connectionId: "p", database: "postgres" } });
+  const console = (tabId: string, patch: Partial<ConsoleState>): ConsoleState => ({
+    tabId,
+    rev: 1,
+    config: { connectionId: "p", database: "shop", schema: null, mode: "Manual" },
+    session: { kind: "Open", backendPid: 1 },
+    txn: "Idle",
+    txnDepth: null,
+    work: null,
+    export: null,
+    import: null,
+    run: { kind: "Idle" },
+    ...patch,
+  });
+  useLive.setState({ consoles: { [shop]: console(shop, { work: "Run" }), [postgres]: console(postgres, { txn: "Active" }) } });
+  render(<Sidebar hosted={null} />);
+  expect(screen.getByTestId("notebook-marker-Postgres/shop").textContent).toBe("Running");
+  expect(screen.getByTestId("notebook-marker-Postgres/postgres").textContent).toBe("Open transaction");
+  act(() => useLive.setState({ consoles: {} }));
+  expect(screen.queryByTestId("notebook-marker-Postgres/shop")).toBeNull();
 });

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { ConnectionConfig, ConsoleState, OutputEntry, QueryError, ResultMeta, RunOutput, RunState, StatementRun, Workspace } from "../ipc/bindings";
-import { hasUncommittedWork, outputTone, resultView, rowResults, runSummary, shownResult } from "./status";
+import { hasUncommittedWork, notebookActivity, outputTone, resultView, rowResults, runSummary, shownResult } from "./status";
 import { nextUntitled, tabFromSnapshot, workspaceSnapshot, type Tab } from "./workspace";
+import { cellsState } from "../testing/notebooks";
 
 const meta = (index: number, rowCount: number, extra: Partial<ResultMeta> = {}): ResultMeta => ({
   ref: { tabId: "t", runId: 1, index },
@@ -177,6 +178,18 @@ describe("outputTone", () => {
   });
 });
 
+it("says a notebook is running before it says it holds a transaction", () => {
+  const consoles = {
+    idle: consoleWith("Manual", "Idle"),
+    open: consoleWith("Manual", "Active"),
+    aborted: consoleWith("Manual", "Aborted"),
+    count: { ...consoleWith("AutoCommit", "Idle"), work: "Count" as const },
+  };
+  expect(notebookActivity(consoles, ["idle", "gone"])).toBeNull();
+  expect(notebookActivity(consoles, ["idle", "aborted"])).toBe("transaction");
+  expect(notebookActivity(consoles, ["open", "count"])).toBe("running");
+});
+
 describe("workspace snapshot", () => {
   const configs: Record<string, ConnectionConfig> = {
     c: {
@@ -212,9 +225,7 @@ describe("workspace snapshot", () => {
     },
   ];
   const state = {
-    tabs: Object.fromEntries(tabs.map((t) => [t.id, t])),
-    order: ["b", "a"],
-    active: "a",
+    ...cellsState([tabs[1]!, tabs[0]!], "a"),
     layout: {
       sidebar: true,
       results: false,
@@ -253,6 +264,11 @@ describe("workspace snapshot", () => {
     ]);
     expect(snap.tabs.map((t) => tabFromSnapshot(t, configs))).toEqual([tabs[1], tabs[0]]);
     expect(snap.layout).toEqual(state.layout);
+    expect(snap.notebooks.map((n) => [n.title, n.cells, n.active])).toEqual([
+      ["shop", ["b"], "b"],
+      ["reporting", ["a"], "a"],
+    ]);
+    expect([snap.active, snap.shown]).toEqual(["a", snap.notebooks[1]?.id]);
   });
 
   it("restores a table tab saved before tabs were one shape as an auto-commit tab named after its table", () => {

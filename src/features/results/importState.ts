@@ -4,7 +4,7 @@ import { commands, type ImportPreview, type ImportSourceId, type ImportTarget } 
 import { importErrorText } from "../../ipc/errors";
 import { useLive } from "../../state/live";
 import { NO_EDITS, pendingCount, useTableEdits } from "../../state/tableEdits";
-import { confirm, isTableTab, useWorkspace, type TableTab } from "../../state/workspace";
+import { activeId, confirm, isTableTab, useWorkspace, type TableTab } from "../../state/workspace";
 import { ensureConsole, openTableTab, setTablePage } from "../editor/runActions";
 
 type Intent = { tab: TableTab; target: ImportTarget; file: string; valid: () => boolean };
@@ -62,7 +62,7 @@ export async function beginImport(target: ImportTarget): Promise<void> {
     const now = workspace.tabs[tabId];
     return (
       sequence === attempt &&
-      workspace.active === tabId &&
+      activeId(workspace) === tabId &&
       workspace.screen.kind === "workspace" &&
       isTableTab(now) &&
       now.console === tab.console &&

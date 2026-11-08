@@ -1,7 +1,7 @@
 import { mockIPC, clearMocks } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useLive } from "../../state/live";
-import { useWorkspace } from "../../state/workspace";
+import { allCells, shownDb, useWorkspace } from "../../state/workspace";
 import { connectedState, connectionConfig, databaseState } from "../../testing/connections";
 import { dropEditor, textOf } from "../editor/editorStates";
 import { openSqlTab } from "../editor/runActions";
@@ -20,24 +20,27 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  for (const id of ws().order) dropEditor(id);
+  for (const id of Object.keys(ws().tabs)) dropEditor(id);
   useWorkspace.setState(useWorkspace.getInitialState(), true);
   useLive.setState(useLive.getInitialState(), true);
   clearMocks();
   vi.unstubAllGlobals();
 });
 
-it("switches databases by reusing the active matching SQL tab and leaves all existing session targets intact", async () => {
+it("switches to the database's notebook at the cell it left active, and leaves every session target intact", async () => {
   const calls: string[] = [];
   mockIPC((cmd) => calls.push(cmd));
   const first = openSqlTab({ db: reporting });
-  const second = openSqlTab({ db: reporting });
+  openSqlTab({ db: reporting });
+  ws().setActive(first);
   const original = ws().tabs;
   ws().open({ kind: "navigation" });
-  expect(await activateDestination({ kind: "database", db: reporting })).toBe(second);
-  expect(ws().tabs).toBe(original);
-  ws().setActive(openSqlTab({ db: shop }));
   expect(await activateDestination({ kind: "database", db: reporting })).toBe(first);
+  expect(ws().tabs).toBe(original);
+  openSqlTab({ db: shop });
+  expect(shownDb(ws())).toEqual(shop);
+  expect(await activateDestination({ kind: "database", db: reporting })).toBe(first);
+  expect(shownDb(ws())).toEqual(reporting);
   expect(calls).toEqual([]);
 });
 
@@ -68,7 +71,7 @@ it("rejects a stale locator that openSqlTab would resolve to a different databas
   state.status.instance = { ...state.status.instance, configuredDatabase: "other", home: "shop" };
   useLive.setState({ connections: { [state.id]: state } });
   expect(await activateDestination({ kind: "database", db: { ...shop, database: "other" } })).toBeNull();
-  expect(ws().order).toEqual([]);
+  expect(allCells(ws())).toEqual([]);
 });
 
 it("uses the engine table action and closes the popup before its asynchronous error or question", async () => {

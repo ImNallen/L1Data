@@ -9,6 +9,7 @@ import { RightPanel } from "./RightPanel";
 import { ResizeEdges, WindowControlButtons } from "./WindowChrome";
 import { TopBar } from "./TopBar";
 import { hostedWindow, type CustomChrome } from "./hostedWindow";
+import { cellsState } from "../testing/notebooks";
 
 const MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15";
 const WINDOWS = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
@@ -30,7 +31,7 @@ function inTauri(userAgent: string) {
   vi.stubGlobal("navigator", { userAgent });
 }
 
-const { layout: initialLayout, tabs: initialTabs, active: initialActive, configs: initialConfigs, order: initialOrder } = useWorkspace.getInitialState();
+const { layout: initialLayout, tabs: initialTabs, notebooks: initialNotebooks, shown: initialShown, configs: initialConfigs } = useWorkspace.getInitialState();
 
 beforeAll(preloadSurfaces);
 
@@ -39,9 +40,9 @@ afterEach(() => {
   Object.assign(useWorkspace.getInitialState(), {
     layout: initialLayout,
     tabs: initialTabs,
-    active: initialActive,
+    notebooks: initialNotebooks,
+    shown: initialShown,
     configs: initialConfigs,
-    order: initialOrder,
   });
 });
 
@@ -225,7 +226,7 @@ it("drops the sidebar resize handle while the sidebar is hidden", () => {
 
 function withQueryTab() {
   const tab: Tab = { id: "t1", title: "Untitled-1.sql", console: { db: null, mode: "AutoCommit" }, table: null, file: null };
-  Object.assign(useWorkspace.getInitialState(), { tabs: { t1: tab }, order: ["t1"], active: "t1" });
+  Object.assign(useWorkspace.getInitialState(), cellsState([tab]));
 }
 
 it("keeps an unrun cell compact and its results directly below it", () => {
@@ -310,7 +311,7 @@ function withTableTab(mode: TxnMode = "AutoCommit", color: string | null = null)
     environment: null,
     sqlServerAuth: null,
   };
-  Object.assign(useWorkspace.getInitialState(), { tabs: { t2: tab }, order: ["t2"], active: "t2", configs: { c: config } });
+  Object.assign(useWorkspace.getInitialState(), { ...cellsState([tab]), configs: { c: config } });
 }
 
 it("shows the transaction mode and cursor position on a table tab", () => {

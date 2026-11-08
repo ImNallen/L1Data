@@ -12,7 +12,7 @@ import { savedQueryErrorText } from "../../ipc/errors";
 import { databaseKindFor } from "../../state/databaseKind";
 import { homeDb } from "../../state/dbKey";
 import { useLive } from "../../state/live";
-import { tabTarget, useWorkspace } from "../../state/workspace";
+import { activeId, activeTab, tabTarget, useWorkspace } from "../../state/workspace";
 import { editorStateOf, insertAtCursor } from "../editor/editorStates";
 import { isBrowsing, openSqlTab, selectionTarget, textTarget } from "../editor/runActions";
 
@@ -26,7 +26,7 @@ function showSaved(reply: SaveQueryReply) {
 export async function saveActiveQuery(): Promise<void> {
   const s = ws();
   if (s.screen.kind !== "workspace" || s.overlay.kind !== "none") return;
-  const tab = s.active ? s.tabs[s.active] : undefined;
+  const tab = activeTab(s);
   if (!tab || isBrowsing(tab)) return s.notify("Open a query tab to save a query.");
   const state = editorStateOf(tab.id);
   const res = await commands.savedQuerySave(state.doc.toString(), selectionTarget(state), textTarget(tab).databaseKind);
@@ -43,7 +43,7 @@ export async function saveHistoryQuery(sql: string, databaseKind: DatabaseKind):
 
 export function canInsert(): boolean {
   const s = ws();
-  const tab = s.active ? s.tabs[s.active] : undefined;
+  const tab = activeTab(s);
   return tab !== undefined && !isBrowsing(tab);
 }
 
@@ -54,7 +54,7 @@ function markUsed(id: SavedQueryId): void {
 }
 
 export function insertSaved(q: SavedQuery): void {
-  const id = ws().active;
+  const id = activeId(ws());
   if (!id) return;
   insertAtCursor(id, q.sql);
   markUsed(q.id);
@@ -62,7 +62,7 @@ export function insertSaved(q: SavedQuery): void {
 
 function targetFor(kind: DatabaseKind): DatabaseRef | null {
   const s = ws();
-  const active = tabTarget(s.active ? s.tabs[s.active] : undefined);
+  const active = tabTarget(activeTab(s)) ?? (s.shown.kind === "start" ? s.shown.db : null);
   if (active && databaseKindFor(active, s.configs) === kind) return active;
   const live = useLive.getState().connections;
   const ofKind = Object.values(s.configs).filter((c) => c.databaseKind === kind);

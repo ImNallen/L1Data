@@ -8,6 +8,7 @@ import { useLive } from "../../state/live";
 import { dropRowCaches } from "../../state/rowCache";
 import { useWorkspace, type Tab } from "../../state/workspace";
 import { ResultsPane } from "./ResultsPane";
+import { cellsState } from "../../testing/notebooks";
 
 const TAB = "pager-test";
 const db = { connectionId: "c1", database: "shop" };
@@ -104,7 +105,7 @@ beforeEach(() => {
     if (cmd === "settings_set") return null;
     throw new Error(`Unexpected IPC command: ${cmd}`);
   });
-  useWorkspace.setState({ tabs: { [TAB]: tab }, order: [TAB], active: TAB });
+  useWorkspace.setState(cellsState([tab]));
 });
 
 afterEach(() => {

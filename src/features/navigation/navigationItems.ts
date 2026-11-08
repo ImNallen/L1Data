@@ -1,8 +1,9 @@
 import type { DatabaseRef, TabId } from "../../ipc/bindings";
 import { findRelation, isViewKind, type CatalogView } from "../../state/catalog";
-import { dbKey, homeDb, sameDb, type DbKey } from "../../state/dbKey";
+import { dbKey, homeDb, type DbKey } from "../../state/dbKey";
 import { instanceOf, type LiveData } from "../../state/live";
-import type { RelationRef, Tab, WorkspaceData } from "../../state/workspace";
+import { notebookFor } from "../../state/notebooks";
+import { activeId, allCells, type RelationRef, type WorkspaceData } from "../../state/workspace";
 import { parseQuery, startsWords } from "../../ui/textMatch";
 
 export type Destination = { kind: "tab"; tabId: TabId } | { kind: "database"; db: DatabaseRef } | { kind: "relation"; ref: RelationRef };
@@ -16,19 +17,14 @@ export type NavigationItem = {
   destination: Destination;
 };
 
-type Tabs = Pick<WorkspaceData, "tabs" | "order" | "active">;
-export type NavigationSource = Tabs & Pick<WorkspaceData, "configs"> & Pick<LiveData, "connections"> & { views: Record<DbKey, CatalogView> };
-
-export function sqlTabForDatabase(source: Tabs, db: DatabaseRef): Tab | undefined {
-  const matches = (tab: Tab | undefined) => tab?.table === null && sameDb(tab.console.db, db);
-  const active = source.active ? source.tabs[source.active] : undefined;
-  return matches(active) ? active : source.order.map((id) => source.tabs[id]).find(matches);
-}
+export type NavigationSource = Pick<WorkspaceData, "tabs" | "notebooks" | "shown" | "configs"> &
+  Pick<LiveData, "connections"> & { views: Record<DbKey, CatalogView> };
 
 export function navigationItems(source: NavigationSource): NavigationItem[] {
   const items: NavigationItem[] = [];
   const connectionName = (db: DatabaseRef) => source.configs[db.connectionId]?.name ?? db.connectionId;
-  for (const id of source.order) {
+  const active = activeId(source);
+  for (const id of allCells(source)) {
     const tab = source.tabs[id];
     if (!tab) continue;
     const db = tab.console.db;
@@ -39,7 +35,7 @@ export function navigationItems(source: NavigationSource): NavigationItem[] {
       label: tab.title,
       context: [db ? `${connectionName(db)} / ${db.database}` : "No database", tab.table?.schema, tab.file?.binding.path].filter(Boolean).join(" / "),
       kindLabel,
-      action: source.active === id ? "Focus active tab" : "Switch to tab",
+      action: active === id ? "Focus active tab" : "Switch to tab",
       destination: { kind: "tab", tabId: id },
     });
   }
@@ -48,13 +44,13 @@ export function navigationItems(source: NavigationSource): NavigationItem[] {
     const databases = instance ? instance.databases.filter((db) => db.access === "Ok").map((db) => db.name) : [homeDb(config).database];
     for (const database of databases) {
       const db = { connectionId: config.id, database };
-      const tab = sqlTabForDatabase(source, db);
+      const notebook = notebookFor(source.notebooks, db);
       items.push({
         id: JSON.stringify(["database", config.id, database]),
         label: database,
         context: `${config.name} / ${instance ? "Connected" : "Disconnected · saved home database"}`,
         kindLabel: "Database",
-        action: tab ? `Switch to ${tab.title}` : "Open new query in this database",
+        action: notebook ? `Switch to the ${notebook.title} notebook` : "Open new query in this database",
         destination: { kind: "database", db },
       });
       const view = source.views[dbKey(db)];

@@ -5,6 +5,7 @@ import type { ConsoleState, RunState, StatementRun } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
 import { useWorkspace, type Tab } from "../../state/workspace";
 import { ResultsPane } from "./ResultsPane";
+import { cellsState } from "../../testing/notebooks";
 
 const db = { connectionId: "c1", database: "shop" };
 const tab = (id: string): Tab => ({ id, title: "Query", console: { db, mode: "AutoCommit" }, table: null, file: null });
@@ -43,7 +44,7 @@ function setRun(tabId: string, run: RunState) {
 }
 
 beforeEach(() => {
-  useWorkspace.setState({ tabs: { t1: tab("t1") }, order: ["t1"], active: "t1" });
+  useWorkspace.setState(cellsState([tab("t1")]));
 });
 
 afterEach(() => {

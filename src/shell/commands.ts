@@ -4,7 +4,7 @@ import { isBrowsing, openSqlTab, submitEdits } from "../features/editor/runActio
 import { saveActiveQuery } from "../features/saved/savedActions";
 import { openNavigation } from "../features/navigation/navigationActions";
 import { pendingCount, useTableEdits } from "../state/tableEdits";
-import { useWorkspace, type Overlay } from "../state/workspace";
+import { activeId, activeTab, shownDb, useWorkspace, type Overlay } from "../state/workspace";
 import { isMac } from "./hostedWindow";
 
 export type CommandGroup = "Query" | "Connections" | "Workspace";
@@ -40,8 +40,7 @@ export function openCommandPalette(): void {
 }
 
 const hasWorkspaceTab = () => {
-  const { screen, active, tabs } = ws();
-  return screen.kind === "workspace" && active !== null && tabs[active] !== undefined;
+  return ws().screen.kind === "workspace" && activeTab(ws()) !== undefined;
 };
 
 function toggleSaved() {
@@ -50,8 +49,17 @@ function toggleSaved() {
   if (!wasOpen) ws().open({ kind: "saved", entry: { kind: "browse" } });
 }
 
+const startsNotebook = () => ws().shown.kind === "start" && shownDb(ws()) !== null;
+
 export const START_COMMANDS: Command[] = [
-  { id: "new-query", group: "Query", label: "New query tab", key: "t", run: inWorkspace(() => openSqlTab()) },
+  {
+    id: "new-query",
+    group: "Query",
+    label: "New query tab",
+    labelForContext: () => (startsNotebook() ? "New notebook" : "New query tab"),
+    key: "t",
+    run: inWorkspace(() => openSqlTab()),
+  },
   { id: "open-file", group: "Query", label: "Open file…", key: "o", run: () => void openFiles() },
   { id: "new-connection", group: "Connections", label: "New connection", key: "n", run: open({ kind: "connection", editing: null }) },
   { id: "navigation", group: "Workspace", label: "Quick navigation", key: "p", run: openNavigation },
@@ -74,7 +82,9 @@ const CLOSE_TAB: Command = {
   labelForContext: () => (ws().screen.kind === "settings" ? "Close Settings" : "Close tab"),
   available: () => ws().screen.kind === "settings" || hasWorkspaceTab(),
   run: () => {
-    const { screen, active, closeSettings } = ws();
+    const workspace = ws();
+    const { screen, closeSettings } = workspace;
+    const active = activeId(workspace);
     if (screen.kind === "settings") closeSettings();
     else if (active)
       void closeTab(active).then(() => {
@@ -93,7 +103,9 @@ const CLOSE_TAB: Command = {
  * table edits in the active tab, ⌘S submits them wherever focus is.
  */
 const saveActive = (mode: SaveMode) => () => {
-  const { screen, overlay, active } = ws();
+  const workspace = ws();
+  const { screen, overlay } = workspace;
+  const active = activeId(workspace);
   if (screen.kind !== "workspace" || overlay.kind !== "none" || !active) return;
   const edits = useTableEdits.getState().byTab[active];
   if (mode === "save" && edits && pendingCount(edits) > 0) void submitEdits(active);
@@ -110,8 +122,7 @@ const SAVE_QUERY: Command = {
   key: "e",
   shift: true,
   available: () => {
-    const { active, tabs } = ws();
-    const tab = active ? tabs[active] : undefined;
+    const tab = activeTab(ws());
     return hasWorkspaceTab() && tab !== undefined && !isBrowsing(tab);
   },
   run: () => void saveActiveQuery(),

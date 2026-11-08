@@ -9,6 +9,7 @@ import { EMPTY_QUERY, useWorkspace, type TableTab } from "../../state/workspace"
 import { dropEditor, seedEditor } from "../editor/editorStates";
 import { browseTemplate } from "../editor/runActions";
 import { ResultsPane } from "./ResultsPane";
+import { cellsState } from "../../testing/notebooks";
 
 const db = { connectionId: "c1", database: "shop" };
 const tab: TableTab = {
@@ -37,9 +38,7 @@ beforeEach(async () => {
     throw new Error(`Unexpected IPC command: ${cmd}`);
   });
   useWorkspace.setState({
-    tabs: { [tab.id]: tab },
-    order: [tab.id],
-    active: tab.id,
+    ...cellsState([tab]),
     settings: { ...useWorkspace.getState().settings, tablePageSize: 1000, maxRows: 100 },
   });
   await browseTemplate(db, tab.table.schema, tab.table.table);

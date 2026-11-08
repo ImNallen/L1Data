@@ -2,7 +2,7 @@ import { commands, type ChatId, type RestartImpact, type TabId, type UpdateError
 import { updateErrorText } from "../../ipc/errors";
 import { useLive } from "../../state/live";
 import { pendingCount, useTableEdits } from "../../state/tableEdits";
-import { confirm, useWorkspace } from "../../state/workspace";
+import { allCells, confirm, useWorkspace } from "../../state/workspace";
 import { flushWorkspaceSave } from "../editor/persistence";
 import { restartBody, restartTitle, type UpdateAction } from "./updateText";
 
@@ -38,7 +38,7 @@ const chatTitle = (id: ChatId) => useLive.getState().chats[id]?.title || "an unt
 
 function tabsWithUnsubmittedEdits(): TabId[] {
   const { byTab } = useTableEdits.getState();
-  return ws().order.filter((id) => {
+  return allCells(ws()).filter((id) => {
     const edits = byTab[id];
     return edits !== undefined && pendingCount(edits) > 0;
   });

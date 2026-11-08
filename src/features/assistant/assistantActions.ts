@@ -18,7 +18,7 @@ import { approveErrorText, chatErrorText, sendErrorText } from "../../ipc/errors
 import { useLive } from "../../state/live";
 import { resultView, type ResultPick, type RowResult } from "../../state/status";
 import { needsResync } from "../../state/transcript";
-import { confirm, useWorkspace, type Tab } from "../../state/workspace";
+import { activeId, activeTab, confirm, useWorkspace, type Tab } from "../../state/workspace";
 import { editorStateOf, focusEditor, insertAtCursor, replaceDoc } from "../editor/editorStates";
 import { flushSettings, openSqlTab, runActive } from "../editor/runActions";
 
@@ -81,8 +81,8 @@ export async function sendMessage(chatId: ChatId, text: string, attach: boolean)
     notify("Could not save settings. Save assistant access again before sending.");
     return false;
   }
-  const { active, tabs, settings } = ws();
-  const tab = active ? tabs[active] : undefined;
+  const { settings } = ws();
+  const tab = activeTab(ws());
   const full = settings.assistantAccess === "Full";
   const context = tab ? tabContext(tab, editorStateOf(tab.id), full && attach ? shownResultRef(tab.id) : null) : null;
   if (context && !full) {
@@ -139,14 +139,14 @@ export function openInNewTab(sql: string, db: DatabaseRef | null): void {
 }
 
 export function insertSql(sql: string): void {
-  const id = ws().active;
+  const id = activeId(ws());
   if (!id) return void openSqlTab({ text: sql });
   insertAtCursor(id, sql);
   focusEditor();
 }
 
 export function replaceTabSql(sql: string): void {
-  const id = ws().active;
+  const id = activeId(ws());
   if (!id) return void openSqlTab({ text: sql });
   replaceDoc(id, sql);
   focusEditor();

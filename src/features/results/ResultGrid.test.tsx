@@ -283,7 +283,7 @@ afterEach(() => {
   clearMocks();
   detailReads = 0;
   dropRowCaches("q1");
-  for (const id of useWorkspace.getState().order) dropEditor(id);
+  for (const id of Object.keys(useWorkspace.getState().tabs)) dropEditor(id);
   useWorkspace.setState(useWorkspace.getInitialState(), true);
   useCatalog.setState(useCatalog.getInitialState(), true);
   useRelationDetail.setState(useRelationDetail.getInitialState(), true);
