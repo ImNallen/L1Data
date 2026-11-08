@@ -75,6 +75,7 @@ export type Overlay =
   | { kind: "none" }
   | { kind: "history" }
   | { kind: "navigation" }
+  | { kind: "notebooks" }
   | { kind: "commands" }
   | { kind: "usage" }
   | { kind: "saved"; entry: SavedEntry }

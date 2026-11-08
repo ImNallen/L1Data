@@ -408,23 +408,25 @@ function defaultTarget(): DatabaseRef | null {
 }
 
 /** Opens a SQL cell in the notebook for its database, at the end or right after `after`, and shows that notebook. */
-export function openSqlTab(opts: { db?: DatabaseRef | null; schema?: string | null; text?: string; title?: string; after?: TabId } = {}): TabId {
+/** `newNotebook` starts a notebook with the cell even when its database has one. */
+export function openSqlTab(
+  opts: { db?: DatabaseRef | null; schema?: string | null; text?: string; title?: string; after?: TabId; newNotebook?: boolean } = {},
+): TabId {
   const id = crypto.randomUUID();
   const inheritedSchema = activeTab(ws())?.console.schema;
   const schema = opts.schema !== undefined ? opts.schema : opts.db === undefined ? inheritedSchema : undefined;
   const target = opts.db === undefined ? defaultTarget() : opts.db;
   const db = target && resolveDb(target, useLive.getState().connections[target.connectionId]);
   seedEditor(id, opts.text ?? "");
-  ws().addTab(
-    {
-      id,
-      title: opts.title ?? nextUntitled(Object.values(ws().tabs)),
-      console: { db, mode: "AutoCommit", ...(schema && { schema }) },
-      table: null,
-      file: null,
-    },
-    opts.after,
-  );
+  const tab: Tab = {
+    id,
+    title: opts.title ?? nextUntitled(Object.values(ws().tabs)),
+    console: { db, mode: "AutoCommit", ...(schema && { schema }) },
+    table: null,
+    file: null,
+  };
+  if (opts.newNotebook) ws().addNotebook(tab);
+  else ws().addTab(tab, opts.after);
   return id;
 }
 
