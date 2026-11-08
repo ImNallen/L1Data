@@ -63,13 +63,22 @@ export function shownResult(run: RunState, picked: ResultPick | undefined): RowR
   return results.find((r) => r.index === index) ?? results.at(-1);
 }
 
-export type ResultView = { kind: "rows"; result: RowResult } | { kind: "plan"; result: RowResult } | { kind: "output" } | { kind: "tail" };
+export type ResultView =
+  | { kind: "rows"; result: RowResult }
+  | { kind: "plan"; result: RowResult }
+  | { kind: "chart"; result: RowResult }
+  | { kind: "output" }
+  | { kind: "tail" };
 
-export function resultView(run: RunState, picked: ResultPick | undefined, hasOutput: boolean, preferRows = false): ResultView {
+/** How the shown result asks to be drawn. "default" is the plan for a plan result, else rows. */
+export type ResultDisplay = "default" | "rows" | "chart";
+
+export function resultView(run: RunState, picked: ResultPick | undefined, hasOutput: boolean, display: ResultDisplay): ResultView {
   const pickedOutput = typeof picked === "object" && run.kind !== "Idle" && picked.runId === run.runId;
   if (hasOutput && pickedOutput) return { kind: "output" };
   const result = shownResult(run, picked);
-  if (result?.plan && !preferRows) return { kind: "plan", result };
+  if (result?.plan && display !== "rows") return { kind: "plan", result };
+  if (result && display === "chart") return { kind: "chart", result };
   if (result) return { kind: "rows", result };
   return hasOutput ? { kind: "output" } : { kind: "tail" };
 }

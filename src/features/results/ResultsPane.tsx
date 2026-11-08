@@ -1,5 +1,6 @@
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import {
+  ChartColumnIcon,
   CheckIcon,
   ChevronDownIcon,
   ChevronFirstIcon,
@@ -10,12 +11,24 @@ import {
   MinusIcon,
   PlusIcon,
   SquareTerminalIcon,
+  Table2Icon,
   Undo2Icon,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import type { ConsoleState, QueryError, RunState, TabId } from "../../ipc/bindings";
 import { useLive, type OutputLog } from "../../state/live";
-import { isBusy, outputTone, resultView, rowResults, runStatements, runSummary, shownResult, type ResultView, type Summary } from "../../state/status";
+import {
+  isBusy,
+  outputTone,
+  resultView,
+  rowResults,
+  runStatements,
+  runSummary,
+  shownResult,
+  type ResultDisplay,
+  type ResultView,
+  type Summary,
+} from "../../state/status";
 import { useCatalog, viewFor } from "../../state/catalog";
 import { databaseKindFor } from "../../state/databaseKind";
 import { NO_EDITS, pendingCount, useTableEdits } from "../../state/tableEdits";
@@ -34,6 +47,8 @@ import {
   submitEdits,
   updateTableQuery,
 } from "../editor/runActions";
+import { defaultChart, type ChartSpec } from "./chart";
+import { ChartView } from "./ChartView";
 import { ExportMenu } from "./ExportMenu";
 import { FilterBar } from "./FilterBar";
 import { groupDigits, hasResultPager, PAGE_SIZES, pageStatus, pluralRows, resultPage, type RowWindow } from "./format";
@@ -249,6 +264,25 @@ function EditBar({
   );
 }
 
+type DisplayPref = { key: string; display: ResultDisplay; chart: ChartSpec | null };
+
+function Segment({ testId, pressed, onClick, children }: { testId: string; pressed: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      aria-pressed={pressed}
+      onClick={onClick}
+      className={cx(
+        "inline-flex h-6 items-center gap-1 rounded-[5px] border px-2 text-ui-12 transition-colors",
+        pressed ? "border-control bg-raised text-fg shadow-[0_1px_2px_rgba(0,0,0,0.08)]" : "border-transparent text-dim hover:text-fg",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
 function failedError(run: RunState): QueryError | undefined {
   if (run.kind !== "Finished") return undefined;
   const failed = run.statements.find((s) => s.status.kind === "Failed");
@@ -288,6 +322,8 @@ function ResultBody({
   onSelectionTotals,
   rowWindow,
   onFindOutsideWindow,
+  chart,
+  onChart,
 }: {
   run: RunState;
   view: ResultView;
@@ -298,6 +334,8 @@ function ResultBody({
   onSelectionTotals: (slot: SelectionSlot) => void;
   rowWindow: RowWindow | null;
   onFindOutsideWindow: (row: number) => void;
+  chart: ChartSpec | null;
+  onChart: (spec: ChartSpec) => void;
 }) {
   switch (view.kind) {
     case "rows":
@@ -316,6 +354,8 @@ function ResultBody({
       );
     case "plan":
       return <PlanView result={view.result} />;
+    case "chart":
+      return chart ? <ChartView result={view.result} spec={chart} onSpec={onChart} /> : <Empty>No number column to chart.</Empty>;
     case "output":
       return <OutputPanel log={output} />;
     case "tail": {
@@ -348,10 +388,16 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
   const summary = runSummary(run, picked, now);
   const output = useLive((s) => (tabId ? s.output[tabId] : undefined)) ?? NO_OUTPUT;
   const shownRef = shown ? `${shown.meta.ref.tabId}:${shown.meta.ref.runId}:${shown.index}` : "";
-  const [rowPref, setRowPref] = useState<{ key: string; prefer: boolean } | null>(null);
-  if ((rowPref?.key ?? "") !== shownRef) setRowPref({ key: shownRef, prefer: false });
-  const preferRows = rowPref?.key === shownRef && rowPref.prefer;
-  const view = resultView(run, picked, output.entries.length > 0, preferRows);
+  const fresh: DisplayPref = { key: shownRef, display: "default", chart: null };
+  const [displayPref, setDisplayPref] = useState(fresh);
+  const pref = displayPref.key === shownRef ? displayPref : fresh;
+  if (pref !== displayPref) setDisplayPref(pref);
+  const chartDefault = shown && !shown.plan ? defaultChart(shown.meta.columns) : null;
+  const view = resultView(run, picked, output.entries.length > 0, pref.display);
+  const showDisplay = (next: ResultDisplay) => {
+    setDisplayPref({ ...pref, display: next });
+    if (view.kind === "output" && tabId && shown) setActiveResult(tabId, shown.index);
+  };
   const tone = outputTone(output.entries);
   const outputPick = run.kind === "Idle" ? undefined : { kind: "output" as const, runId: run.runId, result: shown?.index };
 
@@ -426,7 +472,7 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
                 onClick={() => tabId && setActiveResult(tabId, r.index)}
                 className={cx(
                   "h-5 min-w-6 shrink-0 rounded px-1.5 font-mono text-ui-11.5",
-                  (view.kind === "rows" || view.kind === "plan") && view.result.index === r.index ? "bg-pill text-fg" : "text-dim hover:text-muted",
+                  "result" in view && view.result.index === r.index ? "bg-pill text-fg" : "text-dim hover:text-muted",
                 )}
               >
                 {i + 1}
@@ -462,9 +508,25 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
           {tab && <CursorPosition />}
           <div className="flex items-center gap-0.5">
             {shown?.plan && (
-              <Button data-testid="plan-rows-toggle" className="h-7 px-2" onClick={() => setRowPref({ key: shownRef, prefer: !preferRows })}>
-                {preferRows ? "Plan" : "Rows"}
+              <Button
+                data-testid="plan-rows-toggle"
+                className="h-7 px-2"
+                onClick={() => setDisplayPref({ ...pref, display: pref.display === "rows" ? "default" : "rows" })}
+              >
+                {pref.display === "rows" ? "Plan" : "Rows"}
               </Button>
+            )}
+            {chartDefault && (
+              <div role="group" aria-label="Result view" className="mr-1 flex h-7 items-center rounded-md bg-hover p-0.5">
+                <Segment testId="view-rows" pressed={view.kind === "rows"} onClick={() => showDisplay("rows")}>
+                  <Table2Icon size={12} />
+                  Rows
+                </Segment>
+                <Segment testId="view-chart" pressed={view.kind === "chart"} onClick={() => showDisplay("chart")}>
+                  <ChartColumnIcon size={12} />
+                  Chart
+                </Segment>
+              </div>
             )}
             <ExportMenu
               tab={tab}
@@ -521,6 +583,8 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
           onSelectionTotals={onSelectionTotals}
           rowWindow={queryPage?.window ?? null}
           onFindOutsideWindow={showRow}
+          chart={pref.chart ?? chartDefault}
+          onChart={(spec) => setDisplayPref({ ...pref, chart: spec })}
         />
       </div>
       {pager && <TablePager tab={pager} rows={shown?.meta.rowsSeen ?? 0} />}
