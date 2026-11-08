@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -1681,10 +1681,13 @@ pub struct NotebookSnapshot {
     pub active: Option<TabId>,
     /// When the notebook was last shown, in Unix milliseconds. Choosing a database shows its most recent notebook.
     pub shown_at_ms: u64,
+    /// `None` for a notebook not saved to a file.
+    pub file: Option<NotebookFileSnapshot>,
 }
 
-// Hand-written so a notebook saved before `shown_at_ms` loads as never shown. `#[serde(default)]` would mark the field
-// optional in the TS bindings.
+// Hand-written so a notebook saved before `shown_at_ms` loads as never shown, and one saved before `file` loads with
+// none. `#[serde(default)]` would mark the fields optional in the TS bindings. A build from before `file` ignores it,
+// so it opens the cells and loses only the binding.
 impl<'de> Deserialize<'de> for NotebookSnapshot {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
@@ -1697,10 +1700,35 @@ impl<'de> Deserialize<'de> for NotebookSnapshot {
             active: Option<TabId>,
             #[serde(default)]
             shown_at_ms: u64,
+            /// Parsed on its own, so a `file` a later build wrote drops the binding and keeps the notebook.
+            #[serde(default)]
+            file: Option<serde_json::Value>,
         }
-        let Saved { id, title, db, cells, active, shown_at_ms } = Saved::deserialize(d)?;
-        Ok(Self { id, title, db, cells, active, shown_at_ms })
+        let Saved { id, title, db, cells, active, shown_at_ms, file } = Saved::deserialize(d)?;
+        let file = file.and_then(|f| {
+            serde_json::from_value(f).inspect_err(|e| eprintln!("dropped a notebook's file binding this build cannot read: {e}")).ok()
+        });
+        Ok(Self { id, title, db, cells, active, shown_at_ms, file })
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct NotebookFileSnapshot {
+    pub binding: FileBinding,
+    /// The cells differed from the file when this snapshot was taken.
+    pub dirty: bool,
+    /// The file holds plain SQL, with no header and no cell marker.
+    pub plain: bool,
+    pub unknown: UnknownKeys,
+}
+
+/// Keys the file holds that this build does not read, written back on the next save.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UnknownKeys {
+    pub header: Vec<MetaPair>,
+    pub cells: HashMap<TabId, Vec<MetaPair>>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -1712,7 +1740,8 @@ pub struct TabSnapshot {
     pub text: Option<String>,
     pub console: ConsoleConfigSnapshot,
     pub table: Option<TableSnapshot>,
-    /// `None` for a scratch tab. A file tab's `text` is its buffer, saved or not.
+    /// Read only from workspaces saved while a file belonged to one tab, which the frontend moves into a notebook of
+    /// its own. This build writes `None`: a file belongs to a notebook.
     pub file: Option<FileSnapshot>,
 }
 
@@ -1799,7 +1828,7 @@ impl FileSnapshot {
     }
 }
 
-/// Made only by the engine (`file_open`, `file_save`); the frontend stores it whole and hands it back whole.
+/// Made only by the engine (`notebook_open`, `notebook_save`); the frontend stores it whole and hands it back whole.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct FileBinding {
@@ -2618,21 +2647,6 @@ pub enum ImportError {
     ConfirmWrites { confirmation: WriteConfirmation },
 }
 
-#[derive(Debug, Clone, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct FileOpened {
-    pub binding: FileBinding,
-    pub name: String,
-    pub text: String,
-}
-
-#[derive(Debug, Clone, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct FileSaved {
-    pub binding: FileBinding,
-    pub name: String,
-}
-
 #[derive(Debug, Clone, Deserialize, Type)]
 #[serde(tag = "kind", rename_all_fields = "camelCase")]
 pub enum SaveTarget {
@@ -2640,7 +2654,7 @@ pub enum SaveTarget {
     /// `overwrite`, the `disk` stamp of the `Changed` the user agreed to overwrite.
     Bound { binding: FileBinding, overwrite: Option<FileStamp> },
     /// A path from the save dialog, which already asked before replacing a file. No stamp check. Refused with
-    /// `OpenInAnotherTab` when it is the same file as one of `taken`, the paths the other tabs are bound to.
+    /// `OpenInAnotherNotebook` when it is the same file as one of `taken`, the paths the other notebooks are bound to.
     New { path: String, format: Option<FileFormat>, taken: Vec<String> },
 }
 
@@ -2665,8 +2679,8 @@ pub enum FileWriteError {
     NotFound,
     NotAFile,
     PermissionDenied,
-    /// `path` is the other tab's, which may name the file differently: a symlink, a hard link, another case.
-    OpenInAnotherTab { path: String },
+    /// `path` is the other notebook's, which may name the file differently: a symlink, a hard link, another case.
+    OpenInAnotherNotebook { path: String },
     Io { message: String },
 }
 
@@ -3358,11 +3372,66 @@ mod tests {
     }
 
     #[test]
-    fn a_notebook_saved_before_shown_at_ms_loads_as_never_shown() {
+    fn a_notebook_saved_before_shown_at_ms_or_file_loads_as_never_shown_with_no_file() {
         let mut old = notebook_json();
-        old.as_object_mut().unwrap().remove("shownAtMs");
+        old.as_object_mut().unwrap().retain(|k, _| k != "shownAtMs" && k != "file");
         let n: NotebookSnapshot = serde_json::from_value(old).unwrap();
-        assert_eq!((n.title.as_str(), n.cells.len(), n.shown_at_ms), ("shop", 1, 0));
+        assert_eq!((n.title.as_str(), n.cells.len(), n.shown_at_ms, n.file), ("shop", 1, 0, None));
+    }
+
+    fn notebook_file_json() -> serde_json::Value {
+        json!({
+            "binding": binding_json(), "dirty": true, "plain": false,
+            "unknown": { "header": [{ "key": "theme", "value": "dark" }], "cells": { TAB: [{ "key": "chart", "value": "bar" }] } }
+        })
+    }
+
+    #[test]
+    fn a_notebook_file_round_trips_with_the_keys_this_build_does_not_read() {
+        let mut value = notebook_json();
+        value["file"] = notebook_file_json();
+        let n: NotebookSnapshot = serde_json::from_value(value.clone()).unwrap();
+        let file = n.file.clone().expect("the file binding loads");
+        let pair = |key: &str, value: &str| MetaPair { key: key.into(), value: value.into() };
+        assert_eq!((file.binding.path.as_str(), file.dirty, file.plain), ("/Users/a/report.sql", true, false));
+        assert_eq!(file.unknown, UnknownKeys { header: vec![pair("theme", "dark")], cells: HashMap::from([(TabId(uuid(TAB)), vec![pair("chart", "bar")])]) });
+        assert_eq!(serde_json::to_value(&n).unwrap(), value);
+    }
+
+    #[test]
+    fn a_notebook_file_this_build_cannot_read_drops_the_binding_and_keeps_the_notebook() {
+        for file in [json!({ "binding": { "path": 3 } }), json!("x"), json!({ "binding": binding_json(), "dirty": false })] {
+            let mut value = notebook_json();
+            value["file"] = file.clone();
+            let n: NotebookSnapshot = serde_json::from_value(value).unwrap();
+            assert_eq!((n.title.as_str(), n.cells.len(), n.file), ("shop", 1, None), "{file}");
+        }
+        let mut later = notebook_file_json();
+        later["watched"] = json!(true);
+        let mut value = notebook_json();
+        value["file"] = later;
+        let n: NotebookSnapshot = serde_json::from_value(value).unwrap();
+        assert!(n.file.is_some(), "fields a later build adds do not drop the binding");
+    }
+
+    /// The `NotebookSnapshot` reader of the build before notebook files. Update this copy only when a release changes
+    /// the reader.
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct BeforeFilesNotebook {
+        id: NotebookId,
+        cells: Vec<TabId>,
+        #[serde(default)]
+        shown_at_ms: u64,
+    }
+
+    #[test]
+    fn the_build_before_notebook_files_opens_a_file_notebooks_cells() {
+        let mut value = notebook_json();
+        value["file"] = notebook_file_json();
+        let n: NotebookSnapshot = serde_json::from_value(value).unwrap();
+        let before: BeforeFilesNotebook = serde_json::from_value(serde_json::to_value(&n).unwrap()).unwrap();
+        assert_eq!((before.id, before.cells, before.shown_at_ms), (NotebookId(uuid(NOTEBOOK)), vec![TabId(uuid(TAB))], 1_700_000_000_000));
     }
 
     fn workspace_json(notebooks: serde_json::Value, shown: serde_json::Value) -> serde_json::Value {
@@ -3388,6 +3457,7 @@ mod tests {
             cells: vec![TabId(uuid(TAB))],
             active: Some(TabId(uuid(TAB))),
             shown_at_ms: 1_700_000_000_000,
+            file: None,
         };
         assert_eq!((&w.notebooks, w.shown), (&vec![notebook], Some(NotebookId(uuid(NOTEBOOK)))));
         let again: Workspace = serde_json::from_value(serde_json::to_value(&w).unwrap()).unwrap();
@@ -3404,8 +3474,10 @@ mod tests {
 
     #[test]
     fn the_previous_stable_build_loads_a_workspace_this_build_wrote() {
-        let tab: TabSnapshot = serde_json::from_value(file_tab(json!({ "binding": binding_json(), "dirty": true }))).unwrap();
-        let notebooks = vec![serde_json::from_value(notebook_json()).unwrap()];
+        let tab: TabSnapshot = serde_json::from_value(file_tab(json!(null))).unwrap();
+        let mut notebook = notebook_json();
+        notebook["file"] = notebook_file_json();
+        let notebooks = vec![serde_json::from_value(notebook).unwrap()];
         let workspace = Workspace { tabs: vec![tab], active: Some(TabId(uuid(TAB))), notebooks, shown: Some(NotebookId(uuid(NOTEBOOK))), ..Workspace::default() };
         let stable: StableWorkspace = serde_json::from_value(serde_json::to_value(&workspace).unwrap()).unwrap();
         let tab = &stable.tabs[0];
@@ -3421,8 +3493,8 @@ mod tests {
         let changed = FileWriteError::Changed { disk: FileStamp("1:ab".into()) };
         assert_eq!(serde_json::to_value(changed).unwrap(), json!({ "kind": "Changed", "disk": "1:ab" }));
         assert_eq!(serde_json::to_value(FileWriteError::NotFound).unwrap(), json!({ "kind": "NotFound" }));
-        let taken = FileWriteError::OpenInAnotherTab { path: "/a.sql".into() };
-        assert_eq!(serde_json::to_value(taken).unwrap(), json!({ "kind": "OpenInAnotherTab", "path": "/a.sql" }));
+        let taken = FileWriteError::OpenInAnotherNotebook { path: "/a.sql".into() };
+        assert_eq!(serde_json::to_value(taken).unwrap(), json!({ "kind": "OpenInAnotherNotebook", "path": "/a.sql" }));
     }
 
     #[test]

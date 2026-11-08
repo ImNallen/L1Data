@@ -210,7 +210,7 @@ describe("workspace snapshot", () => {
     },
   };
   const tabs: Tab[] = [
-    { id: "a", title: "Untitled-2.sql", console: { db: { connectionId: "c", database: "reporting" }, mode: "Manual" }, table: null, file: null },
+    { id: "a", title: "Untitled-2.sql", console: { db: { connectionId: "c", database: "reporting" }, mode: "Manual" }, table: null },
     {
       id: "b",
       title: "orders",
@@ -221,7 +221,6 @@ describe("workspace snapshot", () => {
         page: 3,
         query: { orderBy: "total DESC", filters: [{ column: "status", op: "Eq", value: "paid" }], where: "total > 10" },
       },
-      file: null,
     },
   ];
   const state = {
@@ -238,7 +237,7 @@ describe("workspace snapshot", () => {
   };
 
   it("round-trips every tab's text and mode, and a table tab's binding", () => {
-    const snap = workspaceSnapshot(state, { textOf: (id) => `-- text of ${id}`, isDirty: () => false });
+    const snap = workspaceSnapshot(state, { textOf: (id) => `-- text of ${id}`, isNotebookDirty: () => false });
     expect(snap.tabs).toEqual([
       {
         id: "b",
@@ -286,7 +285,6 @@ describe("workspace snapshot", () => {
       title: "orders",
       console: { db: { connectionId: "c", database: "shop" }, mode: "AutoCommit" },
       table: { schema: "public", table: "orders", page: 2, query: { orderBy: "", filters: [], where: "" } },
-      file: null,
     });
   });
 
@@ -296,8 +294,8 @@ describe("workspace snapshot", () => {
       { id: "d", title: "free.sql", text: "", console: { connectionId: null, database: null, schema: null, mode: "Manual" }, table: null, file: null },
     ];
     expect(saved.map((t) => tabFromSnapshot(t, configs))).toEqual([
-      { id: "a", title: "q.sql", console: { db: { connectionId: "c", database: "shop" }, mode: "AutoCommit", schema: "lab" }, table: null, file: null },
-      { id: "d", title: "free.sql", console: { db: null, mode: "Manual" }, table: null, file: null },
+      { id: "a", title: "q.sql", console: { db: { connectionId: "c", database: "shop" }, mode: "AutoCommit", schema: "lab" }, table: null },
+      { id: "d", title: "free.sql", console: { db: null, mode: "Manual" }, table: null },
     ]);
   });
 
@@ -310,7 +308,7 @@ describe("workspace snapshot", () => {
       table: { schema: "public", table: "orders", page: 0, query: { orderBy: "", filters: [], where: "" } },
       file: null,
     };
-    expect(tabFromSnapshot(saved, configs)).toEqual({ id: "b", title: "orders", console: { db: null, mode: "Manual" }, table: null, file: null });
+    expect(tabFromSnapshot(saved, configs)).toEqual({ id: "b", title: "orders", console: { db: null, mode: "Manual" }, table: null });
   });
 
   it("numbers new tabs after the highest Untitled", () => {

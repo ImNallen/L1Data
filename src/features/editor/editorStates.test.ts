@@ -23,9 +23,6 @@ import {
   editorStateOf,
   flashRanges,
   insertAtCursor,
-  isDirty,
-  markSynced,
-  markSyncedText,
   moveCursor,
   onBuffersChanged,
   replaceDoc,
@@ -509,34 +506,8 @@ it("changes to SQL Server syntax before a catalog arrives while retaining the do
   expect(syntaxTree(editorStateOf("t1")).toString()).not.toContain("QuotedIdentifier");
 });
 
-it("never calls a scratch tab dirty", () => {
+it("tells listeners when a background tab's text changes, and not for a cursor move or a flash", () => {
   seedEditor("t1", "select 1;");
-  insertAtCursor("t1", "-- more");
-  expect(isDirty("t1")).toBe(false);
-});
-
-it("calls a file tab dirty while its text differs from the file, and clean again once the text matches", () => {
-  seedEditor("t1", "select 1;", "seeded");
-  expect(isDirty("t1")).toBe(false);
-  insertAtCursor("t1", "-- more");
-  expect(isDirty("t1")).toBe(true);
-  replaceDoc("t1", "select 1;");
-  expect(isDirty("t1")).toBe(false);
-});
-
-it("calls a tab whose file contents are unknown dirty until the file is read", () => {
-  seedEditor("t1", "select 1;", "unknown");
-  expect(isDirty("t1")).toBe(true);
-  markSyncedText("t1", "select 2;");
-  expect(isDirty("t1")).toBe(true);
-  markSyncedText("t1", "select 1;");
-  expect(isDirty("t1")).toBe(false);
-  markSynced("t1", null);
-  expect(isDirty("t1")).toBe(true);
-});
-
-it("tells listeners when a background tab's text or baseline changes, and not for a cursor move or a flash", () => {
-  seedEditor("t1", "select 1;", "seeded");
   let calls = 0;
   const stop = onBuffersChanged(() => calls++);
   moveCursor("t1", 3);
@@ -544,16 +515,11 @@ it("tells listeners when a background tab's text or baseline changes, and not fo
   expect(calls).toBe(0);
   replaceDoc("t1", "select 2;");
   expect(calls).toBe(1);
-  markSynced("t1", docOf("t1") ?? null);
-  expect([calls, isDirty("t1")]).toEqual([2, false]);
   stop();
 });
 
-it("forgets a dropped tab's file, so the same id seeded again is a scratch tab", () => {
-  seedEditor("t1", "select 1;", "unknown");
+it("forgets a dropped tab's doc", () => {
+  seedEditor("t1", "select 1;");
   dropEditor("t1");
   expect(docOf("t1")).toBeUndefined();
-  markSynced("t1", null);
-  seedEditor("t1", "select 1;");
-  expect(isDirty("t1")).toBe(false);
 });

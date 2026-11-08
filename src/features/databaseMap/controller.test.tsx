@@ -83,7 +83,7 @@ function marks(): number[][] {
 beforeEach(() => {
   useLive.setState({ connections: { [db.connectionId]: connectedState(db.connectionId, [databaseState("shop", true, ["public"])]) } });
   useCatalog.setState({ views: { [dbKey(db)]: buildCatalogView(shopCatalog(db.connectionId, 1)) } });
-  useWorkspace.setState(cellsState([{ id: "sql", title: "Query", console: { db, mode: "AutoCommit" }, table: null, file: null }]));
+  useWorkspace.setState(cellsState([{ id: "sql", title: "Query", console: { db, mode: "AutoCommit" }, table: null }]));
   seedEditor("sql", sql);
   activateEditor("sql");
   vi.spyOn(commands, "databaseMapNeighborhood").mockImplementation(async (_db, oid) => ({ status: "ok", data: page(oid, oid === 1 ? [2, 3, 4] : []) }));
@@ -217,7 +217,7 @@ it.each(["edit", "cursor", "tab", "database", "root", "disconnect", "catalog", "
       break;
     case "tab":
       seedEditor("other", sql);
-      useWorkspace.getState().addTab({ id: "other", title: "Other", console: { db, mode: "AutoCommit" }, table: null, file: null });
+      useWorkspace.getState().addTab({ id: "other", title: "Other", console: { db, mode: "AutoCommit" }, table: null });
       activateEditor("other");
       break;
     case "database":

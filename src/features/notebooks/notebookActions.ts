@@ -6,6 +6,8 @@ import { confirm, useWorkspace } from "../../state/workspace";
 import { closeTab } from "../editor/closeTab";
 import { textOf } from "../editor/editorStates";
 import { openSqlTab } from "../editor/runActions";
+import { notebookDirty } from "./notebookDirty";
+import { keepNotebook } from "./notebookFiles";
 
 const ws = () => useWorkspace.getState();
 
@@ -24,33 +26,43 @@ export function holdsTransaction(cells: readonly TabId[]): boolean {
   return cells.some((id) => hasUncommittedWork(consoles[id]));
 }
 
-/** Nothing to lose: every cell is an untouched query cell with no transaction. */
+/** Nothing to lose: no transaction, and either a saved file holds every cell or every cell is an untouched query cell. */
 function isBlank(notebook: Notebook): boolean {
   const { tabs } = ws();
-  return !holdsTransaction(notebook.cells) && notebook.cells.every((id) => !tabs[id]?.table && !tabs[id]?.file && textOf(id).trim() === "");
+  if (holdsTransaction(notebook.cells)) return false;
+  return notebook.file ? !notebookDirty(notebook.id) : notebook.cells.every((id) => !tabs[id]?.table && textOf(id).trim() === "");
 }
 
 /**
  * Closes `cells` in order, rolling back their transactions without asking. A cell's own questions still ask, and a
- * Cancel keeps it and every cell after it. Resolves `true` when every cell closed.
+ * Cancel keeps it and every cell after it. Resolves `true` when every cell closed. The caller has already asked to save
+ * any file notebook the cells belong to.
  */
 export async function closeCells(cells: readonly TabId[]): Promise<boolean> {
   for (const id of cells) {
-    await closeTab(id, { rollBack: true });
+    await closeTab(id, { rollBack: true, fileAnswered: true });
     if (ws().tabs[id]) return false;
   }
   return true;
 }
 
-/** Asks first unless the notebook is blank. Its last cell closing removes it. */
+const ROLLED_BACK = "Any open transactions are rolled back.";
+
+/**
+ * An unsaved file notebook asks once to save, with Don't Save deleting it; any other asks first unless it is blank. Its
+ * last cell closing removes it, and its file stays on disk.
+ */
 export async function deleteNotebook(id: NotebookId): Promise<void> {
   const notebook = ws().notebooks[id];
   if (!notebook) return;
-  if (!isBlank(notebook)) {
+  const transactions = holdsTransaction(notebook.cells) ? ROLLED_BACK : undefined;
+  if (notebook.file && notebookDirty(id)) {
+    if ((await keepNotebook(id, null, transactions)) === false) return;
+  } else if (!isBlank(notebook)) {
     const n = notebook.cells.length;
     const ok = await confirm({
       title: `Delete ${notebook.title}?`,
-      body: `${n === 1 ? "Its 1 cell closes." : `Its ${n} cells close.`}${holdsTransaction(notebook.cells) ? " Any open transactions are rolled back." : ""}`,
+      body: `${n === 1 ? "Its 1 cell closes." : `Its ${n} cells close.`}${transactions ? ` ${transactions}` : ""}`,
       confirmLabel: "Delete",
     });
     if (!ok) return;

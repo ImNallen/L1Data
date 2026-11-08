@@ -225,7 +225,7 @@ it("drops the sidebar resize handle while the sidebar is hidden", () => {
 });
 
 function withQueryTab() {
-  const tab: Tab = { id: "t1", title: "Untitled-1.sql", console: { db: null, mode: "AutoCommit" }, table: null, file: null };
+  const tab: Tab = { id: "t1", title: "Untitled-1.sql", console: { db: null, mode: "AutoCommit" }, table: null };
   Object.assign(useWorkspace.getInitialState(), cellsState([tab]));
 }
 
@@ -259,7 +259,7 @@ it("lists the start commands with their shortcuts when no tab is open", () => {
   const rows = [...html.matchAll(/data-testid="start-[^"]+"[^>]*>([^<]+)<kbd[^>]*>([^<]+)<\/kbd>/g)].map((m) => [m[1], m[2]]);
   expect(rows).toEqual([
     ["New query tab", "Ctrl+T"],
-    ["Open file…", "Ctrl+O"],
+    ["Open notebook file…", "Ctrl+O"],
     ["New connection", "Ctrl+N"],
     ["Quick navigation", "Ctrl+P"],
     ["Saved queries", "Ctrl+E"],
@@ -293,7 +293,6 @@ function withTableTab(mode: TxnMode = "AutoCommit", color: string | null = null)
     title: "orders",
     console: { db: { connectionId: "c", database: "shop" }, mode },
     table: { schema: "public", table: "orders", page: 0, query: EMPTY_QUERY },
-    file: null,
   };
   const config: ConnectionConfig = {
     id: "c",

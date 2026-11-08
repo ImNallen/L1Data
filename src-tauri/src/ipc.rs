@@ -253,18 +253,6 @@ pub async fn result_export(engine: State<'_, Arc<Engine>>, result_ref: ResultRef
 
 #[tauri::command]
 #[specta::specta]
-pub async fn file_open(engine: State<'_, Arc<Engine>>, path: String) -> Result<FileOpened, FileReadError> {
-    engine.file_open(path).await
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn file_save(engine: State<'_, Arc<Engine>>, target: SaveTarget, text: String) -> Result<FileSaved, FileWriteError> {
-    engine.file_save(target, text).await
-}
-
-#[tauri::command]
-#[specta::specta]
 pub async fn notebook_open(engine: State<'_, Arc<Engine>>, path: String) -> Result<NotebookOpened, FileReadError> {
     engine.notebook_open(path).await
 }

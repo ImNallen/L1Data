@@ -242,8 +242,8 @@ export function fileWriteErrorText(e: FileWriteError, target: SaveTarget): strin
       return `${path} is a folder or a device, not a file.`;
     case "PermissionDenied":
       return bound ? `You don't have permission to save ${path}. Use Save As to save a copy elsewhere.` : `You don't have permission to save ${path}.`;
-    case "OpenInAnotherTab":
-      return `${e.path} is open in another tab. Close that tab before you save over it.`;
+    case "OpenInAnotherNotebook":
+      return `${e.path} is open in another notebook. Delete that notebook before you save over its file.`;
     case "Io":
       return `Couldn't save ${path}: ${e.message}`;
     default: {

@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 function onConnection(environment: Environment | null, txn: TxnState = "Idle", databaseKind: DatabaseKind = "Postgres"): string {
-  const tab: Tab = { id: "t1", title: "Query 3", console: { db: { connectionId: "c1", database: "shop" }, mode: "Manual" }, table: null, file: null };
+  const tab: Tab = { id: "t1", title: "Query 3", console: { db: { connectionId: "c1", database: "shop" }, mode: "Manual" }, table: null };
   const state: ConsoleState = {
     tabId: tab.id,
     rev: 1,
@@ -76,7 +76,7 @@ it("offers the shown databases and keeps the tab's own when the tree hides it or
 });
 
 function lostSession(transaction: TransactionLoss): string {
-  const tab: Tab = { id: "t1", title: "Query", console: { db: { connectionId: "c1", database: "shop" }, mode: "AutoCommit" }, table: null, file: null };
+  const tab: Tab = { id: "t1", title: "Query", console: { db: { connectionId: "c1", database: "shop" }, mode: "AutoCommit" }, table: null };
   const state: ConsoleState = {
     tabId: tab.id,
     rev: 1,

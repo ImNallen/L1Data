@@ -12,7 +12,6 @@ const tab: TableTab = {
   title: "odd table",
   console: { db: { connectionId: "ms", database: "shop" }, mode: "AutoCommit" },
   table: { schema: "dbo", table: "odd table", page: 0, query: { orderBy: "[odd name]", where: "", filters: [] } },
-  file: null,
 };
 afterEach(() => {
   dropEditor(tab.id);

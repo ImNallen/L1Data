@@ -186,7 +186,7 @@ it("lists the notebook start commands on a database with no notebook", () => {
         .map((b) => b.textContent),
     ),
   ).toEqual([
-    ["New notebookCtrl+T", "Open file…Ctrl+O", "Switch notebook…"],
+    ["New notebookCtrl+T", "Open notebook file…Ctrl+O", "Switch notebook…"],
     ["Quick navigationCtrl+P", "Saved queriesCtrl+E"],
   ]);
 });

@@ -68,7 +68,7 @@ it("leaves the lines on screen untouched while batches arrive past the cap", () 
   const info = (n: number) => entry(1, { kind: "Info", message: `line ${n}` });
   const send = (from: number, count: number) =>
     act(() => useLive.getState().apply({ kind: "ConsoleOutput", tabId: "t1", entries: Array.from({ length: count }, (_, i) => info(from + i)) }));
-  const tab = { id: "t1", title: "Query", console: { db: { connectionId: "c1", database: "shop" }, mode: "AutoCommit" as const }, table: null, file: null };
+  const tab = { id: "t1", title: "Query", console: { db: { connectionId: "c1", database: "shop" }, mode: "AutoCommit" as const }, table: null };
   useWorkspace.setState(cellsState([tab]));
   send(0, OUTPUT_LIMIT);
   render(<ResultsPane tabId="t1" />);

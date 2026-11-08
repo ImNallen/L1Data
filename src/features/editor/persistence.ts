@@ -2,7 +2,8 @@ import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { commands } from "../../ipc/bindings";
 import { useWorkspace, workspaceSnapshot } from "../../state/workspace";
-import { isDirty, onBuffersChanged, textOf } from "./editorStates";
+import { notebookDirty } from "../notebooks/notebookDirty";
+import { onBuffersChanged, textOf } from "./editorStates";
 
 const SAVE_DEBOUNCE_MS = 500;
 
@@ -11,9 +12,9 @@ const CLOSE_FLUSH_MS = 2_000;
 
 let timer: ReturnType<typeof setTimeout> | undefined;
 
-const save = () => commands.workspaceSave(workspaceSnapshot(useWorkspace.getState(), { textOf, isDirty }));
+const save = () => commands.workspaceSave(workspaceSnapshot(useWorkspace.getState(), { textOf, isNotebookDirty: notebookDirty }));
 
-/** A background tab's reload from disk and a save's new baseline change no store field, so buffer changes schedule too. */
+/** A background cell's reload from disk changes no store field, so buffer changes schedule too. */
 export function startPersistence(): void {
   const schedule = () => {
     clearTimeout(timer);

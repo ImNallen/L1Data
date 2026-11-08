@@ -155,7 +155,6 @@ it("offers Save query for edited table text and hides it again for unchanged bro
     title: "orders",
     console: { db, mode: "AutoCommit" },
     table: { schema: "public", table: "command_palette_orders", page: 0, query: EMPTY_QUERY },
-    file: null,
   });
   render(<CommandPalette />);
   act(openCommandPalette);

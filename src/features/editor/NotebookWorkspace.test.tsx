@@ -22,7 +22,7 @@ const EDITOR = 128;
 let viewport = 858;
 let notifyResize: () => void = () => {};
 
-const tab = (id: TabId): Tab => ({ id, title: `Cell ${id}`, console: { db, mode: "AutoCommit" }, table: null, file: null });
+const tab = (id: TabId): Tab => ({ id, title: `Cell ${id}`, console: { db, mode: "AutoCommit" }, table: null });
 
 function finished(id: TabId, rowCounts: number[]): ConsoleState {
   const outputs = rowCounts.map((rowCount, index) => {

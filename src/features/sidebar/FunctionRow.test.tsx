@@ -41,7 +41,7 @@ afterEach(() => {
 const routineRow = (db: DatabaseRef, fn: FunctionInfo) => ({ onDoubleClick: () => insertRoutine(db, fn) });
 
 function target(db: DatabaseRef | null) {
-  const tab: Tab = { id: "active", title: "Query", console: { db, mode: "AutoCommit" }, table: null, file: null };
+  const tab: Tab = { id: "active", title: "Query", console: { db, mode: "AutoCommit" }, table: null };
   const other: Tab = { ...tab, id: "other", console: { db: db?.connectionId === postgres.connectionId ? sqlServer : postgres, mode: "AutoCommit" } };
   useWorkspace.setState(cellsState([other, tab], "active"));
 }

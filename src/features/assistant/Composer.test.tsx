@@ -17,7 +17,7 @@ afterEach(() => {
 it("shows schema access and only offers query permissions and attachments in Full access", async () => {
   const user = userEvent.setup();
   const db = { connectionId: "c", database: "shop" };
-  useWorkspace.setState(cellsState([{ id: "t", title: "orders.sql", console: { db, mode: "AutoCommit" }, table: null, file: null }]));
+  useWorkspace.setState(cellsState([{ id: "t", title: "orders.sql", console: { db, mode: "AutoCommit" }, table: null }]));
   useLive.setState({
     consoles: {
       t: {
@@ -92,9 +92,9 @@ it("follows the shown notebook's active cell, including an unconfigured cell and
   useWorkspace.setState({
     configs: { c: connectionConfig("c", "Dev Postgres") },
     ...cellsState([
-      { id: "a", title: "first.sql", console: consoleFor("shop"), table: null, file: null },
-      { id: "b", title: "second.sql", console: consoleFor("reporting"), table: null, file: null },
-      { id: "empty", title: "empty.sql", console: { db: null, mode: "AutoCommit" }, table: null, file: null },
+      { id: "a", title: "first.sql", console: consoleFor("shop"), table: null },
+      { id: "b", title: "second.sql", console: consoleFor("reporting"), table: null },
+      { id: "empty", title: "empty.sql", console: { db: null, mode: "AutoCommit" }, table: null },
     ]),
   });
   render(<Composer chat={undefined} />);

@@ -1,9 +1,11 @@
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { ConsoleState, DisconnectError, FileSaved, FileWriteError } from "../../ipc/bindings";
+import type { ConsoleState, DisconnectError, FileWriteError, NotebookSaved, NotebookText } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
 import { setCell, useTableEdits } from "../../state/tableEdits";
-import { allCells, useWorkspace } from "../../state/workspace";
+import { allCells, shownNotebook, useWorkspace } from "../../state/workspace";
+import { bindToFile } from "../../testing/notebooks";
+import { notebookDirty } from "../notebooks/notebookDirty";
 import { closeTab } from "./closeTab";
 import { dropEditor, insertAtCursor, seedEditor } from "./editorStates";
 import { openSqlTab } from "./runActions";
@@ -31,13 +33,13 @@ beforeEach(() => {
   started = [];
   saveGate = Promise.resolve();
   mockIPC((cmd, args) => {
-    if (cmd === "file_save") {
-      const text = (args as { text: string }).text;
+    if (cmd === "notebook_save") {
+      const text = (args as { notebook: NotebookText }).notebook.cells.map((c) => c.text).join("|");
       started.push(text);
       return saveGate.then(() => {
         if (saveFails) throw { kind: "PermissionDenied" } satisfies FileWriteError;
         saves.push(text);
-        return { binding: { path: "/q/a.sql", stamp: "s2", format: { bom: false, crlf: false } }, name: "a.sql" } satisfies FileSaved;
+        return { binding: { path: "/q/a.sql", stamp: "s2", format: { bom: false, crlf: false } }, name: "a.sql", plain: false } satisfies NotebookSaved;
       });
     }
     if (cmd !== "console_close") return null;
@@ -117,18 +119,19 @@ it("keeps the tab and its staged edits when the discard question is cancelled", 
   expect([allCells(ws()), closes, Object.keys(useTableEdits.getState().byTab)]).toEqual([[id], [], [id]]);
 });
 
+/** The only cell of a notebook bound to a file, edited since the file was read. */
 function dirtyFileTab(): string {
   const id = tabWithConsole();
-  seedEditor(id, "select 1;", "seeded");
-  ws().bindFile(id, { binding: { path: "/q/a.sql", stamp: "s1", format: { bom: false, crlf: false } }, name: "a.sql" });
+  seedEditor(id, "select 1;");
+  bindToFile(shownNotebook(ws())!.id);
   insertAtCursor(id, "-- edited ");
   return id;
 }
 
-it("asks to save a file tab whose text differs from its file, and Don't Save closes it without writing", async () => {
+it("asks to save a file notebook whose last cell closes, and Don't Save closes it without writing", async () => {
   const id = dirtyFileTab();
   const closing = closeTab(id);
-  await vi.waitFor(() => expect(question()).toBe("Save changes to a.sql?"));
+  await vi.waitFor(() => expect(question()).toBe("Save changes to shop?"));
   expect(ws().overlay).toMatchObject({
     testId: "ask",
     choices: [
@@ -141,10 +144,10 @@ it("asks to save a file tab whose text differs from its file, and Don't Save clo
   expect([allCells(ws()), saves]).toEqual([[], []]);
 });
 
-it("keeps a dirty file tab open when the save question is cancelled", async () => {
+it("keeps an unsaved file notebook's last cell open when the save question is cancelled", async () => {
   const id = dirtyFileTab();
   const closing = closeTab(id);
-  await vi.waitFor(() => expect(question()).toBe("Save changes to a.sql?"));
+  await vi.waitFor(() => expect(question()).toBe("Save changes to shop?"));
   ws().close();
   await closing;
   expect([allCells(ws()), saves, closes]).toEqual([[id], [], []]);
@@ -154,7 +157,7 @@ it("saves, then asks to roll back, then closes", async () => {
   const id = dirtyFileTab();
   openTransaction = true;
   const closing = closeTab(id);
-  await vi.waitFor(() => expect(question()).toBe("Save changes to a.sql?"));
+  await vi.waitFor(() => expect(question()).toBe("Save changes to shop?"));
   ws().answer("save");
   await vi.waitFor(() => expect(question()).toBe("Close tab with an open transaction?"));
   expect(saves).toEqual(["-- edited select 1;"]);
@@ -168,12 +171,12 @@ it("asks again when the text changes while the close-time save is under way", as
   let release = () => {};
   saveGate = new Promise((r) => (release = r));
   const closing = closeTab(id);
-  await vi.waitFor(() => expect(question()).toBe("Save changes to a.sql?"));
+  await vi.waitFor(() => expect(question()).toBe("Save changes to shop?"));
   ws().answer("save");
   await vi.waitFor(() => expect(started).toHaveLength(1));
   insertAtCursor(id, "-- later ");
   release();
-  await vi.waitFor(() => expect(question()).toBe("Save changes to a.sql?"));
+  await vi.waitFor(() => expect(question()).toBe("Save changes to shop?"));
   expect([allCells(ws()), saves]).toEqual([[id], ["-- edited select 1;"]]);
   ws().answer("save");
   await closing;
@@ -184,16 +187,24 @@ it("keeps the tab open when its save fails", async () => {
   const id = dirtyFileTab();
   saveFails = true;
   const closing = closeTab(id);
-  await vi.waitFor(() => expect(question()).toBe("Save changes to a.sql?"));
+  await vi.waitFor(() => expect(question()).toBe("Save changes to shop?"));
   ws().answer("save");
   await closing;
   expect([allCells(ws()), closes, ws().toast?.text]).toEqual([[id], [], "You don't have permission to save /q/a.sql. Use Save As to save a copy elsewhere."]);
 });
 
-it("closes a file tab that matches its file without asking", async () => {
-  const id = openSqlTab();
-  seedEditor(id, "select 1;", "seeded");
-  ws().bindFile(id, { binding: { path: "/q/a.sql", stamp: "s1", format: { bom: false, crlf: false } }, name: "a.sql" });
+it("closes a file notebook's last cell without asking when the file holds it", async () => {
+  const id = openSqlTab({ text: "select 1;" });
+  bindToFile(shownNotebook(ws())!.id);
   await closeTab(id);
   expect([allCells(ws()), question()]).toEqual([[], null]);
+});
+
+it("closes one of a file notebook's cells without asking, which leaves the notebook unsaved", async () => {
+  const a = openSqlTab({ text: "select 1;" });
+  const b = openSqlTab({ text: "select 2;" });
+  const notebook = shownNotebook(ws())!.id;
+  bindToFile(notebook);
+  await closeTab(b);
+  expect([allCells(ws()), question(), notebookDirty(notebook)]).toEqual([[a], null, true]);
 });

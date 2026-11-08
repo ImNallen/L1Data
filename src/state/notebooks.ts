@@ -1,11 +1,40 @@
-import type { DatabaseRef, NotebookId, TabId } from "../ipc/bindings";
+import type { DatabaseRef, FileBinding, NotebookId, TabId, UnknownKeys } from "../ipc/bindings";
 import { sameDb } from "./dbKey";
 
 /**
- * One of a database's notebooks. Every cell in it is on `db`, and it is never empty. `shownAtMs` is when it was last
- * shown: choosing its database shows the most recent one.
+ * What the last read or write found about a notebook's file. Not saved: boot reads every file again.
+ * `changed`: the file changed on disk while the notebook held changes, so the next save asks before overwriting.
+ * `unreadable`: the file is there, but reading it failed.
  */
-export type Notebook = { id: NotebookId; title: string; db: DatabaseRef | null; cells: TabId[]; active: TabId | null; shownAtMs: number };
+export type FileHealth = "ok" | "missing" | "changed" | "unreadable";
+
+/** One cell as the file held it: its text, and `metaKey` of what the file records about it. */
+export type SavedCell = { text: string; meta: string };
+
+export type NotebookFile = {
+  binding: FileBinding;
+  health: FileHealth;
+  /** The file holds plain SQL. A save keeps it plain while the notebook is one cell with nothing else to record. */
+  plain: boolean;
+  unknown: UnknownKeys;
+  /** The cells as the file held them at the last open, save, or read. `null` is unknown, which reads unsaved. */
+  saved: SavedCell[] | null;
+};
+
+/**
+ * One of a database's notebooks. Every cell in it is on `db`, and it is never empty. `shownAtMs` is when it was last
+ * shown: choosing its database shows the most recent one. A notebook with a `file` is that file: saving writes every
+ * cell to it.
+ */
+export type Notebook = {
+  id: NotebookId;
+  title: string;
+  db: DatabaseRef | null;
+  cells: TabId[];
+  active: TabId | null;
+  shownAtMs: number;
+  file: NotebookFile | null;
+};
 
 export type Notebooks = Record<NotebookId, Notebook>;
 
@@ -37,7 +66,7 @@ export function newNotebook(existing: Iterable<Notebook>, db: DatabaseRef | null
   const taken = new Set([...existing].filter((n) => sameDb(n.db, db)).map((n) => n.title));
   let title = name;
   for (let i = 2; taken.has(title); i++) title = `${name} ${i}`;
-  return { id: crypto.randomUUID(), title, db, cells: [], active: null, shownAtMs: 0 };
+  return { id: crypto.randomUUID(), title, db, cells: [], active: null, shownAtMs: 0, file: null };
 }
 
 /** Marks `id` shown later than every other notebook, at the current time unless the clock has not moved past them. */

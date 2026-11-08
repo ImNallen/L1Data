@@ -63,8 +63,6 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ipc::result_drill,
             ipc::result_plan,
             ipc::result_export,
-            ipc::file_open,
-            ipc::file_save,
             ipc::notebook_open,
             ipc::notebook_save,
             ipc::history_list,

@@ -4,8 +4,6 @@ import type {
   ConnectionId,
   ConnectionState,
   DatabaseRef,
-  FileBinding,
-  FileSaved,
   Layout,
   NotebookId,
   NotebookSnapshot,
@@ -21,6 +19,7 @@ import type {
 import type { SettingsSectionId } from "../features/settings/settingsIndex";
 import { homeDb, resolveDb, sameDb } from "./dbKey";
 import { useLive } from "./live";
+import { cellMeta, fileName, fileStem, metaKey } from "./notebookFile";
 import {
   followActive,
   NO_DATABASE,
@@ -31,6 +30,7 @@ import {
   showDatabase,
   showNotebook,
   type Notebook,
+  type NotebookFile,
   type Notebooks,
   type Shown,
 } from "./notebooks";
@@ -44,16 +44,9 @@ export type ConsoleTarget = { db: DatabaseRef | null; mode: TxnMode; schema?: st
 
 /** The table a tab opened from the sidebar browses, in the tab's console database. */
 export type TableBrowse = { schema: string; table: string; page: number; query: TableQuery; exactRowCount?: number };
-/**
- * What the last read or write found about a tab's file. Not saved: boot reads every file again.
- * `changed`: the file changed on disk while the tab held edits, so the next save asks before overwriting.
- * `unreadable`: the file is there, but reading it failed.
- */
-export type FileHealth = "ok" | "missing" | "changed" | "unreadable";
-export type TabFile = { binding: FileBinding; health: FileHealth };
 
-/** A tab with a `file` is titled with the file's name: `bindFile` sets both, and `renameTab` refuses a file tab. */
-export type Tab = { id: TabId; title: string; console: ConsoleTarget; table: TableBrowse | null; file: TabFile | null };
+/** One cell of a notebook. A file belongs to the notebook, not to a cell. */
+export type Tab = { id: TabId; title: string; console: ConsoleTarget; table: TableBrowse | null };
 /** A tab bound to a table. Its console always names a database. */
 export type TableTab = Tab & { table: TableBrowse; console: ConsoleTarget & { db: DatabaseRef } };
 
@@ -170,13 +163,57 @@ export function tabFromSnapshot(t: TabSnapshot, configs: Record<ConnectionId, Co
     title: t.title,
     console: { db, mode: t.console.mode, ...(t.console.schema && { schema: t.console.schema }) },
     table,
-    file: t.file && { binding: t.file.binding, health: "ok" },
   };
 }
 
-/** A notebook on a connection that is gone has no connection, as its cells do. */
-function notebookFromSnapshot(n: NotebookSnapshot, configs: Record<ConnectionId, ConnectionConfig>): Notebook {
-  return { id: n.id, title: n.title, db: n.db && configs[n.db.connectionId] ? n.db : null, cells: n.cells, active: n.active, shownAtMs: n.shownAtMs };
+/**
+ * A notebook on a connection that is gone has no connection, as its cells do. A file notebook saved clean takes its
+ * cells' saved text as what the file holds; boot's read of the file confirms it.
+ */
+function notebookFromSnapshot(
+  n: NotebookSnapshot,
+  configs: Record<ConnectionId, ConnectionConfig>,
+  tabs: Record<TabId, Tab>,
+  texts: Record<TabId, string>,
+): Notebook {
+  const saved = n.cells.flatMap((id) => {
+    const tab = tabs[id];
+    return tab ? [{ text: texts[id] ?? "", meta: metaKey(cellMeta(tab)) }] : [];
+  });
+  const file: NotebookFile | null = n.file && {
+    binding: n.file.binding,
+    health: "ok",
+    plain: n.file.plain,
+    unknown: n.file.unknown,
+    saved: n.file.dirty ? null : saved,
+  };
+  return { id: n.id, title: n.title, db: n.db && configs[n.db.connectionId] ? n.db : null, cells: n.cells, active: n.active, shownAtMs: n.shownAtMs, file };
+}
+
+/**
+ * A workspace saved while a file belonged to one tab: each such cell becomes a notebook of its own on its database, bound
+ * to the file and titled with its name. The cell takes a new cell's title, so saving a plain file keeps it plain.
+ */
+function fileTabNotebooks(w: Workspace, restored: Record<TabId, Tab>): { tabs: Record<TabId, Tab>; notebooks: Notebook[] } {
+  let tabs = restored;
+  const notebooks: Notebook[] = [];
+  for (const t of w.tabs) {
+    const tab = tabs[t.id];
+    if (!t.file || !tab) continue;
+    const cell = { ...tab, title: nextUntitled(Object.values(tabs)) };
+    tabs = { ...tabs, [t.id]: cell };
+    const saved = t.file.dirty ? null : [{ text: t.text ?? "", meta: metaKey(cellMeta(cell)) }];
+    notebooks.push({
+      id: crypto.randomUUID(),
+      title: fileStem(fileName(t.file.binding.path)),
+      db: cell.console.db,
+      cells: [t.id],
+      active: t.id,
+      shownAtMs: 0,
+      file: { binding: t.file.binding, health: "ok", plain: true, unknown: { header: [], cells: {} }, saved },
+    });
+  }
+  return { tabs, notebooks };
 }
 
 type Shows = Pick<WorkspaceData, "notebooks" | "shown">;
@@ -205,25 +242,30 @@ export function shownDb(s: Shows): DatabaseRef | null {
 
 /**
  * Cells saved before notebooks, or claimed by no notebook this build could read, join the notebook for their database in
- * their saved order. The saved `shown` wins, then the notebook holding the saved active cell. A workspace from before
- * notebooks shows its first notebook when it saved no active cell.
+ * their saved order. A cell that moved into a file notebook of its own shows it when it was active; otherwise the saved
+ * `shown` wins, then the notebook holding the saved active cell. A workspace from before notebooks shows its first
+ * notebook when it saved no active cell.
  */
-function restoreNotebooks(w: Workspace, tabs: Record<TabId, Tab>, configs: Record<ConnectionId, ConnectionConfig>): Shows {
+function restoreNotebooks(w: Workspace, tabs: Record<TabId, Tab>, configs: Record<ConnectionId, ConnectionConfig>, fromFiles: Notebook[]): Shows {
+  const texts = Object.fromEntries(w.tabs.map((t) => [t.id, t.text ?? ""]));
+  const moved = new Set(fromFiles.flatMap((n) => n.cells));
   const notebooks = settle(
-    w.notebooks.map((n) => notebookFromSnapshot(n, configs)),
-    (id) => tabs[id]?.console.db,
+    w.notebooks.map((n) => notebookFromSnapshot(n, configs, tabs, texts)),
+    (id) => (moved.has(id) ? undefined : tabs[id]?.console.db),
     w.tabs.map((t) => t.id),
   );
+  for (const n of fromFiles) notebooks[n.id] = n;
   const holding = w.active ? notebookOf(notebooks, w.active) : undefined;
-  const shown = (w.shown ? notebooks[w.shown] : undefined) ?? holding ?? (w.notebooks.length === 0 ? Object.values(notebooks)[0] : undefined);
+  const fromFile = w.active && moved.has(w.active) ? holding : undefined;
+  const shown = fromFile ?? (w.shown ? notebooks[w.shown] : undefined) ?? holding ?? (w.notebooks.length === 0 ? Object.values(notebooks)[0] : undefined);
   if (!shown) return { notebooks, shown: NO_DATABASE };
   if (shown === holding && w.active) notebooks[shown.id] = { ...shown, active: w.active };
   return { notebooks, shown: { kind: "notebook", id: shown.id } };
 }
 
-export type Buffers = { textOf(id: TabId): string; isDirty(id: TabId): boolean };
+export type Buffers = { textOf(id: TabId): string; isNotebookDirty(id: NotebookId): boolean };
 
-/** A file tab's `dirty` is read from the same buffer as its `text`, so the two always describe one state. */
+/** A file notebook's `dirty` is read from the same buffers as its cells' `text`, so the two always describe one state. */
 export function workspaceSnapshot(s: Pick<WorkspaceData, "tabs" | "notebooks" | "shown" | "layout">, buffers: Buffers): Workspace {
   const tabs = allCells(s).flatMap((id): TabSnapshot[] => {
     const t = s.tabs[id];
@@ -236,15 +278,27 @@ export function workspaceSnapshot(s: Pick<WorkspaceData, "tabs" | "notebooks" | 
         text: buffers.textOf(t.id),
         console: { connectionId: db?.connectionId ?? null, database: db?.database ?? null, schema: t.console.schema ?? null, mode },
         table: t.table && { schema: t.table.schema, table: t.table.table, page: t.table.page, query: t.table.query },
-        file: t.file && { binding: t.file.binding, dirty: buffers.isDirty(t.id) },
+        file: null,
       },
     ];
   });
+  const fileSnapshot = (n: Notebook, file: NotebookFile) => {
+    const cells = Object.fromEntries(n.cells.flatMap((id) => (file.unknown.cells[id] ? [[id, file.unknown.cells[id]]] : [])));
+    return { binding: file.binding, dirty: buffers.isNotebookDirty(n.id), plain: file.plain, unknown: { header: file.unknown.header, cells } };
+  };
   return {
     tabs,
     active: activeId(s),
     layout: s.layout,
-    notebooks: Object.values(s.notebooks).map((n) => ({ id: n.id, title: n.title, db: n.db, cells: n.cells, active: n.active, shownAtMs: n.shownAtMs })),
+    notebooks: Object.values(s.notebooks).map((n) => ({
+      id: n.id,
+      title: n.title,
+      db: n.db,
+      cells: n.cells,
+      active: n.active,
+      shownAtMs: n.shownAtMs,
+      file: n.file && fileSnapshot(n, n.file),
+    })),
     shown: s.shown.kind === "notebook" ? s.shown.id : null,
   };
 }
@@ -258,8 +312,8 @@ export function nextUntitled(tabs: Iterable<Tab>): string {
   return `Untitled-${max + 1}.sql`;
 }
 
-export function tabWithFile(tabs: Record<TabId, Tab>, path: string): Tab | undefined {
-  return Object.values(tabs).find((t) => t.file?.binding.path === path);
+export function notebookWithFile(notebooks: Notebooks, path: string): Notebook | undefined {
+  return Object.values(notebooks).find((n) => n.file?.binding.path === path);
 }
 
 export function tabTarget(tab: Tab | undefined): DatabaseRef | null {
@@ -273,6 +327,13 @@ type WorkspaceActions = {
   addTab(tab: Tab, after?: TabId): void;
   /** Starts a new notebook on the tab's database with `tab` as its first cell, and shows it. */
   addNotebook(tab: Tab): void;
+  /** Adds a whole notebook whose `cells` are `tabs`, and shows it. */
+  openNotebook(notebook: Notebook, tabs: Tab[]): void;
+  /** Makes `tabs` the notebook's cells, in order. A cell left out stays in `tabs` until `closeTab` drops it. */
+  replaceCells(id: NotebookId, tabs: Tab[]): void;
+  /** Binds the notebook to a file, or replaces what it knows of the file. A `title` renames it in the same step. */
+  setNotebookFile(id: NotebookId, file: NotebookFile, title?: string): void;
+  patchNotebookFile(id: NotebookId, patch: Partial<Pick<NotebookFile, "health" | "saved">>): void;
   /**
    * Closing a notebook's last cell drops the notebook. When it was shown, the most recent other notebook on its database
    * shows, else the start commands on it.
@@ -285,8 +346,6 @@ type WorkspaceActions = {
   /** A blank title keeps the old one. */
   renameNotebook(id: NotebookId, title: string): void;
   renameTab(id: TabId, title: string): void;
-  bindFile(id: TabId, file: FileSaved): void;
-  setFileHealth(id: TabId, health: FileHealth): void;
   /** A cell's database is its notebook's, so a patch never moves it. */
   patchConsole(id: TabId, patch: Partial<Pick<ConsoleTarget, "mode" | "schema">>): void;
   setTablePage(id: TabId, page: number, exactRowCount?: number): void;
@@ -347,8 +406,9 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
 
   restore: (w, connections, settings) => {
     const configs = Object.fromEntries(connections.map((c) => [c.id, c]));
-    const tabs = Object.fromEntries(w.tabs.map((t) => [t.id, tabFromSnapshot(t, configs)]));
-    set({ tabs, ...restoreNotebooks(w, tabs, configs), layout: w.layout, configs, settings });
+    const restored = Object.fromEntries(w.tabs.map((t) => [t.id, tabFromSnapshot(t, configs)]));
+    const { tabs, notebooks } = fileTabNotebooks(w, restored);
+    set({ tabs, ...restoreNotebooks(w, tabs, configs, notebooks), layout: w.layout, configs, settings });
   },
   resolveDatabases: (connections) =>
     set((s) => {
@@ -365,7 +425,8 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
         const next = db === n.db ? n : { ...n, db };
         // Two spellings of one database resolve to the same one, so their cells belong in one notebook. Notebooks that
         // already shared a database stay apart.
-        const into = notebooks.findIndex((m) => sameDb(m.db, next.db) && (next !== n || m !== s.notebooks[m.id]));
+        // A file notebook is its file, so it never merges.
+        const into = notebooks.findIndex((m) => sameDb(m.db, next.db) && (next !== n || m !== s.notebooks[m.id]) && !m.file && !next.file);
         const target = notebooks[into];
         if (target) notebooks[into] = { ...target, cells: [...target.cells, ...next.cells], active: target.active ?? next.active };
         else notebooks.push(next);
@@ -394,6 +455,29 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
         tabs: { ...s.tabs, [tab.id]: tab },
         ...showNotebook({ ...s.notebooks, [notebook.id]: { ...notebook, cells: [tab.id], active: tab.id } }, notebook.id),
       };
+    }),
+  openNotebook: (notebook, tabs) =>
+    set((s) => ({
+      tabs: { ...s.tabs, ...Object.fromEntries(tabs.map((t) => [t.id, t])) },
+      ...showNotebook({ ...s.notebooks, [notebook.id]: notebook }, notebook.id),
+    })),
+  replaceCells: (id, tabs) =>
+    set((s) => {
+      const notebook = s.notebooks[id];
+      if (!notebook) return {};
+      const cells = tabs.map((t) => t.id);
+      const active = notebook.active && cells.includes(notebook.active) ? notebook.active : (cells[0] ?? null);
+      return { tabs: { ...s.tabs, ...Object.fromEntries(tabs.map((t) => [t.id, t])) }, notebooks: { ...s.notebooks, [id]: { ...notebook, cells, active } } };
+    }),
+  setNotebookFile: (id, file, title) =>
+    set((s) => {
+      const notebook = s.notebooks[id];
+      return notebook ? { notebooks: { ...s.notebooks, [id]: { ...notebook, file, ...(title && { title }) } } } : {};
+    }),
+  patchNotebookFile: (id, patch) =>
+    set((s) => {
+      const notebook = s.notebooks[id];
+      return notebook?.file ? { notebooks: { ...s.notebooks, [id]: { ...notebook, file: { ...notebook.file, ...patch } } } } : {};
     }),
   closeTab: (id) =>
     set((s) => {
@@ -434,17 +518,7 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
   renameTab: (id, title) =>
     set((s) => {
       const t = s.tabs[id];
-      return t && !t.file ? { tabs: { ...s.tabs, [id]: { ...t, title } } } : {};
-    }),
-  bindFile: (id, file) =>
-    set((s) => {
-      const t = s.tabs[id];
-      return t ? { tabs: { ...s.tabs, [id]: { ...t, title: file.name, file: { binding: file.binding, health: "ok" } } } } : {};
-    }),
-  setFileHealth: (id, health) =>
-    set((s) => {
-      const t = s.tabs[id];
-      return t?.file && t.file.health !== health ? { tabs: { ...s.tabs, [id]: { ...t, file: { ...t.file, health } } } } : {};
+      return t ? { tabs: { ...s.tabs, [id]: { ...t, title } } } : {};
     }),
   patchConsole: (id, patch) =>
     set((s) => {

@@ -154,7 +154,7 @@ it("refetches at most every 300 ms while rows stream", async () => {
 });
 
 const db = { connectionId: "c1", database: "shop" };
-const cell = (id: string, title: string): Tab => ({ id, title, console: { db, mode: "AutoCommit", schema: "sales" }, table: null, file: null });
+const cell = (id: string, title: string): Tab => ({ id, title, console: { db, mode: "AutoCommit", schema: "sales" }, table: null });
 
 function drillAnswers(sql: string, on = db) {
   return vi.spyOn(commands, "resultDrill").mockImplementation(async (_ref, point: DrillPoint) => ({

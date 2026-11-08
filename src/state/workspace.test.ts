@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { ConnectionConfig, DatabaseRef, FileSaved, Workspace } from "../ipc/bindings";
-import { activeId, allCells, DEFAULT_SETTINGS, EMPTY_QUERY, shownDb, tabFromSnapshot, useWorkspace, workspaceSnapshot, type Tab } from "./workspace";
+import type { ConnectionConfig, DatabaseRef, FileBinding, FileSnapshot, TabSnapshot, Workspace } from "../ipc/bindings";
+import { cellMeta, metaKey } from "./notebookFile";
+import { activeId, allCells, DEFAULT_SETTINGS, EMPTY_QUERY, shownDb, shownNotebook, useWorkspace, workspaceSnapshot, type Tab } from "./workspace";
 
 const config = (id: string): ConnectionConfig => ({
   id,
@@ -21,7 +22,7 @@ const config = (id: string): ConnectionConfig => ({
 
 describe("workspace.addTab", () => {
   it("adds a tab at the end, or right after the tab it names, and activates it", () => {
-    const tab = (id: string) => ({ id, title: id, console: { db: null, mode: "AutoCommit" as const }, table: null, file: null });
+    const tab = (id: string) => ({ id, title: id, console: { db: null, mode: "AutoCommit" as const }, table: null });
     const ws = useWorkspace.getState();
     ws.addTab(tab("a"));
     ws.addTab(tab("b"));
@@ -35,13 +36,12 @@ describe("workspace.addTab", () => {
 describe("workspace.upsertConfig", () => {
   it("binds tabs that have no connection and leaves bound tabs alone", () => {
     const ws = useWorkspace.getState();
-    ws.addTab({ id: "free", title: "Untitled-1.sql", console: { db: null, mode: "AutoCommit" }, table: null, file: null });
+    ws.addTab({ id: "free", title: "Untitled-1.sql", console: { db: null, mode: "AutoCommit" }, table: null });
     ws.addTab({
       id: "bound",
       title: "Untitled-2.sql",
       console: { db: { connectionId: "old", database: "reporting" }, mode: "Manual" },
       table: null,
-      file: null,
     });
     ws.upsertConfig(config("new"));
     const tabs = useWorkspace.getState().tabs;
@@ -53,7 +53,7 @@ describe("workspace.upsertConfig", () => {
     const ws = useWorkspace.getState();
     ws.upsertConfig(config("edited"));
     const tab = (id: string, title: string, database: string, connectionId = "edited") =>
-      ws.addTab({ id, title, console: { db: { connectionId, database }, mode: "AutoCommit" }, table: null, file: null });
+      ws.addTab({ id, title, console: { db: { connectionId, database }, mode: "AutoCommit" }, table: null });
     tab("home", "a.sql", "shop");
     tab("elsewhere", "b.sql", "reporting");
     tab("otherConn", "c.sql", "shop", "other");
@@ -62,7 +62,6 @@ describe("workspace.upsertConfig", () => {
       title: "orders",
       console: { db: { connectionId: "edited", database: "shop" }, mode: "AutoCommit" },
       table: { schema: "public", table: "orders", page: 0, query: EMPTY_QUERY },
-      file: null,
     });
     ws.upsertConfig({ ...config("edited"), database: "shop_v2" });
     const target = (id: string) => useWorkspace.getState().tabs[id]!.console.db;
@@ -75,26 +74,71 @@ describe("workspace.upsertConfig", () => {
   });
 });
 
-describe("file tabs", () => {
+describe("notebook files", () => {
+  beforeEach(() => useWorkspace.setState(useWorkspace.getInitialState(), true));
   afterEach(() => useWorkspace.setState(useWorkspace.getInitialState(), true));
-  const saved: FileSaved = { binding: { path: "/q/report.sql", stamp: "s1", format: { bom: true, crlf: true } }, name: "report.sql" };
-  const scratch = () =>
-    useWorkspace.getState().addTab({ id: "t", title: "Untitled-1.sql", console: { db: null, mode: "AutoCommit" }, table: null, file: null });
+  const ws = () => useWorkspace.getState();
+  const binding = (path: string): FileBinding => ({ path, stamp: "s1", format: { bom: true, crlf: true } });
+  const console = (database: string) => ({ connectionId: "c", database, schema: null, mode: "AutoCommit" as const });
+  const tabJson = (id: string, title: string, text: string, database: string, file: FileSnapshot | null = null): TabSnapshot => ({
+    id,
+    title,
+    text,
+    console: console(database),
+    table: null,
+    file,
+  });
+  const layout = { sidebar: true, results: true, rightPanel: null, resultsHeight: 320, sidebarWidth: 280, rightPanelWidth: 341, assistantChat: null };
 
-  it("names a tab after the file it binds to, and refuses to rename it", () => {
-    scratch();
-    const ws = useWorkspace.getState();
-    ws.bindFile("t", saved);
-    ws.renameTab("t", "mine");
-    expect(useWorkspace.getState().tabs.t).toMatchObject({ title: "report.sql", file: { binding: saved.binding, health: "ok" } });
+  /** A workspace the build before notebook files saved: a notebook holding a clean and a dirty file cell among scratch cells. */
+  const fileTabs = {
+    tabs: [
+      tabJson("a", "Untitled-1.sql", "select 1", "shop"),
+      tabJson("r", "report.sql", "select 2", "shop", { binding: binding("/q/report.sql"), dirty: false }),
+      tabJson("m", "monthly.sql", "select 3 -- unsaved", "shop", { binding: binding("/q/monthly.sql"), dirty: true }),
+    ],
+    active: "m",
+    layout,
+    notebooks: [{ id: "n1", title: "shop", db: { connectionId: "c", database: "shop" }, cells: ["a", "r", "m"], active: "m", shownAtMs: 5, file: null }],
+    shown: "n1",
+  } satisfies Workspace;
+
+  it("moves each file cell of an older workspace into a notebook of its own, bound to the file, and shows the active one", () => {
+    ws().restore(fileTabs, [config("c")], DEFAULT_SETTINGS);
+    const notebooks = Object.values(ws().notebooks);
+    expect(notebooks.map((n) => [n.title, n.cells, n.file?.binding.path ?? null])).toEqual([
+      ["shop", ["a"], null],
+      ["report", ["r"], "/q/report.sql"],
+      ["monthly", ["m"], "/q/monthly.sql"],
+    ]);
+    expect(notebooks.map((n) => n.db)).toEqual([0, 1, 2].map(() => ({ connectionId: "c", database: "shop" })));
+    const report = notebooks[1]!.file!;
+    const r = ws().tabs.r!;
+    expect([r.title, report.plain, report.health, report.saved]).toEqual(["Untitled-2.sql", true, "ok", [{ text: "select 2", meta: metaKey(cellMeta(r)) }]]);
+    expect(notebooks[2]!.file?.saved).toBeNull();
+    expect([shownNotebook(ws())?.title, activeId(ws())]).toEqual(["monthly", "m"]);
   });
 
-  it("saves a file tab's binding with the dirty bit read from the same buffer as its text, and restores it", () => {
-    scratch();
-    useWorkspace.getState().bindFile("t", saved);
-    const snap = workspaceSnapshot(useWorkspace.getState(), { textOf: () => "select 1;", isDirty: (id) => id === "t" });
-    expect(snap.tabs[0]).toMatchObject({ title: "report.sql", text: "select 1;", file: { binding: saved.binding, dirty: true } });
-    expect(tabFromSnapshot(snap.tabs[0]!, {}).file).toEqual({ binding: saved.binding, health: "ok" });
+  it("saves a file notebook's binding with its dirty bit and the unknown keys of its cells, and no file on any tab", () => {
+    ws().restore(fileTabs, [config("c")], DEFAULT_SETTINGS);
+    const report = Object.values(ws().notebooks).find((n) => n.title === "report")!;
+    const unknown = { header: [{ key: "theme", value: "dark" }], cells: { r: [{ key: "chart", value: "bar" }], closed: [{ key: "x", value: "1" }] } };
+    useWorkspace.setState({ notebooks: { ...ws().notebooks, [report.id]: { ...report, file: { ...report.file!, unknown } } } });
+    const snap = workspaceSnapshot(ws(), { textOf: (id) => `text of ${id}`, isNotebookDirty: (id) => id === report.id });
+    expect(snap.tabs.map((t) => t.file)).toEqual([null, null, null]);
+    expect(snap.notebooks.find((n) => n.id === report.id)?.file).toEqual({
+      binding: binding("/q/report.sql"),
+      dirty: true,
+      plain: true,
+      unknown: { header: unknown.header, cells: { r: unknown.cells.r } },
+    });
+    useWorkspace.setState(useWorkspace.getInitialState(), true);
+    ws().restore(snap, [config("c")], DEFAULT_SETTINGS);
+    expect(Object.values(ws().notebooks).map((n) => [n.title, n.file?.saved ?? null])).toEqual([
+      ["shop", null],
+      ["report", null],
+      ["monthly", [{ text: "text of m", meta: metaKey(cellMeta(ws().tabs.m!)) }]],
+    ]);
   });
 });
 
@@ -116,7 +160,7 @@ describe("notebooks", () => {
 
   const shop = { connectionId: "c", database: "shop" };
   const postgres = { connectionId: "c", database: "postgres" };
-  const cell = (id: string, db: DatabaseRef | null = shop): Tab => ({ id, title: `${id}.sql`, console: { db, mode: "AutoCommit" }, table: null, file: null });
+  const cell = (id: string, db: DatabaseRef | null = shop): Tab => ({ id, title: `${id}.sql`, console: { db, mode: "AutoCommit" }, table: null });
   const ws = () => useWorkspace.getState();
   const shape = () => Object.values(ws().notebooks).map((n) => [n.title, n.cells, n.active]);
 
@@ -150,21 +194,21 @@ describe("notebooks", () => {
   it("restores the notebooks and the shown one it saved", () => {
     ws().restore(oldWorkspace, [config("c")], DEFAULT_SETTINGS);
     ws().setActive("c");
-    const saved = workspaceSnapshot(ws(), { textOf: () => "", isDirty: () => false });
+    const saved = workspaceSnapshot(ws(), { textOf: () => "", isNotebookDirty: () => false });
     expect([saved.active, saved.tabs.map((t) => t.id)]).toEqual(["c", ["a", "c", "b", "d"]]);
     const before = { notebooks: ws().notebooks, shown: ws().shown };
     useWorkspace.setState(useWorkspace.getInitialState(), true);
     ws().restore(saved, [config("c")], DEFAULT_SETTINGS);
     expect({ notebooks: ws().notebooks, shown: ws().shown }).toEqual(before);
     ws().showDatabase({ connectionId: "c", database: "reporting" });
-    ws().restore(workspaceSnapshot(ws(), { textOf: () => "", isDirty: () => false }), [config("c")], DEFAULT_SETTINGS);
+    ws().restore(workspaceSnapshot(ws(), { textOf: () => "", isNotebookDirty: () => false }), [config("c")], DEFAULT_SETTINGS);
     expect(ws().shown).toEqual({ kind: "start", db: null });
   });
 
   it("keeps each cell in one notebook on its database, and puts the cells no notebook claims into the one for their database", () => {
     const [a, b, c] = oldWorkspace.tabs;
-    const mine = { id: "n1", title: "Mine", db: shop, cells: ["a", "closed"], active: "closed", shownAtMs: 0 };
-    const pg = { id: "n2", title: "Postgres", db: postgres, cells: ["a", "b"], active: "a", shownAtMs: 0 };
+    const mine = { id: "n1", title: "Mine", db: shop, cells: ["a", "closed"], active: "closed", shownAtMs: 0, file: null };
+    const pg = { id: "n2", title: "Postgres", db: postgres, cells: ["a", "b"], active: "a", shownAtMs: 0, file: null };
     ws().restore({ ...oldWorkspace, tabs: [a!, b!, c!], notebooks: [mine, pg], shown: "n1" }, [config("c")], DEFAULT_SETTINGS);
     expect(shape()).toEqual([
       ["Mine", ["a", "c"], "a"],
@@ -223,7 +267,7 @@ describe("notebooks", () => {
     ws().showDatabase(postgres);
     ws().showDatabase(shop);
     expect(activeId(ws())).toBe("a");
-    const saved = workspaceSnapshot(ws(), { textOf: () => "", isDirty: () => false });
+    const saved = workspaceSnapshot(ws(), { textOf: () => "", isNotebookDirty: () => false });
     useWorkspace.setState(useWorkspace.getInitialState(), true);
     ws().restore(saved, [config("c")], DEFAULT_SETTINGS);
     ws().showDatabase(postgres);

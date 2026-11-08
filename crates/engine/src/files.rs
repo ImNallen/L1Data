@@ -7,7 +7,20 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 
-use crate::model::{FileBinding, FileFormat, FileOpened, FileReadError, FileSaved, FileStamp, FileWriteError, SaveTarget};
+use crate::model::{FileBinding, FileFormat, FileReadError, FileStamp, FileWriteError, SaveTarget};
+
+#[derive(Debug)]
+pub(crate) struct FileOpened {
+    pub(crate) binding: FileBinding,
+    pub(crate) name: String,
+    pub(crate) text: String,
+}
+
+#[derive(Debug)]
+pub(crate) struct FileSaved {
+    pub(crate) binding: FileBinding,
+    pub(crate) name: String,
+}
 
 /// Every tab's whole text rides each workspace save, a sync command on the main thread.
 pub(crate) const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
@@ -50,7 +63,7 @@ pub(crate) fn save(target: SaveTarget, text: &str) -> Result<FileSaved, FileWrit
         Err(e) => return Err(e.into()),
     };
     if let Some(other) = taken.into_iter().find(|other| same_file(&path, existing.as_ref(), other)) {
-        return Err(FileWriteError::OpenInAnotherTab { path: other });
+        return Err(FileWriteError::OpenInAnotherNotebook { path: other });
     }
     if let Some(meta) = &existing {
         if !meta.is_file() {
@@ -634,7 +647,7 @@ mod tests {
 
     #[test]
     #[cfg(unix)]
-    fn save_as_refuses_another_name_for_a_file_another_tab_holds() {
+    fn save_as_refuses_another_name_for_a_file_another_notebook_holds() {
         let dir = tempfile::tempdir().unwrap();
         fs::create_dir(dir.path().join("real")).unwrap();
         symlink("real", dir.path().join("alias")).unwrap();
@@ -643,7 +656,7 @@ mod tests {
         fs::hard_link(dir.path().join("real/a.sql"), dir.path().join("hard.sql")).unwrap();
         for name in ["real/a.sql", "alias/a.sql", "real/../alias/a.sql", "link.sql", "hard.sql"] {
             let result = save_as(&dir.path().join(name), &["/elsewhere/b.sql", &held]);
-            assert!(matches!(&result, Err(FileWriteError::OpenInAnotherTab { path }) if *path == held), "{name}: {result:?}");
+            assert!(matches!(&result, Err(FileWriteError::OpenInAnotherNotebook { path }) if *path == held), "{name}: {result:?}");
         }
         assert_eq!(fs::read(dir.path().join("real/a.sql")).unwrap(), b"select 1;\n");
         assert_eq!(temps(&dir.path().join("real")), Vec::<String>::new());
@@ -652,14 +665,14 @@ mod tests {
 
     #[test]
     #[cfg(unix)]
-    fn save_as_refuses_the_path_of_another_tabs_missing_file() {
+    fn save_as_refuses_the_path_of_another_notebooks_missing_file() {
         let dir = tempfile::tempdir().unwrap();
         fs::create_dir(dir.path().join("real")).unwrap();
         symlink("real", dir.path().join("alias")).unwrap();
         let held = binding_for(&dir.path().join("real/a.sql"), b"select 1;\n").path;
         fs::remove_file(dir.path().join("real/a.sql")).unwrap();
         let result = save_as(&dir.path().join("alias/a.sql"), &[&held]);
-        assert!(matches!(&result, Err(FileWriteError::OpenInAnotherTab { path }) if *path == held), "{result:?}");
+        assert!(matches!(&result, Err(FileWriteError::OpenInAnotherNotebook { path }) if *path == held), "{result:?}");
         assert!(!dir.path().join("real/a.sql").exists(), "nothing was written");
     }
 
