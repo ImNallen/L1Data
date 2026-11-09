@@ -129,6 +129,7 @@ const DEFAULT_LAYOUT: Layout = {
   rightPanel: null,
   resultsHeight: 320,
   sidebarWidth: 280,
+  sidebarSplit: 50,
   rightPanelWidth: 341,
   assistantChat: null,
 };

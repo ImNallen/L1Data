@@ -164,7 +164,7 @@ export const COMMANDS: Command[] = [
     id: "reset-panels",
     group: "Workspace",
     label: "Reset panel sizes",
-    run: () => ws().setLayout({ sidebarWidth: 240, rightPanelWidth: 360, resultsHeight: 320 }),
+    run: () => ws().setLayout({ sidebarWidth: 240, sidebarSplit: 50, rightPanelWidth: 360, resultsHeight: 320 }),
   },
   SWITCH_NOTEBOOK,
   CLOSE_TAB,

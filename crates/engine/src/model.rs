@@ -1902,6 +1902,8 @@ pub struct Layout {
     pub right_panel: Option<RightPanel>,
     pub results_height: u16,
     pub sidebar_width: u16,
+    /// The share of the sidebar's height, in percent, that the database list takes above the selected database's objects.
+    pub sidebar_split: u16,
     pub right_panel_width: u16,
     pub assistant_chat: Option<ChatId>,
 }
@@ -1914,13 +1916,14 @@ impl Default for Layout {
             right_panel: Some(RightPanel::Assistant),
             results_height: 320,
             sidebar_width: 280,
+            sidebar_split: 50,
             right_panel_width: 341,
             assistant_chat: None,
         }
     }
 }
 
-// Hand-written so workspaces saved before the panel widths or the assistant chat existed still load,
+// Hand-written so workspaces saved before the panel sizes or the assistant chat existed still load,
 // and a saved Schema or History panel, which older builds offered, opens the assistant.
 // `#[serde(default)]` would do it too, but specta would then mark every Layout field optional in the TS bindings.
 impl<'de> Deserialize<'de> for Layout {
@@ -1939,6 +1942,7 @@ impl<'de> Deserialize<'de> for Layout {
             right_panel: Option<SavedPanel>,
             results_height: u16,
             sidebar_width: Option<u16>,
+            sidebar_split: Option<u16>,
             right_panel_width: Option<u16>,
             assistant_chat: Option<ChatId>,
         }
@@ -1950,6 +1954,7 @@ impl<'de> Deserialize<'de> for Layout {
             right_panel: s.right_panel.map(|_| RightPanel::Assistant),
             results_height: s.results_height,
             sidebar_width: s.sidebar_width.unwrap_or(default.sidebar_width),
+            sidebar_split: s.sidebar_split.unwrap_or(default.sidebar_split),
             right_panel_width: s.right_panel_width.unwrap_or(default.right_panel_width),
             assistant_chat: s.assistant_chat,
         })
@@ -3683,6 +3688,7 @@ mod tests {
         assert_eq!(schema.right_panel, Some(RightPanel::Assistant));
         assert_eq!(layout.results_height, 280);
         assert_eq!(layout.sidebar_width, 280);
+        assert_eq!(layout.sidebar_split, 50);
         assert_eq!(layout.right_panel_width, 341);
     }
 
