@@ -3,6 +3,7 @@ import { catalogErrorText, connectErrorText, disconnectErrorText } from "../../i
 import { confirm, useWorkspace } from "../../state/workspace";
 import { plural } from "../editor/runActions";
 import { closeCells, holdsTransaction } from "../notebooks/notebookActions";
+import { keepNotebook } from "../notebooks/notebookFiles";
 
 const ws = () => useWorkspace.getState();
 
@@ -49,8 +50,8 @@ export async function disconnect(id: ConnectionId): Promise<void> {
 }
 
 /**
- * Names the notebooks on the connection's databases, which go with it. Their cells close first, rolling back open
- * transactions; a changed file still asks to save, and a Cancel there keeps the connection.
+ * Names the notebooks on the connection's databases, which go with it. Each unsaved file notebook then asks once to
+ * save, and a Cancel there keeps the connection. Their cells close first, rolling back open transactions.
  */
 export async function confirmDelete(id: ConnectionId): Promise<void> {
   const name = ws().configs[id]?.name ?? "this connection";
@@ -65,7 +66,9 @@ export async function confirmDelete(id: ConnectionId): Promise<void> {
     note: holdsTransaction(cells) ? "Any open transactions are rolled back." : undefined,
     confirmLabel: "Delete",
   });
-  if (!ok || !(await closeCells(cells))) return;
+  if (!ok) return;
+  for (const n of notebooks) if (n.file && (await keepNotebook(n.id)) === false) return;
+  if (!(await closeCells(cells))) return;
   const res = await commands.connectionDelete(id);
   if (res.status === "error") ws().notify(disconnectErrorText(res.error));
   else ws().removeConfig(id);

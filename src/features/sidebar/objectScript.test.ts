@@ -18,7 +18,7 @@ it("opens the script in a new tab on the object's database, titled by the engine
   await openObjectScript(shop, { kind: "Relation", oid: 42 });
   expect(call).toHaveBeenCalledWith(shop, { kind: "Relation", oid: 42 });
   const active = activeId(useWorkspace.getState());
-  expect(useWorkspace.getState().tabs[active!]).toMatchObject({ title: "orders.sql", console: { db: shop }, table: null, file: null });
+  expect(useWorkspace.getState().tabs[active!]).toMatchObject({ title: "orders.sql", console: { db: shop }, table: null });
   expect(textOf(active!)).toBe(text);
   expect(useWorkspace.getState().toast).toBeNull();
 });

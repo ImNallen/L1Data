@@ -36,6 +36,8 @@ export type LiveData = {
   transcripts: Record<ChatId, Record<number, EntrySnapshot>>;
   updates: UpdateState | null;
   savedQueries: SavedQueries;
+  /** Shown as `~` at the start of a file's path. */
+  homeDir: string | null;
 };
 
 type LiveState = LiveData & {
@@ -56,6 +58,7 @@ export const emptyLive: LiveData = {
   transcripts: {},
   updates: null,
   savedQueries: { rev: 0, items: [] },
+  homeDir: null,
 };
 
 function keepHigher<K extends PropertyKey, V extends { rev: number }, M extends Partial<Record<K, V>>>(map: M, key: K, next: V): M {
@@ -172,7 +175,7 @@ export function hydrateLive(s: LiveData, b: BootSnapshot): LiveData {
   for (const c of b.consoles) next = { ...next, consoles: keepHigher(next.consoles, c.tabId, c) };
   for (const p of b.providers) next = { ...next, providers: keepHigher(next.providers, p.provider, p) };
   for (const c of b.chats) next = withChat(next, c);
-  return { ...next, updates: newerUpdate(next.updates, b.updates), savedQueries: newerSaved(next.savedQueries, b.savedQueries) };
+  return { ...next, updates: newerUpdate(next.updates, b.updates), savedQueries: newerSaved(next.savedQueries, b.savedQueries), homeDir: b.homeDir };
 }
 
 export function hydrateSavedLive(s: LiveData, queries: SavedQueries): LiveData {

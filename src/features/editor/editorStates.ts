@@ -3,7 +3,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory } 
 import { bracketMatching, indentOnInput } from "@codemirror/language";
 import { setDiagnostics, type Diagnostic } from "@codemirror/lint";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
-import { Compartment, countColumn, EditorState, StateEffect, StateField, Text, type Extension, type TransactionSpec } from "@codemirror/state";
+import { Compartment, countColumn, EditorState, StateEffect, StateField, type Extension, type Text, type TransactionSpec } from "@codemirror/state";
 import {
   Decoration,
   drawSelection,
@@ -24,12 +24,6 @@ import { SQL_DIALECT } from "./sqlDialect";
 import { editorHighlighting, editorTheme, functionCallStyle, LINE_PADDING_LEFT } from "./theme";
 
 const states = new Map<TabId, EditorState>();
-/**
- * File-bound tabs only: the doc the tab's file held at its last read or write. `null` means unknown, which reads
- * dirty: the file is missing or unreadable, or the tab was saved dirty and its file has not been read since.
- */
-const baselines = new Map<TabId, Text | null>();
-const dirtyMemo = new Map<TabId, { doc: Text; base: Text | null; dirty: boolean }>();
 const bufferListeners = new Set<() => void>();
 const contextListeners = new Set<() => void>();
 let view: EditorView | null = null;
@@ -267,14 +261,8 @@ function commit(id: TabId, next: EditorState): void {
   if (prev && (prev.doc !== next.doc || !prev.selection.eq(next.selection))) for (const listener of contextListeners) listener();
 }
 
-/** `"seeded"`: the file holds `text`. `"unknown"`: the tab is bound to a file whose contents it does not know yet. */
-export type Baseline = "none" | "seeded" | "unknown";
-
-export function seedEditor(id: TabId, text: string, baseline: Baseline = "none"): void {
-  const state = createState(text);
-  if (baseline === "none") baselines.delete(id);
-  else baselines.set(id, baseline === "seeded" ? state.doc : null);
-  commit(id, state);
+export function seedEditor(id: TabId, text: string): void {
+  commit(id, createState(text));
 }
 
 export function editorStateOf(id: TabId): EditorState {
@@ -290,29 +278,6 @@ export function editorStateOf(id: TabId): EditorState {
 /** The tab's doc, or `undefined` once the tab is gone. Unlike `editorStateOf`, it never creates a state. */
 export function docOf(id: TabId): Text | undefined {
   return id === activeId && view ? view.state.doc : states.get(id)?.doc;
-}
-
-export function markSynced(id: TabId, doc: Text | null): void {
-  if (!states.has(id)) return;
-  baselines.set(id, doc);
-  emit();
-}
-
-export function markSyncedText(id: TabId, text: string): void {
-  const doc = docOf(id);
-  if (doc) markSynced(id, doc.toString() === text ? doc : Text.of(text.split("\n")));
-}
-
-export function isDirty(id: TabId): boolean {
-  if (!baselines.has(id)) return false;
-  const base = baselines.get(id) ?? null;
-  const doc = docOf(id);
-  if (!doc) return false;
-  const memo = dirtyMemo.get(id);
-  if (memo?.doc === doc && memo.base === base) return memo.dirty;
-  const dirty = base === null || !base.eq(doc);
-  dirtyMemo.set(id, { doc, base, dirty });
-  return dirty;
 }
 
 export function onBuffersChanged(listener: () => void): () => void {
@@ -332,8 +297,6 @@ export function textOf(id: TabId): string {
 
 export function dropEditor(id: TabId): void {
   states.delete(id);
-  baselines.delete(id);
-  dirtyMemo.delete(id);
   if (activeId === id) activeId = null;
   for (const listener of contextListeners) listener();
 }

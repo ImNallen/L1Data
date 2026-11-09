@@ -8,7 +8,7 @@ import { ResultsPane } from "./ResultsPane";
 import { cellsState } from "../../testing/notebooks";
 
 const db = { connectionId: "c1", database: "shop" };
-const tab = (id: string): Tab => ({ id, title: "Query", console: { db, mode: "AutoCommit" }, table: null, file: null });
+const tab = (id: string): Tab => ({ id, title: "Query", console: { db, mode: "AutoCommit" }, table: null });
 const update: StatementRun = {
   index: 0,
   range: { from: 0, to: 1 },

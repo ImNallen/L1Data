@@ -1,9 +1,10 @@
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { ConsoleState, DatabaseRef, FileSaved } from "../../ipc/bindings";
+import type { ConsoleState, DatabaseRef, NotebookSaved, NotebookText } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
 import { activeId, allCells, shownNotebook, useWorkspace } from "../../state/workspace";
-import { dropEditor, insertAtCursor, seedEditor } from "../editor/editorStates";
+import { bindToFile } from "../../testing/notebooks";
+import { dropEditor, insertAtCursor } from "../editor/editorStates";
 import { openSqlTab } from "../editor/runActions";
 import { deleteNotebook, startNotebook } from "./notebookActions";
 
@@ -16,12 +17,17 @@ const asked = () => {
 const titles = () => Object.values(ws().notebooks).map((n) => n.title);
 
 let closes: [string, boolean][];
+let saves: NotebookText[];
 
 beforeEach(() => {
   vi.stubGlobal("window", { crypto });
   closes = [];
+  saves = [];
   mockIPC((cmd, args) => {
-    if (cmd === "file_save") return { binding: { path: "/q/a.sql", stamp: "s2", format: { bom: false, crlf: false } }, name: "a.sql" } satisfies FileSaved;
+    if (cmd === "notebook_save") {
+      saves.push((args as { notebook: NotebookText }).notebook);
+      return { binding: { path: "/q/a.sql", stamp: "s2", format: { bom: false, crlf: false } }, name: "a.sql", plain: false } satisfies NotebookSaved;
+    }
     if (cmd === "console_close") {
       const { tabId, force } = args as { tabId: string; force: boolean };
       closes.push([tabId, force]);
@@ -89,20 +95,43 @@ it("deletes a blank notebook without asking", async () => {
   expect([titles(), asked()]).toEqual([["shop"], null]);
 });
 
-it("asks to save each changed file, and a Cancel keeps that cell and the ones after it", async () => {
+/** The second notebook, bound to a file, with its first cell edited since. */
+function unsavedFileNotebook(): { id: string; cells: [string, string] } {
   const { cells } = secondNotebook();
-  const [a, b] = cells;
-  seedEditor(a, "select 2", "seeded");
-  ws().bindFile(a, { binding: { path: "/q/a.sql", stamp: "s1", format: { bom: false, crlf: false } }, name: "a.sql" });
-  insertAtCursor(a, "-- edited ");
-  const deleting = deleteNotebook(shownNotebook(ws())!.id);
-  await vi.waitFor(() => expect(asked()?.title).toBe("Delete shop 2?"));
-  ws().answer("btn");
-  await vi.waitFor(() => expect(asked()?.title).toBe("Save changes to a.sql?"));
+  const id = shownNotebook(ws())!.id;
+  bindToFile(id);
+  insertAtCursor(cells[0], "-- edited ");
+  return { id, cells };
+}
+
+it("asks once to save an unsaved file notebook, and a Cancel keeps every cell", async () => {
+  const { id, cells } = unsavedFileNotebook();
+  const deleting = deleteNotebook(id);
+  await vi.waitFor(() => expect(asked()).toEqual({ title: "Save changes to shop 2?", body: "Your changes are lost if you don't save them." }));
   ws().close();
   await deleting;
-  expect([titles(), shownNotebook(ws())?.cells]).toEqual([
-    ["shop", "shop 2"],
-    [a, b],
-  ]);
+  expect([titles(), shownNotebook(ws())?.cells, saves]).toEqual([["shop", "shop 2"], cells, []]);
+});
+
+it("deletes an unsaved file notebook on Don't Save without asking again, and on Save writes every cell first", async () => {
+  const discarded = unsavedFileNotebook();
+  const deleting = deleteNotebook(discarded.id);
+  await vi.waitFor(() => expect(asked()?.title).toBe("Save changes to shop 2?"));
+  ws().answer("discard");
+  await deleting;
+  expect([titles(), saves, asked()]).toEqual([["shop"], [], null]);
+
+  const kept = unsavedFileNotebook();
+  const saving = deleteNotebook(kept.id);
+  await vi.waitFor(() => expect(asked()?.title).toBe("Save changes to shop 2?"));
+  ws().answer("save");
+  await saving;
+  expect([titles(), saves.map((n) => n.cells.map((c) => c.text))]).toEqual([["shop"], [["-- edited select 2", ""]]]);
+});
+
+it("deletes a saved file notebook without asking, since its file holds every cell", async () => {
+  secondNotebook();
+  bindToFile(shownNotebook(ws())!.id);
+  await deleteNotebook(shownNotebook(ws())!.id);
+  expect([titles(), asked()]).toEqual([["shop"], null]);
 });

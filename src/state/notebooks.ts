@@ -1,11 +1,40 @@
-import type { DatabaseRef, NotebookId, TabId } from "../ipc/bindings";
+import type { DatabaseRef, FileBinding, NotebookId, TabId, UnknownKeys } from "../ipc/bindings";
 import { sameDb } from "./dbKey";
 
 /**
- * One of a database's notebooks. Every cell in it is on `db`, and it is never empty. `shownAtMs` is when it was last
- * shown: choosing its database shows the most recent one.
+ * What the last read or write found about a notebook's file. Not saved: boot reads every file again.
+ * `changed`: the file changed on disk while the notebook held changes, so the next save asks before overwriting.
+ * `unreadable`: the file is there, but reading it failed.
  */
-export type Notebook = { id: NotebookId; title: string; db: DatabaseRef | null; cells: TabId[]; active: TabId | null; shownAtMs: number };
+export type FileHealth = "ok" | "missing" | "changed" | "unreadable";
+
+/** One cell as the file held it: its text, and `metaKey` of what the file records about it. */
+export type SavedCell = { text: string; meta: string };
+
+export type NotebookFile = {
+  binding: FileBinding;
+  health: FileHealth;
+  /** The file holds plain SQL. A save keeps it plain while the notebook is one cell with nothing else to record. */
+  plain: boolean;
+  unknown: UnknownKeys;
+  /** The cells as the file held them at the last open, save, or read. `null` is unknown, which reads unsaved. */
+  saved: SavedCell[] | null;
+};
+
+/**
+ * One of a database's notebooks. Every cell in it is on `db`, and it is never empty. `shownAtMs` is when it was last
+ * shown: choosing its database shows the most recent one. A notebook with a `file` is that file: saving writes every
+ * cell to it.
+ */
+export type Notebook = {
+  id: NotebookId;
+  title: string;
+  db: DatabaseRef | null;
+  cells: TabId[];
+  active: TabId | null;
+  shownAtMs: number;
+  file: NotebookFile | null;
+};
 
 export type Notebooks = Record<NotebookId, Notebook>;
 
@@ -37,7 +66,7 @@ export function newNotebook(existing: Iterable<Notebook>, db: DatabaseRef | null
   const taken = new Set([...existing].filter((n) => sameDb(n.db, db)).map((n) => n.title));
   let title = name;
   for (let i = 2; taken.has(title); i++) title = `${name} ${i}`;
-  return { id: crypto.randomUUID(), title, db, cells: [], active: null, shownAtMs: 0 };
+  return { id: crypto.randomUUID(), title, db, cells: [], active: null, shownAtMs: 0, file: null };
 }
 
 /** Marks `id` shown later than every other notebook, at the current time unless the clock has not moved past them. */
@@ -50,6 +79,20 @@ export function stampShown(notebooks: Notebooks, id: NotebookId, now = Date.now(
 }
 
 /**
+ * A notebook whose cells all moved to one other database moves with them, keeping its identity, title and file. A
+ * title that only named the old database names the new one.
+ */
+function followCells(dbOf: (cell: TabId) => DatabaseRef | null | undefined): (n: Notebook) => Notebook {
+  return (n) => {
+    const dbs = n.cells.map(dbOf).filter((db) => db !== undefined);
+    const [first] = dbs;
+    if (first === undefined || dbs.length !== n.cells.length || sameDb(first, n.db) || !dbs.every((db) => sameDb(db, first))) return n;
+    const title = n.file === null && n.title === notebookTitle(n.db) ? notebookTitle(first) : n.title;
+    return { ...n, db: first, title };
+  };
+}
+
+/**
  * Puts every cell in exactly one notebook on the cell's own database. A notebook keeps its cells that are still on its
  * database, in order. Every other cell, `order` first, joins the end of the most recent notebook on its database, or a
  * new one. A notebook that loses its active cell takes the active cell that moved in, else its first. An empty notebook
@@ -58,7 +101,7 @@ export function stampShown(notebooks: Notebooks, id: NotebookId, now = Date.now(
 export function settle(notebooks: Iterable<Notebook>, dbOf: (cell: TabId) => DatabaseRef | null | undefined, order: Iterable<TabId> = []): Notebooks {
   const placed = new Set<TabId>();
   const wasActive = new Set<TabId>();
-  const kept = [...notebooks].map((n) => {
+  const kept = [...notebooks].map(followCells(dbOf)).map((n) => {
     if (n.active) wasActive.add(n.active);
     const cells = n.cells.filter((id) => {
       const db = dbOf(id);

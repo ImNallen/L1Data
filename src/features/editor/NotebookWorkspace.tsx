@@ -13,7 +13,7 @@ import { ResultsPane } from "../results/ResultsPane";
 import { CellResizeHandle } from "./CellResizeHandle";
 import { CELL_SCROLL_MARGIN, cellHeights, EDITOR_MIN, type DraggedHeights } from "./cellSizing";
 import { closeTab } from "./closeTab";
-import { activateEditor, isDirty, onBuffersChanged, textOf } from "./editorStates";
+import { activateEditor, onBuffersChanged, textOf } from "./editorStates";
 import { cancelActive, explainActive, explainSupported, formatActive, openSqlTab, runActive } from "./runActions";
 import { SqlEditor } from "./SqlEditor";
 import { SqlText } from "./SqlText";
@@ -42,11 +42,6 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
     onBuffersChanged,
     () => textOf(id),
     () => textOf(id),
-  );
-  const unsaved = useSyncExternalStore(
-    onBuffersChanged,
-    () => isDirty(id),
-    () => isDirty(id),
   );
   const cell = useRef<HTMLElement>(null);
   const [focusOnActivate, setFocusOnActivate] = useState(active);
@@ -158,16 +153,13 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
                 next?.focus();
               }}
               onDoubleClick={() => {
-                if (!tab.file) {
-                  setDraftTitle(tab.title);
-                  setRenaming(true);
-                }
+                setDraftTitle(tab.title);
+                setRenaming(true);
               }}
               className="min-w-0 flex-1 truncate text-left text-ui-12 font-medium text-fg"
-              title={tab.file?.binding.path ?? tab.title}
+              title={tab.title}
             >
               {tab.title}
-              {unsaved ? " ·" : ""}
             </button>
           )}
           {pending && (

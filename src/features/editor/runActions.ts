@@ -423,7 +423,6 @@ export function openSqlTab(
     title: opts.title ?? nextUntitled(Object.values(ws().tabs)),
     console: { db, mode: "AutoCommit", ...(schema && { schema }) },
     table: null,
-    file: null,
   };
   if (opts.newNotebook) ws().addNotebook(tab);
   else ws().addTab(tab, opts.after);
@@ -473,7 +472,6 @@ export async function openTableTab(ref: RelationRef, query?: TableQuery): Promis
     title: ref.relation,
     console: { db: ref.db, mode: "AutoCommit" },
     table: { schema: ref.schema, table: ref.relation, page: 0, query: query ?? EMPTY_QUERY },
-    file: null,
   });
   return id;
 }

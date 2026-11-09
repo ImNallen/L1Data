@@ -9,7 +9,7 @@ import { navigationItems, searchNavigation, type NavigationItem, type Navigation
 
 const shop = { connectionId: "c", database: "shop" };
 const reporting = { connectionId: "c", database: "reporting" };
-const tab = (id: string, db = shop): Tab => ({ id, title: `${id}.sql`, console: { db, mode: "AutoCommit" }, table: null, file: null });
+const tab = (id: string, db = shop): Tab => ({ id, title: `${id}.sql`, console: { db, mode: "AutoCommit" }, table: null });
 const source = (): NavigationSource => ({
   ...cellsState([]),
   configs: { c: connectionConfig("c", "Local"), d: connectionConfig("d", "Offline") },
@@ -49,18 +49,13 @@ it("scopes identical relation names and object IDs by database and connection, w
   expect(navigationItems({ ...input, views: {} }).every((item) => item.destination.kind !== "relation")).toBe(true);
 });
 
-it("searches query, file and table tabs by context and full file path", () => {
+it("searches query and table tabs by context", () => {
   const input = source();
   const query = tab("query");
-  const file: Tab = {
-    ...tab("file"),
-    file: { health: "ok", binding: { path: "/work/reports/monthly.sql", stamp: "s1", format: { bom: false, crlf: false } } },
-  };
   const table: Tab = { ...tab("orders"), table: { schema: "public", table: "orders", page: 0, query: EMPTY_QUERY } };
-  Object.assign(input, cellsState([query, file, table]));
+  Object.assign(input, cellsState([query, table]));
   const items = navigationItems(input);
   expect(searchNavigation(items, "LOCAL SHOP query").items[0]?.kindLabel).toBe("Query tab");
-  expect(searchNavigation(items, "monthly reports").items[0]).toMatchObject({ kindLabel: "File tab", destination: { kind: "tab", tabId: "file" } });
   expect(searchNavigation(items, "public orders").items[0]?.kindLabel).toBe("Table tab");
 });
 

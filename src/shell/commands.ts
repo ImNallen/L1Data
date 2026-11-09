@@ -1,11 +1,11 @@
 import { closeTab } from "../features/editor/closeTab";
-import { openFiles, saveTab, type SaveMode } from "../features/editor/fileActions";
 import { isBrowsing, openSqlTab, submitEdits } from "../features/editor/runActions";
 import { saveActiveQuery } from "../features/saved/savedActions";
 import { openNavigation } from "../features/navigation/navigationActions";
 import { openNotebookSwitcher } from "../features/notebooks/notebookActions";
+import { openNotebookFiles, saveNotebook, type SaveMode } from "../features/notebooks/notebookFiles";
 import { pendingCount, useTableEdits } from "../state/tableEdits";
-import { activeId, activeTab, shownDb, useWorkspace, type Overlay } from "../state/workspace";
+import { activeId, activeTab, shownDb, shownNotebook, useWorkspace, type Overlay } from "../state/workspace";
 import { isMac } from "./hostedWindow";
 
 export type CommandGroup = "Query" | "Connections" | "Workspace";
@@ -61,7 +61,7 @@ export const START_COMMANDS: Command[] = [
     key: "t",
     run: inWorkspace(() => openSqlTab()),
   },
-  { id: "open-file", group: "Query", label: "Open file…", key: "o", run: () => void openFiles() },
+  { id: "open-file", group: "Query", label: "Open notebook file…", key: "o", run: () => void openNotebookFiles() },
   { id: "new-connection", group: "Connections", label: "New connection", key: "n", run: open({ kind: "connection", editing: null }) },
   { id: "navigation", group: "Workspace", label: "Quick navigation", key: "p", run: openNavigation },
   { id: "saved-queries", group: "Query", label: "Saved queries", key: "e", run: toggleSaved },
@@ -120,21 +120,30 @@ const CLOSE_TAB: Command = {
 };
 
 /**
- * A save acts on the workspace screen with no dialog up, so a save dialog never stacks on another one. With staged
- * table edits in the active tab, ⌘S submits them wherever focus is.
+ * A save writes the shown notebook, and acts on the workspace screen with no dialog up, so a save dialog never stacks on
+ * another one. With staged table edits in the active cell, ⌘S submits them wherever focus is.
  */
-const saveActive = (mode: SaveMode) => () => {
+const saveShown = (mode: SaveMode) => () => {
   const workspace = ws();
   const { screen, overlay } = workspace;
   const active = activeId(workspace);
-  if (screen.kind !== "workspace" || overlay.kind !== "none" || !active) return;
+  const notebook = shownNotebook(workspace);
+  if (screen.kind !== "workspace" || overlay.kind !== "none" || !active || !notebook) return;
   const edits = useTableEdits.getState().byTab[active];
   if (mode === "save" && edits && pendingCount(edits) > 0) void submitEdits(active);
-  else void saveTab(active, mode);
+  else void saveNotebook(notebook.id, mode);
 };
 
-const SAVE: Command = { id: "save", group: "Query", label: "Save", key: "s", available: hasWorkspaceTab, run: saveActive("save") };
-const SAVE_AS: Command = { id: "save-as", group: "Query", label: "Save as…", key: "s", shift: true, available: hasWorkspaceTab, run: saveActive("saveAs") };
+const SAVE: Command = { id: "save", group: "Query", label: "Save notebook", key: "s", available: hasWorkspaceTab, run: saveShown("save") };
+const SAVE_AS: Command = {
+  id: "save-as",
+  group: "Query",
+  label: "Save notebook as…",
+  key: "s",
+  shift: true,
+  available: hasWorkspaceTab,
+  run: saveShown("saveAs"),
+};
 
 const SAVE_QUERY: Command = {
   id: "save-query",

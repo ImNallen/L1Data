@@ -35,7 +35,6 @@ it("asks for a path on ⌘⇧S even with staged edits, while ⌘S submits them a
     title: "orders",
     console: { db: { connectionId: "c", database: "shop" }, mode: "AutoCommit" },
     table: { schema: "public", table: "orders", page: 0, query: EMPTY_QUERY },
-    file: null,
   });
   useTableEdits.getState().edit("orders", (e) => setCell(e, [{ column: "id", value: "1" }], "total", "9", "1"));
   const saveAs = keydown("s", { ctrlKey: true, shiftKey: true }, false);
@@ -65,7 +64,7 @@ it("opens no file dialog while a question is up, and leaves the question for its
 it("does not save while a dialog is up", async () => {
   const cmds = recordIpc();
   seedEditor("t1", "select 1;");
-  useWorkspace.getState().addTab({ id: "t1", title: "a.sql", console: { db: null, mode: "AutoCommit" }, table: null, file: null });
+  useWorkspace.getState().addTab({ id: "t1", title: "a.sql", console: { db: null, mode: "AutoCommit" }, table: null });
   useWorkspace.getState().open({ kind: "history" });
   press("s")?.run();
   press("s", { metaKey: true, shiftKey: true })?.run();
@@ -99,7 +98,7 @@ it("saves the active tab's statement on ⌘⇧E", async () => {
   vi.stubGlobal("window", { crypto });
   mockIPC((cmd) => (cmd === "saved_query_save" ? { id: 1, alreadySaved: false, queries: { rev: 2, items: [] } } : null));
   seedEditor("t1", "select 1;");
-  useWorkspace.getState().addTab({ id: "t1", title: "a.sql", console: { db: null, mode: "AutoCommit" }, table: null, file: null });
+  useWorkspace.getState().addTab({ id: "t1", title: "a.sql", console: { db: null, mode: "AutoCommit" }, table: null });
   press("e", { metaKey: true, shiftKey: true })?.run();
   await vi.waitFor(() => expect(useWorkspace.getState().overlay).toEqual({ kind: "saved", entry: { kind: "name", id: 1 } }));
 });
@@ -197,7 +196,7 @@ it("leaves settings for the workspace before a shortcut opens an overlay there",
 });
 
 it("closes settings, not the active tab, on the close-tab shortcut", () => {
-  useWorkspace.getState().addTab({ id: "t1", title: "a.sql", console: { db: null, mode: "AutoCommit" }, table: null, file: null });
+  useWorkspace.getState().addTab({ id: "t1", title: "a.sql", console: { db: null, mode: "AutoCommit" }, table: null });
   useWorkspace.getState().openSettings();
   press("w")?.run();
   expect([useWorkspace.getState().screen, allCells(useWorkspace.getState())]).toEqual([{ kind: "workspace" }, ["t1"]]);

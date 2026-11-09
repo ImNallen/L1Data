@@ -136,7 +136,7 @@ it("opens a table with Enter, as a double-click does", async () => {
 });
 
 it("inserts a routine's template with Enter, and toggles a row that has no double-click action", async () => {
-  useWorkspace.setState(cellsState([{ id: "t1", title: "Query", console: { db: shop, mode: "AutoCommit" }, table: null, file: null }]));
+  useWorkspace.setState(cellsState([{ id: "t1", title: "Query", console: { db: shop, mode: "AutoCommit" }, table: null }]));
   seedEditor("t1", "");
   const user = userEvent.setup();
   render(<ConnectionTreeHarness />);

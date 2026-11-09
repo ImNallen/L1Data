@@ -54,8 +54,8 @@ export const commands = {
 	resultDrill: (resultRef: ResultRef, point: DrillPoint) => typedError<DrillQuery, DrillError>(__TAURI_INVOKE("result_drill", { resultRef, point })),
 	resultPlan: (resultRef: ResultRef) => typedError<Plan, ResultError>(__TAURI_INVOKE("result_plan", { resultRef })),
 	resultExport: (resultRef: ResultRef, format: ExportFormat, scope: ExportScope, path: string) => typedError<ExportSummary, ExportError>(__TAURI_INVOKE("result_export", { resultRef, format, scope, path })),
-	fileOpen: (path: string) => typedError<FileOpened, FileReadError>(__TAURI_INVOKE("file_open", { path })),
-	fileSave: (target: SaveTarget, text: string) => typedError<FileSaved, FileWriteError>(__TAURI_INVOKE("file_save", { target, text })),
+	notebookOpen: (path: string) => typedError<NotebookOpened, FileReadError>(__TAURI_INVOKE("notebook_open", { path })),
+	notebookSave: (target: SaveTarget, notebook: NotebookText) => typedError<NotebookSaved, FileWriteError>(__TAURI_INVOKE("notebook_save", { target, notebook })),
 	historyList: (query: HistoryQuery) => __TAURI_INVOKE<HistoryPage>("history_list", { query }),
 	historyBrowse: (query: HistoryBrowseQuery) => typedError<HistoryBrowsePage, HistoryError>(__TAURI_INVOKE("history_browse", { query })),
 	historyGroup: (query: HistoryGroupQuery) => typedError<HistoryGroupPage, HistoryError>(__TAURI_INVOKE("history_group", { query })),
@@ -182,6 +182,8 @@ export type BootSnapshot = {
 	chats: ChatState[],
 	updates: UpdateState,
 	savedQueries: SavedQueries,
+	/**  Spelled as a file binding's folder is, so the paths under it start with it. The UI shows it as `~`. */
+	homeDir: string | null,
 };
 
 export type Catalog = {
@@ -237,6 +239,23 @@ export type CatalogStatus =
  *  `Numeric` is present only when sum, avg, min, and max all exist.
  */
 export type CellAggregate = { kind: "Counts"; count: number; nonNull: number } | { kind: "Numeric"; count: number; nonNull: number; sum: string; avg: string; min: string; max: string };
+
+export type CellMeta = {
+	title: string | null,
+	/**  The schema the cell runs in. */
+	schema: string | null,
+	/**  The table a browse cell shows. */
+	table: CellTable | null,
+	/**  The cell commits by hand. */
+	manual: boolean,
+	/**  Keys this build does not read, and known keys whose value it cannot, written back as they were. */
+	unknown: MetaPair[],
+};
+
+export type CellTable = {
+	schema: string,
+	table: string,
+};
 
 export type CellWrite = {
 	column: string,
@@ -711,7 +730,7 @@ export type ExtensionInfo = {
 	version: string,
 };
 
-/**  Made only by the engine (`file_open`, `file_save`); the frontend stores it whole and hands it back whole. */
+/**  Made only by the engine (`notebook_open`, `notebook_save`); the frontend stores it whole and hands it back whole. */
 export type FileBinding = {
 	/**  The canonical folder joined with the file's own name: `..` and folder symlinks collapse, a symlink keeps its name. */
 	path: string,
@@ -728,20 +747,9 @@ export type FileFormat = {
 	crlf: boolean,
 };
 
-export type FileOpened = {
-	binding: FileBinding,
-	name: string,
-	text: string,
-};
-
 export type FileReadError = { kind: "NotFound" } | { kind: "NotAFile" } | { kind: "PermissionDenied" } | 
 /**  `offset` counts from the start of the file, BOM included. */
 { kind: "NotUtf8"; offset: number } | { kind: "TooLarge"; bytes: number; limit: number } | { kind: "Io"; message: string };
-
-export type FileSaved = {
-	binding: FileBinding,
-	name: string,
-};
 
 export type FileSnapshot = {
 	binding: FileBinding,
@@ -760,8 +768,8 @@ export type FileWriteError =
 { kind: "Changed"; disk: FileStamp } | 
 /**  The folder the file goes in does not exist. */
 { kind: "NotFound" } | { kind: "NotAFile" } | { kind: "PermissionDenied" } | 
-/**  `path` is the other tab's, which may name the file differently: a symlink, a hard link, another case. */
-{ kind: "OpenInAnotherTab"; path: string } | { kind: "Io"; message: string };
+/**  `path` is the other notebook's, which may name the file differently: a symlink, a hard link, another case. */
+{ kind: "OpenInAnotherNotebook"; path: string } | { kind: "Io"; message: string };
 
 export type FilterOp = "Eq" | "Ne" | "Lt" | "Le" | "Gt" | "Ge" | "Contains" | "StartsWith" | "IsNull" | "NotNull";
 
@@ -1091,6 +1099,11 @@ export type MapRelation = {
 
 export type MapResolution = { kind: "CatalogMatch"; oid: number } | { kind: "Tentative"; oid: number } | { kind: "Unresolved"; reason: string };
 
+export type MetaPair = {
+	key: string,
+	value: string,
+};
+
 /**  A model as its provider names it on its command line (`opus`). Valid only against the last probe. */
 export type ModelId = string;
 
@@ -1104,8 +1117,46 @@ export type ModelOption = {
 	recommended: boolean,
 };
 
+export type NotebookCell = {
+	text: string,
+	meta: CellMeta,
+};
+
+export type NotebookFileSnapshot = {
+	binding: FileBinding,
+	/**  The cells differed from the file when this snapshot was taken. */
+	dirty: boolean,
+	/**  The file holds plain SQL, with no header and no cell marker. */
+	plain: boolean,
+	unknown: UnknownKeys,
+};
+
+/**  Names the database the notebook was on. A file never holds a host, a user, a password, or a connection id. */
+export type NotebookHeader = {
+	/**  The connection's display name. */
+	connection: string | null,
+	kind: DatabaseKind | null,
+	database: string | null,
+	/**  Keys this build does not read, written back as they were. */
+	unknown: MetaPair[],
+};
+
 /**  Minted by the frontend (`crypto.randomUUID()`). */
 export type NotebookId = string;
+
+export type NotebookOpened = {
+	binding: FileBinding,
+	/**  The file's name. */
+	name: string,
+	notebook: NotebookText,
+};
+
+export type NotebookSaved = {
+	binding: FileBinding,
+	name: string,
+	/**  The file holds plain SQL, with no header and no cell marker. */
+	plain: boolean,
+};
 
 /**  One of a database's notebooks. Every cell in it is on `db`. */
 export type NotebookSnapshot = {
@@ -1118,6 +1169,20 @@ export type NotebookSnapshot = {
 	active: TabId | null,
 	/**  When the notebook was last shown, in Unix milliseconds. Choosing a database shows its most recent notebook. */
 	shownAtMs: number,
+	/**  `None` for a notebook not saved to a file. */
+	file: NotebookFileSnapshot | null,
+};
+
+/**  A notebook as its file holds it. Only `notebook_file` reads or writes the file's text. */
+export type NotebookText = {
+	/**
+	 *  Read: the file has no header and no cell marker, so it is one cell holding the whole file. Save: print the
+	 *  notebook that way while it still reads back the same, as one cell with nothing else to record.
+	 */
+	plain: boolean,
+	header: NotebookHeader,
+	/**  At least one when read. */
+	cells: NotebookCell[],
 };
 
 /**  The DDL that creates one object. */
@@ -1467,7 +1532,7 @@ export type SaveTarget =
 { kind: "Bound"; binding: FileBinding; overwrite: FileStamp | null } | 
 /**
  *  A path from the save dialog, which already asked before replacing a file. No stamp check. Refused with
- *  `OpenInAnotherTab` when it is the same file as one of `taken`, the paths the other tabs are bound to.
+ *  `OpenInAnotherNotebook` when it is the same file as one of `taken`, the paths the other notebooks are bound to.
  */
 { kind: "New"; path: string; format: FileFormat | null; taken: string[] };
 
@@ -1741,7 +1806,10 @@ export type TabSnapshot = {
 	text: string | null,
 	console: ConsoleConfigSnapshot,
 	table: TableSnapshot | null,
-	/**  `None` for a scratch tab. A file tab's `text` is its buffer, saved or not. */
+	/**
+	 *  Read only from workspaces saved while a file belonged to one tab, which the frontend moves into a notebook of
+	 *  its own. This build writes `None`: a file belongs to a notebook.
+	 */
 	file: FileSnapshot | null,
 };
 
@@ -1880,6 +1948,12 @@ export type TypeKind = { kind: "Enum"; labels: string[] } | { kind: "Domain"; ba
 { kind: "Builtin" } | 
 /**  SQL Server `CREATE TYPE name FROM ...`. `base` is `display()` of the system type. */
 { kind: "Alias"; base: string; nullable: boolean } | { kind: "Table" };
+
+/**  Keys the file holds that this build does not read, written back on the next save. */
+export type UnknownKeys = {
+	header: MetaPair[],
+	cells: { [key in TabId]: MetaPair[] },
+};
 
 export type UpdateError = 
 /**  The update is not in the state the action names. The live snapshot already shows where it is. */

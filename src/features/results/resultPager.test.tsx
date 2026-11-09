@@ -12,7 +12,7 @@ import { cellsState } from "../../testing/notebooks";
 
 const TAB = "pager-test";
 const db = { connectionId: "c1", database: "shop" };
-const tab: Tab = { id: TAB, title: "Query", console: { db, mode: "AutoCommit" }, table: null, file: null };
+const tab: Tab = { id: TAB, title: "Query", console: { db, mode: "AutoCommit" }, table: null };
 
 const meta = (rowCount: number, index = 0, runId = 1): ResultMeta => ({
   databaseKind: "Postgres",

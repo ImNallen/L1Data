@@ -29,11 +29,11 @@ export function navigationItems(source: NavigationSource): NavigationItem[] {
     if (!tab) continue;
     const db = tab.console.db;
     const relation = tab.table && db && findRelation(source.views[dbKey(db)], tab.table.schema, tab.table.table);
-    const kindLabel = tab.file ? "File tab" : tab.table ? (relation && isViewKind(relation.kind) ? "View tab" : "Table tab") : "Query tab";
+    const kindLabel = tab.table ? (relation && isViewKind(relation.kind) ? "View tab" : "Table tab") : "Query tab";
     items.push({
       id: JSON.stringify(["tab", id]),
       label: tab.title,
-      context: [db ? `${connectionName(db)} / ${db.database}` : "No database", tab.table?.schema, tab.file?.binding.path].filter(Boolean).join(" / "),
+      context: [db ? `${connectionName(db)} / ${db.database}` : "No database", tab.table?.schema].filter(Boolean).join(" / "),
       kindLabel,
       action: active === id ? "Focus active tab" : "Switch to tab",
       destination: { kind: "tab", tabId: id },

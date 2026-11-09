@@ -1,4 +1,6 @@
-import type { DatabaseRef, TabId } from "../ipc/bindings";
+import { textOf } from "../features/editor/editorStates";
+import type { DatabaseRef, FileBinding, NotebookId, TabId } from "../ipc/bindings";
+import { cellMeta, metaKey } from "../state/notebookFile";
 import { followActive, notebookOf, settle } from "../state/notebooks";
 import { useWorkspace, type Tab, type WorkspaceData } from "../state/workspace";
 
@@ -30,4 +32,13 @@ export function moveCell(id: TabId, db: DatabaseRef | null): void {
       settle(Object.values(s.notebooks), (c) => tabs[c]?.console.db),
     ),
   });
+}
+
+/** Binds a notebook to `path` as if it had just been opened from that file, so it reads saved. */
+export function bindToFile(id: NotebookId, path = "/q/a.sql", plain = false): FileBinding {
+  const { notebooks, tabs } = useWorkspace.getState();
+  const binding: FileBinding = { path, stamp: "s1", format: { bom: false, crlf: false } };
+  const saved = (notebooks[id]?.cells ?? []).map((c) => ({ text: textOf(c), meta: metaKey(cellMeta(tabs[c]!)) }));
+  useWorkspace.getState().setNotebookFile(id, { binding, health: "ok", plain, unknown: { header: [], cells: {} }, saved });
+  return binding;
 }

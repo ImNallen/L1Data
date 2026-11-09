@@ -154,7 +154,6 @@ it("focuses the grid of the table cell it opened, not the first grid in the note
     title: id,
     console: { db, mode: "AutoCommit" as const },
     table: { schema: "public", table: id, page: 0, query: EMPTY_QUERY },
-    file: null,
   });
   useWorkspace.setState(cellsState([tab("first"), tab("opened")], "opened"));
   document.body.innerHTML = ["first", "opened"]

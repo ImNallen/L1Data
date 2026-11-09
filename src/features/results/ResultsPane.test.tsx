@@ -17,7 +17,6 @@ const tab: TableTab = {
   title: "customers",
   console: { db, mode: "AutoCommit" },
   table: { schema: "public", table: "customers", page: 1, query: EMPTY_QUERY },
-  file: null,
 };
 const script: TableScript = { text: "SELECT * FROM public.customers", acceptedTexts: ["SELECT * FROM public.customers"] };
 
