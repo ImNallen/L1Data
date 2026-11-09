@@ -54,6 +54,7 @@ import {
 import { closeChooser, openChooser } from "./chooserState";
 import { cancelStaleParams, finishParams, forgetParams, promptParams } from "./paramsState";
 import { docText } from "./docText";
+import { installCellReferences, notebookSources, refreshReferences } from "../notebooks/cellReferences";
 
 const ws = () => useWorkspace.getState();
 const notify = (text: string) => ws().notify(text);
@@ -276,7 +277,7 @@ async function runTab(tabId: TabId, target?: PageTarget, script?: RunTarget, mod
     const description = db ? `${ws().configs[db.connectionId]?.name ?? db.connectionId} / ${db.database}` : "";
     const params = discovered.data.length ? await promptParams(tabId, targetKey, discovered.data, description, valid) : [];
     if (!params || !valid()) return;
-    request = { kind: "script", text, target: runTarget, mode, params };
+    request = { kind: "script", text, target: runTarget, mode, params, cells: notebookSources(tabId) };
     showDiagnostics(tabId, []);
   }
 
@@ -294,6 +295,7 @@ async function runTab(tabId: TabId, target?: PageTarget, script?: RunTarget, mod
   if (target && request.kind === "tablePage") ws().setTablePage(tabId, target.page, target.exactRowCount);
   if (request.kind === "script") {
     sent.set(tabId, { runId: res.data.runId, text });
+    ws().setRunSources(tabId, res.data.sources);
     flashRanges(tabId, res.data.statements);
     showRunErrors(useLive.getState());
   }
@@ -752,6 +754,7 @@ export function installRunBehavior(): void {
     }
   });
   installEditorBehavior([
+    installCellReferences(),
     Prec.highest(
       keymap.of([
         { key: "Mod-Enter", run: () => (void runOrChoose(), true) },
@@ -771,6 +774,7 @@ export function installRunBehavior(): void {
         ws().setCursor(cursorOf(u.state));
         refreshRunMark();
       }
+      if (u.docChanged) refreshReferences();
     }),
   ]);
 }

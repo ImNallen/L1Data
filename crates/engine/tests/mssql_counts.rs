@@ -77,7 +77,7 @@ impl Harness {
     }
 
     async fn sql(&self, tab: TabId, sql: &str) -> ConsoleState {
-        self.run(tab, RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }).await
+        self.run(tab, RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }).await
     }
 
     fn rows(&self, state: &ConsoleState) -> Vec<Vec<Option<String>>> {
@@ -237,7 +237,7 @@ async fn busy_count_refuses_competitors_and_cancel_preserves_original_results() 
         let before = h.state(h.tab);
         assert_eq!(before.txn, TxnState::Open);
         assert!(matches!(h.count(TableQuery::default()).await, Err(CountError::Failed { message }) if message.contains("busy")));
-        assert!(matches!(h.engine.console_run(h.tab, RunRequest::Script { text: "SELECT 99".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }, None).await, Err(RunError::Busy)));
+        assert!(matches!(h.engine.console_run(h.tab, RunRequest::Script { text: "SELECT 99".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await, Err(RunError::Busy)));
         assert!(matches!(h.engine.console_commit(h.tab, None).await, Err(TxnError::Busy)));
         assert!(matches!(h.engine.console_rollback(h.tab).await, Err(TxnError::Busy)));
         assert!(matches!(h.engine.console_configure(h.tab, h.config("reporting")).await, Err(ConfigureError::Busy)));

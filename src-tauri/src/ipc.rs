@@ -114,6 +114,12 @@ pub fn script_params(engine: State<'_, Arc<Engine>>, text: String, target: RunTa
 
 #[tauri::command]
 #[specta::specta]
+pub fn cell_references(engine: State<'_, Arc<Engine>>, text: String, database_kind: DatabaseKind) -> Vec<CellReference> {
+    engine.cell_references(&text, database_kind)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn script_outline(engine: State<'_, Arc<Engine>>, text: String, cursor: DocOffset, database_kind: DatabaseKind) -> ScriptOutline {
     engine.script_outline(&text, cursor, database_kind)
 }

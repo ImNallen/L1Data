@@ -39,6 +39,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ipc::console_configure,
             ipc::script_outline,
             ipc::script_params,
+            ipc::cell_references,
             ipc::completion_context,
             ipc::editor_format,
             ipc::table_script,
@@ -256,7 +257,7 @@ async fn self_check_steps(engine: &Arc<Engine>, url: &str) -> Result<serde_json:
         .await
         .map_err(fail("console_configure"))?;
     let accepted = engine
-        .console_run(tab, RunRequest::Script { text: "SELECT 1".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }, None)
+        .console_run(tab, RunRequest::Script { text: "SELECT 1".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None)
         .await
         .map_err(fail("console_run"))?;
     let finished = tokio::time::timeout(std::time::Duration::from_secs(30), async {
@@ -467,7 +468,7 @@ mod tests {
             }
             checked += 1;
         }
-        assert_eq!(checked, 31, "the sync commands in ipc.rs");
+        assert_eq!(checked, 32, "the sync commands in ipc.rs");
     }
 
     /// The engine decides what to install and when. A webview that could call the plugin would

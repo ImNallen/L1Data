@@ -58,7 +58,7 @@ impl Harness {
 
     async fn run(&self, sql: &str) -> ConsoleState {
         let mut events = self.engine.subscribe();
-        let id = self.engine.console_run(self.tab, RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }, None).await.unwrap().run_id;
+        let id = self.engine.console_run(self.tab, RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await.unwrap().run_id;
         tokio::time::timeout(Duration::from_secs(15), async {
             loop {
                 if let AppEvent::ConsoleChanged(state) = events.recv().await.unwrap()

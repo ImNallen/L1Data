@@ -75,6 +75,49 @@ const mapField = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 });
 
+export type ReferenceMark = { from: number; to: number; name: string; known: boolean };
+
+const referenceEffect = StateEffect.define<{ doc: Text; marks: ReferenceMark[] }>();
+// Maps through edits so marks hold still until the engine's next answer replaces them.
+const referenceField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(deco, tr) {
+    let next = deco.map(tr.changes);
+    for (const effect of tr.effects) {
+      if (!effect.is(referenceEffect) || effect.value.doc !== tr.state.doc) continue;
+      const len = tr.state.doc.length;
+      next = Decoration.set(
+        effect.value.marks
+          .filter((m) => m.from < m.to && m.from >= 0 && m.to <= len)
+          .map((m) =>
+            Decoration.mark({
+              class: m.known ? "cm-cell-ref" : "cm-cell-ref cm-cell-ref-unknown",
+              attributes: { title: m.known ? `${m.name} · ⌘-click to go to the cell` : `No cell is named ${m.name}` },
+              name: m.name,
+            }).range(m.from, m.to),
+          ),
+        true,
+      );
+    }
+    return next;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
+/** Marks for the doc the engine read. A doc that changed since is left alone: its own pass is already on the way. */
+export function showReferences(id: TabId, doc: Text, marks: ReferenceMark[]): void {
+  updateEditor(id, () => ({ effects: referenceEffect.of({ doc, marks }) }));
+}
+
+/** The name of the reference under `pos`, if any. */
+export function referenceAt(state: EditorState, pos: number): string | null {
+  let name: string | null = null;
+  state.field(referenceField, false)?.between(pos, pos, (from, to, deco) => {
+    if (from <= pos && pos <= to) name = (deco.spec as { name?: string }).name ?? null;
+  });
+  return name;
+}
+
 export type EditorContext = { tabId: TabId; doc: Text; selection: EditorState["selection"] };
 
 export function editorContextOf(tabId: TabId): EditorContext {
@@ -234,6 +277,7 @@ function createState(text: string): EditorState {
       flashField,
       previewField,
       mapField,
+      referenceField,
       runTargetField,
       runTargetLayer,
       selectingClass,

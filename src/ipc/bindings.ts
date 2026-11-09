@@ -30,6 +30,7 @@ export const commands = {
 	consoleConfigure: (tabId: TabId, config: ConsoleConfig) => typedError<ConsoleState, ConfigureError>(__TAURI_INVOKE("console_configure", { tabId, config })),
 	scriptOutline: (text: string, cursor: DocOffset, databaseKind: DatabaseKind) => __TAURI_INVOKE<ScriptOutline>("script_outline", { text, cursor, databaseKind }),
 	scriptParams: (text: string, target: RunTarget, databaseKind: DatabaseKind) => typedError<Param[], RunError>(__TAURI_INVOKE("script_params", { text, target, databaseKind })),
+	cellReferences: (text: string, databaseKind: DatabaseKind) => __TAURI_INVOKE<CellReference[]>("cell_references", { text, databaseKind }),
 	completionContext: (text: string, cursor: DocOffset, databaseKind: DatabaseKind) => __TAURI_INVOKE<CompletionContext>("completion_context", { text, cursor, databaseKind }),
 	editorFormat: (text: string, target: RunTarget, databaseKind: DatabaseKind) => typedError<FormatEdit, FormatError>(__TAURI_INVOKE("editor_format", { text, target, databaseKind })),
 	tableScript: (db: DatabaseRef, schema: string, table: string) => typedError<TableScript, string>(__TAURI_INVOKE("table_script", { db, schema, table })),
@@ -252,6 +253,18 @@ export type CellMeta = {
 	unknown: MetaPair[],
 };
 
+/**  A `{{name}}` in an editor's text. `range` covers the braces, and `name` is the title between them, trimmed. */
+export type CellReference = {
+	range: DocRange,
+	name: string,
+};
+
+/**  A notebook cell by title, as `{{title}}` names it. */
+export type CellSource = {
+	name: string,
+	text: string,
+};
+
 export type CellTable = {
 	schema: string,
 	table: string,
@@ -389,7 +402,11 @@ export type ColumnSource = {
 /**  What the editor may offer at a cursor, read from the statement under it. */
 export type CompletionContext = 
 /**  Inside a string, a comment, a quoted name, a number, or a parameter. */
-{ kind: "None" } | { kind: "Complete"; 
+{ kind: "None" } | 
+/**  After a `{{` that nothing has closed on its line, where a cell title goes. */
+{ kind: "Reference"; 
+/**  The start of the title being typed. */
+from: DocOffset } | { kind: "Complete"; 
 /**  The start of the word being typed, or the cursor when none is. */
 from: DocOffset; expect: Expect; 
 /**  The names before a `.` that ends at `from`. */
@@ -1489,13 +1506,17 @@ export type RowsState = "Streaming" | "Complete" | "Failed" | "Cancelled";
 export type RunAccepted = {
 	runId: RunId,
 	statements: DocRange[],
+	/**  Each cell the run inlined for a reference, directly or through another cell, once, with the text it used. */
+	sources: CellSource[],
 };
 
 export type RunError = { kind: "Busy" } | { kind: "NoStatement" } | { kind: "NotConfigured" } | 
 /**  `what` names the construct, e.g. `"COPY FROM STDIN"`. */
 { kind: "Unsupported"; what: string } | { kind: "Connect"; error: ConnectError } | 
 /**  WHERE or ORDER BY isn't a single expression, e.g. it smuggles in a second statement. */
-{ kind: "BadFilter" } | { kind: "ConfirmWrites"; confirmation: WriteConfirmation };
+{ kind: "BadFilter" } | { kind: "ConfirmWrites"; confirmation: WriteConfirmation } | 
+/**  A `{{name}}` cannot expand. `message` is one sentence that names the cell. */
+{ kind: "Reference"; message: string };
 
 /**  Engine-wide monotonic. */
 export type RunId = number;
@@ -1506,7 +1527,9 @@ export type RunOutcome = "Ok" | "Failed" | "Cancelled";
 
 export type RunOutput = { kind: "Rows"; result: ResultMeta; state: RowsState } | { kind: "Command"; tag: string; affectedRows: number | null; elapsedMs: number } | { kind: "Plan"; result: ResultMeta; format: PlanFormat };
 
-export type RunRequest = { kind: "script"; text: string; target: RunTarget; mode: RunMode; params: ParamValue[] } | { kind: "tablePage"; schema: string; table: string; page: number; query?: TableQuery };
+export type RunRequest = { kind: "script"; text: string; target: RunTarget; mode: RunMode; params: ParamValue[]; 
+/**  Every cell of the running cell's notebook, which `{{title}}` references resolve against. */
+cells?: CellSource[] } | { kind: "tablePage"; schema: string; table: string; page: number; query?: TableQuery };
 
 export type RunState = { kind: "Idle" } | { kind: "Running"; runId: RunId; startedAtMs: number; statements: StatementRun[] } | { kind: "Finished"; runId: RunId; elapsedMs: number; statements: StatementRun[]; outcome: RunOutcome };
 

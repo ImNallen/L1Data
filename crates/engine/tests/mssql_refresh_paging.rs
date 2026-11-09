@@ -75,7 +75,7 @@ impl Harness {
     }
 
     async fn run(&mut self, sql: &str) -> ConsoleState {
-        self.request(RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }).await
+        self.request(RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }).await
     }
 
     fn assert_ok(state: &ConsoleState) {

@@ -91,7 +91,7 @@ impl Harness {
     }
 
     async fn run(&self, sql: &str) -> (ConsoleState, Rows) {
-        let accepted = self.engine.console_run(self.tab, RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }, None).await.unwrap();
+        let accepted = self.engine.console_run(self.tab, RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await.unwrap();
         let state = self.finish(accepted.run_id).await;
         let RunState::Finished { statements, .. } = &state.run else { unreachable!() };
         let rows = statements.iter().flat_map(|s| &s.outputs).filter_map(|output| match output {
@@ -302,6 +302,7 @@ async fn cancel_retires_the_moved_session_and_transaction_buttons_remain_busy() 
         h.same("BEGIN TRANSACTION; UPDATE #l1_native_state SET n=9").await;
         let accepted = h.engine.console_run(h.tab, RunRequest::Script {
             text: "SELECT N'started'; RAISERROR(N'flush',0,1) WITH NOWAIT; WAITFOR DELAY '00:00:30'".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(),
+            cells: Vec::new(),
         }, None).await.unwrap();
         tokio::time::timeout(Duration::from_secs(3), async {
             loop {
@@ -313,7 +314,7 @@ async fn cancel_retires_the_moved_session_and_transaction_buttons_remain_busy() 
         }).await.expect("First result did not stream before WAITFOR");
         assert!(matches!(h.engine.console_commit(h.tab, None).await, Err(TxnError::Busy)));
         assert!(matches!(h.engine.console_rollback(h.tab).await, Err(TxnError::Busy)));
-        assert!(matches!(h.engine.console_run(h.tab, RunRequest::Script { text: "SELECT 1".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }, None).await, Err(RunError::Busy)));
+        assert!(matches!(h.engine.console_run(h.tab, RunRequest::Script { text: "SELECT 1".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await, Err(RunError::Busy)));
         h.engine.console_cancel(h.tab).await;
         let state = h.finish(accepted.run_id).await;
         assert!(matches!(state.run, RunState::Finished { outcome: RunOutcome::Cancelled, .. }));

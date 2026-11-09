@@ -15,6 +15,8 @@ use super::{ByteTarget, DmlVerb, Invalidates, StmtKind, StmtSpan, relations::Nam
 enum Kind {
     Word,
     Ident,
+    /// A notebook cell reference, `{{name}}`.
+    Reference,
     String,
     Number,
     Variable,
@@ -184,6 +186,16 @@ fn lex_with(text: &str, unclosed_to_end: bool) -> Result<Vec<Token<'_>>, String>
                 i = quoted_end(bytes, i, if bytes[i] == b'[' { b']' } else { b'"' })?;
                 Kind::Ident
             }
+            b'{' => match super::refs::end_at(text, i) {
+                Some(end) => {
+                    i = end;
+                    Kind::Reference
+                }
+                None => {
+                    i += 1;
+                    Kind::Symbol
+                }
+            },
             b'0' if matches!(bytes.get(i + 1), Some(b'x' | b'X')) => {
                 i += 2;
                 while i < bytes.len() && bytes[i].is_ascii_hexdigit() {
@@ -666,6 +678,7 @@ pub(super) fn completion_lexemes(text: &str, range: std::ops::Range<usize>) -> V
     let class = |t: &Token<'_>| match t.kind {
         Kind::Word => Class::Word,
         Kind::Ident => Class::Name,
+        Kind::Reference => Class::Reference,
         Kind::String => Class::Str,
         Kind::Number => Class::Number,
         Kind::Variable => Class::Param,

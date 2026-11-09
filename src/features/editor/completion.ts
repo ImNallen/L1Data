@@ -15,7 +15,29 @@ const BOOST = { typed: 100, join: 99, column: 4, reference: 3, relation: 2, func
 /** The engine's word characters, so a request follows the same words it reads, such as `café` or `@id`. */
 const WORD = /^[\p{L}\p{N}_$#@]*$/u;
 const TYPED = /[\p{L}\p{N}_$#@]+/u;
-const ASKS_AFTER = /[\p{L}\p{N}_$#@.\s]/u;
+const ASKS_AFTER = /[\p{L}\p{N}_$#@.\s{]/u;
+const REFERENCE_NAME = /^[^}\n]*$/;
+
+let cellNames: () => string[] = () => [];
+
+/** The titles a `{{name}}` in the active cell can reference: the other cells of its notebook. */
+export function provideCellNames(names: () => string[]): void {
+  cellNames = names;
+}
+
+function referenceResult(ctx: EditorContext, from: number): CompletionResult | null {
+  const closed = ctx.state.sliceDoc(ctx.pos, ctx.pos + 2) === "}}";
+  const options = [...new Set(cellNames())].map((name): Completion => ({
+    label: name,
+    type: "variable",
+    detail: "cell",
+    apply: (v, _c, start, end) => {
+      const insert = closed ? name : `${name}}}`;
+      v.dispatch({ changes: { from: start, to: end, insert }, selection: { anchor: start + insert.length + (closed ? 2 : 0) } });
+    },
+  }));
+  return options.length ? { from, options, validFor: REFERENCE_NAME } : null;
+}
 
 const JOIN_DETAIL_WAIT_MS = 250;
 
@@ -275,6 +297,7 @@ export function engineCompletion(view: CatalogView | undefined, kind: DatabaseKi
     const reply = await ask(ctx);
     if (!reply || ctx.aborted) return null;
     if (reply.kind === "None") return declined(ctx.matchBefore(TYPED)?.from ?? ctx.pos, (text) => WORD.test(text));
+    if (reply.kind === "Reference") return referenceResult(ctx, reply.from);
     const typed = ctx.state.sliceDoc(reply.from, ctx.pos);
     const joining = reply.expect.kind === "JoinCondition" && !reply.qualifier && view && opensUnasked(ctx, reply, typed);
     const joins = joining && reply.expect.kind === "JoinCondition" ? await joinConditions(view, reply, reply.expect.target) : [];

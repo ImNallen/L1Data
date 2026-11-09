@@ -1,6 +1,6 @@
 use crate::model::{DatabaseKind, ExecutionUnitKind, TableOrderEdit, TableOrderView, TableSortKey, TableScript, Relation};
 use crate::model::{
-    CellWrite, ColumnFilter, CompletionContext, DocOffset, DocRange, FilterOp, FormatEdit, FormatError, RunTarget, ScriptOutline, TableQuery,
+    CellReference, CellWrite, ColumnFilter, CompletionContext, DocOffset, DocRange, FilterOp, FormatEdit, FormatError, RunTarget, ScriptOutline, TableQuery,
 };
 use crate::sql::{self, ByteTarget, DmlVerb, StmtKind, StmtSpan};
 
@@ -94,9 +94,21 @@ pub fn script_outline(text: &str, cursor: DocOffset, database_kind: DatabaseKind
     }
 }
 
+pub fn cell_references(text: &str, database_kind: DatabaseKind) -> Vec<CellReference> {
+    let map = OffsetMap::new(text);
+    sql::refs::find(text, database_kind)
+        .into_iter()
+        .map(|(span, name)| CellReference { range: DocRange { from: map.to_utf16(span.start), to: map.to_utf16(span.end) }, name: name.to_owned() })
+        .collect()
+}
+
 pub fn completion_context(text: &str, cursor: DocOffset, database_kind: DatabaseKind) -> CompletionContext {
     let map = OffsetMap::new(text);
-    let Some(scope) = sql::scope_at(text, map.from_utf16(cursor), database_kind) else {
+    let at = map.from_utf16(cursor);
+    if let Some(from) = sql::refs::typing_at(text, at, database_kind) {
+        return CompletionContext::Reference { from: map.to_utf16(from) };
+    }
+    let Some(scope) = sql::scope_at(text, at, database_kind) else {
         return CompletionContext::None;
     };
     CompletionContext::Complete {

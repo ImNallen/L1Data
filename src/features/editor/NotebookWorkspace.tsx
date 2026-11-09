@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } fr
 import type { TabId } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
 import { canCancel, hasUncommittedWork, isBusy, resultKey, rowResults, shownResult } from "../../state/status";
+import { notebookOf } from "../../state/notebooks";
 import { activeId, shownNotebook, useWorkspace } from "../../state/workspace";
 import { Button, cx, IconButton, MenuContent, MenuItem } from "../../ui/primitives";
 import { hasResultPager } from "../results/format";
@@ -13,7 +14,9 @@ import { ResultsPane } from "../results/ResultsPane";
 import { CellResizeHandle } from "./CellResizeHandle";
 import { CELL_SCROLL_MARGIN, cellHeights, EDITOR_MIN, type DraggedHeights } from "./cellSizing";
 import { closeTab } from "./closeTab";
-import { activateEditor, onBuffersChanged, textOf } from "./editorStates";
+import { staleness, stalenessText } from "../notebooks/references";
+import { docText } from "./docText";
+import { activateEditor, docOf, onBuffersChanged, textOf } from "./editorStates";
 import { cancelActive, explainActive, explainSupported, formatActive, openSqlTab, runActive } from "./runActions";
 import { SqlEditor } from "./SqlEditor";
 import { SqlText } from "./SqlText";
@@ -29,6 +32,28 @@ function AddCell({ after }: { after?: TabId }) {
   );
 }
 
+const onStaleInputs = (changed: () => void) => {
+  const buffers = onBuffersChanged(changed);
+  const workspace = useWorkspace.subscribe(changed);
+  return () => {
+    buffers();
+    workspace();
+  };
+};
+
+/** Why the cell's result no longer matches the cells it references, or "" while it does. */
+function staleReason(id: TabId): string {
+  const s = useWorkspace.getState();
+  const sources = s.runSources[id];
+  if (!sources?.length) return "";
+  const cells = (notebookOf(s.notebooks, id)?.cells ?? []).flatMap((c) => {
+    const doc = docOf(c);
+    const tab = s.tabs[c];
+    return tab && doc ? [{ name: tab.title, text: docText(doc) }] : [];
+  });
+  return stalenessText(staleness(sources, cells));
+}
+
 function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: number; viewport: number; focused: boolean }) {
   const tab = useWorkspace((s) => s.tabs[id]);
   const active = useWorkspace((s) => activeId(s) === id);
@@ -42,6 +67,11 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
     onBuffersChanged,
     () => textOf(id),
     () => textOf(id),
+  );
+  const stale = useSyncExternalStore(
+    onStaleInputs,
+    () => staleReason(id),
+    () => staleReason(id),
   );
   const cell = useRef<HTMLElement>(null);
   const [focusOnActivate, setFocusOnActivate] = useState(active);
@@ -113,7 +143,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
         data-testid={`notebook-cell-${id}`}
         data-active={active}
         style={{ scrollMarginBlock: CELL_SCROLL_MARGIN }}
-        className={cx("notebook-cell", active && "notebook-cell-active")}
+        className={cx("notebook-cell", stale && "notebook-cell-stale", active && "notebook-cell-active")}
         onFocusCapture={() => {
           if (!active) activate();
         }}
@@ -156,10 +186,19 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
                 setDraftTitle(tab.title);
                 setRenaming(true);
               }}
-              className="min-w-0 flex-1 truncate text-left text-ui-12 font-medium text-fg"
+              className="flex min-w-0 flex-1 items-center gap-2 text-left text-ui-12 font-medium text-fg"
               title={tab.title}
             >
-              {tab.title}
+              <span className="min-w-0 truncate">{tab.title}</span>
+              {stale && (
+                <span
+                  data-testid={`stale-${id}`}
+                  className="shrink-0 rounded bg-amber/12 px-1.5 py-px text-ui-10 font-medium text-amber"
+                  title={`${stale} Run this cell to update it.`}
+                >
+                  Stale
+                </span>
+              )}
             </button>
           )}
           {pending && (

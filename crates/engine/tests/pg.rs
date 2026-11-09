@@ -219,7 +219,7 @@ impl Harness {
 
     async fn start_run(&mut self, tab: TabId, sql: &str) -> RunAccepted {
         self.engine
-            .console_run(tab, RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }, None)
+            .console_run(tab, RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None)
             .await
             .unwrap()
     }
@@ -605,7 +605,7 @@ async fn error_position_maps_to_utf16_past_an_emoji() {
     let cursor = text.encode_utf16().count() as u32 - 3;
     let accepted = h
         .engine
-        .console_run(tab, RunRequest::Script { text: text.into(), target: RunTarget::Cursor { offset: DocOffset(cursor) }, mode: RunMode::Run, params: Vec::new() }, None)
+        .console_run(tab, RunRequest::Script { text: text.into(), target: RunTarget::Cursor { offset: DocOffset(cursor) }, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None)
         .await
         .unwrap();
     assert_eq!(accepted.statements.len(), 1, "cursor picks only the second statement");
@@ -625,7 +625,7 @@ async fn cancel_finishes_cancelled_quickly() {
     let tab = h.sql_tab(TxnMode::AutoCommit).await;
     let accepted = h.start_run(tab, "select slow_echo(30); select 2").await;
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(matches!(h.engine.console_run(tab, RunRequest::Script { text: "select 1".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }, None).await, Err(RunError::Busy)));
+    assert!(matches!(h.engine.console_run(tab, RunRequest::Script { text: "select 1".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await, Err(RunError::Busy)));
     assert!(matches!(h.engine.console_commit(tab, None).await, Err(TxnError::Busy)));
     let started = Instant::now();
     h.engine.console_cancel(tab).await;
@@ -1010,7 +1010,7 @@ async fn esc_during_all_rows_leaves_the_target_untouched_and_the_session_alive()
     };
     let during = h.wait_console(tab, |s| s.export.as_ref().is_some_and(|p| p.rows > 0)).await;
     assert_eq!((during.work, during.export.as_ref().map(|p| (p.result, p.format))), (Some(ConsoleWork::Export), Some((meta.r#ref, ExportFormat::Csv))));
-    assert!(matches!(h.engine.console_run(tab, RunRequest::Script { text: "select 1".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }, None).await, Err(RunError::Busy)), "the export holds the session");
+    assert!(matches!(h.engine.console_run(tab, RunRequest::Script { text: "select 1".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await, Err(RunError::Busy)), "the export holds the session");
     h.engine.console_cancel(tab).await;
 
     assert!(matches!(export.await.unwrap(), Err(ExportError::Cancelled)));
@@ -1168,11 +1168,11 @@ async fn schema_and_search_path_follow_the_console_config() {
     assert_eq!(h.scalar(tab, "select current_schema()").await, "public");
     assert_eq!(h.scalar(tab, "show application_name").await, "L1 Data");
     for copy in ["copy customers from stdin", "copy public.customers (id) to stdout", "copy pg_temp.nope from stdin with (format csv)"] {
-        let err = h.engine.console_run(tab, RunRequest::Script { text: copy.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }, None).await.err();
+        let err = h.engine.console_run(tab, RunRequest::Script { text: copy.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await.err();
         assert!(matches!(err, Some(RunError::Unsupported { .. })), "{copy}: {err:?}");
     }
     assert_eq!(h.scalar(tab, "select 5").await, "5", "the session survived the rejected COPYs");
-    assert!(matches!(h.engine.console_run(tab, RunRequest::Script { text: " -- nothing\n".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }, None).await, Err(RunError::NoStatement)));
+    assert!(matches!(h.engine.console_run(tab, RunRequest::Script { text: " -- nothing\n".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await, Err(RunError::NoStatement)));
     h.engine.console_close(tab, false).await.unwrap();
     assert!(h.engine.boot().consoles.is_empty());
     h.engine.disconnect(h.conn, false).await.unwrap();
@@ -2452,7 +2452,7 @@ async fn set_environment(h: &Harness, environment: Option<Environment>) {
 }
 
 fn script(text: &str) -> RunRequest {
-    RunRequest::Script { text: text.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }
+    RunRequest::Script { text: text.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }
 }
 
 async fn asked_to_run(h: &Harness, tab: TabId, request: RunRequest, confirmed: Option<&WriteDigest>) -> WriteConfirmation {
@@ -2858,7 +2858,7 @@ async fn a_write_on_production_runs_only_with_the_digest_of_the_same_work_and_ta
     let selected = format!("select 1;\n{one};\ninsert into public.{table} values (3);");
     let from = selected.find("insert").unwrap() as u32;
     let to = from + one.len() as u32 + 1;
-    let selection = RunRequest::Script { text: selected.clone(), target: RunTarget::Selection { from: DocOffset(from), to: DocOffset(to) }, mode: RunMode::Run, params: Vec::new() };
+    let selection = RunRequest::Script { text: selected.clone(), target: RunTarget::Selection { from: DocOffset(from), to: DocOffset(to) }, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() };
     let asked = asked_to_run(&h, tab, selection, None).await;
     assert_eq!((asked.sends.count, asked.sends.statements.as_slice()), (1, [one.clone()].as_slice()));
 
@@ -3879,7 +3879,7 @@ async fn explain_fences_keep_the_transaction_and_roll_back_an_update() {
 }
 
 fn script_mode(text: &str, mode: RunMode) -> RunRequest {
-    RunRequest::Script { text: text.into(), target: RunTarget::All, mode, params: Vec::new() }
+    RunRequest::Script { text: text.into(), target: RunTarget::All, mode, params: Vec::new(), cells: Vec::new() }
 }
 
 async fn finish_ok(h: &mut Harness, tab: TabId, sql: &str, mode: RunMode) -> ConsoleState {
@@ -3926,25 +3926,25 @@ async fn parameters_quote_values_keep_ranges_history_and_explain() {
     let text = "select '😀'; select :value::text, :value::text, $1::text, (ARRAY[1,2,3])[1:2]";
     let value = "x'\\; select pg_sleep(9); -- 😀";
     let params = vec![ParamValue { name: ":value".into(), value: Some(value.into()) }, ParamValue { name: "$1".into(), value: None }];
-    let accepted = h.engine.console_run(tab, RunRequest::Script { text: text.into(), target: RunTarget::All, mode: RunMode::Run, params }, None).await.unwrap();
+    let accepted = h.engine.console_run(tab, RunRequest::Script { text: text.into(), target: RunTarget::All, mode: RunMode::Run, params, cells: Vec::new() }, None).await.unwrap();
     assert_eq!(accepted.statements[1].from, DocOffset(13));
     let state = h.wait_finished(tab, accepted.run_id).await;
     let rows = h.page(&Harness::result(&state, 1), 0, 1);
     assert_eq!(rows[0], [Some(value.into()), Some(value.into()), None, Some("{1,2}".into())]);
     let executed = format!("select E'{}'::text, E'{}'::text, NULL::text, (ARRAY[1,2,3])[1:2]", value.replace('\\', "\\\\").replace('\'', "''"), value.replace('\\', "\\\\").replace('\'', "''"));
     wait_for_history(&h, &executed).await;
-    let bad = h.engine.console_run(tab, RunRequest::Script { text: "select :x::integer".into(), target: RunTarget::All, mode: RunMode::Run, params: vec![ParamValue { name: ":x".into(), value: Some("invalid".into()) }] }, None).await.unwrap();
+    let bad = h.engine.console_run(tab, RunRequest::Script { text: "select :x::integer".into(), target: RunTarget::All, mode: RunMode::Run, params: vec![ParamValue { name: ":x".into(), value: Some("invalid".into()) }], cells: Vec::new() }, None).await.unwrap();
     let failed = h.wait_finished(tab, bad.run_id).await;
     let RunState::Finished { statements, .. } = failed.run else { panic!("not finished") };
     let StmtStatus::Failed { error } = &statements[0].status else { panic!("expected error") };
     assert_eq!(error.position, None);
     let mixed = "select :x; select missing_p11_column";
-    let accepted = h.engine.console_run(tab, RunRequest::Script { text: mixed.into(), target: RunTarget::All, mode: RunMode::Run, params: vec![ParamValue { name: ":x".into(), value: Some("length changes here".into()) }] }, None).await.unwrap();
+    let accepted = h.engine.console_run(tab, RunRequest::Script { text: mixed.into(), target: RunTarget::All, mode: RunMode::Run, params: vec![ParamValue { name: ":x".into(), value: Some("length changes here".into()) }], cells: Vec::new() }, None).await.unwrap();
     let state = h.wait_finished(tab, accepted.run_id).await;
     let RunState::Finished { statements, .. } = state.run else { panic!("not finished") };
     let StmtStatus::Failed { error } = &statements[1].status else { panic!("expected error") };
     assert_eq!(error.position, Some(DocOffset(mixed.find("missing_p11_column").unwrap() as u32)));
-    let accepted = h.engine.console_run(tab, RunRequest::Script { text: "-- 😀\nselect :x::integer".into(), target: RunTarget::All, mode: RunMode::Explain, params: vec![ParamValue { name: ":x".into(), value: Some("42".into()) }] }, None).await.unwrap();
+    let accepted = h.engine.console_run(tab, RunRequest::Script { text: "-- 😀\nselect :x::integer".into(), target: RunTarget::All, mode: RunMode::Explain, params: vec![ParamValue { name: ":x".into(), value: Some("42".into()) }], cells: Vec::new() }, None).await.unwrap();
     let state = h.wait_finished(tab, accepted.run_id).await;
     assert!(matches!(state.run, RunState::Finished { outcome: RunOutcome::Ok, .. }), "{:?}", state.run);
 }
@@ -3957,7 +3957,7 @@ async fn production_parameter_confirmation_covers_exact_values() {
     oracle.batch_execute(&format!("create table public.{table} (n text)")).await.unwrap();
     set_environment(&h, Some(Environment::Production)).await;
     let tab = h.sql_tab(TxnMode::AutoCommit).await;
-    let request = |value: &str| RunRequest::Script { text: format!("insert into public.{table} values (:value)"), target: RunTarget::All, mode: RunMode::Run, params: vec![ParamValue { name: ":value".into(), value: Some(value.into()) }] };
+    let request = |value: &str| RunRequest::Script { text: format!("insert into public.{table} values (:value)"), target: RunTarget::All, mode: RunMode::Run, params: vec![ParamValue { name: ":value".into(), value: Some(value.into()) }], cells: Vec::new() };
     let asked = asked_to_run(&h, tab, request("one"), None).await;
     assert_eq!(asked.sends.statements, [format!("insert into public.{table} values (E'one')")]);
     let changed = asked_to_run(&h, tab, request("two"), Some(&asked.digest)).await;
@@ -4427,4 +4427,62 @@ async fn database_map_pages_declared_neighborhoods() {
     oracle.batch_execute(&database_map_cases::fixture("public",&stem,DatabaseKind::Postgres)).await.unwrap();
     database_map_cases::verify(&h.engine,h.db(),"public",&stem,DatabaseKind::Postgres).await;
     oracle.batch_execute(&format!("DROP TABLE public.{stem}_fan,public.{stem}_child,public.{stem}_root,public.{stem}_anchor,public.{stem}_alone")).await.unwrap();
+}
+
+fn cell_source(name: &str, text: &str) -> CellSource {
+    CellSource { name: name.into(), text: text.into() }
+}
+
+#[tokio::test]
+async fn a_reference_chain_runs_as_ctes_and_names_the_cells_it_inlined() {
+    let mut h = Harness::start().await;
+    let tab = h.sql_tab(TxnMode::AutoCommit).await;
+    let cells = vec![
+        cell_source("paid", "SELECT customer_id, total FROM orders WHERE status = 'paid';"),
+        cell_source("revenue by customer", "-- per customer\nSELECT customer_id, sum(total) AS revenue FROM {{paid}} GROUP BY customer_id"),
+        cell_source("Untitled-3.sql", "SELECT 3"),
+    ];
+    let text = "SELECT c.region, sum(r.revenue) AS revenue\nFROM {{ revenue by customer }} r JOIN customers c ON c.id = r.customer_id\nGROUP BY 1 ORDER BY 1";
+    let request = |mode| RunRequest::Script { text: text.into(), target: RunTarget::All, mode, params: Vec::new(), cells: cells.clone() };
+
+    let accepted = h.engine.console_run(tab, request(RunMode::Run), None).await.unwrap();
+    assert_eq!(accepted.sources, [cells[0].clone(), cells[1].clone()], "each inlined cell once, the one it reads first");
+    assert_eq!(accepted.statements, [DocRange { from: DocOffset(0), to: DocOffset(text.len() as u32) }], "ranges stay on the user's text");
+    let state = h.wait_finished(tab, accepted.run_id).await;
+    assert!(matches!(state.run, RunState::Finished { outcome: RunOutcome::Ok, .. }), "{:?}", state.run);
+    let meta = Harness::result(&state, 0);
+    let rows = h.page(&meta, 0, 100);
+    let by_hand = "SELECT c.region, sum(r.revenue) AS revenue FROM (SELECT customer_id, sum(total) AS revenue FROM orders WHERE status = 'paid' GROUP BY customer_id) r \
+                   JOIN customers c ON c.id = r.customer_id GROUP BY 1 ORDER BY 1";
+    let expected: Vec<Vec<Option<String>>> = h
+        .oracle()
+        .await
+        .simple_query(by_hand)
+        .await
+        .unwrap()
+        .iter()
+        .filter_map(|m| match m {
+            tokio_postgres::SimpleQueryMessage::Row(r) => Some((0..r.len()).map(|i| r.get(i).map(str::to_owned)).collect()),
+            _ => None,
+        })
+        .collect();
+    assert!(expected.len() > 1, "the seed has paid orders in several regions");
+    assert_eq!(rows, expected);
+
+    let history = h.engine.history(HistoryQuery { text: Some("{{revenue by customer}}".into()), connection_id: Some(h.conn), before_id: None, limit: 10 });
+    let ran = &history.entries.first().expect("the run is in history").sql;
+    assert!(ran.starts_with("WITH \"{{paid}}\" AS (\nSELECT customer_id, total FROM orders WHERE status = 'paid'\n),\n\"{{revenue by customer}}\" AS (\n-- per customer\n"), "{ran}");
+    assert!(ran.ends_with("FROM \"{{revenue by customer}}\" r JOIN customers c ON c.id = r.customer_id\nGROUP BY 1 ORDER BY 1"), "{ran}");
+
+    let accepted = h.engine.console_run(tab, request(RunMode::Explain), None).await.unwrap();
+    assert_eq!(accepted.sources.len(), 2);
+    let explained = h.wait_finished(tab, accepted.run_id).await;
+    assert!(matches!(explained.run, RunState::Finished { outcome: RunOutcome::Ok, .. }), "{:?}", explained.run);
+    assert_eq!(h.engine.result_plan(plan_meta(&explained).r#ref).unwrap().statements.len(), 1);
+
+    let refused = h.engine.console_run(tab, RunRequest::Script { text: "SELECT * FROM {{nope}}".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells }, None).await.unwrap_err();
+    assert!(matches!(refused, RunError::Reference { ref message } if message == "No cell is named nope."), "{refused:?}");
+    let page = h.engine.console_run(tab, RunRequest::TablePage { schema: "public".into(), table: "orders".into(), page: 0, query: TableQuery::default() }, None).await.unwrap();
+    assert!(page.sources.is_empty());
+    h.wait_finished(tab, page.run_id).await;
 }

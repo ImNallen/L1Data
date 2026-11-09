@@ -34,6 +34,7 @@ import {
   type Notebooks,
   type Shown,
 } from "./notebooks";
+import type { CellSource as Source } from "../ipc/bindings";
 import type { ChartSpec } from "../features/results/chart";
 import type { ResultDisplay, ResultPick } from "./status";
 
@@ -110,6 +111,8 @@ export type WorkspaceData = {
   activeResult: Record<TabId, ResultPick>;
   /** Rows, plan, or chart for each result of the tab's latest run, keyed by `resultKey`. A new run starts from the default. */
   resultDisplay: Record<TabId, Record<string, ResultDisplayPref>>;
+  /** The cells the tab's latest run inlined through `{{name}}`, with the text it used. Kept in memory, as results are. */
+  runSources: Record<TabId, Source[]>;
   settings: Settings;
   selected: RelationRef | null;
   overlay: Overlay;
@@ -353,6 +356,7 @@ type WorkspaceActions = {
   setLayout(patch: Partial<Layout>): void;
   setActiveResult(id: TabId, pick: ResultPick): void;
   setResultDisplay(id: TabId, pref: ResultDisplayPref): void;
+  setRunSources(id: TabId, sources: Source[]): void;
   upsertConfig(c: ConnectionConfig): void;
   removeConfig(id: ConnectionId): void;
   setSettings(s: Settings): void;
@@ -396,6 +400,7 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
   configs: {},
   activeResult: {},
   resultDisplay: {},
+  runSources: {},
   settings: DEFAULT_SETTINGS,
   selected: null,
   overlay: { kind: "none" },
@@ -484,17 +489,18 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
       const { [id]: _, ...tabs } = s.tabs;
       const { [id]: __, ...activeResult } = s.activeResult;
       const { [id]: ___, ...resultDisplay } = s.resultDisplay;
+      const { [id]: _____, ...runSources } = s.runSources;
       const notebook = notebookOf(s.notebooks, id);
-      if (!notebook) return { tabs, activeResult, resultDisplay };
+      if (!notebook) return { tabs, activeResult, resultDisplay, runSources };
       const index = notebook.cells.indexOf(id);
       const cells = notebook.cells.filter((c) => c !== id);
       if (cells.length === 0) {
         const { [notebook.id]: ____, ...notebooks } = s.notebooks;
         const wasShown = s.shown.kind === "notebook" && s.shown.id === notebook.id;
-        return { tabs, ...(wasShown ? showDatabase(notebooks, notebook.db) : { notebooks }), activeResult, resultDisplay };
+        return { tabs, ...(wasShown ? showDatabase(notebooks, notebook.db) : { notebooks }), activeResult, resultDisplay, runSources };
       }
       const active = notebook.active === id ? (cells[Math.min(index, cells.length - 1)] ?? null) : notebook.active;
-      return { tabs, notebooks: { ...s.notebooks, [notebook.id]: { ...notebook, cells, active } }, activeResult, resultDisplay };
+      return { tabs, notebooks: { ...s.notebooks, [notebook.id]: { ...notebook, cells, active } }, activeResult, resultDisplay, runSources };
     }),
   setActive: (id) =>
     set((s) => {
@@ -543,6 +549,7 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
       const sameRun = Object.entries(s.resultDisplay[id] ?? {}).filter(([key]) => key.slice(0, key.lastIndexOf(":")) === run);
       return { resultDisplay: { ...s.resultDisplay, [id]: { ...Object.fromEntries(sameRun), [pref.key]: pref } } };
     }),
+  setRunSources: (id, sources) => set((s) => (s.tabs[id] ? { runSources: { ...s.runSources, [id]: sources } } : {})),
   upsertConfig: (c) =>
     set((s) => {
       const previous = s.configs[c.id];

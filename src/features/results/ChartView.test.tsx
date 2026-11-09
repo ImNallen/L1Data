@@ -166,7 +166,7 @@ function drillAnswers(sql: string, on = db) {
 function acceptRuns() {
   vi.spyOn(commands, "consoleConfigure").mockResolvedValue({ status: "ok", data: {} as ConsoleState });
   vi.spyOn(commands, "scriptParams").mockResolvedValue({ status: "ok", data: [] });
-  return vi.spyOn(commands, "consoleRun").mockResolvedValue({ status: "ok", data: { runId: 1, statements: [] } });
+  return vi.spyOn(commands, "consoleRun").mockResolvedValue({ status: "ok", data: { runId: 1, statements: [], sources: [] } });
 }
 
 it("opens the rows behind a clicked bar in a new cell after the chart's cell and runs it", async () => {
@@ -191,7 +191,11 @@ it("opens the rows behind a clicked bar in a new cell after the chart's cell and
   expect(activeId(useWorkspace.getState())).toBe(opened);
   expect(useWorkspace.getState().tabs[opened]?.console).toEqual({ db, mode: "AutoCommit", schema: "reporting" });
   expect(textOf(opened)).toBe("-- Rows behind south in Revenue\nSELECT * FROM orders WHERE (region) = 'south'");
-  expect(run).toHaveBeenCalledWith(opened, { kind: "script", text: textOf(opened), target: { kind: "all" }, mode: "Run", params: [] }, null);
+  expect(run).toHaveBeenCalledWith(
+    opened,
+    { kind: "script", text: textOf(opened), target: { kind: "all" }, mode: "Run", params: [], cells: expect.any(Array) },
+    null,
+  );
 });
 
 it("opens the rows of a result on another database in that database's notebook", async () => {

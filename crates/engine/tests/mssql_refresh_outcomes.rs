@@ -110,7 +110,7 @@ impl Harness {
     }
 
     async fn run(&self, tab: TabId, sql: &str) -> ConsoleState {
-        let accepted = self.engine.console_run(tab, RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }, None).await.unwrap();
+        let accepted = self.engine.console_run(tab, RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await.unwrap();
         self.finish(tab, accepted.run_id).await
     }
 
@@ -274,7 +274,7 @@ async fn cancelled_native_batch_refreshes_its_committed_ddl() {
         let state = h.ok(h.tab, "SELECT 1").await;
         let SessionState::Open { backend_pid } = state.session else { panic!("Expected native session") };
         let text = format!("CREATE TABLE {} (id int); BEGIN TRANSACTION; WAITFOR DELAY '00:00:30'", h.qualified(&table));
-        let run = h.engine.console_run(h.tab, RunRequest::Script { text, target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }, None).await.unwrap().run_id;
+        let run = h.engine.console_run(h.tab, RunRequest::Script { text, target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await.unwrap().run_id;
         h.waiting(backend_pid).await;
         assert!(h.table_exists(&table).await);
         h.engine.console_cancel(h.tab).await;
@@ -322,7 +322,7 @@ async fn force_closing_running_native_batch_refreshes_its_committed_ddl() {
         let state = h.ok(h.tab, "SELECT 1").await;
         let SessionState::Open { backend_pid } = state.session else { panic!("Expected native session") };
         let text = format!("CREATE TABLE {} (id int); BEGIN TRANSACTION; WAITFOR DELAY '00:00:30'", h.qualified(&table));
-        h.engine.console_run(h.tab, RunRequest::Script { text, target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }, None).await.unwrap();
+        h.engine.console_run(h.tab, RunRequest::Script { text, target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await.unwrap();
         h.waiting(backend_pid).await;
         assert!(h.table_exists(&table).await);
         h.engine.console_close(h.tab, true).await.unwrap();

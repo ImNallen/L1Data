@@ -82,7 +82,7 @@ impl Harness {
     }
 
     async fn sql(&mut self, text: &str) -> Vec<Vec<Option<String>>> {
-        let accepted = self.engine.console_run(self.tab, RunRequest::Script { text: text.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }, None).await.unwrap();
+        let accepted = self.engine.console_run(self.tab, RunRequest::Script { text: text.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await.unwrap();
         let state = self.finish(accepted).await;
         let RunState::Finished { statements, .. } = &state.run else { unreachable!() };
         if statements.iter().flat_map(|s| &s.outputs).any(|o| matches!(o, RunOutput::Rows { .. })) { self.rows(&state) } else { vec![] }
