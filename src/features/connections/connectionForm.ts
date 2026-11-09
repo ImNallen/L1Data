@@ -1,4 +1,14 @@
-import type { ConnectionConfig, DatabaseKind, Environment, PasswordInput, SqlServerAuth, SshAuth, SshTunnelDraft, SslMode } from "../../ipc/bindings";
+import type {
+  ConnectionConfig,
+  ConnectionDraft,
+  DatabaseKind,
+  Environment,
+  PasswordInput,
+  SqlServerAuth,
+  SshAuth,
+  SshTunnelDraft,
+  SslMode,
+} from "../../ipc/bindings";
 import { connectionColorId, type ConnectionColorId } from "./connectionColors";
 
 export type SshAuthKind = SshAuth["kind"];
@@ -62,12 +72,31 @@ export function initialSshSecret(c: ConnectionConfig | undefined, auth: SshAuthK
   return c?.ssh?.hasSecret && c.ssh.auth.kind === auth ? { kind: "keep" } : { kind: "clear" };
 }
 
-/** Whether the form differs from what `existing` would open it with. */
+/** Whether the form differs from what `existing`, or a new form of its kind, would open it with. */
 export function isDirty(existing: ConnectionConfig | undefined, form: FormState): boolean {
-  const start = initialFields(existing);
+  const start = initialFields(existing, form.fields.databaseKind);
   const fieldChanged = (Object.keys(start) as (keyof Fields)[]).some((k) => start[k] !== form.fields[k]);
   // The initial edits are never `set`, so comparing kinds is enough.
   return fieldChanged || form.password.kind !== initialPassword(existing).kind || form.sshSecret.kind !== initialSshSecret(existing).kind || form.url !== "";
+}
+
+/** The fields a parsed URL sets. The kind stays the form's own. */
+export function withUrl(fields: Fields, d: ConnectionDraft): Fields {
+  return {
+    ...fields,
+    caCertPath: d.caCertPath ?? "",
+    host: d.host,
+    port: String(d.port),
+    database: d.database,
+    user: d.user,
+    sqlServerAuth: d.sqlServerAuth ?? "SqlLogin",
+    sslMode: d.sslMode,
+  };
+}
+
+/** Only a new connection takes a URL, so a URL without a password leaves none. */
+export function urlPassword(d: ConnectionDraft): PasswordEdit {
+  return typeof d.password === "object" ? { kind: "set", value: d.password.Set } : { kind: "clear" };
 }
 
 export function toSqlServerAuth(fields: Fields): SqlServerAuth | null {
