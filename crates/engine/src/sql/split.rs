@@ -128,6 +128,10 @@ pub fn split_statements(sql: &str) -> Vec<StmtSpan> {
                 Some(tag_len) => i = skip_dollar_quoted(bytes, i, tag_len),
                 None => i += 1,
             },
+            b'{' => {
+                stmt.punct(c);
+                i = super::refs::end_at(sql, i).unwrap_or(i + 1);
+            }
             b';' if stmt.body_depth == 0 => {
                 push_trimmed(&mut spans, sql, stmt_start, i);
                 stmt_start = i + 1;

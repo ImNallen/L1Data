@@ -70,7 +70,7 @@ impl Harness {
     }
 
     async fn run(&self, tab: TabId, sql: &str) -> ConsoleState {
-        let accepted = self.engine.console_run(tab, RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }, None).await.unwrap();
+        let accepted = self.engine.console_run(tab, RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await.unwrap();
         self.finish(tab, accepted.run_id).await
     }
 
@@ -245,7 +245,7 @@ async fn native_errors_and_cancellation_preserve_observable_transaction_state() 
         assert_eq!(h.scalar(h.observer, &format!("SELECT n FROM dbo.[{}]", h.table)).await, "1");
         h.ok(h.tab, &format!("BEGIN TRANSACTION; UPDATE dbo.[{}] SET n=3", h.table)).await;
         let SessionState::Open { backend_pid } = h.state(h.tab).session else { panic!("Expected native session") };
-        let accepted = h.engine.console_run(h.tab, RunRequest::Script { text: "WAITFOR DELAY '00:00:30'".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }, None).await.unwrap();
+        let accepted = h.engine.console_run(h.tab, RunRequest::Script { text: "WAITFOR DELAY '00:00:30'".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await.unwrap();
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
                 if h.scalar(h.observer, &format!("SELECT COUNT_BIG(*) FROM sys.dm_exec_requests WHERE session_id={backend_pid} AND command='WAITFOR'")).await == "1" { break; }
@@ -296,7 +296,7 @@ async fn cancellation_does_not_claim_committed_work_was_rolled_back() {
             (format!("UPDATE [{}] SET n=2\nGO\nWAITFOR DELAY '00:00:30'", h.table), "2"),
             (format!("BEGIN TRANSACTION; UPDATE [{}] SET n=3; COMMIT TRANSACTION; WAITFOR DELAY '00:00:30'", h.table), "3"),
         ] {
-            let accepted = h.engine.console_run(h.tab, RunRequest::Script { text: sql, target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }, None).await.unwrap();
+            let accepted = h.engine.console_run(h.tab, RunRequest::Script { text: sql, target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await.unwrap();
             tokio::time::timeout(Duration::from_secs(3), async {
                 loop {
                     let SessionState::Open { backend_pid } = h.state(h.tab).session else { continue };

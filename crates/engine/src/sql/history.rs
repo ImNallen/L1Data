@@ -25,6 +25,7 @@ pub(super) fn tokens(sql: &str) -> Vec<Token<'_>> {
         match kind {
             LexKind::Space | LexKind::LineComment | LexKind::BlockComment => {}
             LexKind::Word => out.push(Token::Word(text)),
+            LexKind::Reference => out.push(Token::Quoted(text)),
             LexKind::QuotedIdent => {
                 let quoted = match text.strip_prefix(['U', 'u']) {
                     Some(rest) => {

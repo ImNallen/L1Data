@@ -49,7 +49,7 @@ impl Rig {
     }
 
     async fn start_run(&self, tab: TabId, sql: &str) -> RunId {
-        self.engine.console_run(tab, RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }, None).await.unwrap().run_id
+        self.engine.console_run(tab, RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await.unwrap().run_id
     }
 
     async fn finished(&mut self, tab: TabId, run: RunId) -> ConsoleState {

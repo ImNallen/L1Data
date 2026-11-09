@@ -118,6 +118,7 @@ routes! { e;
     console_configure(tab_id: TabId, config: ConsoleConfig) => e.console_configure(tab_id, config).await;
     script_params(text: String, target: RunTarget, database_kind: DatabaseKind) => e.script_params(&text, target, database_kind);
     script_outline(text: String, cursor: DocOffset, database_kind: DatabaseKind) => ok(e.script_outline(&text, cursor, database_kind));
+    cell_references(text: String, database_kind: DatabaseKind) => ok(e.cell_references(&text, database_kind));
     completion_context(text: String, cursor: DocOffset, database_kind: DatabaseKind) => ok(e.completion_context(&text, cursor, database_kind));
     editor_format(text: String, target: RunTarget, database_kind: DatabaseKind) => e.editor_format(&text, target, database_kind);
     table_script(db: DatabaseRef, schema: String, table: String) => e.table_script(db, &schema, &table);

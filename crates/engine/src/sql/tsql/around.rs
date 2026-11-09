@@ -193,6 +193,10 @@ pub(in crate::sql) fn statement_around(text: &str, at: usize) -> Range<usize> {
                 i = skip_quoted(b, i, if c == b'[' { b']' } else { b'"' });
                 prev = Prev::Other;
             }
+            b'{' => {
+                i = crate::sql::refs::end_at(text, i).unwrap_or(i + 1);
+                prev = Prev::Other;
+            }
             b'(' => {
                 depth += 1;
                 prev = Prev::Other;

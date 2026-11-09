@@ -26,6 +26,8 @@ pub(crate) enum LexKind {
     OpenBracket,
     CloseBracket,
     Semicolon,
+    /// A notebook cell reference, `{{name}}`.
+    Reference,
     Other,
 }
 
@@ -126,6 +128,7 @@ fn lexeme_at(sql: &str, i: usize, strings: Strings) -> (LexKind, usize) {
         b'[' => (OpenBracket, i + 1),
         b']' => (CloseBracket, i + 1),
         b';' => (Semicolon, i + 1),
+        b'{' => super::refs::end_at(sql, i).map_or((Other, i + 1), |end| (Reference, end)),
         _ => (Other, i + 1),
     }
 }
@@ -215,6 +218,7 @@ mod tests {
         "a::int[], x #>> '{a,b}', y @> '[1]', z !~ 'q', a!=b, f(a => 1), x := 1, a - -1, a+-1, a*-1",
         "1 1.5 .5 1. 1e5 1e-5 1.5E+10 0x1F 1_000 1abc 1..2 $1abc 1e 1e- 1e--x",
         "a[1:2] :foo :'v' \\gset {x} ` ? \x0b",
+        "select {{a}}, {{ bob's -- notes }}, {{}} {{x\n}} {{y}",
         "select 1;\n\nselect 2 -- trailing",
         "-",
         "/",

@@ -23,6 +23,8 @@ pub(super) enum Class {
     Dot,
     Semi,
     Star,
+    /// A notebook cell reference, `{{name}}`.
+    Reference,
     Other,
 }
 
@@ -93,6 +95,7 @@ fn postgres_lexemes(text: &str, start: usize, end: usize) -> Vec<Lexeme> {
                 LexKind::Open => Class::Open,
                 LexKind::Close => Class::Close,
                 LexKind::Semicolon => Class::Semi,
+                LexKind::Reference => Class::Reference,
                 LexKind::Operator | LexKind::OpenBracket | LexKind::CloseBracket | LexKind::Other => Class::Other,
             };
             Some(Lexeme { class, span: start + l.span.start..start + l.span.end })

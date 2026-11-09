@@ -3,6 +3,7 @@ pub(crate) mod drill;
 mod format;
 mod history;
 mod keywords;
+pub(crate) mod refs;
 pub(crate) mod lex;
 pub(crate) mod mssql_value;
 mod relations;

@@ -110,7 +110,7 @@ impl Harness {
     }
 
     async fn ok(&self, tab: TabId, sql: &str) -> ConsoleState {
-        let run = self.engine.console_run(tab, RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }, None).await.unwrap().run_id;
+        let run = self.engine.console_run(tab, RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await.unwrap().run_id;
         let state = tokio::time::timeout(Duration::from_secs(20), async {
             loop {
                 let state = self.state(tab);

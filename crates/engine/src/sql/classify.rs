@@ -66,7 +66,8 @@ pub fn classify(stmt: &str) -> StmtKind {
         "UPDATE" => StmtKind::Dml(DmlVerb::Update),
         "DELETE" => StmtKind::Dml(DmlVerb::Delete),
         "MERGE" => StmtKind::Dml(DmlVerb::Merge),
-        "SELECT" | "WITH" | "TABLE" | "VALUES" | "EXPLAIN" | "SHOW" | "FETCH" | "UNION" | "INTERSECT" | "EXCEPT" => StmtKind::Query,
+        "WITH" => after_with(stmt),
+        "SELECT" | "TABLE" | "VALUES" | "EXPLAIN" | "SHOW" | "FETCH" | "UNION" | "INTERSECT" | "EXCEPT" => StmtKind::Query,
         "COPY" => copy_kind(stmt),
         "VACUUM" | "CLUSTER" | "CHECKPOINT" => StmtKind::NoTxnBlock(w(0).to_owned()),
         "ALTER" if w(1) == "SYSTEM" => StmtKind::NoTxnBlock("ALTER SYSTEM".into()),
@@ -118,6 +119,42 @@ fn ddl_tag(words: &[String]) -> String {
     }
 }
 
+/// The statement after a WITH list decides its kind, so `WITH … INSERT` reports `INSERT 0 n`. A word right after
+/// `WITH`, `RECURSIVE`, or a top-level comma names a CTE, even one called `update`.
+fn after_with(stmt: &str) -> StmtKind {
+    let mut depth = 0usize;
+    let mut names_next = false;
+    for Lexeme { kind, span } in lexemes(stmt, Strings::Standard) {
+        match kind {
+            LexKind::Space | LexKind::LineComment | LexKind::BlockComment => continue,
+            LexKind::Open => depth += 1,
+            LexKind::Close => depth = depth.saturating_sub(1),
+            LexKind::Comma if depth == 0 => {
+                names_next = true;
+                continue;
+            }
+            LexKind::Word if depth == 0 => {
+                let word = stmt[span].to_ascii_uppercase();
+                if !names_next {
+                    match word.as_str() {
+                        "INSERT" => return StmtKind::Dml(DmlVerb::Insert),
+                        "UPDATE" => return StmtKind::Dml(DmlVerb::Update),
+                        "DELETE" => return StmtKind::Dml(DmlVerb::Delete),
+                        "MERGE" => return StmtKind::Dml(DmlVerb::Merge),
+                        "SELECT" | "VALUES" | "TABLE" => return StmtKind::Query,
+                        _ => {}
+                    }
+                }
+                names_next = matches!(word.as_str(), "WITH" | "RECURSIVE");
+                continue;
+            }
+            _ => {}
+        }
+        names_next = false;
+    }
+    StmtKind::Query
+}
+
 fn top_level_words(stmt: &str) -> impl Iterator<Item = &str> {
     let mut depth = 0usize;
     lexemes(stmt, Strings::Standard).filter_map(move |Lexeme { kind, span }| match kind {
@@ -164,6 +201,10 @@ mod tests {
     fn comments_and_ctes_do_not_confuse_the_verb() {
         assert_eq!(classify("-- note\n/* more */ with x as (select 1) select * from x"), StmtKind::Query);
         assert_eq!(classify("with x as (insert into t values (1)) select 1"), StmtKind::Query);
+        assert_eq!(classify("WITH \"{{a}}\" AS (\nSELECT 1\n)\nINSERT INTO t SELECT * FROM \"{{a}}\""), StmtKind::Dml(DmlVerb::Insert));
+        assert_eq!(classify("with recursive r as (select 1), update as (select 2) update t set n = 1 from r"), StmtKind::Dml(DmlVerb::Update));
+        assert_eq!(classify("with d as (select 1) select * from d for update"), StmtKind::Query);
+        assert_eq!(classify("with d as (select 1) delete from t using d"), StmtKind::Dml(DmlVerb::Delete));
         assert_eq!(classify("/* update */ select 1"), StmtKind::Query);
         assert_eq!(classify("create table \"concurrently\" (id int)"), StmtKind::Ddl("CREATE TABLE".into()));
         assert_eq!(classify("select 'it''s -- not a comment'"), StmtKind::Query);

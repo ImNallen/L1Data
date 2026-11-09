@@ -210,7 +210,7 @@ async fn csv_import_production_approval_binds_mapping_header_and_snapshot() {
     let sql = format!("DROP TABLE dbo.[{table}]");
     let confirmation = asked_to_run(&h, &sql, None).await;
     let id =
-        h.engine.console_run(h.tab, RunRequest::Script { text: sql, target: RunTarget::All, mode: RunMode::Run, params: vec![] }, Some(confirmation.digest)).await.unwrap().run_id;
+        h.engine.console_run(h.tab, RunRequest::Script { text: sql, target: RunTarget::All, mode: RunMode::Run, params: vec![], cells: Vec::new() }, Some(confirmation.digest)).await.unwrap().run_id;
     h.finish(id).await;
 }
 

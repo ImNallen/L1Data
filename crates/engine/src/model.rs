@@ -942,7 +942,15 @@ pub struct ParamValue {
 #[derive(Debug, Clone, Deserialize, Type)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RunRequest {
-    Script { text: String, target: RunTarget, mode: RunMode, params: Vec<ParamValue> },
+    Script {
+        text: String,
+        target: RunTarget,
+        mode: RunMode,
+        params: Vec<ParamValue>,
+        /// Every cell of the running cell's notebook, which `{{title}}` references resolve against.
+        #[serde(default)]
+        cells: Vec<CellSource>,
+    },
     TablePage {
         schema: String,
         table: String,
@@ -1014,6 +1022,24 @@ pub enum RunTarget {
 pub struct RunAccepted {
     pub run_id: RunId,
     pub statements: Vec<DocRange>,
+    /// Each cell the run inlined for a reference, directly or through another cell, once, with the text it used.
+    pub sources: Vec<CellSource>,
+}
+
+/// A notebook cell by title, as `{{title}}` names it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CellSource {
+    pub name: String,
+    pub text: String,
+}
+
+/// A `{{name}}` in an editor's text. `range` covers the braces, and `name` is the title between them, trimmed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CellReference {
+    pub range: DocRange,
+    pub name: String,
 }
 
 /// The statements of a script and the one a run at the cursor would pick.
@@ -1031,6 +1057,11 @@ pub struct ScriptOutline {
 pub enum CompletionContext {
     /// Inside a string, a comment, a quoted name, a number, or a parameter.
     None,
+    /// After a `{{` that nothing has closed on its line, where a cell title goes.
+    Reference {
+        /// The start of the title being typed.
+        from: DocOffset,
+    },
     Complete {
         /// The start of the word being typed, or the cursor when none is.
         from: DocOffset,
@@ -2359,6 +2390,8 @@ pub enum RunError {
     /// WHERE or ORDER BY isn't a single expression, e.g. it smuggles in a second statement.
     BadFilter,
     ConfirmWrites { confirmation: WriteConfirmation },
+    /// A `{{name}}` cannot expand. `message` is one sentence that names the cell.
+    Reference { message: String },
 }
 
 /// Opaque. It names the exact statements a guarded action sends, the connection both as saved and as the tab's

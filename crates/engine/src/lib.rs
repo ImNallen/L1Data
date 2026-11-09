@@ -936,6 +936,11 @@ impl Engine {
         params::discover(text, target, database_kind)
     }
 
+    /// The editor's reference underline and jump. Pure, so the sync command never needs the runtime.
+    pub fn cell_references(&self, text: &str, database_kind: DatabaseKind) -> Vec<CellReference> {
+        text::cell_references(text, database_kind)
+    }
+
     /// The editor's completion. Pure, so the sync command never needs the runtime.
     pub fn completion_context(&self, text: &str, cursor: DocOffset, database_kind: DatabaseKind) -> CompletionContext {
         text::completion_context(text, cursor, database_kind)
@@ -1301,10 +1306,14 @@ impl Engine {
 
         let mut explain_mode = None;
         let mut page = None;
+        let mut sources = Vec::new();
         let executable = match r {
-            RunRequest::Script { text, target, mode, params } => {
+            RunRequest::Script { text, target, mode, params, cells } => {
                 explain_mode = mode.explain();
-                params::bind(text, target, connection.database_kind, params)?
+                let bound = params::bind(text, target, connection.database_kind, params)?;
+                let (expanded, inlined) = sql::refs::expand(bound, &cells, connection.database_kind)?;
+                sources = inlined;
+                expanded
             }
             RunRequest::TablePage { schema, table, page: index, query } => {
                 let catalog = self.catalog(config.db()).await.map_err(|_| RunError::NotConfigured)?;
@@ -1406,7 +1415,7 @@ impl Engine {
                 console.publish(&mut inner, s);
                 drop(inner);
                 s.spawn(showplan::run(console.clone(), s.clone(), launch));
-                return Ok(RunAccepted { run_id, statements: ranges });
+                return Ok(RunAccepted { run_id, statements: ranges, sources });
             }
             let prepared = match explain::prepare(mode, current.database_kind, inner.txn, &text, &spans, &target, confirmed.as_ref()) {
                 Ok(prepared) => prepared,
@@ -1429,7 +1438,7 @@ impl Engine {
             console.publish(&mut inner, s);
             drop(inner);
             s.spawn(explain::run(console.clone(), s.clone(), launch));
-            return Ok(RunAccepted { run_id, statements: ranges });
+            return Ok(RunAccepted { run_id, statements: ranges, sources });
         }
         debug_assert_eq!(sent.len(), statements.len(), "the fence bits index the planned statements");
         let (checked, read_only) = match writes::check_run(&target, &sent, &inner.proven, confirmed.as_ref()) {
@@ -1458,7 +1467,7 @@ impl Engine {
 
         let plan = RunPlan { run_id, text, statements, txn, schema: config.schema.clone(), database: config.database.clone(), connection, page, writes_stay_unasked, read_only };
         s.spawn(console::run_task(console.clone(), s.clone(), session, plan, stop));
-        Ok(RunAccepted { run_id, statements: ranges })
+        Ok(RunAccepted { run_id, statements: ranges, sources })
     }
 
     pub async fn console_cancel(&self, tab: TabId) {
@@ -2297,7 +2306,7 @@ mod tests {
         let r = ResultRef { tab_id: tab, run_id: RunId(1), index: 0 };
         assert!(matches!(engine.result_page(r, 0, 10), Err(ResultError::Gone)));
         assert!(matches!(engine.result_find(r, "x".into(), ResultFindDirection::First).await, Err(ResultError::Gone)));
-        assert!(matches!(engine.console_run(tab, RunRequest::Script { text: "select 1".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }, None).await, Err(RunError::NotConfigured)));
+        assert!(matches!(engine.console_run(tab, RunRequest::Script { text: "select 1".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await, Err(RunError::NotConfigured)));
         assert!(matches!(engine.console_commit(tab, None).await, Err(TxnError::NoTransaction)));
     }
 
@@ -2342,8 +2351,8 @@ mod tests {
         engine.shared.consoles.write().unwrap().insert(tab, legacy.clone());
         let before = serde_json::to_value(legacy.snapshot(&*legacy.inner.lock().await)).unwrap();
         for request in [
-            RunRequest::Script { text: "UPDATE dbo.target SET n=2".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() },
-            RunRequest::Script { text: "UPDATE dbo.target SET n=2\nGO\nSELECT 1".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() },
+            RunRequest::Script { text: "UPDATE dbo.target SET n=2".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() },
+            RunRequest::Script { text: "UPDATE dbo.target SET n=2\nGO\nSELECT 1".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() },
             RunRequest::TablePage { schema: "dbo".into(), table: "target".into(), page: 0, query: TableQuery::default() },
         ] {
             let refused = engine.console_run(tab, request, None).await;
@@ -2427,7 +2436,7 @@ mod tests {
         use std::panic::AssertUnwindSafe;
 
         async fn rows(engine: &Engine, tab: TabId, text: String) -> Vec<Vec<Option<String>>> {
-            let accepted = engine.console_run(tab, RunRequest::Script { text, target: RunTarget::All, mode: RunMode::Run, params: Vec::new() }, None).await.unwrap();
+            let accepted = engine.console_run(tab, RunRequest::Script { text, target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await.unwrap();
             let state = tokio::time::timeout(Duration::from_secs(15), async {
                 loop {
                     let state = engine.boot().consoles.into_iter().find(|s| s.tab_id == tab).unwrap();
@@ -2473,8 +2482,8 @@ mod tests {
                 serde_json::to_value(console.publish(&mut inner, &engine.shared)).unwrap()
             };
             for request in [
-                RunRequest::Script { text: format!("UPDATE dbo.[{name}] SET n=2 WHERE id=1"), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() },
-                RunRequest::Script { text: format!("UPDATE dbo.[{name}] SET n=2 WHERE id=1\nGO\nSELECT 1"), target: RunTarget::All, mode: RunMode::Run, params: Vec::new() },
+                RunRequest::Script { text: format!("UPDATE dbo.[{name}] SET n=2 WHERE id=1"), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() },
+                RunRequest::Script { text: format!("UPDATE dbo.[{name}] SET n=2 WHERE id=1\nGO\nSELECT 1"), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() },
                 RunRequest::TablePage { schema: "dbo".into(), table: name.clone(), page: 0, query: TableQuery::default() },
             ] {
                 assert!(matches!(engine.console_run(tab, request, None).await, Err(RunError::Unsupported { .. })));
