@@ -1,35 +1,33 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { CheckIcon, ChevronsUpDownIcon, CircleAlertIcon, EyeIcon, EyeOffIcon, KeyIcon, LockIcon, PlusIcon, XIcon } from "lucide-react";
+import {
+  CheckIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ChevronsUpDownIcon,
+  CircleAlertIcon,
+  EyeIcon,
+  EyeOffIcon,
+  InfoIcon,
+  KeyIcon,
+  LockIcon,
+  XIcon,
+} from "lucide-react";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   commands,
   type ConnectionConfig,
   type ConnectionDraft,
-  type ConnectionId,
+  type DatabaseKind,
   type Environment,
   type SqlServerAuth,
   type SslMode,
 } from "../../ipc/bindings";
 import { connectErrorText } from "../../ipc/errors";
 import { DATABASE_LABEL } from "../../state/databaseKind";
-import { useLive } from "../../state/live";
-import { connectionTone } from "../../state/status";
 import { useWorkspace } from "../../state/workspace";
-import {
-  Button,
-  CONNECTION_TONE_LABEL,
-  cx,
-  DatabaseBadge,
-  DialogSurface,
-  IconButton,
-  inputClass,
-  Modal,
-  Spinner,
-  StatusDot,
-  Switch,
-} from "../../ui/primitives";
+import { Button, cx, DatabaseBadge, DialogSurface, IconButton, inputClass, Modal, Spinner, Switch } from "../../ui/primitives";
 import { connect, unknownHostKey, type UnknownHostKey } from "./connectionActions";
-import { CONNECTION_COLORS, ConnectionColorDot, connectionColorId, type ConnectionColorId } from "./connectionColors";
+import { CONNECTION_COLORS, type ConnectionColorId } from "./connectionColors";
 import {
   entraNeedsVerifiedTls,
   initialFields,
@@ -44,6 +42,8 @@ import {
   toSqlServerAuth,
   toSshDraft,
   toUser,
+  urlPassword,
+  withUrl,
   type Fields,
   type PasswordEdit,
   type SshAuthKind,
@@ -58,36 +58,37 @@ const SSL_MODES: { value: SslMode; label: string; hint: string }[] = [
   { value: "VerifyFull", label: "Verify full", hint: "Always uses TLS and checks the certificate chain and the host name." },
 ];
 
-const ENVIRONMENTS: { value: Environment | null; label: string }[] = [
+const sslMode = (value: SslMode) => SSL_MODES.find((m) => m.value === value);
+
+const ENVIRONMENTS: SegmentOption<Environment | null>[] = [
   { value: null, label: "Not set" },
   { value: "Local", label: "Develop" },
-  { value: "Staging", label: "Staging" },
-  { value: "Production", label: "Production" },
+  { value: "Staging", label: "Staging", selectedClass: "text-amber" },
+  { value: "Production", label: "Production", selectedClass: "text-danger" },
 ];
 
-const SQL_SERVER_AUTHS: { value: SqlServerAuth; label: string; hint: ReactNode }[] = [
-  { value: "SqlLogin", label: "SQL login", hint: "A SQL Server login and password. Windows authentication is not supported." },
-  {
-    value: "EntraAzureCli",
-    label: "Microsoft Entra ID (Azure CLI)",
-    hint: (
-      <>
-        Signs in as the account of <code className="font-mono">az login</code>. No password is saved.
-      </>
-    ),
-  },
-  {
-    value: "Unknown",
-    label: "Set by a newer version",
-    hint: "A newer version of L1 Data saved this sign-in method. Update L1 Data, or choose another method.",
-  },
+const ENVIRONMENT_HINT: Record<Environment | "none", string> = {
+  none: "Staging turns Run yellow. Production turns it red and asks before a run that writes.",
+  Local: "Run stays blue.",
+  Staging: "Run turns yellow.",
+  Production: "Run turns red, and a run that writes asks first.",
+};
+
+const SQL_SERVER_AUTHS: SegmentOption<SqlServerAuth>[] = [
+  { value: "SqlLogin", label: "SQL login" },
+  { value: "EntraAzureCli", label: "Microsoft Entra ID" },
 ];
 
-const SSH_AUTHS: { value: SshAuthKind; label: string }[] = [
+const SSH_AUTHS: SegmentOption<SshAuthKind>[] = [
   { value: "Password", label: "Password" },
   { value: "Key", label: "Key file" },
   { value: "Agent", label: "SSH agent" },
 ];
+
+type UrlSeed = { draft: ConnectionDraft; url: string };
+
+/** The chooser's URL, when it picked the kind, seeds the form. */
+type Step = { kind: "choose" } | { kind: "form"; databaseKind: DatabaseKind; seed: UrlSeed | null };
 
 type Probe =
   | { kind: "idle" }
@@ -96,135 +97,190 @@ type Probe =
   | { kind: "error"; message: string }
   | { kind: "hostKey"; key: UnknownHostKey };
 
-function serverText(c: ConnectionConfig): string {
-  const server = `${c.host}:${c.port}/${c.database}`;
-  return c.ssh ? `${server} via ${c.ssh.host}:${c.ssh.port}` : server;
-}
+/** What the sign-in and TLS sections of one kind's form read and write. */
+type FormApi = {
+  ids: string;
+  existing: ConnectionConfig | undefined;
+  fields: Fields;
+  update: (patch: Partial<Fields>) => void;
+  password: PasswordEdit;
+  editPassword: (edit: PasswordEdit) => void;
+};
 
-function ListRow({
-  testId,
-  selected,
-  mark,
-  name,
-  detail,
-  trailing,
-  onClick,
-}: {
-  testId: string;
-  selected: boolean;
-  mark: ReactNode;
-  name: ReactNode;
-  detail: string;
-  trailing?: ReactNode;
-  onClick?: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      data-testid={testId}
-      aria-current={selected || undefined}
-      onClick={onClick}
-      className={cx("flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left", selected ? "bg-selected" : "hover:bg-hover")}
-    >
-      <span className="grid w-2.5 shrink-0 place-items-center">{mark}</span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-ui-13 text-fg">{name}</span>
-        <span title={detail} className="block truncate font-mono text-ui-11 text-dim">
-          {detail}
-        </span>
-      </span>
-      {trailing}
-    </button>
-  );
-}
+const sshTarget = (f: Fields) => (f.sshEnabled ? f.sshHost.trim() || null : undefined);
 
-function HollowMark({ dashed }: { dashed?: boolean }) {
-  return <span className={cx("size-2 rounded-full border border-faint", dashed && "border-dashed")} />;
-}
+const KINDS: Record<
+  DatabaseKind,
+  {
+    title: string;
+    subtitle: string;
+    description: string;
+    facts: readonly string[];
+    urlPlaceholder: string;
+    hostPlaceholder: string;
+    networkTitle: string;
+    networkSummary: (f: Fields) => string;
+    SignIn: (api: FormApi) => ReactNode;
+    Tls: ((api: FormApi) => ReactNode) | null;
+  }
+> = {
+  Postgres: {
+    title: "New PostgreSQL connection",
+    subtitle: "Paste a postgres:// URL, or enter the server.",
+    description: "Any PostgreSQL server, on your machine or hosted.",
+    facts: ["Port 5432", "User and password", "TLS, CA certificate, SSH tunnel"],
+    urlPlaceholder: "postgres://user@host:5432/database",
+    hostPlaceholder: "db.example.com",
+    networkTitle: "TLS, CA certificate, and SSH tunnel",
+    networkSummary: (f) => {
+      const ssh = sshTarget(f);
+      const tunnel = ssh === undefined ? "No tunnel" : ssh === null ? "SSH not set up" : `SSH via ${ssh}`;
+      return `TLS ${sslMode(f.sslMode)?.label} · ${tunnel}`;
+    },
+    SignIn: PostgresSignIn,
+    Tls: PostgresTls,
+  },
+  SqlServer: {
+    title: "New SQL Server connection",
+    subtitle: "Paste a sqlserver:// URL, or enter the server. Works with Azure SQL Database.",
+    description: "SQL Server and Azure SQL Database.",
+    facts: ["Port 1433", "SQL login or Microsoft Entra ID", "TLS Require or Verify full, SSH tunnel"],
+    urlPlaceholder: "sqlserver://user@host:1433/master",
+    hostPlaceholder: "server.database.windows.net",
+    networkTitle: "SSH tunnel",
+    networkSummary: (f) => {
+      const ssh = sshTarget(f);
+      return ssh === undefined ? "Off" : ssh === null ? "Not set up" : `via ${ssh}`;
+    },
+    SignIn: SqlServerSignIn,
+    Tls: null,
+  },
+};
 
-function ConnectionList({ selected, onSelect }: { selected: ConnectionId | null; onSelect: (id: ConnectionId | null) => void }) {
-  const configs = useWorkspace((s) => s.configs);
-  const connections = useLive((s) => s.connections);
-  const list = Object.values(configs).sort((a, b) => a.name.localeCompare(b.name));
-  return (
-    <aside className="flex w-[210px] shrink-0 flex-col border-r border-border bg-sidebar">
-      <div className="flex h-12 shrink-0 items-center justify-between pr-2 pl-4">
-        <span className="text-ui-13.5 font-semibold text-fg">Connections</span>
-        <Button data-testid="conn-new" variant="ghost" className="h-7 gap-1 px-2" onClick={() => onSelect(null)}>
-          <PlusIcon size={14} /> New
-        </Button>
-      </div>
-      <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-2">
-        {selected === null && (
-          <ListRow testId="conn-list-new" selected mark={<HollowMark dashed />} name={<span className="italic">New connection</span>} detail="Not saved yet" />
-        )}
-        {list.map((c) => {
-          const tone = connectionTone(connections[c.id]);
-          return (
-            <ListRow
-              key={c.id}
-              testId={`conn-list-${c.name}`}
-              selected={c.id === selected}
-              mark={connectionColorId(c.color) ? <ConnectionColorDot color={c.color} /> : <HollowMark />}
-              name={c.name}
-              detail={serverText(c)}
-              trailing={tone !== "off" && <StatusDot tone={tone} label={CONNECTION_TONE_LABEL[tone]} />}
-              onClick={() => onSelect(c.id)}
-            />
-          );
-        })}
-      </div>
-      <div className="flex shrink-0 gap-2 border-t border-border px-4 py-3 text-ui-11.5 leading-4 text-dim">
-        <LockIcon size={14} className="mt-px shrink-0" />
-        <span>Passwords are encrypted with a key kept in the system keychain.</span>
-      </div>
-    </aside>
-  );
-}
+const KIND_ORDER: readonly DatabaseKind[] = ["Postgres", "SqlServer"];
 
-/** The id of the hint a `FormRow` draws for the field `htmlFor` names. The field points `aria-describedby` at it. */
-const hintOf = (htmlFor: string) => `${htmlFor}-hint`;
+/** The id of the hint a `Field` draws for its control. The control points `aria-describedby` at it. */
+const hintOf = (id: string) => `${id}-hint`;
 
 /** `live` reads the hint aloud when it changes, for a hint that turns into the field's error. */
-function FormRow({
+function Field({
   label,
   htmlFor,
   labelId,
+  aside,
   hint,
   live,
+  className,
   children,
 }: {
   label: string;
   htmlFor?: string;
   labelId?: string;
+  aside?: ReactNode;
   hint?: ReactNode;
   live?: boolean;
+  className?: string;
   children: ReactNode;
 }) {
+  const id = htmlFor ?? labelId;
   return (
-    <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-x-4 border-b border-border py-3.5 last:border-b-0">
-      <label id={labelId} htmlFor={htmlFor} className="pt-1.5 text-ui-13 text-muted">
-        {label}
-      </label>
-      <div>
-        {children}
-        {hint && (
-          <div id={htmlFor && hintOf(htmlFor)} aria-live={live ? "polite" : undefined} className="mt-1.5 text-ui-12 text-dim">
-            {hint}
-          </div>
-        )}
+    <div className={cx("min-w-0", className)}>
+      <div className="mb-1.5 flex items-baseline justify-between gap-2">
+        <label id={labelId} htmlFor={htmlFor} className="text-ui-12 font-medium text-muted">
+          {label}
+        </label>
+        {aside && <span className="text-ui-11.5 text-dim">{aside}</span>}
       </div>
+      {children}
+      {hint && (
+        <div id={id && hintOf(id)} aria-live={live ? "polite" : undefined} className="mt-1.5 text-ui-12 text-dim">
+          {hint}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type SegmentOption<T> = { value: T; label: string; disabled?: boolean; selectedClass?: string };
+
+/** One choice of a few, as a thumb set into a track. A value no option has, such as a sign-in method from a newer version, selects none. */
+function Segmented<T extends string | null>({
+  options,
+  value,
+  onChange,
+  labelledBy,
+  describedBy,
+  testId,
+}: {
+  options: readonly SegmentOption<T>[];
+  value: T;
+  onChange: (value: T) => void;
+  labelledBy: string;
+  describedBy?: string;
+  testId: string;
+}) {
+  const group = useRef<HTMLDivElement>(null);
+  const enabled = options.filter((o) => !o.disabled);
+  const current = enabled.findIndex((o) => o.value === value);
+  const tabStop = enabled[Math.max(current, 0)]?.value;
+  const optionId = (v: T) => `${testId}-${v ?? "none"}`;
+  const step = (delta: number) => {
+    const next = enabled[(current + delta + enabled.length) % enabled.length];
+    if (!next || next.value === value) return;
+    onChange(next.value);
+    group.current?.querySelector<HTMLElement>(`[data-testid="${optionId(next.value)}"]`)?.focus();
+  };
+  return (
+    <div
+      ref={group}
+      role="radiogroup"
+      aria-labelledby={labelledBy}
+      aria-describedby={describedBy}
+      data-testid={testId}
+      className="flex h-8 gap-0.5 rounded-lg bg-segment-track p-[3px] shadow-[inset_0_1px_2px_rgb(0_0_0/0.06)]"
+      onKeyDown={(e) => {
+        const delta = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+        if (delta === undefined) return;
+        e.preventDefault();
+        step(delta);
+      }}
+    >
+      {options.map((o) => {
+        const checked = o.value === value;
+        return (
+          <button
+            key={optionId(o.value)}
+            type="button"
+            role="radio"
+            aria-checked={checked}
+            disabled={o.disabled}
+            tabIndex={o.value === tabStop ? 0 : -1}
+            data-testid={optionId(o.value)}
+            onClick={() => !checked && onChange(o.value)}
+            className={cx(
+              "min-w-0 flex-1 truncate rounded-md border-[0.5px] px-2 text-ui-12.5 transition-colors disabled:pointer-events-none disabled:opacity-40",
+              checked
+                ? cx("border-segment-thumb-border bg-segment-thumb font-medium shadow-[0_1px_2px_rgb(0_0_0/0.08)]", o.selectedClass ?? "text-fg")
+                : "border-transparent text-muted hover:text-fg",
+            )}
+          >
+            {o.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
 
 function SecretInput({
+  id,
   testId,
   label,
   value,
   placeholder,
   onChange,
 }: {
+  id?: string;
   testId: string;
   label: string;
   value: string;
@@ -236,6 +292,7 @@ function SecretInput({
   return (
     <div className="relative w-full">
       <input
+        id={id}
         data-testid={testId}
         aria-label={label}
         type={reveal ? "text" : "password"}
@@ -260,7 +317,7 @@ function SecretInput({
 
 function ClearSecretButton({ testId, noun, cleared, onToggle }: { testId: string; noun: string; cleared: boolean; onToggle: () => void }) {
   return (
-    <button type="button" data-testid={testId} onClick={onToggle} className="hover:text-fg">
+    <button type="button" data-testid={testId} onClick={onToggle} className="shrink-0 hover:text-fg">
       {cleared ? `Keep the saved ${noun}` : `Remove the saved ${noun}`}
     </button>
   );
@@ -321,37 +378,463 @@ function ColorPicker({ value, onChange, labelledBy }: { value: ColorChoice; onCh
   );
 }
 
+/**
+ * The URL field's text and its parse. `onParsed` takes a parse that succeeded and returns an error to show instead, or
+ * null. A newer edit drops the reply to an older one.
+ */
+function useUrlField(initial: string) {
+  const [url, setUrl] = useState(initial);
+  const [error, setError] = useState<string | null>(null);
+  const [blurred, setBlurred] = useState(false);
+  const request = useRef(0);
+  const edit = async (text: string, onParsed: (d: ConnectionDraft, text: string) => string | null) => {
+    setUrl(text);
+    const r = ++request.current;
+    if (text.trim() === "") {
+      setError(null);
+      return;
+    }
+    const res = await commands.connectionParseUrl(text);
+    if (r !== request.current) return;
+    setError(res.status === "error" ? res.error : onParsed(res.data, text));
+  };
+  // A half-typed URL fails to parse, so its error waits for a blur or until it reads like a URL or a key=value string.
+  const shownError = error !== null && (blurred || url.includes("://") || url.includes("=")) ? error : null;
+  return { url, shownError, edit, blur: () => setBlurred(true) };
+}
+
+function UrlHint({ error, text }: { error: string | null; text: string }) {
+  return error ? <span className="text-danger">{error}</span> : text;
+}
+
+function Header({ back, databaseKind, title, subtitle }: { back?: () => void; databaseKind?: DatabaseKind; title: string; subtitle: string }) {
+  return (
+    <div className="flex shrink-0 items-center gap-3 border-b border-border py-3.5 pr-3 pl-5">
+      {back && (
+        <IconButton data-testid="conn-back" aria-label="Back" onClick={back} className="-ml-2">
+          <ChevronLeftIcon size={16} />
+        </IconButton>
+      )}
+      {databaseKind && <DatabaseBadge databaseKind={databaseKind} large />}
+      <div className="min-w-0 flex-1">
+        <Dialog.Title className="truncate text-ui-14 font-semibold text-fg">{title}</Dialog.Title>
+        <Dialog.Description className="mt-0.5 text-ui-12.5 text-dim">{subtitle}</Dialog.Description>
+      </div>
+      <Dialog.Close asChild>
+        <IconButton aria-label="Close" className="self-start">
+          <XIcon size={15} />
+        </IconButton>
+      </Dialog.Close>
+    </div>
+  );
+}
+
+function KindCard({ databaseKind, onPick }: { databaseKind: DatabaseKind; onPick: () => void }) {
+  const kind = KINDS[databaseKind];
+  return (
+    <button
+      type="button"
+      data-testid={`conn-kind-${databaseKind.toLowerCase()}`}
+      onClick={onPick}
+      className="group flex flex-col rounded-xl border border-control bg-bg p-4 text-left transition-colors hover:border-run"
+    >
+      <span aria-hidden className="flex items-center justify-between">
+        <DatabaseBadge databaseKind={databaseKind} large />
+        <ChevronRightIcon size={16} className="text-dim transition-colors group-hover:text-run" />
+      </span>
+      <span className="mt-3 text-ui-14 font-semibold text-fg">{DATABASE_LABEL[databaseKind]}</span>
+      <span className="mt-1 text-ui-12.5 text-muted">{kind.description}</span>
+      <span className="mt-3 flex flex-1 flex-col justify-end">
+        <span className="space-y-1 border-t border-border pt-3 text-ui-12 text-dim">
+          {kind.facts.map((fact) => (
+            <span key={fact} className="block">
+              {fact}
+            </span>
+          ))}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+function KindChooser({ onPick }: { onPick: (databaseKind: DatabaseKind, seed: UrlSeed | null) => void }) {
+  const ids = useId();
+  const url = useUrlField("");
+  const pasted = useRef(false);
+  const openForm = (draft: ConnectionDraft, text: string) => {
+    onPick(draft.databaseKind, { draft, url: text });
+    return null;
+  };
+  return (
+    <>
+      <Header title="Connect a database" subtitle="Choose what you are connecting to." />
+      <div className="min-h-0 overflow-y-auto px-5 py-5">
+        <div className="grid grid-cols-2 gap-3">
+          {KIND_ORDER.map((kind) => (
+            <KindCard key={kind} databaseKind={kind} onPick={() => onPick(kind, null)} />
+          ))}
+        </div>
+        <div className="my-5 flex items-center gap-3 text-ui-12 text-dim">
+          <span className="h-px flex-1 bg-border" />
+          or
+          <span className="h-px flex-1 bg-border" />
+        </div>
+        <Field
+          label="Connection URL"
+          htmlFor={`${ids}-url`}
+          hint={<UrlHint error={url.shownError} text="Paste a URL to skip this step. It picks the kind and opens that form, filled in." />}
+          live
+        >
+          <input
+            id={`${ids}-url`}
+            aria-describedby={hintOf(`${ids}-url`)}
+            aria-invalid={url.shownError !== null || undefined}
+            data-testid="conn-url"
+            autoFocus
+            spellCheck={false}
+            className={cx(inputClass, "font-mono")}
+            value={url.url}
+            placeholder="postgres://… or sqlserver://…"
+            onPaste={() => {
+              pasted.current = true;
+            }}
+            onChange={(e) => {
+              // Typing parses as it goes but waits for Enter to leave, since a half-typed URL can already parse.
+              const open = pasted.current;
+              pasted.current = false;
+              void url.edit(e.target.value, open ? openForm : () => null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void url.edit(url.url, openForm);
+            }}
+            onBlur={url.blur}
+          />
+        </Field>
+      </div>
+    </>
+  );
+}
+
+function PasswordFields({ api, userLabel, note }: { api: FormApi; userLabel: string; note: string }) {
+  const { ids, existing, fields, update, password, editPassword } = api;
+  return (
+    <div>
+      <div className="flex gap-3">
+        <Field label={userLabel} htmlFor={`${ids}-user`} className="flex-1">
+          <input
+            id={`${ids}-user`}
+            data-testid="conn-user"
+            className={inputClass}
+            value={fields.user}
+            onChange={(e) => update({ user: e.target.value })}
+            placeholder="user"
+          />
+        </Field>
+        <Field label="Password" htmlFor={`${ids}-password`} className="flex-1">
+          <SecretInput
+            id={`${ids}-password`}
+            testId="conn-password"
+            label="Password"
+            value={password.kind === "set" ? password.value : ""}
+            placeholder={secretPlaceholder(password, existing?.hasPassword ?? false, "password", "password")}
+            onChange={(value) => editPassword(value ? { kind: "set", value } : initialPassword(existing))}
+          />
+        </Field>
+      </div>
+      <div className="mt-2 flex items-center gap-1.5 text-ui-12 text-dim">
+        <LockIcon size={12} className="shrink-0" />
+        <span className="min-w-0 flex-1">{note}</span>
+        {existing?.hasPassword && (
+          <ClearSecretButton
+            testId="conn-password-clear"
+            noun="password"
+            cleared={password.kind === "clear"}
+            onToggle={() => editPassword(password.kind === "clear" ? { kind: "keep" } : { kind: "clear" })}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PostgresSignIn(api: FormApi) {
+  return <PasswordFields api={api} userLabel="User" note="Encrypted with a key kept in the system keychain." />;
+}
+
+function SqlServerSignIn(api: FormApi) {
+  const { ids, existing, fields, update } = api;
+  const entra = signsInWithEntra(fields);
+  const notice =
+    fields.sqlServerAuth === "Unknown" ? (
+      "A newer version of L1 Data saved this sign-in method. Update L1 Data, or choose another method."
+    ) : entraNeedsVerifiedTls(fields) ? (
+      <span data-testid="conn-ssl-entra" className="text-danger">
+        Choose Verify full for Microsoft Entra ID. Its token works on every Azure SQL database you can reach, so it goes only to a verified server. Azure SQL
+        certificates verify.
+      </span>
+    ) : fields.sslMode === "Require" ? (
+      sslMode("Require")?.hint
+    ) : null;
+  return (
+    <div>
+      <div className="flex gap-3">
+        <Field label="Sign in with" labelId={`${ids}-auth`} className="flex-1">
+          <Segmented
+            testId="conn-auth"
+            labelledBy={`${ids}-auth`}
+            describedBy={notice ? hintOf(`${ids}-signin`) : undefined}
+            options={SQL_SERVER_AUTHS}
+            value={fields.sqlServerAuth}
+            onChange={(auth) => update(auth === "EntraAzureCli" ? { sqlServerAuth: auth, sslMode: "VerifyFull" } : { sqlServerAuth: auth })}
+          />
+        </Field>
+        <Field label="Encryption" labelId={`${ids}-ssl`} className="w-[196px] shrink-0">
+          <Segmented
+            testId="conn-encryption"
+            labelledBy={`${ids}-ssl`}
+            describedBy={notice ? hintOf(`${ids}-signin`) : undefined}
+            options={[
+              { value: "Require", label: "Require", disabled: entra },
+              { value: "VerifyFull", label: "Verify full" },
+            ]}
+            value={fields.sslMode}
+            onChange={(mode) => update({ sslMode: mode })}
+          />
+        </Field>
+      </div>
+      {notice && (
+        <div id={hintOf(`${ids}-signin`)} className="mt-1.5 text-ui-12 text-dim">
+          {notice}
+        </div>
+      )}
+      {takesPassword(fields) && (
+        <div className="mt-4">
+          <PasswordFields api={api} userLabel="Login" note="Encrypted in the system keychain. Windows authentication is not supported." />
+        </div>
+      )}
+      {entra && (
+        <div data-testid="conn-entra" className="mt-4 flex gap-2.5 rounded-lg border border-run/25 bg-run/8 px-3 py-2.5 text-ui-12.5 leading-[18px]">
+          <InfoIcon size={14} className="mt-0.5 shrink-0 text-run" />
+          <div className="min-w-0">
+            <div className="text-fg">
+              Signs in as the account of <code className="font-mono">az login</code>
+            </div>
+            <div className="mt-0.5 text-dim">No password is saved. Entra ID needs Verify full, so its token goes only to a verified server.</div>
+            {existing?.hasPassword && <div className="mt-0.5 text-dim">Saving removes the saved password.</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PostgresTls({ ids, fields, update }: FormApi) {
+  return (
+    <>
+      <Field label="TLS" htmlFor={`${ids}-ssl`} hint={sslMode(fields.sslMode)?.hint}>
+        <div className="relative">
+          <select
+            id={`${ids}-ssl`}
+            aria-describedby={hintOf(`${ids}-ssl`)}
+            data-testid="conn-ssl"
+            className={cx(inputClass, "appearance-none pr-8")}
+            value={fields.sslMode}
+            onChange={(e) => {
+              const mode = SSL_MODES.find((m) => m.value === e.target.value);
+              if (mode) update({ sslMode: mode.value });
+            }}
+          >
+            {SSL_MODES.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+          <ChevronsUpDownIcon size={14} className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-dim" />
+        </div>
+      </Field>
+      <Field label="CA certificate" htmlFor={`${ids}-ca`} aside="Optional" hint="Path to a PEM certificate file.">
+        <input
+          id={`${ids}-ca`}
+          aria-describedby={hintOf(`${ids}-ca`)}
+          data-testid="conn-ca-cert"
+          className={inputClass}
+          value={fields.caCertPath}
+          onChange={(e) => update({ caCertPath: e.target.value })}
+        />
+      </Field>
+    </>
+  );
+}
+
+function SshTunnel({ api, sshSecret, editSshSecret }: { api: FormApi; sshSecret: PasswordEdit; editSshSecret: (edit: PasswordEdit) => void }) {
+  const { ids, existing, fields, update } = api;
+  const set = (key: "sshHost" | "sshPort" | "sshUser" | "sshKeyPath" | "sshAgentSocket") => (e: React.ChangeEvent<HTMLInputElement>) =>
+    update({ [key]: e.target.value });
+  const secretSaved = initialSshSecret(existing, fields.sshAuth).kind === "keep";
+  const noun = fields.sshAuth === "Key" ? "passphrase" : "password";
+  const secretInput = (id: string, empty: string) => (
+    <SecretInput
+      id={id}
+      testId="conn-ssh-secret"
+      label={fields.sshAuth === "Key" ? "Passphrase" : "SSH password"}
+      value={sshSecret.kind === "set" ? sshSecret.value : ""}
+      placeholder={secretPlaceholder(sshSecret, secretSaved, noun, empty)}
+      onChange={(value) => editSshSecret(value ? { kind: "set", value } : initialSshSecret(existing, fields.sshAuth))}
+    />
+  );
+  const secretClear = secretSaved && fields.sshAuth !== "Agent" && (
+    <div className="text-ui-12 text-dim">
+      <ClearSecretButton
+        testId="conn-ssh-secret-clear"
+        noun={noun}
+        cleared={sshSecret.kind === "clear"}
+        onToggle={() => editSshSecret(sshSecret.kind === "clear" ? { kind: "keep" } : { kind: "clear" })}
+      />
+    </div>
+  );
+  return (
+    <div className="space-y-3">
+      <div className="flex h-8 items-center gap-2.5">
+        <Switch checked={fields.sshEnabled} onCheckedChange={(sshEnabled) => update({ sshEnabled })} label="SSH tunnel" testId="conn-ssh-enabled" />
+        <span className="text-ui-13 text-fg">Connect through an SSH server</span>
+      </div>
+      {fields.sshEnabled && (
+        <>
+          <div className="flex gap-3">
+            <Field label="SSH host" htmlFor={`${ids}-ssh-host`} hint="Checks ~/.ssh/known_hosts. Does not read ~/.ssh/config." className="flex-1">
+              <input
+                id={`${ids}-ssh-host`}
+                aria-describedby={hintOf(`${ids}-ssh-host`)}
+                data-testid="conn-ssh-host"
+                className={inputClass}
+                value={fields.sshHost}
+                onChange={set("sshHost")}
+                placeholder="bastion.example.com"
+              />
+            </Field>
+            <Field label="SSH port" htmlFor={`${ids}-ssh-port`} className="w-[84px] shrink-0">
+              <input
+                id={`${ids}-ssh-port`}
+                data-testid="conn-ssh-port"
+                className={inputClass}
+                value={fields.sshPort}
+                onChange={set("sshPort")}
+                inputMode="numeric"
+              />
+            </Field>
+          </div>
+          <div className="flex gap-3">
+            <Field label="SSH user" htmlFor={`${ids}-ssh-user`} className="flex-1">
+              <input
+                id={`${ids}-ssh-user`}
+                data-testid="conn-ssh-user"
+                className={inputClass}
+                value={fields.sshUser}
+                onChange={set("sshUser")}
+                placeholder="user"
+              />
+            </Field>
+            <Field label="Sign in with" labelId={`${ids}-ssh-auth`} className="w-[264px] shrink-0">
+              <Segmented
+                testId="conn-ssh-auth"
+                labelledBy={`${ids}-ssh-auth`}
+                options={SSH_AUTHS}
+                value={fields.sshAuth}
+                onChange={(auth) => {
+                  update({ sshAuth: auth });
+                  editSshSecret(initialSshSecret(existing, auth));
+                }}
+              />
+            </Field>
+          </div>
+          {fields.sshAuth === "Password" && (
+            <Field label="SSH password" htmlFor={`${ids}-ssh-secret`}>
+              {secretInput(`${ids}-ssh-secret`, "password")}
+            </Field>
+          )}
+          {fields.sshAuth === "Key" && (
+            <div className="flex gap-3">
+              <Field label="Key file" htmlFor={`${ids}-ssh-key`} hint="Leave the passphrase empty for an unencrypted key." className="flex-1">
+                <input
+                  id={`${ids}-ssh-key`}
+                  aria-describedby={hintOf(`${ids}-ssh-key`)}
+                  data-testid="conn-ssh-key"
+                  className={inputClass}
+                  value={fields.sshKeyPath}
+                  onChange={set("sshKeyPath")}
+                  placeholder="~/.ssh/id_ed25519"
+                />
+              </Field>
+              <Field label="Passphrase" htmlFor={`${ids}-ssh-secret`} className="w-44 shrink-0">
+                {secretInput(`${ids}-ssh-secret`, "passphrase")}
+              </Field>
+            </div>
+          )}
+          {fields.sshAuth === "Agent" && (
+            <Field label="Agent socket" htmlFor={`${ids}-ssh-agent`} aside="Optional" hint="Leave empty to use the agent at SSH_AUTH_SOCK.">
+              <input
+                id={`${ids}-ssh-agent`}
+                aria-describedby={hintOf(`${ids}-ssh-agent`)}
+                data-testid="conn-ssh-agent-socket"
+                className={inputClass}
+                value={fields.sshAgentSocket}
+                onChange={set("sshAgentSocket")}
+                placeholder="SSH_AUTH_SOCK"
+              />
+            </Field>
+          )}
+          {secretClear}
+        </>
+      )}
+    </div>
+  );
+}
+
 function ConnectionForm({
+  databaseKind,
+  seed,
   existing,
+  onBack,
   onSaved,
   onClose,
   onDirtyChange,
 }: {
+  databaseKind: DatabaseKind;
+  seed: UrlSeed | null;
   existing: ConnectionConfig | undefined;
+  onBack: (() => void) | undefined;
   onSaved: () => void;
   onClose: () => void;
   onDirtyChange: (dirty: boolean) => void;
 }) {
+  const kind = KINDS[databaseKind];
   const upsertConfig = useWorkspace((s) => s.upsertConfig);
   const ids = useId();
-  const [fields, setFields] = useState(() => initialFields(existing));
-  const [password, setPassword] = useState<PasswordEdit>(() => initialPassword(existing));
+  const [fields, setFields] = useState(() => {
+    const start = initialFields(existing, databaseKind);
+    return seed ? withUrl(start, seed.draft) : start;
+  });
+  const [password, setPassword] = useState<PasswordEdit>(() => (seed ? urlPassword(seed.draft) : initialPassword(existing)));
   const [sshSecret, setSshSecret] = useState<PasswordEdit>(() => initialSshSecret(existing));
-  const [url, setUrl] = useState("");
-  const [urlError, setUrlError] = useState<string | null>(null);
-  const [urlBlurred, setUrlBlurred] = useState(false);
-  const urlRequest = useRef(0);
+  const url = useUrlField(seed?.url ?? "");
   const probeRequest = useRef(0);
   const [probe, setProbe] = useState<Probe>({ kind: "idle" });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [advancedOpen, setAdvancedOpen] = useState(() => !!existing?.ssh || !!existing?.caCertPath);
+  const [networkOpen, setNetworkOpen] = useState(() => !!existing?.ssh || !!existing?.caCertPath || !!seed?.draft.caCertPath);
+  const outcome = useRef<HTMLDivElement>(null);
 
-  const dirty = isDirty(existing, { fields, password, sshSecret, url });
+  const dirty = isDirty(existing, { fields, password, sshSecret, url: url.url });
   useEffect(() => {
     onDirtyChange(dirty);
     return () => onDirtyChange(false);
   }, [dirty, onDirtyChange]);
+
+  // The body scrolls, and a test or save result lands at its bottom.
+  useEffect(() => {
+    if (probe.kind === "error" || probe.kind === "hostKey" || saveError) outcome.current?.scrollIntoView?.({ block: "nearest" });
+  }, [probe, saveError]);
 
   const resetProbe = () => {
     ++probeRequest.current;
@@ -361,47 +844,31 @@ function ConnectionForm({
     resetProbe();
     setFields((f) => ({ ...f, ...patch }));
   };
-  const set =
-    (key: "name" | "host" | "port" | "database" | "user" | "sshHost" | "sshPort" | "sshUser" | "sshKeyPath" | "sshAgentSocket") =>
-    (e: React.ChangeEvent<HTMLInputElement>) =>
-      update({ [key]: e.target.value });
+  const editPassword = (edit: PasswordEdit) => {
+    resetProbe();
+    setPassword(edit);
+  };
   const editSshSecret = (edit: PasswordEdit) => {
     resetProbe();
     setSshSecret(edit);
   };
+  const api: FormApi = { ids, existing, fields, update, password, editPassword };
 
-  const parseUrl = async (text: string) => {
-    const request = ++urlRequest.current;
-    if (text.trim() === "") {
-      setUrlError(null);
-      return;
+  const applyUrl = (d: ConnectionDraft) => {
+    if (d.databaseKind !== databaseKind) {
+      const other = DATABASE_LABEL[d.databaseKind];
+      return `That is a ${other} URL. Go back to choose ${other}.`;
     }
-    const res = await commands.connectionParseUrl(text);
-    if (request !== urlRequest.current) return;
-    if (res.status === "error") {
-      setUrlError(res.error);
-      return;
-    }
-    const d = res.data;
-    setUrlError(null);
-    if (d.caCertPath) setAdvancedOpen(true);
-    update({
-      databaseKind: d.databaseKind,
-      caCertPath: d.caCertPath ?? "",
-      host: d.host,
-      port: String(d.port),
-      database: d.database,
-      user: d.user,
-      sqlServerAuth: d.sqlServerAuth ?? "SqlLogin",
-      sslMode: d.sslMode,
-    });
-    setPassword(typeof d.password === "object" ? { kind: "set", value: d.password.Set } : initialPassword(existing));
+    resetProbe();
+    if (d.caCertPath) setNetworkOpen(true);
+    setFields((f) => withUrl(f, d));
+    setPassword(urlPassword(d));
+    return null;
   };
-  // A half-typed URL fails to parse, so its error waits for a blur or until it reads like a URL or a key=value string.
-  const shownUrlError = urlError !== null && (urlBlurred || url.includes("://") || url.includes("=")) ? urlError : null;
 
   const port = parsePort(fields.port);
-  const valid = fields.host.trim() !== "" && port !== null && sshValid(fields) && toSqlServerAuth(fields) !== "Unknown" && !entraNeedsVerifiedTls(fields);
+  const sshReady = sshValid(fields);
+  const valid = fields.host.trim() !== "" && port !== null && sshReady && toSqlServerAuth(fields) !== "Unknown" && !entraNeedsVerifiedTls(fields);
   const fallbackName = `${fields.host.trim()} / ${fields.database.trim()}`;
 
   const draft = (): ConnectionDraft => ({
@@ -457,35 +924,7 @@ function ConnectionForm({
     if (!existing) void connect(res.data.id);
   };
 
-  const sshSecretSaved = initialSshSecret(existing, fields.sshAuth).kind === "keep";
-  const sshNoun = fields.sshAuth === "Key" ? "passphrase" : "password";
-  const sshSecretInput = (empty: string) => (
-    <SecretInput
-      testId="conn-ssh-secret"
-      label={fields.sshAuth === "Key" ? "Passphrase" : "SSH password"}
-      value={sshSecret.kind === "set" ? sshSecret.value : ""}
-      placeholder={secretPlaceholder(sshSecret, sshSecretSaved, sshNoun, empty)}
-      onChange={(value) => editSshSecret(value ? { kind: "set", value } : initialSshSecret(existing, fields.sshAuth))}
-    />
-  );
-  const sshSecretClear = sshSecretSaved && (
-    <ClearSecretButton
-      testId="conn-ssh-secret-clear"
-      noun={sshNoun}
-      cleared={sshSecret.kind === "clear"}
-      onToggle={() => editSshSecret(sshSecret.kind === "clear" ? { kind: "keep" } : { kind: "clear" })}
-    />
-  );
-  const entra = signsInWithEntra(fields);
-  const sslModes = fields.databaseKind === "SqlServer" ? SSL_MODES.filter((m) => m.value === "VerifyFull" || m.value === "Require") : SSL_MODES;
-  const sslHint = entraNeedsVerifiedTls(fields) ? (
-    <span data-testid="conn-ssl-entra" className="text-danger">
-      Choose Verify full for Microsoft Entra ID. Its token works on every Azure SQL database you can reach, so it goes only to a verified server. Azure SQL
-      certificates verify.
-    </span>
-  ) : (
-    sslModes.find((m) => m.value === fields.sslMode)?.hint
-  );
+  const environmentHint = ENVIRONMENT_HINT[fields.environment ?? "none"];
 
   return (
     <form
@@ -493,395 +932,150 @@ function ConnectionForm({
         e.preventDefault();
         if (valid) void submit();
       }}
-      className="flex min-w-0 flex-1 flex-col"
+      className="flex min-h-0 flex-col"
     >
-      <div className="flex h-12 shrink-0 items-center gap-2.5 border-b border-border pr-3 pl-5">
-        <DatabaseBadge databaseKind={fields.databaseKind} />
-        <Dialog.Title className="min-w-0 flex-1 truncate text-ui-14 font-semibold text-fg">{existing ? existing.name : "New connection"}</Dialog.Title>
-        <Dialog.Description className="sr-only">Saved connections, and the settings of the selected one.</Dialog.Description>
-        <Dialog.Close asChild>
-          <IconButton aria-label="Close">
-            <XIcon size={15} />
-          </IconButton>
-        </Dialog.Close>
-      </div>
+      <Header
+        back={onBack}
+        databaseKind={databaseKind}
+        title={existing ? existing.name : kind.title}
+        subtitle={existing ? `${DATABASE_LABEL[databaseKind]} · Saved connection` : kind.subtitle}
+      />
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-1">
-        <FormRow label="Database kind" htmlFor={`${ids}-kind`} hint={existing ? "Create a new connection to use another database kind." : undefined}>
-          <select
-            id={`${ids}-kind`}
-            aria-describedby={existing ? hintOf(`${ids}-kind`) : undefined}
-            data-testid="conn-kind"
-            className={inputClass}
-            value={fields.databaseKind}
-            disabled={existing !== undefined}
-            onChange={(e) => {
-              const databaseKind = e.target.value;
-              if (databaseKind !== "Postgres" && databaseKind !== "SqlServer") return;
-              ++urlRequest.current;
-              setUrl("");
-              setUrlError(null);
-              const { port, database, user, sqlServerAuth, sslMode, caCertPath } = initialFields(undefined, databaseKind);
-              update({ databaseKind, port, database, user, sqlServerAuth, sslMode, caCertPath });
-              setPassword({ kind: "clear" });
-            }}
-          >
-            {Object.entries(DATABASE_LABEL).map(([kind, label]) => (
-              <option key={kind} value={kind}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </FormRow>
-        <FormRow label="Name" htmlFor={`${ids}-name`} hint="Leave empty to use the host and database.">
-          <input
-            id={`${ids}-name`}
-            aria-describedby={hintOf(`${ids}-name`)}
-            data-testid="conn-name"
-            autoFocus={existing !== undefined}
-            className={inputClass}
-            value={fields.name}
-            onChange={set("name")}
-            placeholder={fallbackName}
-          />
-        </FormRow>
-        <FormRow
-          label="Environment"
-          htmlFor={`${ids}-environment`}
-          hint="Staging uses a yellow Run button; Production uses red. On Production, a run that writes asks first."
-        >
-          <div className="relative">
-            <select
-              id={`${ids}-environment`}
-              aria-describedby={hintOf(`${ids}-environment`)}
-              data-testid="conn-environment"
-              className={cx(inputClass, "appearance-none pr-8")}
-              value={fields.environment ?? ""}
-              onChange={(e) => {
-                const choice = ENVIRONMENTS.find((env) => (env.value ?? "") === e.target.value);
-                // The environment never changes how the connection dials, so a Test result still holds.
-                if (choice) setFields((f) => ({ ...f, environment: choice.value }));
-              }}
-            >
-              {ENVIRONMENTS.map((env) => (
-                <option key={env.label} value={env.value ?? ""}>
-                  {env.label}
-                </option>
-              ))}
-            </select>
-            <ChevronsUpDownIcon size={14} className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-dim" />
-          </div>
-        </FormRow>
+      <div className="min-h-0 space-y-4 overflow-y-auto px-5 pt-4 pb-1">
         {!existing && (
-          <FormRow
-            label="URL"
+          <Field
+            label="Connection URL"
             htmlFor={`${ids}-url`}
-            hint={shownUrlError ? <span className="text-danger">{shownUrlError}</span> : "Optional. Paste one to fill in the fields below."}
+            aside="Optional"
+            hint={<UrlHint error={url.shownError} text="Fills in the fields below." />}
             live
           >
             <input
               id={`${ids}-url`}
               aria-describedby={hintOf(`${ids}-url`)}
-              aria-invalid={shownUrlError !== null || undefined}
+              aria-invalid={url.shownError !== null || undefined}
               data-testid="conn-url"
               autoFocus
               spellCheck={false}
               className={cx(inputClass, "font-mono")}
-              value={url}
-              placeholder={fields.databaseKind === "SqlServer" ? "sqlserver://user@host:1433/master" : "postgres://user@host:5432/database"}
-              onChange={(e) => {
-                setUrl(e.target.value);
-                void parseUrl(e.target.value);
-              }}
-              onBlur={() => setUrlBlurred(true)}
+              value={url.url}
+              placeholder={kind.urlPlaceholder}
+              onChange={(e) => void url.edit(e.target.value, applyUrl)}
+              onBlur={url.blur}
             />
-          </FormRow>
+          </Field>
         )}
-        <FormRow label="Server" htmlFor={`${ids}-host`} hint={fields.sshEnabled ? "Resolved and dialed by the SSH server." : undefined}>
-          <div className="flex gap-2">
-            <div className="min-w-0 flex-1">
+
+        <div className="flex gap-3">
+          <Field label="Host" htmlFor={`${ids}-host`} hint={fields.sshEnabled ? "Resolved and dialed by the SSH server." : undefined} className="flex-1">
+            <input
+              id={`${ids}-host`}
+              aria-describedby={fields.sshEnabled ? hintOf(`${ids}-host`) : undefined}
+              data-testid="conn-host"
+              className={inputClass}
+              value={fields.host}
+              onChange={(e) => update({ host: e.target.value })}
+              placeholder={kind.hostPlaceholder}
+            />
+          </Field>
+          <Field label="Port" htmlFor={`${ids}-port`} className="w-[84px] shrink-0">
+            <input
+              id={`${ids}-port`}
+              data-testid="conn-port"
+              className={inputClass}
+              value={fields.port}
+              onChange={(e) => update({ port: e.target.value })}
+              inputMode="numeric"
+            />
+          </Field>
+          <Field label="Database" htmlFor={`${ids}-database`} className="w-[168px] shrink-0">
+            <input
+              id={`${ids}-database`}
+              data-testid="conn-database"
+              className={inputClass}
+              value={fields.database}
+              onChange={(e) => update({ database: e.target.value })}
+            />
+          </Field>
+        </div>
+
+        <kind.SignIn {...api} />
+
+        <section className="space-y-3 border-t border-border pt-4">
+          <h3 className="text-ui-12.5 font-semibold text-fg">How it appears in the sidebar</h3>
+          <div className="flex gap-4">
+            <Field label="Name" htmlFor={`${ids}-name`} className="flex-1">
               <input
-                id={`${ids}-host`}
-                aria-describedby={fields.sshEnabled ? hintOf(`${ids}-host`) : undefined}
-                data-testid="conn-host"
+                id={`${ids}-name`}
+                data-testid="conn-name"
+                autoFocus={existing !== undefined}
                 className={inputClass}
-                value={fields.host}
-                onChange={set("host")}
+                value={fields.name}
+                onChange={(e) => update({ name: e.target.value })}
+                placeholder={fallbackName}
               />
-            </div>
-            <div className="w-24 shrink-0">
-              <input data-testid="conn-port" aria-label="Port" className={inputClass} value={fields.port} onChange={set("port")} inputMode="numeric" />
-            </div>
+            </Field>
+            <Field label="Color" labelId={`${ids}-color`} className="shrink-0">
+              <ColorPicker value={fields.color} onChange={(color) => update({ color })} labelledBy={`${ids}-color`} />
+            </Field>
           </div>
-        </FormRow>
-        <FormRow label="Database" htmlFor={`${ids}-database`} hint="Opens first in the tree. You can show the server's other databases later.">
-          <input
-            id={`${ids}-database`}
-            aria-describedby={hintOf(`${ids}-database`)}
-            data-testid="conn-database"
-            className={inputClass}
-            value={fields.database}
-            onChange={set("database")}
-          />
-        </FormRow>
-        {fields.databaseKind === "SqlServer" && (
-          <FormRow
-            label="Authentication"
-            htmlFor={`${ids}-auth`}
-            hint={
-              <>
-                {SQL_SERVER_AUTHS.find((a) => a.value === fields.sqlServerAuth)?.hint}
-                {entra && existing?.hasPassword && <span className="block">Saving removes the saved password.</span>}
-              </>
-            }
-          >
-            <div className="relative">
-              <select
-                id={`${ids}-auth`}
-                aria-describedby={hintOf(`${ids}-auth`)}
-                data-testid="conn-auth"
-                className={cx(inputClass, "appearance-none pr-8")}
-                value={fields.sqlServerAuth}
-                onChange={(e) => {
-                  const choice = SQL_SERVER_AUTHS.find((a) => a.value === e.target.value);
-                  if (choice) update({ sqlServerAuth: choice.value });
-                }}
-              >
-                {SQL_SERVER_AUTHS.filter((a) => a.value !== "Unknown" || fields.sqlServerAuth === "Unknown").map((a) => (
-                  <option key={a.value} value={a.value} disabled={a.value === "Unknown"}>
-                    {a.label}
-                  </option>
-                ))}
-              </select>
-              <ChevronsUpDownIcon size={14} className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-dim" />
-            </div>
-          </FormRow>
-        )}
-        {takesPassword(fields) && (
-          <FormRow
-            label={fields.databaseKind === "SqlServer" ? "SQL login" : "Sign in"}
-            htmlFor={`${ids}-user`}
-            hint={
-              existing?.hasPassword && (
-                <ClearSecretButton
-                  testId="conn-password-clear"
-                  noun="password"
-                  cleared={password.kind === "clear"}
-                  onToggle={() => {
-                    resetProbe();
-                    setPassword(password.kind === "clear" ? { kind: "keep" } : { kind: "clear" });
-                  }}
-                />
-              )
-            }
-          >
-            <div className="flex gap-2">
-              <input id={`${ids}-user`} data-testid="conn-user" className={inputClass} value={fields.user} onChange={set("user")} placeholder="user" />
-              <SecretInput
-                testId="conn-password"
-                label="Password"
-                value={password.kind === "set" ? password.value : ""}
-                placeholder={secretPlaceholder(password, existing?.hasPassword ?? false, "password", "password")}
-                onChange={(value) => {
-                  resetProbe();
-                  setPassword(value ? { kind: "set", value } : initialPassword(existing));
-                }}
-              />
-            </div>
-          </FormRow>
-        )}
-        <FormRow label="TLS" htmlFor={`${ids}-ssl`} hint={sslHint}>
-          <div className="relative">
-            <select
-              id={`${ids}-ssl`}
-              aria-describedby={hintOf(`${ids}-ssl`)}
-              aria-invalid={entraNeedsVerifiedTls(fields) || undefined}
-              data-testid="conn-ssl"
-              className={cx(inputClass, "appearance-none pr-8")}
-              value={fields.sslMode}
-              onChange={(e) => {
-                const mode = sslModes.find((m) => m.value === e.target.value);
-                if (mode) update({ sslMode: mode.value });
-              }}
-            >
-              {sslModes.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-            <ChevronsUpDownIcon size={14} className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-dim" />
-          </div>
-        </FormRow>
-        <details open={advancedOpen} onToggle={(e) => setAdvancedOpen(e.currentTarget.open)} className="border-b border-border py-3">
-          <summary className="cursor-pointer rounded text-ui-13 font-medium text-fg">
-            Advanced network settings
-            {(fields.sshEnabled || fields.caCertPath) && (
-              <span className="ml-2 text-ui-12 font-normal text-dim">
-                {fields.sshEnabled ? (sshValid(fields) ? "SSH configured" : "SSH needs attention") : "CA certificate configured"}
-              </span>
-            )}
+          <Field label="Environment" labelId={`${ids}-environment`} hint={environmentHint}>
+            <Segmented
+              testId="conn-environment"
+              labelledBy={`${ids}-environment`}
+              describedBy={hintOf(`${ids}-environment`)}
+              options={ENVIRONMENTS}
+              value={fields.environment}
+              // The environment never changes how the connection dials, so a Test result still holds.
+              onChange={(environment) => setFields((f) => ({ ...f, environment }))}
+            />
+          </Field>
+        </section>
+
+        <details open={networkOpen} onToggle={(e) => setNetworkOpen(e.currentTarget.open)} className="group border-t border-border">
+          <summary className="flex cursor-pointer list-none items-center gap-2 rounded py-3 text-ui-13 font-medium text-fg [&::-webkit-details-marker]:hidden">
+            <ChevronRightIcon size={14} className="shrink-0 text-dim transition-transform group-open:rotate-90" />
+            <span className="flex-1">{kind.networkTitle}</span>
+            <span data-testid="conn-network-summary" className={cx("truncate text-ui-12 font-normal", sshReady ? "text-dim" : "text-danger")}>
+              {kind.networkSummary(fields)}
+            </span>
           </summary>
-          {fields.databaseKind === "Postgres" && (
-            <FormRow label="CA certificate" htmlFor={`${ids}-ca`} hint="Optional path to a PEM certificate file.">
-              <input
-                id={`${ids}-ca`}
-                aria-describedby={hintOf(`${ids}-ca`)}
-                data-testid="conn-ca-cert"
-                className={inputClass}
-                value={fields.caCertPath}
-                onChange={(e) => update({ caCertPath: e.target.value })}
-              />
-            </FormRow>
-          )}
-          <FormRow
-            label="SSH tunnel"
-            htmlFor={fields.sshEnabled ? `${ids}-ssh-host` : undefined}
-            hint={fields.sshEnabled ? "Checks ~/.ssh/known_hosts. Does not read ~/.ssh/config." : undefined}
-          >
-            <div className="flex h-8 items-center gap-2">
-              <Switch checked={fields.sshEnabled} onCheckedChange={(sshEnabled) => update({ sshEnabled })} label="SSH tunnel" testId="conn-ssh-enabled" />
-              {fields.sshEnabled ? (
-                <>
-                  <div className="ml-1 min-w-0 flex-1">
-                    <input
-                      id={`${ids}-ssh-host`}
-                      aria-describedby={hintOf(`${ids}-ssh-host`)}
-                      data-testid="conn-ssh-host"
-                      className={inputClass}
-                      value={fields.sshHost}
-                      onChange={set("sshHost")}
-                      placeholder="bastion.example.com"
-                    />
-                  </div>
-                  <div className="w-24 shrink-0">
-                    <input
-                      data-testid="conn-ssh-port"
-                      aria-label="SSH port"
-                      className={inputClass}
-                      value={fields.sshPort}
-                      onChange={set("sshPort")}
-                      inputMode="numeric"
-                    />
-                  </div>
-                </>
-              ) : (
-                <span className="text-ui-13 text-dim">Connect through an SSH server</span>
-              )}
-            </div>
-          </FormRow>
-          {fields.sshEnabled && (
-            <>
-              <FormRow label="SSH sign in" htmlFor={`${ids}-ssh-user`}>
-                <div className="flex gap-2">
-                  <input
-                    id={`${ids}-ssh-user`}
-                    data-testid="conn-ssh-user"
-                    className={inputClass}
-                    value={fields.sshUser}
-                    onChange={set("sshUser")}
-                    placeholder="user"
-                  />
-                  <div className="relative w-full">
-                    <select
-                      data-testid="conn-ssh-auth"
-                      aria-label="SSH authentication"
-                      className={cx(inputClass, "appearance-none pr-8")}
-                      value={fields.sshAuth}
-                      onChange={(e) => {
-                        const auth = SSH_AUTHS.find((a) => a.value === e.target.value);
-                        if (!auth) return;
-                        update({ sshAuth: auth.value });
-                        setSshSecret(initialSshSecret(existing, auth.value));
-                      }}
-                    >
-                      {SSH_AUTHS.map((a) => (
-                        <option key={a.value} value={a.value}>
-                          {a.label}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronsUpDownIcon size={14} className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-dim" />
-                  </div>
-                </div>
-              </FormRow>
-              {fields.sshAuth === "Password" && (
-                <FormRow label="SSH password" hint={sshSecretClear || undefined}>
-                  {sshSecretInput("password")}
-                </FormRow>
-              )}
-              {fields.sshAuth === "Key" && (
-                <FormRow
-                  label="Key file"
-                  htmlFor={`${ids}-ssh-key`}
-                  hint={
-                    <>
-                      <span className="block">Leave the passphrase empty for an unencrypted key.</span>
-                      {sshSecretClear}
-                    </>
-                  }
-                >
-                  <div className="flex gap-2">
-                    <div className="min-w-0 flex-1">
-                      <input
-                        id={`${ids}-ssh-key`}
-                        aria-describedby={hintOf(`${ids}-ssh-key`)}
-                        data-testid="conn-ssh-key"
-                        className={inputClass}
-                        value={fields.sshKeyPath}
-                        onChange={set("sshKeyPath")}
-                        placeholder="~/.ssh/id_ed25519"
-                      />
-                    </div>
-                    <div className="w-40 shrink-0">{sshSecretInput("passphrase")}</div>
-                  </div>
-                </FormRow>
-              )}
-              {fields.sshAuth === "Agent" && (
-                <FormRow label="Agent socket" htmlFor={`${ids}-ssh-agent`} hint="Optional. Leave empty to use the agent at SSH_AUTH_SOCK.">
-                  <input
-                    id={`${ids}-ssh-agent`}
-                    aria-describedby={hintOf(`${ids}-ssh-agent`)}
-                    data-testid="conn-ssh-agent-socket"
-                    className={inputClass}
-                    value={fields.sshAgentSocket}
-                    onChange={set("sshAgentSocket")}
-                    placeholder="SSH_AUTH_SOCK"
-                  />
-                </FormRow>
-              )}
-            </>
-          )}
+          <div className="space-y-4 pt-1 pb-4">
+            {kind.Tls && <kind.Tls {...api} />}
+            <SshTunnel api={api} sshSecret={sshSecret} editSshSecret={editSshSecret} />
+          </div>
         </details>
-        <FormRow label="Color" labelId={`${ids}-color`} hint="Marks this connection in the tree and the top bar.">
-          <ColorPicker value={fields.color} onChange={(color) => update({ color })} labelledBy={`${ids}-color`} />
-        </FormRow>
+
+        {(probe.kind === "hostKey" || probe.kind === "error" || saveError) && (
+          <div ref={outcome} className="space-y-2 pb-3">
+            {probe.kind === "hostKey" && <HostKeyCard hostKey={probe.key} onTrust={() => void trustAndTest(probe.key)} />}
+            {probe.kind === "error" && <ErrorCallout testId="conn-test-error" message={probe.message} />}
+            {saveError && <ErrorCallout testId="conn-save-error" message={saveError} />}
+          </div>
+        )}
       </div>
 
-      {probe.kind === "hostKey" && <HostKeyCard hostKey={probe.key} onTrust={() => void trustAndTest(probe.key)} />}
-      {probe.kind === "error" && <ErrorRow testId="conn-test-error" message={probe.message} />}
-      {saveError && <ErrorRow testId="conn-save-error" message={saveError} />}
       <div className="flex shrink-0 items-center gap-3 border-t border-border px-5 py-3">
         <Button data-testid="conn-test" disabled={!valid || probe.kind === "testing"} onClick={() => void test()}>
-          Test
+          Test connection
         </Button>
         <div data-testid="conn-test-result" data-state={probe.kind} role="status" className="min-w-0 flex-1 text-ui-12.5 leading-4">
           {probe.kind === "testing" && (
             <span className="flex items-center gap-2 text-dim">
-              <Spinner /> Connecting
+              <Spinner /> Connecting…
             </span>
           )}
           {probe.kind === "ok" && (
             <span className="flex items-center gap-1.5 text-fg">
               <CheckIcon size={14} className="shrink-0 text-green" />
-              <span className="truncate">
-                Connected to {DATABASE_LABEL[fields.databaseKind]} {probe.version}
+              <span className="truncate" title={`${DATABASE_LABEL[databaseKind]} ${probe.version}`}>
+                Connected · {probe.version}
               </span>
             </span>
           )}
         </div>
         <Button variant="ghost" onClick={onClose}>
-          Close
+          Cancel
         </Button>
         <Button data-testid="conn-save" type="submit" variant="primary" disabled={!valid || saving}>
           {existing ? "Save" : "Save and connect"}
@@ -894,7 +1088,7 @@ function ConnectionForm({
 function HostKeyCard({ hostKey, onTrust }: { hostKey: UnknownHostKey; onTrust: () => void }) {
   const fingerprint = `${hostKey.algorithm} ${hostKey.fingerprint}`;
   return (
-    <div data-testid="ssh-host-key" className="flex shrink-0 items-center gap-3 border-t border-border px-5 py-3">
+    <div data-testid="ssh-host-key" className="flex items-center gap-3 rounded-lg border border-amber/30 bg-amber/8 px-3 py-2.5">
       <KeyIcon size={16} className="shrink-0 text-amber" />
       <div className="min-w-0 flex-1 text-ui-12.5 leading-4">
         <div className="truncate text-fg">
@@ -909,12 +1103,12 @@ function HostKeyCard({ hostKey, onTrust }: { hostKey: UnknownHostKey; onTrust: (
   );
 }
 
-function ErrorRow({ testId, message }: { testId: string; message: string }) {
+function ErrorCallout({ testId, message }: { testId: string; message: string }) {
   return (
     <div
       data-testid={testId}
       role="alert"
-      className="flex max-h-40 shrink-0 items-start gap-2 overflow-y-auto border-t border-border px-5 py-3 text-ui-12.5 leading-4 text-danger"
+      className="flex max-h-40 items-start gap-2 overflow-y-auto rounded-lg border border-danger/30 bg-danger/8 px-3 py-2.5 text-ui-12.5 leading-4 text-danger"
     >
       <CircleAlertIcon size={14} className="shrink-0" />
       <span className="selectable min-w-0 break-words">{message}</span>
@@ -922,14 +1116,40 @@ function ErrorRow({ testId, message }: { testId: string; message: string }) {
   );
 }
 
+/** Mounts with each opening of the dialog, so a new connection always starts at the chooser. */
+function ConnectionSteps({
+  existing,
+  leave,
+  onClose,
+  onDirtyChange,
+}: {
+  existing: ConnectionConfig | undefined;
+  leave: (action: () => void) => void;
+  onClose: () => void;
+  onDirtyChange: (dirty: boolean) => void;
+}) {
+  const [chosen, setChosen] = useState<Step>({ kind: "choose" });
+  const step: Step = existing ? { kind: "form", databaseKind: existing.databaseKind, seed: null } : chosen;
+  if (step.kind === "choose") return <KindChooser onPick={(databaseKind, seed) => setChosen({ kind: "form", databaseKind, seed })} />;
+  return (
+    <ConnectionForm
+      databaseKind={step.databaseKind}
+      seed={step.seed}
+      existing={existing}
+      onBack={existing ? undefined : () => leave(() => setChosen({ kind: "choose" }))}
+      onSaved={onClose}
+      onClose={() => leave(onClose)}
+      onDirtyChange={onDirtyChange}
+    />
+  );
+}
+
 export function ConnectionDialog() {
   const overlay = useWorkspace((s) => s.overlay);
   const configs = useWorkspace((s) => s.configs);
   const close = useWorkspace((s) => s.close);
-  const open = useWorkspace((s) => s.open);
   const editing = overlay.kind === "connection" ? overlay.editing : null;
   const existing = editing ? configs[editing] : undefined;
-  const selected = existing ? editing : null;
   const [dirty, setDirty] = useState(false);
   const [pending, setPending] = useState<(() => void) | null>(null);
   const keepEditing = useRef<HTMLButtonElement>(null);
@@ -937,9 +1157,6 @@ export function ConnectionDialog() {
   const leave = (action: () => void) => {
     if (dirty) setPending(() => action);
     else action();
-  };
-  const select = (id: ConnectionId | null) => {
-    if (id !== selected) leave(() => open({ kind: "connection", editing: id }));
   };
   const discard = () => {
     const action = pending;
@@ -950,9 +1167,8 @@ export function ConnectionDialog() {
   return (
     <Dialog.Root open={overlay.kind === "connection"} onOpenChange={(o) => !o && leave(close)}>
       <Dialog.Portal>
-        <DialogSurface data-testid="connection-dialog" className="flex h-[560px] w-[760px] overflow-hidden">
-          <ConnectionList selected={selected} onSelect={select} />
-          <ConnectionForm key={editing ?? "new"} existing={existing} onSaved={close} onClose={() => leave(close)} onDirtyChange={setDirty} />
+        <DialogSurface data-testid="connection-dialog" className="flex w-[600px] flex-col overflow-hidden">
+          <ConnectionSteps key={editing ?? "new"} existing={existing} leave={leave} onClose={close} onDirtyChange={setDirty} />
           <Modal
             open={pending !== null}
             onOpenChange={(o) => !o && setPending(null)}

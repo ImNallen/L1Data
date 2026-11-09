@@ -120,7 +120,15 @@ it("starts SQL Server with SQL login, master and verified TLS", () => {
   });
   const fields = initialFields({ ...saved, databaseKind: "SqlServer", port: 1434, database: "reporting", sslMode: "Require" });
   expect(fields).toMatchObject({ databaseKind: "SqlServer", port: "1434", database: "reporting", sslMode: "Require" });
-  expect(isDirty(undefined, { fields: initialFields(undefined, "SqlServer"), password: { kind: "clear" }, sshSecret: { kind: "clear" }, url: "" })).toBe(true);
+  expect(isDirty(undefined, { fields: initialFields(undefined, "SqlServer"), password: { kind: "clear" }, sshSecret: { kind: "clear" }, url: "" })).toBe(false);
+  expect(
+    isDirty(undefined, {
+      fields: { ...initialFields(undefined, "SqlServer"), port: "1434" },
+      password: { kind: "clear" },
+      sshSecret: { kind: "clear" },
+      url: "",
+    }),
+  ).toBe(true);
 });
 
 it("opens a connection saved before Entra as a SQL login, and a saved Entra one as Entra", () => {

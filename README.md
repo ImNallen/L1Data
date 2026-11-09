@@ -45,15 +45,15 @@ pnpm bridge         # the real engine behind a browser UI on localhost:5173
 | Field | PostgreSQL | SQL Server |
 |---|---|---|
 | Database kind | PostgreSQL | SQL Server |
-| Server | `localhost` | `localhost` |
+| Host | `localhost` | `localhost` |
 | Port | `5433` | `1434` |
 | Database | `shop` | `shop` |
 | User | `l1data` | `sa` |
 | Password | `l1data` | `L1Data_dev_Str0ng` |
-| TLS | Prefer (the default) | Require |
+| TLS | Prefer (the default) | Encryption: Require |
 | Name | `Dev Postgres` | `Dev SQL Server` |
 
-The SQL Server certificate is self-signed, so change **TLS** from **Verify full** to **Require**. To fill in the PostgreSQL form, paste `postgres://l1data:l1data@localhost:5433/shop` into **URL**.
+Pick the database kind first. The SQL Server certificate is self-signed, so change **Encryption** from **Verify full** to **Require**. To skip straight to a filled-in PostgreSQL form, paste `postgres://l1data:l1data@localhost:5433/shop` into **Connection URL** on the first step.
 
 ## Checks
 

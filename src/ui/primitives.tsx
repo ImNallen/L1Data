@@ -17,12 +17,15 @@ export const ACTIVE_OPTION = "bg-selected ring-1 ring-inset ring-focus";
 export const MENU_ITEM =
   "flex h-7 cursor-default items-center gap-2 rounded-md px-2 text-ui-13 outline-none data-[highlighted]:bg-selected focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-focus";
 
-export function DatabaseBadge({ databaseKind }: { databaseKind: DatabaseKind }) {
+export function DatabaseBadge({ databaseKind, large }: { databaseKind: DatabaseKind; large?: boolean }) {
   return (
     <span
       title={DATABASE_LABEL[databaseKind]}
       aria-label={DATABASE_LABEL[databaseKind]}
-      className="inline-grid h-4 min-w-[20px] place-items-center rounded-[4px] bg-badge-bg px-[3px] font-mono text-ui-10 font-bold leading-none tracking-tight text-badge"
+      className={cx(
+        "inline-grid place-items-center bg-badge-bg font-mono font-bold leading-none tracking-tight text-badge",
+        large ? "size-8 shrink-0 rounded-lg text-ui-12" : "h-4 min-w-[20px] rounded-[4px] px-[3px] text-ui-10",
+      )}
     >
       {databaseKind === "Postgres" ? "PG" : "MS"}
     </span>
