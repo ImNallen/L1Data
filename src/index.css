@@ -333,6 +333,9 @@ textarea,
   border-radius: 8px;
   background: var(--color-bg);
 }
+.notebook-cell-stale {
+  border-color: var(--color-amber);
+}
 .notebook-cell-active {
   border-color: var(--color-focus);
 }

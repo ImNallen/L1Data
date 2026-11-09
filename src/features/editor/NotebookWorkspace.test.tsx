@@ -292,3 +292,21 @@ it("follows a focused cell's results while they grow, and stops once they reach 
   act(() => withRowCounts({ a: [3000] }));
   expect(scroll).toHaveBeenCalledTimes(1);
 });
+
+it("marks a cell stale once a cell its run inlined changes, and says which one", async () => {
+  useWorkspace.getState().setRunSources("a", [{ name: "Cell b", text: FIVE_LINES }]);
+  await renderNotebook();
+  expect(screen.queryByTestId("stale-a")).toBeNull();
+  expect(cell("a").classList.contains("notebook-cell-stale")).toBe(false);
+
+  act(() => seedEditor("b", "SELECT 1"));
+  expect(screen.getByTestId("stale-a").textContent).toBe("Stale");
+  expect(screen.getByTestId("stale-a").title).toBe("Cell b changed since this cell ran. Run this cell to update it.");
+  expect(cell("a").classList.contains("notebook-cell-stale")).toBe(true);
+
+  act(() => useWorkspace.getState().renameTab("b", "orders"));
+  expect(screen.getByTestId("stale-a").title).toBe("No cell is named Cell b now. Run this cell to update it.");
+
+  act(() => useWorkspace.getState().setRunSources("a", []));
+  expect(screen.queryByTestId("stale-a")).toBeNull();
+});

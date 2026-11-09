@@ -882,7 +882,14 @@ describe("a run the engine asks about", () => {
     expect(question()?.choices).toEqual([{ id: "btn", label: "Run writes", variant: "danger" }]);
     expect(question()?.statements).toEqual(["update orders set n = 1", "delete from orders"]);
     expect(question()?.body).not.toContain("A rollback does not undo sequence values or outside side effects.");
-    const request = { kind: "script", text: SCRIPT, target: { kind: "all" }, mode: "Run", params: [] };
+    const request = {
+      kind: "script",
+      text: SCRIPT,
+      target: { kind: "all" },
+      mode: "Run",
+      params: [],
+      cells: [{ name: useWorkspace.getState().tabs[id]?.title, text: SCRIPT }],
+    };
     expect(runs).toEqual([{ tabId: id, request, confirmed: null }]);
     useWorkspace.getState().answer("btn");
     await vi.waitFor(() => expect(runs).toHaveLength(2));

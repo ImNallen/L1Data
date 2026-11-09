@@ -82,6 +82,8 @@ export function runErrorText(e: RunError): string {
       return `Cannot run this SQL. ${e.what}`;
     case "Connect":
       return connectErrorText(e.error);
+    case "Reference":
+      return e.message;
     case "BadFilter":
       return "WHERE and ORDER BY each take one expression, without a semicolon.";
     case "ConfirmWrites":
