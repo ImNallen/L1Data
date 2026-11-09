@@ -230,6 +230,17 @@ it("keeps network values while the disclosure is collapsed, and summarizes what 
   expect(value("conn-ssh-host")).toBe("bastion.example.com");
 });
 
+it("keeps a typed SSH password when its sign-in method is chosen again", async () => {
+  const user = userEvent.setup();
+  openNew();
+  await user.click(screen.getByTestId("conn-kind-postgres"));
+  await user.click(screen.getByTestId("conn-network-summary"));
+  await user.click(screen.getByTestId("conn-ssh-enabled"));
+  await user.type(screen.getByTestId("conn-ssh-secret"), "hunter2");
+  await user.click(screen.getByTestId("conn-ssh-auth-Password"));
+  expect(value("conn-ssh-secret")).toBe("hunter2");
+});
+
 it("picks an environment with the arrow keys and says what it does to Run", async () => {
   const user = userEvent.setup();
   openNew();

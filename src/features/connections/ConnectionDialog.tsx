@@ -226,7 +226,7 @@ function Segmented<T extends string | null>({
   const optionId = (v: T) => `${testId}-${v ?? "none"}`;
   const step = (delta: number) => {
     const next = enabled[(current + delta + enabled.length) % enabled.length];
-    if (!next) return;
+    if (!next || next.value === value) return;
     onChange(next.value);
     group.current?.querySelector<HTMLElement>(`[data-testid="${optionId(next.value)}"]`)?.focus();
   };
@@ -256,7 +256,7 @@ function Segmented<T extends string | null>({
             disabled={o.disabled}
             tabIndex={o.value === tabStop ? 0 : -1}
             data-testid={optionId(o.value)}
-            onClick={() => onChange(o.value)}
+            onClick={() => !checked && onChange(o.value)}
             className={cx(
               "min-w-0 flex-1 truncate rounded-md border-[0.5px] px-2 text-ui-12.5 transition-colors disabled:pointer-events-none disabled:opacity-40",
               checked
