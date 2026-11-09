@@ -231,6 +231,7 @@ describe("workspace snapshot", () => {
       rightPanel: "Assistant" as const,
       resultsHeight: 280,
       sidebarWidth: 256,
+      sidebarSplit: 50,
       rightPanelWidth: 341,
       assistantChat: "c4a70000-0000-4000-8000-000000000001",
     },

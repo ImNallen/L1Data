@@ -1018,6 +1018,8 @@ export type Layout = {
 	rightPanel: RightPanel | null,
 	resultsHeight: number,
 	sidebarWidth: number,
+	/**  The share of the sidebar's height, in percent, that the database list takes above the selected database's objects. */
+	sidebarSplit: number,
 	rightPanelWidth: number,
 	assistantChat: ChatId | null,
 };

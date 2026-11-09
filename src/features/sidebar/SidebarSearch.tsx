@@ -45,14 +45,14 @@ export function SidebarSearch({
   };
 
   return (
-    <div className="mx-2 flex h-[34px] shrink-0 items-center gap-1">
+    <div className="mx-3 mb-1.5 flex h-[30px] shrink-0 items-center gap-1">
       <label
         className={cx(
-          "group flex h-full min-w-0 flex-1 cursor-text items-center gap-2.5 rounded-md border pr-1.5 pl-2.5 text-muted",
-          focused ? "border-focus bg-transparent" : "border-transparent bg-transparent",
+          "group flex h-full min-w-0 flex-1 cursor-text items-center gap-[7px] rounded-md border pr-1.5 pl-[9px] text-dim",
+          focused ? "border-focus bg-transparent" : "border-transparent bg-hover",
         )}
       >
-        <SearchIcon size={15} className="shrink-0" />
+        <SearchIcon size={13} className="shrink-0" />
         <input
           ref={input}
           data-testid={testId}
@@ -66,12 +66,12 @@ export function SidebarSearch({
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           onKeyDown={onKeyDown}
-          className="h-full min-w-0 flex-1 bg-transparent text-ui-12 text-fg outline-none placeholder:text-muted"
+          className="h-full min-w-0 flex-1 bg-transparent text-ui-12 text-fg outline-none placeholder:text-dim"
         />
         {query && (
           <>
             {showCount && (
-              <span data-testid={`${testId}-count`} className="shrink-0 text-ui-11.5 text-muted tabular-nums">
+              <span data-testid={`${testId}-count`} className="shrink-0 text-ui-10.5 text-dim tabular-nums">
                 {count}
               </span>
             )}

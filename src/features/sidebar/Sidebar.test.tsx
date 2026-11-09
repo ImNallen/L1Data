@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ConsoleState } from "../../ipc/bindings";
@@ -65,7 +65,7 @@ it("switches table and view categories without losing access to routines", async
   await user.click(screen.getByRole("button", { name: /^Views/ }));
   expect(screen.getByTestId("tree-node-Postgres/shop/public/paid_orders")).toBeTruthy();
   expect(screen.queryByTestId("tree-node-Postgres/shop/public/orders")).toBeNull();
-  await user.click(screen.getByRole("button", { name: "More" }));
+  await user.click(screen.getByRole("button", { name: /^All/ }));
   expect(screen.getByTestId("tree-node-Postgres/shop/public/#functions")).toBeTruthy();
 });
 
@@ -134,7 +134,9 @@ it("does not open a search match when the active cell has no database", async ()
   const open = vi.spyOn(runActions, "openTableTab").mockResolvedValue(null);
   const user = userEvent.setup();
   render(<Sidebar hosted={null} />);
-  await user.type(screen.getByTestId("object-search"), "orders{Enter}");
+  expect(screen.queryByTestId("object-search")).toBeNull();
+  expect(screen.getByText(/Choose a database to browse/)).toBeTruthy();
+  await user.keyboard("orders{Enter}");
   expect(open).not.toHaveBeenCalled();
   expect(screen.queryByRole("tree", { name: "Database objects" })).toBeNull();
 });
@@ -162,4 +164,60 @@ it("marks a database whose notebook is still running or holds a transaction", ()
   expect(screen.getByTestId("notebook-marker-Postgres/postgres").textContent).toBe("Open transaction");
   act(() => useLive.setState({ consoles: {} }));
   expect(screen.queryByTestId("notebook-marker-Postgres/shop")).toBeNull();
+});
+
+it("names each connection's environment and reaches its database picker by Tab from the row", async () => {
+  const user = userEvent.setup();
+  useWorkspace.setState({ configs: { p: { ...connectionConfig("p", "Postgres"), environment: "Production" } } });
+  render(<Sidebar hosted={null} />);
+  const connection = screen.getByTestId("tree-node-Postgres");
+  expect(within(connection).getByText("Production").classList.contains("text-danger")).toBe(true);
+  connection.focus();
+  await user.tab();
+  expect(document.activeElement).toBe(within(connection).getByTestId("db-pill-Postgres"));
+  await user.keyboard("{Enter}");
+  expect(screen.getByTestId("db-pill-Postgres").getAttribute("aria-expanded")).toBe("true");
+});
+
+it("slides the category thumb to the chosen category and shows each count", async () => {
+  const user = userEvent.setup();
+  render(<Sidebar hosted={null} />);
+  const thumb = screen.getByTestId("category-thumb");
+  expect(thumb.style.transform).toBe("translateX(0%)");
+  expect(screen.getByRole("button", { name: /^Tables/ }).getAttribute("aria-pressed")).toBe("true");
+  await user.click(screen.getByRole("button", { name: /^Views/ }));
+  expect(thumb.style.transform).toBe("translateX(100%)");
+  await user.click(screen.getByRole("button", { name: /^All/ }));
+  expect(thumb.style.transform).toBe("translateX(200%)");
+  expect(screen.getByRole("button", { name: /^All/ }).getAttribute("aria-pressed")).toBe("true");
+});
+
+it("shows a table's row estimate in short form", () => {
+  render(<Sidebar hosted={null} />);
+  expect(within(screen.getByTestId("tree-node-Postgres/shop/public/addresses")).getByText("18.4k").title).toBe("About 18,400 rows");
+});
+
+it("resizes the split from the keyboard, saves it in the layout, and resets it on double-click", async () => {
+  const user = userEvent.setup();
+  render(<Sidebar hosted={null} />);
+  const split = screen.getByRole("separator", { name: "Resize database list" });
+  expect(split.getAttribute("aria-valuenow")).toBe("50");
+  split.focus();
+  await user.keyboard("{ArrowDown}{ArrowDown}");
+  expect(useWorkspace.getState().layout.sidebarSplit).toBe(60);
+  await user.keyboard("{ArrowUp}");
+  expect(useWorkspace.getState().layout.sidebarSplit).toBe(55);
+  fireEvent.doubleClick(split);
+  expect(useWorkspace.getState().layout.sidebarSplit).toBe(50);
+});
+
+it("explains a failed connection under its row, with Retry and Edit connection", async () => {
+  const user = userEvent.setup();
+  useLive.setState({ connections: { p: { id: "p", rev: 1, status: { kind: "Failed", error: { kind: "Auth", message: "Login failed for user 'sa'." } } } } });
+  render(<Sidebar hosted={null} />);
+  const card = screen.getByTestId("conn-error-Postgres");
+  expect(card.textContent).toContain("Login failed for user 'sa'.");
+  expect(within(screen.getByTestId("tree-node-Postgres")).getByText("Failed")).toBeTruthy();
+  await user.click(within(card).getByRole("button", { name: "Edit connection…" }));
+  expect(useWorkspace.getState().overlay).toEqual({ kind: "connection", editing: "p" });
 });

@@ -34,6 +34,22 @@ const ENVIRONMENT_ICON: Record<Environment, { label: string; tone: string }> = {
   Production: { label: "Production", tone: "text-danger" },
 };
 
+const ENVIRONMENT_BADGE: Record<Environment, string> = {
+  Local: "bg-control/70 text-muted",
+  Staging: "bg-amber/15 text-amber",
+  Production: "bg-danger/12 text-danger",
+};
+
+/** The environment as a small tinted badge, red for Production so it stands out in a list. Nothing for a connection without one. */
+export function EnvironmentBadge({ environment }: { environment: Environment | null }) {
+  if (!environment) return null;
+  return (
+    <span className={cx("ml-2 inline-flex h-4 shrink-0 items-center rounded px-[5px] text-ui-10 leading-none font-medium", ENVIRONMENT_BADGE[environment])}>
+      {ENVIRONMENT_ICON[environment].label}
+    </span>
+  );
+}
+
 export function EnvironmentIcon({
   environment,
   size = 14,

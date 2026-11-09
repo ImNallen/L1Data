@@ -36,7 +36,20 @@ export function useIsPickerOpen(target: PickerTarget): boolean {
 }
 
 /** The `shown/total` chip on a connection or database row. It opens its picker and leaves the row's own click alone. */
-export function PickerPill({ target, count, active, testId }: { target: PickerTarget; count: ShownCount; active: boolean; testId: string }) {
+/** `label` replaces the `shown/total` text, and gives the pill a filled look for the sidebar's database list. */
+export function PickerPill({
+  target,
+  count,
+  active,
+  testId,
+  label,
+}: {
+  target: PickerTarget;
+  count: ShownCount;
+  active: boolean;
+  testId: string;
+  label?: string;
+}) {
   return (
     <button
       type="button"
@@ -49,12 +62,13 @@ export function PickerPill({ target, count, active, testId }: { target: PickerTa
       }}
       onDoubleClick={(e) => e.stopPropagation()}
       className={cx(
-        "-mr-1.5 ml-1 inline-flex h-5 shrink-0 items-center rounded-md px-1.5 text-ui-11.5 leading-none tabular-nums",
+        "inline-flex shrink-0 items-center leading-none tabular-nums",
+        label ? "ml-2 h-[18px] rounded px-1.5 text-ui-10.5 font-medium" : "-mr-1.5 ml-1 h-5 rounded-md px-1.5 text-ui-11.5",
         count.warn ? "text-amber" : "text-muted",
-        active ? "bg-control" : "hover:bg-control",
+        active ? "bg-control" : label ? "bg-control/70 hover:bg-control" : "hover:bg-control",
       )}
     >
-      {countText(count)}
+      {label ?? countText(count)}
     </button>
   );
 }

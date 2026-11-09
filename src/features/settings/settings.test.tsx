@@ -62,7 +62,7 @@ it("keeps workspace chrome behind settings with its own navigation and close con
   expect(html).toMatch(/<input[^>]*data-testid="settings-search"[^>]*placeholder="Search"/);
   expect(breadcrumb(html)).toBe("Settings / Appearance");
   expect(html).toMatch(/aria-current="page"[^>]*data-testid="settings-section-appearance"|data-testid="settings-section-appearance"[^>]*aria-current="page"/);
-  for (const present of ["no-tabs", "right-panel", "sidebar-search", "new-connection"]) {
+  for (const present of ["no-tabs", "right-panel", "sidebar-header", "new-connection"]) {
     expect(html).toContain(`data-testid="${present}"`);
   }
 });

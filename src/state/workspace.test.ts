@@ -88,7 +88,16 @@ describe("notebook files", () => {
     table: null,
     file,
   });
-  const layout = { sidebar: true, results: true, rightPanel: null, resultsHeight: 320, sidebarWidth: 280, rightPanelWidth: 341, assistantChat: null };
+  const layout = {
+    sidebar: true,
+    results: true,
+    rightPanel: null,
+    resultsHeight: 320,
+    sidebarWidth: 280,
+    sidebarSplit: 50,
+    rightPanelWidth: 341,
+    assistantChat: null,
+  };
 
   /** A workspace the build before notebook files saved: a notebook holding a clean and a dirty file cell among scratch cells. */
   const fileTabs = {

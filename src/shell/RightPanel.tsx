@@ -9,7 +9,7 @@ import { WindowEdgeActions, windowEdgeInset } from "./WindowEdgeActions";
 export function RightPanel({ hosted }: { hosted: HostedWindow | null }) {
   return (
     <aside data-testid="right-panel" aria-labelledby="right-panel-title" className="assistant-surface flex h-full flex-col">
-      <div data-tauri-drag-region="deep" className={cx("flex h-[52px] shrink-0 items-center gap-1 pl-3", windowEdgeInset(hosted))}>
+      <div data-tauri-drag-region="deep" className={cx("flex h-14 shrink-0 items-center gap-1 pl-3", windowEdgeInset(hosted))}>
         <h2 id="right-panel-title" className="px-1 text-ui-14 font-semibold text-fg">
           Assistant
         </h2>
