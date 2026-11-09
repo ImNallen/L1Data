@@ -51,6 +51,9 @@
   --color-handle-hover: #4a4a4a;
   --color-backdrop: #1f1f1f;
   --color-claude: #d97757;
+  --color-segment-track: #141415;
+  --color-segment-thumb: #2a2a2d;
+  --color-segment-thumb-border: #36363a;
 }
 
 :root {
@@ -93,7 +96,7 @@
   --chat-keyword: #626e89;
   --chat-string: #567b64;
   --color-bg: #ffffff;
-  --color-sidebar: #ffffff;
+  --color-sidebar: #f7f7f8;
   --color-canvas: #fafafb;
   --color-raised: #ffffff;
   --color-hover: #f0f0f1;
@@ -123,6 +126,9 @@
   --color-handle-hover: #a0a0a6;
   --color-backdrop: #a0a0a6;
   --color-claude: #c6613f;
+  --color-segment-track: #ececee;
+  --color-segment-thumb: #ffffff;
+  --color-segment-thumb-border: #e0e0e3;
 
   --shadow-float: 0 8px 24px rgba(0, 0, 0, 0.12);
   --shadow-popover: 0 12px 32px rgba(0, 0, 0, 0.12);

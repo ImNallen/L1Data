@@ -212,6 +212,6 @@ it("offers the connection dialog as the first step when no connections are saved
   render(<Sidebar hosted={null} />);
   expect(screen.getByText(/PostgreSQL or SQL Server/)).toBeTruthy();
   expect(screen.queryByRole("tree")).toBeNull();
-  await user.click(screen.getByRole("button", { name: "Connect a database" }));
+  await user.click(within(screen.getByText(/PostgreSQL or SQL Server/).parentElement!).getByRole("button", { name: "New connection" }));
   expect(useWorkspace.getState().overlay).toEqual({ kind: "connection", editing: null });
 });

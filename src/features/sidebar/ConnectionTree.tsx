@@ -6,23 +6,24 @@ import {
   CircleSmallIcon,
   ClockIcon,
   DatabaseIcon,
+  EllipsisIcon,
+  SquareArrowOutUpRightIcon,
   EqualIcon,
   EyeIcon,
   HashIcon,
   KeyIcon,
-  LayersIcon,
   LinkIcon,
   ListFilterIcon,
   ListIcon,
   SigmaIcon,
   SquareFunctionIcon,
-  TableIcon,
+  Table2Icon,
   ToggleLeftIcon,
   TypeIcon,
   ZapIcon,
   type LucideIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   commands,
@@ -53,7 +54,7 @@ import { activeTab, tabTarget, useWorkspace, type RelationRef } from "../../stat
 import { ContextMenuItem, ContextMenuSeparator, ContextSubmenu, Highlight, Spinner, StatusDot, cx } from "../../ui/primitives";
 import { matchRanges, parseQuery, type TextRange } from "../../ui/textMatch";
 import { connect, confirmDelete, disconnect, refreshCatalog, refreshConnection } from "../connections/connectionActions";
-import { ConnectionColorDot, EnvironmentIcon, connectionColor } from "../connections/connectionColors";
+import { ConnectionColorDot, EnvironmentBadge, EnvironmentIcon, connectionColor } from "../connections/connectionColors";
 import { insertAtCursor } from "../editor/editorStates";
 import { openSqlTab, openTableTab } from "../editor/runActions";
 import { columnType, defaultText, indexText, keyText, triggerText, type RowText } from "./detailText";
@@ -61,6 +62,7 @@ import { databaseCount, schemaCount } from "./pickers";
 import type { FilteredRelation, FilteredSchema, TreeFilter } from "./treeFilter";
 import { PickerHost, PickerPill, type PickerTarget } from "./VisibilityPopover";
 import { INDENT, VirtualTree, type RowNode, type TintGroup, type TreeNode } from "./VirtualTree";
+import type { ShownCount } from "./pickers";
 
 type Expanded = { has(path: string): boolean; toggle(path: string, open?: boolean): void };
 
@@ -77,10 +79,12 @@ type Build = {
   details: { db: DatabaseRef; version: number; oid: number }[];
   idle: DatabaseRef[];
   browse: { selected: DatabaseRef | null; select(db: DatabaseRef): void } | null;
+  /** How many objects a schema holds in the shown category, for a filtered schema's "6 of 17". */
+  total: ((db: DatabaseRef, schema: string) => number | null) | null;
 };
 
 function build(expanded: Expanded, selected: RelationRef | null = null, entries: Record<string, DetailEntry> = {}): Build {
-  return { out: [], expanded, tint: null, selected, entries, details: [], idle: [], browse: null };
+  return { out: [], expanded, tint: null, selected, entries, details: [], idle: [], browse: null, total: null };
 }
 
 function row(b: Build, node: Omit<RowNode, "kind" | "tint">): void {
@@ -149,8 +153,13 @@ function RelationMenu({ db, schema, rel }: { db: DatabaseRef; schema: string; re
   );
 }
 
+/** A schema reads as a heading over its objects. */
+function SchemaName({ name }: { name: string }) {
+  return <span className="text-ui-11.5 font-semibold">{name}</span>;
+}
+
 function Count({ children }: { children: ReactNode }) {
-  return <span className="shrink-0 pl-2 text-ui-11.5 text-muted tabular-nums">{children}</span>;
+  return <span className="shrink-0 pl-2 text-ui-10.5 font-normal text-dim tabular-nums">{children}</span>;
 }
 
 const COLUMN_GLYPHS: Partial<Record<TypeCategory, LucideIcon>> = {
@@ -163,14 +172,14 @@ const COLUMN_GLYPHS: Partial<Record<TypeCategory, LucideIcon>> = {
   Temporal: ClockIcon,
 };
 
-const glyph = (Glyph: LucideIcon, className = "text-muted") => <Glyph size={14} className={className} />;
+const glyph = (Glyph: LucideIcon, className = "text-dim") => <Glyph size={14} className={className} />;
 
 function DetailName({
   name,
   title,
   marks,
   detail,
-  nameClass = "font-mono text-ui-12.5",
+  nameClass = "font-mono text-ui-12",
 }: {
   name: ReactNode;
   title: string;
@@ -185,7 +194,7 @@ function DetailName({
       </span>
       {marks}
       {detail !== undefined && (
-        <span title={detail} className="min-w-0 flex-1 basis-0 truncate pl-2 text-right font-mono text-ui-11 text-muted">
+        <span title={detail} className="min-w-0 flex-1 basis-0 truncate pl-2 text-right font-mono text-ui-11 text-dim">
           {detail}
         </span>
       )}
@@ -251,7 +260,7 @@ function group(b: Build, path: string, depth: number, label: string, count: numb
     onClick: () => b.expanded.toggle(path),
     view: () => ({
       icon,
-      label: icon ? label : <span className="text-ui-13 text-muted">{label}</span>,
+      label,
       trailing: <Count>{count ?? <span className="text-dim">…</span>}</Count>,
     }),
   });
@@ -342,7 +351,37 @@ function relationGroups(b: Build, path: string, depth: number, db: DatabaseRef, 
 const isSelected = (selected: RelationRef | null, db: DatabaseRef, schema: string, rel: Relation) =>
   sameDb(selected?.db, db) && selected?.schema === schema && selected.relation === rel.name;
 
-const relationIcon = (rel: Relation) => (isViewKind(rel.kind) ? <EyeIcon size={15} className="text-muted" /> : <TableIcon size={15} className="text-muted" />);
+const relationIcon = (rel: Relation, selected: boolean) => {
+  const Icon = isViewKind(rel.kind) ? EyeIcon : Table2Icon;
+  return <Icon size={14} className={selected ? "text-keyword" : "text-dim"} />;
+};
+
+const COMPACT = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
+
+/** A table's row estimate at rest, and Open and the row's menu while it is hovered or focused. */
+function RelationTrailing({ db, schema, rel }: { db: DatabaseRef; schema: string; rel: Relation }) {
+  const rows = rel.rowEstimate;
+  return (
+    <Swap
+      held={false}
+      rest={
+        rows !== null && (
+          <span title={`About ${rows.toLocaleString("en")} rows`} className="pl-2 text-ui-10.5 font-normal text-dim tabular-nums">
+            {COMPACT.format(rows).replace("K", "k")}
+          </span>
+        )
+      }
+      control={
+        <span className="flex items-center gap-0.5 pl-1">
+          <RowButton label={`Open ${rel.name}`} onClick={() => openTableTab({ db, schema, relation: rel.name })}>
+            <SquareArrowOutUpRightIcon size={13} />
+          </RowButton>
+          <RowMenuButton label={`${rel.name} options`} />
+        </span>
+      }
+    />
+  );
+}
 
 const relationActions = (db: DatabaseRef, schema: string, rel: Relation) => ({
   onClick: () => useWorkspace.getState().select({ db, schema, relation: rel.name }),
@@ -386,7 +425,18 @@ function relationRow(b: Build, path: string, depth: number, db: DatabaseRef, sch
       if (!open) b.expanded.toggle(`${me}/#columns`, true);
       b.expanded.toggle(me);
     },
-    view: () => ({ icon: relationIcon(rel), label: <RelationName name={rel.name} /> }),
+    view: () => {
+      const selected = isSelected(b.selected, db, schema, rel);
+      return {
+        icon: relationIcon(rel, selected),
+        label: (
+          <span className={cx("block min-w-0", selected && "font-medium")}>
+            <RelationName name={rel.name} />
+          </span>
+        ),
+        trailing: <RelationTrailing db={db} schema={schema} rel={rel} />,
+      };
+    },
   });
   if (open) relationGroups(b, me, depth + 1, db, schema, rel, version);
 }
@@ -426,12 +476,7 @@ function functionRow(b: Build, path: string, depth: number, db: DatabaseRef, fn:
     view: () => ({
       icon: glyph(SquareFunctionIcon),
       label: (
-        <DetailName
-          name={<Highlight text={fn.name} ranges={ranges} />}
-          title={`${fn.name}(${fn.args}) → ${fn.returns}`}
-          detail={fn.returns}
-          nameClass="text-ui-13.5"
-        />
+        <DetailName name={<Highlight text={fn.name} ranges={ranges} />} title={`${fn.name}(${fn.args}) → ${fn.returns}`} detail={fn.returns} nameClass="" />
       ),
     }),
   });
@@ -472,7 +517,7 @@ function objectGroup(b: Build, path: string, depth: number, db: DatabaseRef, lab
         menu: () => <ScriptMenuItem db={db} target={r.target} label="Script as CREATE" />,
         view: () => ({
           icon: glyph(icon),
-          label: r.detail ? <DetailName name={title} title={`${r.name} ${r.detail}`} detail={r.detail} nameClass="text-ui-13.5" /> : title,
+          label: r.detail ? <DetailName name={title} title={`${r.name} ${r.detail}`} detail={r.detail} nameClass="" /> : title,
         }),
       });
     }
@@ -488,9 +533,11 @@ function schemaRows(b: Build, path: string, depth: number, db: DatabaseRef, sche
     name: schema.name,
     expandable: true,
     open,
+    strong: true,
+    height: 28,
     onClick: () => b.expanded.toggle(me),
     menu: () => <NewMenu db={db} />,
-    view: () => ({ icon: <LayersIcon size={15} className="text-muted" />, label: schema.name, trailing: <Count>{schema.tableCount}</Count> }),
+    view: () => ({ label: <SchemaName name={schema.name} />, trailing: <Count>{schema.tableCount}</Count> }),
   });
   if (!open) return;
   const tables = schema.relations.filter((r) => !isViewKind(r.kind));
@@ -584,23 +631,33 @@ function databaseRows(b: Build, news: CatalogNews, path: string, db: DatabaseRef
   const view = viewFor(views, db);
   const count = schemaCount(state, view?.catalog);
   const target: PickerTarget = { kind: "schemas", db };
+  const picked = b.browse !== null && sameDb(b.browse.selected, db);
   row(b, {
     key: me,
     depth: 1,
     name: db.database,
     expandable: b.browse === null,
-    selected: b.browse !== null && sameDb(b.browse.selected, db),
+    selected: picked,
     open,
     picker: target,
+    // Browsing, a database sits under its connection's icon, tied to it by a guide line, rather than a full level in.
+    ...(b.browse && { height: 28, indent: 26, guide: true }),
     onClick: () => (b.browse ? b.browse.select(db) : b.expanded.toggle(me)),
     menu: () => <NewMenu db={db} />,
     view: (active) => ({
-      icon: <DatabaseIcon size={15} className="text-muted" />,
-      label: db.database,
+      icon: <DatabaseIcon size={14} className={picked ? "text-keyword" : "text-dim"} />,
+      label: picked ? <span className="font-medium text-keyword">{db.database}</span> : db.database,
       trailing: (
         <>
-          {b.browse && <NotebookMarker db={db} testId={`notebook-marker-${me}`} />}
-          {count && <PickerPill target={target} count={count} active={active} testId={`schema-pill-${me}`} />}
+          {b.browse ? (
+            <Swap
+              rest={<NotebookMarker db={db} testId={`notebook-marker-${me}`} />}
+              control={count && <PickerPill target={target} count={count} active={active} testId={`schema-pill-${me}`} label={schemasText(count)} />}
+              held={active}
+            />
+          ) : (
+            count && <PickerPill target={target} count={count} active={active} testId={`schema-pill-${me}`} />
+          )}
         </>
       ),
     }),
@@ -665,20 +722,139 @@ function databaseRows(b: Build, news: CatalogNews, path: string, db: DatabaseRef
   );
 }
 
+/**
+ * A row's status at rest and the control that takes its place while the row is hovered or keyboard focused, or `held`.
+ * Both share one cell, and the control only fades out, so it stays focusable and Tab can reach it from the row.
+ */
+function Swap({ rest, control, held }: { rest: ReactNode; control: ReactNode; held: boolean }) {
+  return (
+    <span className="grid shrink-0 items-center justify-items-end">
+      <span
+        className={cx(
+          "col-start-1 row-start-1 flex items-center",
+          held ? "invisible" : "group-hover:invisible group-focus-visible:invisible group-has-[:focus-visible]:invisible",
+        )}
+      >
+        {rest}
+      </span>
+      <span
+        className={cx(
+          "col-start-1 row-start-1 flex items-center",
+          !held && "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 group-has-[:focus-visible]:opacity-100",
+        )}
+      >
+        {control}
+      </span>
+    </span>
+  );
+}
+
+const schemasText = (c: ShownCount) => (c.shown === c.total ? `${c.total} ${c.total === 1 ? "schema" : "schemas"}` : `${c.shown} of ${c.total}`);
+
+/**
+ * A small pointer shortcut inside a row. It acts without selecting or toggling the row. It stays out of the Tab order,
+ * since Enter and the context-menu key already do what it does, and every row would otherwise add stops.
+ */
+function RowButton({ label, onClick, children }: { label: string; onClick: (e: MouseEvent<HTMLButtonElement>) => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      tabIndex={-1}
+      aria-label={label}
+      title={label}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick(e);
+      }}
+      onDoubleClick={(e) => e.stopPropagation()}
+      className="grid size-5 shrink-0 place-items-center rounded text-muted hover:bg-control hover:text-fg"
+    >
+      {children}
+    </button>
+  );
+}
+
+/** Opens the row's own context menu below the button, so the menu has one definition however it opens. */
+function RowMenuButton({ label }: { label: string }) {
+  return (
+    <RowButton
+      label={label}
+      onClick={(e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        e.currentTarget.dispatchEvent(new globalThis.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left, clientY: r.bottom + 2 }));
+      }}
+    >
+      <EllipsisIcon size={14} />
+    </RowButton>
+  );
+}
+
+const STATUS: Record<Tone, { label: string; dot: string | null }> = {
+  live: { label: "Connected", dot: "bg-green" },
+  pending: { label: "Connecting", dot: "bg-amber" },
+  error: { label: "Connection failed", dot: "bg-danger" },
+  off: { label: "Disconnected", dot: null },
+};
+
+/** A connection's icon, with a dot for its status: green connected, amber connecting, red failed, none when off. */
+function ConnectionIcon({ tone, testId }: { tone: Tone; testId: string }) {
+  const { label, dot } = STATUS[tone];
+  return (
+    <span data-testid={testId} role="img" aria-label={label} title={label} className="relative grid size-4 place-items-center">
+      <DatabaseIcon size={14} aria-hidden className={tone === "off" ? "text-dim" : "text-keyword"} />
+      {dot && <span aria-hidden className={cx("absolute -right-px -bottom-px size-[7px] rounded-full ring-[1.5px] ring-sidebar", dot)} />}
+    </span>
+  );
+}
+
+function ConnectButton({ config }: { config: ConnectionConfig }) {
+  return (
+    <button
+      type="button"
+      data-testid={`conn-connect-${config.name}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        void connect(config.id);
+      }}
+      onDoubleClick={(e) => e.stopPropagation()}
+      className="ml-2 h-5 shrink-0 rounded-[5px] border border-control bg-bg px-2 text-ui-11 font-medium text-fg hover:bg-hover"
+    >
+      Connect
+    </button>
+  );
+}
+
+/**
+ * While browsing, a connection shows its environment badge, and its database picker and menu take that place on hover
+ * or focus. An offline connection offers Connect the same way.
+ */
 function ConnectionTrailing({
   config,
   tone,
   instance,
   target,
   active,
+  browse,
 }: {
   config: ConnectionConfig;
   tone: Tone;
   instance: InstanceState | null;
   target: PickerTarget;
   active: boolean;
+  browse: boolean;
 }) {
-  if (instance) return <PickerPill target={target} count={databaseCount(instance)} active={active} testId={`db-pill-${config.name}`} />;
+  const badge = <EnvironmentBadge environment={config.environment} />;
+  if (instance) {
+    const count = databaseCount(instance);
+    if (!browse) return <PickerPill target={target} count={count} active={active} testId={`db-pill-${config.name}`} />;
+    const controls = (
+      <span className="flex items-center gap-0.5">
+        <PickerPill target={target} count={count} active={active} testId={`db-pill-${config.name}`} label={`${count.shown} of ${count.total}`} />
+        <RowMenuButton label={`${config.name} options`} />
+      </span>
+    );
+    return <Swap rest={badge} control={controls} held={active} />;
+  }
   switch (tone) {
     case "pending":
       return (
@@ -687,33 +863,44 @@ function ConnectionTrailing({
         </span>
       );
     case "error":
-      return (
-        <span className="flex shrink-0 items-center gap-1.5 pl-2 text-ui-11.5 text-muted">
+      return browse ? (
+        <span className="shrink-0 pl-2 text-ui-11 font-medium text-danger">Failed</span>
+      ) : (
+        <span className="flex shrink-0 items-center gap-1.5 pl-2 text-ui-11 font-normal text-muted">
           <StatusDot tone="error" />
           Failed
         </span>
       );
     case "live":
-      return null;
+      return browse ? badge : null;
     case "off":
-      return (
-        <button
-          type="button"
-          data-testid={`conn-connect-${config.name}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            void connect(config.id);
-          }}
-          className="-mr-1.5 ml-1 h-5 shrink-0 rounded-md px-1.5 text-ui-11.5 text-muted hover:bg-control hover:text-fg"
-        >
-          Connect
-        </button>
-      );
+      return browse ? <Swap rest={badge} control={<ConnectButton config={config} />} held={false} /> : <ConnectButton config={config} />;
     default: {
       const unreachable: never = tone;
       return unreachable;
     }
   }
+}
+
+/** A failed connection explains itself under its row, with the two ways forward. */
+function ConnectionError({ config, failure }: { config: ConnectionConfig; failure: string }) {
+  return (
+    <div className="pb-1 pl-6">
+      <div data-testid={`conn-error-${config.name}`} className="rounded-md bg-danger/8 px-2.5 py-2">
+        <p title={failure} className="line-clamp-2 text-ui-11 leading-4 text-danger">
+          {failure}
+        </p>
+        <div className="mt-1.5 flex gap-3 text-ui-11 font-medium text-fg">
+          <button type="button" className="hover:underline" onClick={() => void connect(config.id)}>
+            Retry
+          </button>
+          <button type="button" className="hover:underline" onClick={() => useWorkspace.getState().open({ kind: "connection", editing: config.id })}>
+            Edit connection…
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 type Revealed = Map<ConnectionId, "database" | "schema">;
@@ -741,6 +928,8 @@ function connectionRows(b: Build, news: CatalogNews, config: ConnectionConfig, s
     name: config.name,
     expandable: true,
     open: open && connected,
+    strong: true,
+    ...(b.browse && { height: 30, indent: 6, gapBefore: b.out.length > 0 }),
     picker: target,
     onClick: () => {
       if (connected || state?.status.kind === "Connecting") b.expanded.toggle(path);
@@ -749,22 +938,23 @@ function connectionRows(b: Build, news: CatalogNews, config: ConnectionConfig, s
     menu: () => <ConnectionMenu config={config} shown={instance && shown.map((d) => ({ connectionId: config.id, database: d.name }))} />,
     view: (active) => ({
       icon: b.browse ? (
-        <DatabaseIcon size={15} className="text-keyword" />
+        <ConnectionIcon tone={tone} testId={`conn-status-${config.name}`} />
       ) : (
         <EnvironmentIcon environment={config.environment} size={15} testId={`env-icon-${config.name}`} />
       ),
       label: (
         <span className="flex min-w-0 items-center">
-          <span className={cx("truncate font-medium", tone === "off" && "text-muted")}>{config.name}</span>
+          <span className={cx("truncate", tone === "off" && "text-muted")}>{config.name}</span>
           {!tinted && <ConnectionColorDot color={config.color} className="ml-1.5" />}
         </span>
       ),
-      trailing: <ConnectionTrailing config={config} tone={tone} instance={instance} target={target} active={active} />,
+      trailing: <ConnectionTrailing config={config} tone={tone} instance={instance} target={target} active={active} browse={b.browse !== null} />,
     }),
   });
-  if (failure) {
+  if (failure && b.browse) note(b, `${path}/!error`, 0, 64, () => <ConnectionError config={config} failure={failure} />);
+  else if (failure) {
     note(b, `${path}/!error`, 0, 20, () => (
-      <div data-testid={`conn-error-${config.name}`} className="mb-1 pr-2 pl-[38px] text-ui-11.5 leading-4 text-danger/90">
+      <div data-testid={`conn-error-${config.name}`} title={failure} className="mb-1 line-clamp-2 pr-2 pl-[36px] text-ui-11 leading-4 text-danger/90">
         {failure}
       </div>
     ));
@@ -774,8 +964,17 @@ function connectionRows(b: Build, news: CatalogNews, config: ConnectionConfig, s
 }
 
 /** A container row while filtering: it opens and closes and matches nothing itself. */
-function foldRow(b: Build, path: string, depth: number, name: string, icon: ReactNode, label: ReactNode = name) {
-  row(b, { key: path, depth, name, expandable: true, open: b.expanded.has(path), onClick: () => b.expanded.toggle(path), view: () => ({ icon, label }) });
+function foldRow(b: Build, path: string, depth: number, name: string, icon: ReactNode, label: ReactNode = name, strong = false) {
+  row(b, {
+    key: path,
+    depth,
+    name,
+    expandable: true,
+    open: b.expanded.has(path),
+    strong,
+    onClick: () => b.expanded.toggle(path),
+    view: () => ({ icon, label }),
+  });
 }
 
 function filteredRelationRows(b: Build, path: string, db: DatabaseRef, schema: string, { rel, ranges, columns }: FilteredRelation) {
@@ -793,7 +992,18 @@ function filteredRelationRows(b: Build, path: string, db: DatabaseRef, schema: s
     selected: isSelected(b.selected, db, schema, rel),
     ...relationActions(db, schema, rel),
     onToggle: expandable ? () => b.expanded.toggle(me) : undefined,
-    view: () => ({ icon: relationIcon(rel), label: <RelationName name={rel.name} ranges={ranges} /> }),
+    view: () => {
+      const selected = isSelected(b.selected, db, schema, rel);
+      return {
+        icon: relationIcon(rel, selected),
+        label: (
+          <span className={cx("block min-w-0", selected && "font-medium")}>
+            <RelationName name={rel.name} ranges={ranges} />
+          </span>
+        ),
+        trailing: <RelationTrailing db={db} schema={schema} rel={rel} />,
+      };
+    },
   });
   if (open) for (const c of columns) columnRow(b, `${me}/#columns`, 4, c.column, c.ranges);
 }
@@ -801,7 +1011,19 @@ function filteredRelationRows(b: Build, path: string, db: DatabaseRef, schema: s
 function filteredSchemaRows(b: Build, path: string, db: DatabaseRef, match: FilteredSchema) {
   const me = `${path}/${match.name}`;
   const functions = `${me}/#functions`;
-  foldRow(b, me, 2, match.name, <LayersIcon size={15} className="text-muted" />);
+  const total = b.total?.(db, match.name) ?? null;
+  const kept = match.relations.length;
+  row(b, {
+    key: me,
+    depth: 2,
+    name: match.name,
+    expandable: true,
+    open: b.expanded.has(me),
+    strong: true,
+    height: 28,
+    onClick: () => b.expanded.toggle(me),
+    view: () => ({ label: <SchemaName name={match.name} />, trailing: kept > 0 && <Count>{total === null ? kept : `${kept} of ${total}`}</Count> }),
+  });
   if (!b.expanded.has(me)) return;
   for (const r of match.relations) filteredRelationRows(b, me, db, match.name, r);
   if (match.functions.length > 0) foldRow(b, functions, 3, "Functions", <BracesIcon size={14} className="text-muted" />);
@@ -871,6 +1093,32 @@ function filteredTree(b: Build, filter: TreeFilter, tinting: boolean) {
       );
     }
   }
+}
+
+/** How many of a schema's relations the category shows, or everything for All. */
+function inCategory(schema: SchemaInfo | undefined, category: "tables" | "views" | "all"): number | null {
+  if (!schema) return null;
+  if (category === "all") return schema.relations.length + schema.functions.length + schema.sequences.length + schema.types.length + schema.synonyms.length;
+  return schema.relations.filter((r) => isViewKind(r.kind) === (category === "views")).length;
+}
+
+/** The object list hangs off its schema headings: a table's icon lines up with its schema's name, and deeper rows step in from there. */
+const objectIndent = (nodes: TreeNode[]): TreeNode[] => nodes.map((n) => (n.kind === "row" ? { ...n, indent: 6 + Math.max(0, n.depth - 1) * INDENT } : n));
+
+const SKELETON = [148, 112, 176, 96, 132, 160, 104];
+
+function ObjectsLoading() {
+  return (
+    <div role="status" className="px-3">
+      <p className="flex h-[34px] items-center text-ui-11.5 text-dim">Loading database objects…</p>
+      {SKELETON.map((width, i) => (
+        <div key={i} aria-hidden className="flex h-[26px] items-center gap-2 pl-3">
+          <span className="size-3.5 rounded-[3px] bg-control/60" />
+          <span className="h-2 rounded-full bg-control/60" style={{ width }} />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function TreeNote({ children }: { children: ReactNode }) {
@@ -963,10 +1211,18 @@ export function ConnectionTree({
     }
     if (filter) {
       const b = build(searched, selected);
+      if (scope?.kind === "objects")
+        b.total = (db, name) =>
+          inCategory(
+            viewFor(views, db)?.catalog.schemas.find((s) => s.name === name),
+            scope.category,
+          );
       filteredTree(b, filter, tinting);
       if (scope?.kind === "objects") {
         const prefix = `${configs[scope.db.connectionId]?.name}/${scope.db.database}/`;
-        b.out = b.out.filter((n) => n.key.startsWith(prefix)).map((n) => ({ ...n, depth: Math.max(0, n.depth - 2) }));
+        b.out = objectIndent(b.out.filter((n) => n.key.startsWith(prefix)).map((n) => ({ ...n, depth: Math.max(0, n.depth - 2) })));
+        if (b.out.length > 0)
+          note(b, "objects-hint", 0, 36, () => <p className="px-3 pt-2.5 text-ui-11 text-dim">Enter opens the first match. Esc clears the filter.</p>);
       }
       return { b, news: NO_NEWS };
     }
@@ -977,11 +1233,10 @@ export function ConnectionTree({
       const state = instanceOf(connections[scope.db.connectionId])?.databases.find((d) => d.name === scope.db.database);
       if (!view) {
         const failed = state?.catalog.kind === "Failed" ? state.catalog.message : null;
-        note(b, "objects-status", 0, 40, () => (
-          <p className="px-4 py-3 text-ui-12 text-dim">
-            {failed ?? (instanceOf(connections[scope.db.connectionId]) ? "Loading database objects…" : "Connect to load database objects.")}
-          </p>
-        ));
+        const connected = instanceOf(connections[scope.db.connectionId]) !== null;
+        if (failed || !connected)
+          note(b, "objects-status", 0, 40, () => <p className="px-3 py-3 text-ui-12 text-dim">{failed ?? "Connect to load database objects."}</p>);
+        else note(b, "objects-status", 0, 34 + SKELETON.length * 26, () => <ObjectsLoading />);
       }
       if (view)
         for (const schema of view.catalog.schemas.filter((s) => !state || state.shownSchemas.includes(s.name))) {
@@ -1009,6 +1264,7 @@ export function ConnectionTree({
           ZapIcon,
           view.catalog.extensions.map((ext) => ({ oid: ext.oid, name: ext.name, detail: ext.version, target: { kind: "Extension", oid: ext.oid } })),
         );
+      b.out = objectIndent(b.out);
       return { b, news };
     }
     if (scope?.kind === "databases") b.browse = scope;

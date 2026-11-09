@@ -49,6 +49,16 @@ export type RowNode = NodeBase & {
   quietChevron?: boolean;
   keepChevronSpace?: boolean;
   twoLines?: boolean;
+  /** A one-line row's height in pixels. Defaults to ROW_H. */
+  height?: number;
+  /** The row's left padding in pixels, in place of the padding its depth gives it. */
+  indent?: number;
+  /** A heading row: a connection, a schema. Its label is set in the full text color and a heavier weight. */
+  strong?: boolean;
+  /** Space above the row that sets it apart from the rows before it, such as the start of the next connection. */
+  gapBefore?: boolean;
+  /** A vertical line at the row's left edge that ties it to the row above, such as a database to its connection. */
+  guide?: boolean;
   /** The picker the row's pill opens. The row shades while it is open, and stays rendered so the picker keeps its anchor. */
   picker?: PickerTarget;
   /** Built only for the rows on screen. `active` is true while the row's picker is open. */
@@ -64,7 +74,8 @@ export type NoteNode = NodeBase & { kind: "note"; size: number; render: () => Re
 
 export type TreeNode = RowNode | NoteNode;
 
-const ROW_H = 28;
+const ROW_H = 26;
+const GAP_BEFORE = 6;
 const TWO_LINE_H = 44;
 const GROUP_GAP = 4;
 const TYPE_AHEAD_MS = 500;
@@ -135,10 +146,11 @@ function RowBody({ node, setSize, posInSet, tabStop, menuOpen, active }: RowProp
       tabIndex={tabStop ? 0 : -1}
       onClick={node.onClick}
       onDoubleClick={node.onDoubleClick}
-      style={{ paddingLeft: 8 + node.depth * INDENT }}
+      style={{ paddingLeft: node.indent ?? 8 + node.depth * INDENT, height: twoLines ? undefined : (node.height ?? ROW_H) }}
       className={cx(
-        "group flex cursor-default gap-1.5 rounded-md pr-2.5",
-        twoLines ? "items-start py-1" : "h-7 items-center",
+        "group relative flex cursor-default gap-1.5 rounded-md pr-2 text-ui-12.5",
+        twoLines ? "items-start py-1" : "items-center",
+        node.strong ? "font-medium text-tree" : node.selected ? "text-tree" : "text-muted hover:text-tree",
         node.selected ? "bg-cell-select" : active ? "bg-selected" : cx("hover:bg-hover", menuOpen && "group-data-[state=open]/tree:bg-hover"),
       )}
     >
@@ -151,20 +163,21 @@ function RowBody({ node, setSize, posInSet, tabStop, menuOpen, active }: RowProp
           })
         }
         onDoubleClick={onToggle && ((e) => e.stopPropagation())}
-        className={cx("shrink-0 place-items-center self-stretch text-muted", node.expandable || node.keepChevronSpace ? "grid w-3.5" : "hidden")}
+        className={cx("shrink-0 place-items-center self-stretch text-dim", node.expandable || node.keepChevronSpace ? "grid w-3.5" : "hidden")}
       >
         {node.expandable && (
           <ChevronRightIcon
-            size={14}
+            size={12}
             className={cx("transition-transform duration-100", node.open && "rotate-90", node.quietChevron && !node.open && "invisible group-hover:visible")}
           />
         )}
       </span>
+      {node.guide && <span aria-hidden className="absolute inset-y-0 left-[13px] w-px bg-border" />}
       {icon && <span className={cx("grid w-[18px] shrink-0 place-items-center", twoLines && "h-5")}>{icon}</span>}
       {twoLines ? (
         <span className="min-w-0 flex-1">
           <span className="flex h-5 items-center">
-            <span className="min-w-0 flex-1 truncate text-ui-14 text-tree">{label}</span>
+            <span className="min-w-0 flex-1 truncate">{label}</span>
             {trailing}
           </span>
           <span title={second} className="block truncate font-mono text-ui-11 leading-4 text-muted">
@@ -173,7 +186,7 @@ function RowBody({ node, setSize, posInSet, tabStop, menuOpen, active }: RowProp
         </span>
       ) : (
         <>
-          <span className="min-w-0 flex-1 truncate text-ui-14 text-tree">{label}</span>
+          <span className="min-w-0 flex-1 truncate">{label}</span>
           {trailing}
         </>
       )}
@@ -209,7 +222,7 @@ const Line = memo(function Line({ node, index, top, inTint, gapAfter, measure, o
     <div
       ref={measure}
       data-index={index}
-      className={cx("absolute top-0", inTint ? "inset-x-0" : "inset-x-2", gapAfter && "pb-1")}
+      className={cx("absolute top-0", inTint ? "inset-x-0" : "inset-x-3", gapAfter && "pb-1", node.kind === "row" && node.gapBefore && "pt-1.5")}
       style={{ transform: `translateY(${top}px)` }}
     >
       {node.kind === "note" ? (
@@ -250,7 +263,8 @@ export function VirtualTree({ nodes, scrollRef }: { nodes: readonly TreeNode[]; 
   const estimateSize = useCallback(
     (i: number) => {
       const node = nodes[i];
-      const size = !node ? ROW_H : node.kind === "note" ? node.size : node.twoLines ? TWO_LINE_H : ROW_H;
+      const row = !node ? ROW_H : node.kind === "note" ? node.size : node.twoLines ? TWO_LINE_H : (node.height ?? ROW_H);
+      const size = node?.kind === "row" && node.gapBefore ? row + GAP_BEFORE : row;
       return node?.tint && shape.groups.get(node.tint)?.last === i ? size + GROUP_GAP : size;
     },
     [nodes, shape],
@@ -262,7 +276,7 @@ export function VirtualTree({ nodes, scrollRef }: { nodes: readonly TreeNode[]; 
     estimateSize,
     getItemKey,
     rangeExtractor,
-    paddingStart: 8,
+    paddingStart: 6,
     paddingEnd: 12,
     overscan: 8,
     initialRect: FIRST_RECT,
@@ -399,7 +413,7 @@ export function VirtualTree({ nodes, scrollRef }: { nodes: readonly TreeNode[]; 
     const top = measures[span.first]?.start ?? 0;
     const bottom = (measures[span.last]?.end ?? top) - GROUP_GAP;
     lines.push(
-      <div key={`tint-${tint.name}`} className="absolute inset-x-2 top-0" style={{ transform: `translateY(${top}px)`, height: bottom - top }}>
+      <div key={`tint-${tint.name}`} className="absolute inset-x-3 top-0" style={{ transform: `translateY(${top}px)`, height: bottom - top }}>
         <div
           data-testid={`conn-tint-${tint.name}`}
           className="absolute inset-0 rounded-lg"
