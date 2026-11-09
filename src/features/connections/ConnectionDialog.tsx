@@ -1068,8 +1068,8 @@ function ConnectionForm({
           {probe.kind === "ok" && (
             <span className="flex items-center gap-1.5 text-fg">
               <CheckIcon size={14} className="shrink-0 text-green" />
-              <span className="truncate">
-                Connected · {DATABASE_LABEL[databaseKind]} {probe.version}
+              <span className="truncate" title={`${DATABASE_LABEL[databaseKind]} ${probe.version}`}>
+                Connected · {probe.version}
               </span>
             </span>
           )}
