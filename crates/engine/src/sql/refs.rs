@@ -339,12 +339,24 @@ fn with_list(text: &str, code: &[Lexeme], kind: DatabaseKind) -> WithList {
     WithList { recursive, head, entries, main }
 }
 
+/// Whether one of `words` appears outside every parenthesis.
+fn top_level_word(text: &str, code: &[Lexeme], words: &[&str]) -> bool {
+    let mut depth = 0usize;
+    code.iter().any(|l| {
+        match l.class {
+            Class::Open => depth += 1,
+            Class::Close => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        depth == 0 && l.class == Class::Word && is_word(text, Some(l), words)
+    })
+}
+
 /// SQL Server refuses ORDER BY in a CTE unless TOP, OFFSET, or FOR XML gives it a meaning, and a CTE's rows have no
-/// order anyway, so the final ORDER BY of a body without those goes. An OPTION clause after it stays.
+/// order anyway, so the final ORDER BY of a body without those goes. A body never reaches here with an OPTION clause.
 fn order_by_cut(text: &str, code: &[Lexeme]) -> Option<Range<usize>> {
     let mut depth = 0usize;
     let mut order = None;
-    let mut end = text.len();
     for (i, l) in code.iter().enumerate() {
         match l.class {
             Class::Open => depth += 1,
@@ -355,15 +367,12 @@ fn order_by_cut(text: &str, code: &[Lexeme]) -> Option<Range<usize>> {
                 }
                 if is_word(text, Some(l), &["ORDER"]) && is_word(text, code.get(i + 1), &["BY"]) {
                     order = Some(l.span.start);
-                    end = text.len();
-                } else if order.is_some() && is_word(text, Some(l), &["OPTION"]) {
-                    end = l.span.start;
                 }
             }
             _ => {}
         }
     }
-    Some(order?..end)
+    Some(order?..text.len())
 }
 
 /// The byte range of the one query in a cell's text, without a trailing `;`.
@@ -449,6 +458,10 @@ fn body(cells: &[CellSource], title: &str, kind: DatabaseKind) -> Result<Body, S
     } else {
         (Vec::new(), 0)
     };
+    // An OPTION hint applies to a whole statement, so moving it out would change how the referencing statement runs.
+    if top_level_word(sql, &code[main..], &["OPTION"]) {
+        return Err(format!("{title} ends with an OPTION hint, which SQL Server does not allow inside a CTE. Move the hint to the statement that references {title}."));
+    }
     if let Some(cut) = order_by_cut(sql, &code[main..]) {
         edits.retain(|e| e.range.end <= cut.start || cut.end <= e.range.start);
         edits.push(Edit { range: cut, with: String::new() });
@@ -509,6 +522,12 @@ fn statement_edits(
         return Err(format!("A reference works only in {verbs} statements."));
     }
     let order = resolver.closure(refs.iter().map(|&k| title(&unit[code[k].span.clone()]).to_owned()))?;
+    // Titles match exactly, but a case-insensitive SQL Server reads CTE names that differ only in case as one name.
+    for (i, a) in order.iter().enumerate() {
+        if let Some(b) = order[..i].iter().find(|b| fold(kind, cte_name(b)) == fold(kind, cte_name(a))) {
+            return Err(format!("{b} and {a} differ only in case, which SQL Server can read as one name. Rename one."));
+        }
+    }
     let bodies: Vec<(&str, &Body)> = order.iter().map(|t| (t.as_str(), &resolver.bodies[t])).collect();
     let with = is_word(unit, Some(lead), &["WITH"]).then(|| with_list(unit, &code[first..], kind));
     let own_ctes: Vec<&str> = with.iter().flat_map(|w| w.entries.iter().map(|(name, _)| name.as_str())).collect();
@@ -849,12 +868,25 @@ mod tests {
         let body = |text: &str| one(MS, "SELECT * FROM {{a}} x", &[("a", text)]).split_once(" AS (\n").unwrap().1.split_once("\n)\n").unwrap().0.to_owned();
         assert_eq!(body("SELECT n FROM t ORDER BY n DESC"), "SELECT n FROM t");
         assert_eq!(body("SELECT n FROM t UNION SELECT n FROM u ORDER BY 1;"), "SELECT n FROM t UNION SELECT n FROM u");
-        assert_eq!(body("SELECT n FROM t ORDER BY n OPTION (RECOMPILE)"), "SELECT n FROM t OPTION (RECOMPILE)");
         assert_eq!(body("WITH b AS (SELECT TOP 1 n FROM t ORDER BY n) SELECT n FROM b ORDER BY n"), "SELECT n FROM b");
         for kept in ["SELECT TOP 5 n FROM t ORDER BY n", "SELECT n FROM t ORDER BY n OFFSET 0 ROWS", "SELECT n FROM t ORDER BY n FOR XML PATH('')", "SELECT n, ROW_NUMBER() OVER (ORDER BY n) AS r FROM t"] {
             assert_eq!(body(kept), kept);
         }
         assert!(one(PG, "SELECT * FROM {{a}} x", &[("a", "SELECT n FROM t ORDER BY n")]).contains("SELECT n FROM t ORDER BY n\n)"));
+    }
+
+    #[test]
+    fn sql_server_refuses_what_a_cte_cannot_hold_or_tell_apart() {
+        let hint = "a ends with an OPTION hint, which SQL Server does not allow inside a CTE. Move the hint to the statement that references a.";
+        for text in ["SELECT n FROM t ORDER BY n OPTION (RECOMPILE)", "SELECT n FROM t OPTION (MAXDOP 1)", "WITH b AS (SELECT n FROM t) SELECT n FROM b OPTION (RECOMPILE)"] {
+            assert_eq!(refusal(MS, "SELECT * FROM {{a}} x", &[("a", text)]), hint, "{text}");
+        }
+        assert!(run(MS, "SELECT * FROM {{a}} x OPTION (RECOMPILE)", &[("a", "SELECT n FROM t")]).is_ok(), "the referencing statement keeps its own hint");
+        let cased = [("a", "SELECT 1 AS n"), ("A", "SELECT n FROM {{a}}")];
+        let clash = "a and A differ only in case, which SQL Server can read as one name. Rename one.";
+        assert_eq!(refusal(MS, "SELECT * FROM {{A}} x", &cased), clash);
+        assert_eq!(refusal(MS, "SELECT * FROM {{a}} x, {{A}} y", &[("a", "SELECT 1 AS n"), ("A", "SELECT 2 AS n")]), clash);
+        assert!(run(PG, "SELECT * FROM {{A}} x", &cased).is_ok(), "PostgreSQL keeps quoted names apart by case");
     }
 
     #[test]
