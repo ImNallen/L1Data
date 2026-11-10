@@ -234,10 +234,8 @@ pub(crate) async fn run(console: Arc<Console>, shared: Arc<Shared>, launch: Laun
     let settings = shared.settings();
     let caps = Caps { max_rows: settings.max_rows, max_bytes: settings.max_result_bytes };
 
-    if session.search_path != schema {
-        if let Err(error) = session.set_search_path(schema.as_deref()).await {
-            return finish(&console, &shared, session, run_id, &body, &connection, &database, started, entered, None, failed(error)).await;
-        }
+    if let Err(error) = session.use_schema(schema.as_deref(), entered).await {
+        return finish(&console, &shared, session, run_id, &body, &connection, &database, started, entered, None, failed(error)).await;
     }
     if let Err(error) = session.batch(bracket.open()).await {
         return finish(&console, &shared, session, run_id, &body, &connection, &database, started, entered, None, failed(error)).await;

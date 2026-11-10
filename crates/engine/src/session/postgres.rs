@@ -27,11 +27,19 @@ pub(super) struct PgSession {
     client: Client,
     pub backend_pid: i32,
     pub server: ServerInfo,
-    pub search_path: Option<String>,
+    search_path: SearchPath,
     cancel: PgCancel,
     notices: mpsc::UnboundedReceiver<DbError>,
     closed: watch::Receiver<Option<String>>,
     retired: Option<String>,
+}
+
+enum SearchPath {
+    /// Set outside a transaction, so no rollback reverts it.
+    Settled(Option<String>),
+    /// Not set yet, or set inside a transaction. A rollback of that transaction, or to a
+    /// savepoint taken before the `SET`, puts the server back on the path it had.
+    Unsettled,
 }
 
 #[derive(Clone)]
@@ -107,24 +115,32 @@ impl PgSession {
         let mut session = PgSession {
             backend_pid: server.1,
             server: server.0,
-            search_path: None,
+            search_path: SearchPath::Unsettled,
             cancel: PgCancel { token: client.cancel_token(), tls, tunnel: p.via.is_some().then(|| ConnectParams { password: None, ..p.clone() }) },
             notices,
             closed,
             retired: None,
             client,
         };
-        session.set_search_path(schema).await.map_err(connect_error)?;
+        session.use_schema(schema, TxnState::Idle).await.map_err(connect_error)?;
         Ok(session)
     }
 
-    pub async fn set_search_path(&mut self, schema: Option<&str>) -> Result<(), tokio_postgres::Error> {
+    pub fn settled_on(&self, schema: Option<&str>) -> bool {
+        matches!(&self.search_path, SearchPath::Settled(s) if s.as_deref() == schema)
+    }
+
+    pub async fn use_schema(&mut self, schema: Option<&str>, txn: TxnState) -> Result<(), tokio_postgres::Error> {
+        // An aborted transaction refuses `SET`. The first statement after it sends the path.
+        if txn == TxnState::Aborted || self.settled_on(schema) {
+            return Ok(());
+        }
         if let Some(s) = schema {
             self.client.batch_execute(&format!("SET search_path TO {}", quote_ident(s))).await?;
         } else {
             self.client.batch_execute("RESET search_path").await?;
         }
-        self.search_path = schema.map(str::to_owned);
+        self.search_path = if txn == TxnState::Idle { SearchPath::Settled(schema.map(str::to_owned)) } else { SearchPath::Unsettled };
         Ok(())
     }
 

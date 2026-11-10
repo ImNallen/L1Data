@@ -564,11 +564,6 @@ pub async fn run_task(console: Arc<Console>, shared: Arc<Shared>, mut session: S
     let mut txn = plan.txn;
     let mut outcome = RunOutcome::Ok;
     let mut fatal = None;
-    if session.search_path != plan.schema {
-        if let Err(error) = session.set_search_path(plan.schema.as_deref()).await {
-            console.output(&shared, run_id, OutputBody::Error { statement: None, error });
-        }
-    }
     let mut index = 0;
     while index < plan.statements.len() {
         let stmt = &plan.statements[index];
@@ -579,6 +574,9 @@ pub async fn run_task(console: Arc<Console>, shared: Arc<Shared>, mut session: S
             break;
         }
         let sql = stmt.span.text(&plan.text);
+        if let Err(error) = session.use_schema(plan.schema.as_deref(), txn).await {
+            console.output(&shared, run_id, OutputBody::Error { statement: None, error });
+        }
         if stmt.transaction == TransactionPlan::BeginIfIdle && txn == TxnState::Idle {
             match session.batch("BEGIN").await {
                 Ok(()) => {

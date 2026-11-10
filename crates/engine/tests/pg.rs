@@ -1180,6 +1180,79 @@ async fn schema_and_search_path_follow_the_console_config() {
     assert!(matches!(h.engine.catalog(h.db()).await, Err(CatalogError::NotConnected)));
 }
 
+async fn switch_schema(h: &Harness, tab: TabId, schema: &str) {
+    h.engine.console_configure(tab, ConsoleConfig { connection_id: h.conn, database: h.database.clone(), schema: Some(schema.into()), mode: TxnMode::Manual }).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_schema_switched_inside_a_transaction_survives_its_rollback() {
+    let mut h = Harness::start().await;
+    let tab = h.sql_tab_in(TxnMode::Manual, Some("public")).await;
+    assert_eq!(h.scalar(tab, "select current_schema()").await, "public");
+    assert_eq!(h.console(tab).txn, TxnState::Active);
+
+    switch_schema(&h, tab, "lab").await;
+    assert_eq!(h.scalar(tab, "select current_schema()").await, "lab");
+    h.engine.console_rollback(tab).await.unwrap();
+    assert_eq!(h.scalar(tab, "select current_schema()").await, "lab", "the tab shows lab, so the statement after the rollback runs on lab");
+
+    h.run_ok(tab, "savepoint before_switch").await;
+    switch_schema(&h, tab, "public").await;
+    assert_eq!(h.scalar(tab, "select current_schema()").await, "public");
+    let state = h.run_ok(tab, "rollback to before_switch; select current_schema()").await;
+    assert_eq!(h.page(&Harness::result(&state, 1), 0, 1)[0][0].as_deref(), Some("public"), "the statement after ROLLBACK TO runs on the tab's schema");
+    h.engine.console_rollback(tab).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_schema_switched_in_an_aborted_transaction_applies_after_the_rollback() {
+    let mut h = Harness::start().await;
+    let tab = h.sql_tab_in(TxnMode::Manual, Some("public")).await;
+    let state = h.run(tab, "select 1/0").await;
+    assert_eq!(state.txn, TxnState::Aborted);
+
+    switch_schema(&h, tab, "lab").await;
+    let state = h.run_ok(tab, "rollback; select current_schema()").await;
+    assert_eq!(h.log(tab)[3..], ["0> rollback", "0 ROLLBACK", "BEGIN (implicit)", "1> select current_schema()", "1 rows 1"], "the aborted transaction is never asked to set the path");
+    assert_eq!(h.page(&Harness::result(&state, 1), 0, 1)[0][0].as_deref(), Some("lab"), "the statement after the rollback runs on the tab's schema");
+    h.engine.console_rollback(tab).await.unwrap();
+}
+
+async fn tab_rolled_back_after_a_switch_to_lab(h: &mut Harness, sql: &str) -> (TabId, ConsoleState) {
+    let tab = h.sql_tab_in(TxnMode::Manual, Some("public")).await;
+    h.run_ok(tab, "select 1").await;
+    switch_schema(h, tab, "lab").await;
+    let state = h.run_ok(tab, sql).await;
+    h.engine.console_rollback(tab).await.unwrap();
+    (tab, state)
+}
+
+#[tokio::test]
+async fn explain_runs_on_the_tab_schema_after_its_switch_rolled_back() {
+    let mut h = Harness::start().await;
+    let (tab, _) = tab_rolled_back_after_a_switch_to_lab(&mut h, "select 1").await;
+    finish_ok(&mut h, tab, "select * from type_zoo", RunMode::Explain).await;
+}
+
+#[tokio::test]
+async fn an_all_rows_export_reruns_on_the_result_schema_after_its_switch_rolled_back() {
+    let mut h = Harness::start().await;
+    let (_, state) = tab_rolled_back_after_a_switch_to_lab(&mut h, "select current_schema() as schema").await;
+    let (_, csv) = h.export(&Harness::result(&state, 0), ExportFormat::Csv, ExportScope::All, "schema.csv").await;
+    assert_eq!(csv, "schema\r\nlab\r\n");
+}
+
+#[tokio::test]
+async fn an_all_rows_export_reruns_on_a_path_the_script_set_itself() {
+    let mut h = Harness::start().await;
+    let tab = h.sql_tab_in(TxnMode::AutoCommit, Some("public")).await;
+    let state = h.run_ok(tab, "set search_path to lab; select current_schema() as schema").await;
+    assert_eq!(h.page(&Harness::result(&state, 1), 0, 1)[0][0].as_deref(), Some("lab"));
+    let (_, csv) = h.export(&Harness::result(&state, 1), ExportFormat::Csv, ExportScope::All, "own-path.csv").await;
+    assert_eq!(csv, "schema\r\nlab\r\n", "the export reads what the result read");
+    h.run_ok(tab, "reset search_path").await;
+}
+
 #[tokio::test]
 async fn bad_credentials_fail_with_auth_and_test_connection_works() {
     let h = Harness::start().await;
