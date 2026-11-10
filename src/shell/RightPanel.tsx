@@ -4,12 +4,12 @@ import { ChatHistory } from "../features/assistant/ChatHistory";
 import { cx, IconButton } from "../ui/primitives";
 import type { HostedWindow } from "./hostedWindow";
 import { AssistantPanel } from "./lazySurfaces";
-import { WindowEdgeActions, windowEdgeInset } from "./WindowEdgeActions";
+import { WINDOW_HEADER_HEIGHT, WindowEdgeActions, windowEdgeInset } from "./WindowEdgeActions";
 
 export function RightPanel({ hosted }: { hosted: HostedWindow | null }) {
   return (
     <aside data-testid="right-panel" aria-labelledby="right-panel-title" className="assistant-surface flex h-full flex-col">
-      <div data-tauri-drag-region="deep" className={cx("flex h-14 shrink-0 items-center gap-1 pl-3", windowEdgeInset(hosted))}>
+      <div data-tauri-drag-region="deep" className={cx("flex shrink-0 items-center gap-1 pl-3", WINDOW_HEADER_HEIGHT, windowEdgeInset(hosted))}>
         <h2 id="right-panel-title" className="px-1 text-ui-14 font-semibold text-fg">
           Assistant
         </h2>

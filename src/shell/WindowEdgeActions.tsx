@@ -8,10 +8,12 @@ export function windowEdgeInset(hosted: HostedWindow | null): string {
   return hosted?.chrome === "custom" ? "pr-2" : "pr-3";
 }
 
-// The macOS traffic lights (traffic_light_position 18,28 in src-tauri) end at x=77; 86px leaves the same gap they leave between each other.
+// The macOS traffic lights (traffic_light_position 18,30 in src-tauri) end at x=77; 86px leaves the same gap they leave between each other.
 export function windowLeadingInset(hosted: HostedWindow | null): string {
   return hosted?.chrome === "native" ? "pl-[86px]" : "pl-3";
 }
+
+export const WINDOW_HEADER_HEIGHT = "h-[56px]";
 
 const PANEL_ICONS = {
   left: { hidden: PanelLeftDashedIcon, shown: PanelLeftIcon },

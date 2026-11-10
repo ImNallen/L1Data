@@ -147,7 +147,7 @@ export function TopBar({ hosted, notebook = false }: { hosted: HostedWindow | nu
       className={cx(
         notebook ? "workspace-context @container shrink-0" : "@container shrink-0 border-b-2 border-transparent pt-[2px]",
         windowEdgeInset(hosted),
-        layout.sidebar ? "pl-4" : windowLeadingInset(hosted),
+        layout.sidebar ? (notebook ? "pl-[24px] max-[1100px]:pl-[16px]" : "pl-4") : windowLeadingInset(hosted),
       )}
       data-testid="top-bar"
       data-environment={environment ?? undefined}

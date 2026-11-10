@@ -155,7 +155,7 @@ it("heads the right panel with Assistant, new chat, and chat history before the 
 it("insets the toggle from the window edge by the same amount in either header", () => {
   for (const hosted of [null, { chrome: "native" } as const, fakeHost]) {
     withLayout({ rightPanel: null });
-    const topBarInset = renderToStaticMarkup(<TopBar hosted={hosted} />).match(/<header[^>]*class="[^"]*\b(pr-\d)\b/)?.[1];
+    const topBarInset = renderToStaticMarkup(<TopBar hosted={hosted} notebook />).match(/<header[^>]*class="[^"]*\b(pr-\d)\b/)?.[1];
     withLayout({ rightPanel: "Assistant" });
     const panelInset = renderToStaticMarkup(<RightPanel hosted={hosted} />).match(/data-tauri-drag-region="deep" class="[^"]*\b(pr-\d)\b/)?.[1];
     expect(panelInset).toBe(topBarInset);
@@ -198,7 +198,7 @@ it("insets the sidebar toggle from the window's left edge by the same amount in 
     withLayout({ sidebar: true });
     const sidebarInset = leadingInset(renderToStaticMarkup(<Sidebar hosted={hosted} />));
     withLayout({ sidebar: false });
-    const topBarInset = leadingInset(renderToStaticMarkup(<TopBar hosted={hosted} />));
+    const topBarInset = leadingInset(renderToStaticMarkup(<TopBar hosted={hosted} notebook />));
     expect(topBarInset).toBe(sidebarInset);
     expect(topBarInset).toBe(hosted?.chrome === "native" ? "pl-[86px]" : "pl-3");
   }
