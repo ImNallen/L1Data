@@ -85,14 +85,13 @@ def main():
              "--mount", f"type=bind,source={tls / 'mssql.conf'},target=/var/opt/mssql/mssql.conf,readonly", IMAGE])
         created = True
         run(["docker", "start", name])
+        login = ["docker", "exec", name, "sh", "-c",
+                 '/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -b -Q "SELECT 1"']
         deadline = time.monotonic() + 150
-        while True:
-            logs = run(["docker", "logs", name])
-            if "SQL Server is now ready for client connections" in logs.stdout + logs.stderr:
-                break
+        while subprocess.run(login, capture_output=True, timeout=30).returncode:
             state = json.loads(run(["docker", "inspect", name]).stdout)[0]["State"]
             if not state["Running"] or time.monotonic() > deadline:
-                raise RuntimeError(f"fixture startup failed: {logs.stdout}\n{logs.stderr}")
+                raise RuntimeError(f"fixture never accepted an sa login; container running: {state['Running']}")
             time.sleep(1)
         cases = [
             ("trusted localhost", "localhost", "VerifyFull", "ca", None),
@@ -127,6 +126,9 @@ def main():
         cleanup_errors = []
         try:
             if created:
+                if original_failure:
+                    logs = subprocess.run(["docker", "logs", name], text=True, capture_output=True)
+                    print(f"fixture log:\n{logs.stdout}\n{logs.stderr}", file=sys.stderr, flush=True)
                 run(["docker", "rm", "-f", "-v", name], timeout=30)
             remaining = run(["docker", "ps", "-a", "--filter", f"name=^/{name}$", "--format", "{{.Names}}"])
             assert not remaining.stdout.strip(), f"fixture container remains: {name}"
