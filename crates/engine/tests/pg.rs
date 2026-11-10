@@ -4515,3 +4515,35 @@ async fn a_cell_that_is_not_utf8_fails_its_statement_and_the_tab_runs_again() {
     h.run_ok(tab, "set client_encoding = 'UTF8'").await;
     assert_eq!(h.scalar(tab, "select chr(233)").await, "é", "the hint is true");
 }
+
+#[tokio::test]
+async fn the_catalog_loads_while_functions_are_dropped() {
+    let h = Harness::start().await;
+    h.engine.connect(h.conn).await.unwrap();
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut churn = Vec::new();
+    for _ in 0..8 {
+        let (client, stop) = (h.oracle().await, stop.clone());
+        churn.push(tokio::spawn(async move {
+            let name = unique("t_fn_churn");
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                client.batch_execute(&format!("create function public.{name}(a int, b text) returns int language sql as 'select 1'")).await.unwrap();
+                client.batch_execute(&format!("drop function public.{name}")).await.unwrap();
+            }
+        }));
+    }
+
+    let loaded = futures_util::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(async {
+        for _ in 0..300 {
+            h.engine.refresh_catalog(h.db()).await.unwrap();
+        }
+    }))
+    .await;
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    for worker in churn {
+        worker.await.unwrap();
+    }
+    if let Err(panic) = loaded {
+        std::panic::resume_unwind(panic);
+    }
+}
