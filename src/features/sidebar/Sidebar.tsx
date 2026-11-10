@@ -1,12 +1,11 @@
-import * as Menu from "@radix-ui/react-dropdown-menu";
-import { BookmarkIcon, ChartNoAxesColumnIcon, ClockIcon, DatabaseIcon, PlusIcon, SlidersHorizontalIcon } from "lucide-react";
+import { BookmarkIcon, ChartNoAxesColumnIcon, ClockIcon, DatabaseIcon, PlusIcon, SettingsIcon, type LucideIcon } from "lucide-react";
 import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
 import type { DatabaseRef } from "../../ipc/bindings";
 import { isViewKind, useCatalog, viewFor } from "../../state/catalog";
 import { dbKey } from "../../state/dbKey";
 import { instanceOf, useLive } from "../../state/live";
 import { shownDb, useWorkspace } from "../../state/workspace";
-import { cx, IconButton, MenuContent, MenuItem } from "../../ui/primitives";
+import { cx, IconButton } from "../../ui/primitives";
 import { parseQuery } from "../../ui/textMatch";
 import type { HostedWindow } from "../../shell/hostedWindow";
 import { SidebarToggle, WINDOW_HEADER_HEIGHT, windowLeadingInset } from "../../shell/WindowEdgeActions";
@@ -157,6 +156,23 @@ function SchemaTrigger({ db, count, label, testId }: { db: DatabaseRef; count: S
   );
 }
 
+/** Focuses itself before it opens a surface, because WebKit doesn't focus a clicked button, and the surface returns focus to it on close. */
+function SidebarAction({ testId, label, icon: Icon, onOpen }: { testId: string; label: string; icon: LucideIcon; onOpen: () => void }) {
+  return (
+    <IconButton
+      data-testid={testId}
+      aria-label={label}
+      title={label}
+      onClick={(e) => {
+        e.currentTarget.focus();
+        onOpen();
+      }}
+    >
+      <Icon size={15} />
+    </IconButton>
+  );
+}
+
 export function Sidebar({ hosted }: { hosted: HostedWindow | null }) {
   const configs = useWorkspace((s) => s.configs);
   const shown = useWorkspace(shownDb);
@@ -180,11 +196,6 @@ export function Sidebar({ hosted }: { hosted: HostedWindow | null }) {
   const objectScope = useMemo(() => db && { kind: "objects" as const, db, category }, [db, category]);
   const filter = useTreeFilter(query);
   const objectFilter = useTreeFilter(objectQuery, objectScope);
-  const menuTrigger = useRef<HTMLButtonElement>(null);
-  const fromMenu = (action: () => void) => {
-    menuTrigger.current?.focus();
-    action();
-  };
   const tree = useRef<HTMLDivElement>(null);
   const objects = useRef<HTMLDivElement>(null);
   const openFirst = () => {
@@ -206,40 +217,14 @@ export function Sidebar({ hosted }: { hosted: HostedWindow | null }) {
         >
           <SidebarToggle />
           <div className="flex-1" />
-          <IconButton
-            data-testid="new-connection"
-            aria-label="New connection"
-            title="New connection"
-            onClick={() => open({ kind: "connection", editing: null })}
-          >
-            <PlusIcon size={15} />
-          </IconButton>
-          <Menu.Root modal={false}>
-            <Menu.Trigger asChild>
-              <IconButton ref={menuTrigger} aria-label="Workspace options" title="Workspace options">
-                <SlidersHorizontalIcon size={15} />
-              </IconButton>
-            </Menu.Trigger>
-            <MenuContent align="end">
-              <MenuItem testId="open-settings" onSelect={() => fromMenu(() => openSettings())}>
-                <SlidersHorizontalIcon size={14} />
-                Settings
-              </MenuItem>
-              <MenuItem testId="open-usage" onSelect={() => fromMenu(() => open({ kind: "usage" }))}>
-                <ChartNoAxesColumnIcon size={14} />
-                Usage
-              </MenuItem>
-              <MenuItem testId="open-history" onSelect={() => fromMenu(() => open({ kind: "history" }))}>
-                <ClockIcon size={14} />
-                Query history
-              </MenuItem>
-              <MenuItem testId="open-saved-queries" onSelect={() => fromMenu(() => open({ kind: "saved", entry: { kind: "browse" } }))}>
-                <BookmarkIcon size={14} />
-                Saved queries
-              </MenuItem>
-            </MenuContent>
-          </Menu.Root>
-          <UpdateButton />
+          <SidebarAction testId="open-history" label="Query history" icon={ClockIcon} onOpen={() => open({ kind: "history" })} />
+          <SidebarAction
+            testId="open-saved-queries"
+            label="Saved queries"
+            icon={BookmarkIcon}
+            onOpen={() => open({ kind: "saved", entry: { kind: "browse" } })}
+          />
+          <SidebarAction testId="new-connection" label="New connection" icon={PlusIcon} onOpen={() => open({ kind: "connection", editing: null })} />
         </div>
         {first ? (
           <>
@@ -294,6 +279,12 @@ export function Sidebar({ hosted }: { hosted: HostedWindow | null }) {
           <p className="px-6 pt-12 text-center text-ui-11.5 leading-relaxed text-dim">Choose a database to browse its tables, views, and routines.</p>
         )}
       </section>
+      <div data-testid="sidebar-footer" className="flex h-11 shrink-0 items-center gap-1 px-3">
+        <SidebarAction testId="open-settings" label="Settings" icon={SettingsIcon} onOpen={() => openSettings()} />
+        <SidebarAction testId="open-usage" label="Usage" icon={ChartNoAxesColumnIcon} onOpen={() => open({ kind: "usage" })} />
+        <div className="flex-1" />
+        <UpdateButton />
+      </div>
       <PickerHost />
     </aside>
   );

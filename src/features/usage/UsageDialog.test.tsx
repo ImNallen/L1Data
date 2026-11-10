@@ -47,7 +47,7 @@ it("opens Usage from the sidebar without entering Settings, closes with Escape a
   const user = userEvent.setup();
   render(<Shell />);
   expect(read).not.toHaveBeenCalled();
-  const opener = screen.getByRole("button", { name: "Workspace options" });
+  const opener = screen.getByTestId("open-usage");
   await openWorkspaceItem(user, "open-usage");
   expect(screen.getByRole("dialog", { name: "Usage" })).toBe(screen.getByTestId("usage-dialog"));
   expect(useWorkspace.getState().screen).toEqual({ kind: "workspace" });

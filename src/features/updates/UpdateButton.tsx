@@ -54,7 +54,7 @@ function UpdateCard({ view, sections }: { view: UpdateButtonView; sections: Chan
     <HoverCard.Portal>
       <HoverCard.Content
         data-testid="update-hover"
-        side="bottom"
+        side="top"
         align="end"
         sideOffset={6}
         collisionPadding={8}
