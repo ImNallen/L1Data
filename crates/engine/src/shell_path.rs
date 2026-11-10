@@ -67,12 +67,17 @@ async fn login_shell_path() -> Option<OsString> {
 mod tests {
     use super::*;
 
+    fn absolute(path: &str) -> PathBuf {
+        Path::new(if cfg!(windows) { "C:\\" } else { "/" }).join(path)
+    }
+
     #[tokio::test]
     async fn a_child_gets_and_searches_only_absolute_path_entries() {
-        let path = std::env::join_paths(["/opt/bin", ".", "", "node_modules/.bin", "/usr/bin"]).unwrap();
-        let child = search_path(&AgentPath::Fixed(path), Path::new("/home/a")).await;
-        assert_eq!(child, std::env::join_paths(["/opt/bin", "/usr/bin"]).unwrap());
-        assert_eq!(dirs(&child), [PathBuf::from("/opt/bin"), PathBuf::from("/usr/bin")]);
+        let (opt, usr) = (absolute("opt/bin"), absolute("usr/bin"));
+        let path = std::env::join_paths([opt.clone(), ".".into(), "".into(), "node_modules/.bin".into(), usr.clone()]).unwrap();
+        let child = search_path(&AgentPath::Fixed(path), &absolute("home/a")).await;
+        assert_eq!(child, std::env::join_paths([&opt, &usr]).unwrap());
+        assert_eq!(dirs(&child), [opt, usr]);
     }
 
     #[tokio::test]
@@ -81,9 +86,12 @@ mod tests {
             let path = search_path(&AgentPath::LoginShell, Path::new(home)).await;
             let entries: Vec<PathBuf> = std::env::split_paths(&path).collect();
             assert!(entries.iter().all(|p| p.is_absolute()), "HOME {home:?}: {entries:?}");
-            assert!(entries.contains(&PathBuf::from("/usr/local/bin")), "HOME {home:?}: {entries:?}");
+            if cfg!(unix) {
+                assert!(entries.contains(&PathBuf::from("/usr/local/bin")), "HOME {home:?}: {entries:?}");
+            }
         }
-        let path = search_path(&AgentPath::LoginShell, Path::new("/home/a")).await;
-        assert!(std::env::split_paths(&path).any(|p| p == Path::new("/home/a/.local/bin")));
+        let home = absolute("home/a");
+        let path = search_path(&AgentPath::LoginShell, &home).await;
+        assert!(std::env::split_paths(&path).any(|p| p == home.join(".local/bin")));
     }
 }

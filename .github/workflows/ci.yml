@@ -90,6 +90,27 @@ jobs:
       - name: cargo test --workspace
         run: cargo test --workspace
 
+  windows:
+    name: agent CLI lookup on Windows
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: windows
+
+      - name: cargo test -p engine --lib shell_path
+        run: cargo test -p engine --lib shell_path
+
+      - name: cargo test -p engine --test assistant agent_path
+        run: cargo test -p engine --test assistant agent_path
+
   database:
     name: pg-tests and bridge-smoke
     runs-on: ubuntu-24.04
