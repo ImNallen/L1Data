@@ -4512,4 +4512,6 @@ async fn a_cell_that_is_not_utf8_fails_its_statement_and_the_tab_runs_again() {
     let state = tokio::time::timeout(wait, h.wait_finished(tab, next.run_id)).await.expect("the next run ends");
     assert!(matches!(state.run, RunState::Finished { outcome: RunOutcome::Ok, .. }), "{:?}", state.run);
     assert_eq!(h.page(&Harness::result(&state, 0), 0, 1), [[Some("1".to_owned())]]);
+    h.run_ok(tab, "set client_encoding = 'UTF8'").await;
+    assert_eq!(h.scalar(tab, "select chr(233)").await, "é", "the hint is true");
 }

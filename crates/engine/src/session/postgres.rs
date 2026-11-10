@@ -342,6 +342,14 @@ pub(super) fn query_failure(e: tokio_postgres::Error, sql: Option<&str>) -> Quer
     }
 }
 
+/// The server sends such a cell only when the session's `client_encoding` is not UTF8, and the driver keeps its bytes private.
+fn not_utf8(column: &str) -> QueryError {
+    QueryError {
+        hint: Some("L1 Data reads text as UTF-8. Run SET client_encoding = 'UTF8' on this tab.".into()),
+        ..super::error(format!("Column \"{column}\" holds text that is not valid UTF-8."))
+    }
+}
+
 pub(super) fn notice(n: &DbError) -> OutputBody {
     OutputBody::Notice { severity: n.severity().to_owned(), message: n.message().to_owned(), detail: n.detail().map(str::to_owned) }
 }
@@ -405,7 +413,7 @@ impl PgSession {
                 for n in self.drain_notices() { yield QueryEvent::Notice(notice(&n)); }
                 let Some(message) = message else { break; };
                 match message.map_err(|e| query_failure(e, Some(sql)))? {
-                    SimpleQueryMessage::Row(row) => yield QueryEvent::Row((0..row.len()).map(|c| row.get(c).map(str::to_owned)).collect()),
+                    SimpleQueryMessage::Row(row) => yield QueryEvent::Row((0..row.len()).map(|c| row.try_get(c).map(|cell| cell.map(str::to_owned)).map_err(|_| not_utf8(row.columns()[c].name()))).collect::<Result<_, _>>()?),
                     SimpleQueryMessage::CommandComplete(n) => yield QueryEvent::Complete { affected_rows: Some(n) },
                     _ => {}
                 }
