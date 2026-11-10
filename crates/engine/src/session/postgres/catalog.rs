@@ -197,6 +197,8 @@ pub async fn load(
         .await?;
     for r in &function_rows {
         let Some(&si) = schema_index.get(&r.get::<_, String>(1)) else { continue };
+        // NULL for a function dropped after this query took its snapshot.
+        let Some(args) = r.get::<_, Option<String>>(3) else { continue };
         let kind = match r.get::<_, String>(5).as_str() {
             "p" => FnKind::Procedure,
             "a" => FnKind::Aggregate,
@@ -207,7 +209,7 @@ pub async fn load(
             oid: r.get(0),
             name: r.get(2),
             quoted: quote_function_if_needed(DatabaseKind::Postgres, r.get(2)),
-            args: r.get(3),
+            args,
             returns: r.get(4),
             kind,
             insert_text: format!("{}()", quote_function_if_needed(DatabaseKind::Postgres, r.get(2))),

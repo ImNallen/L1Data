@@ -472,7 +472,7 @@ async fn type_script(
             let checks = tx.query("SELECT con.conname, pg_get_constraintdef(con.oid) FROM pg_constraint con WHERE con.contypid = $1 ORDER BY con.conname", params).await.map_err(failed)?;
             let checks = checks
                 .iter()
-                .map(|r| (r.get(0), r.get(1)))
+                .filter_map(|r| Some((r.get(0), r.get::<_, Option<String>>(1)?)))
                 .collect::<Vec<(String, String)>>();
             ddl::domain_type(
                 &object,
@@ -621,7 +621,7 @@ async fn relation(
                 comment: r.get(5),
                 columns: columns.iter().map(column).collect(),
                 indexes: indexes.iter().map(index_row).collect(),
-                triggers: triggers.iter().map(cloned_trigger_row).collect(),
+                triggers: triggers.iter().filter_map(cloned_trigger_row).collect(),
                 rules: rules.iter().map(rule_row).collect(),
                 unscripted: unscripted(r, &grants, role),
             })
@@ -750,7 +750,7 @@ fn table(oid: u32, tree: &Tree) -> Result<ddl::Table, DetailError> {
             .iter()
             .map(|s| ddl::SequenceState { schema: s.get(0), name: s.get(1), unlogged: s.get(2), comment: s.get(3) })
             .collect(),
-        constraints: constraints.into_iter().map(constraint_row).collect(),
+        constraints: constraints.into_iter().filter_map(constraint_row).collect(),
         parent,
         partition_key: r.get(6),
         partitions: children,
@@ -774,7 +774,7 @@ fn table(oid: u32, tree: &Tree) -> Result<ddl::Table, DetailError> {
             "i" => ddl::ReplicaIdentity::Index,
             _ => ddl::ReplicaIdentity::Default,
         },
-        triggers: triggers.iter().map(cloned_trigger_row).collect(),
+        triggers: triggers.iter().filter_map(cloned_trigger_row).collect(),
         rules: rules.iter().map(rule_row).collect(),
         row_security: r.get(11),
         force_row_security: r.get(12),
@@ -782,7 +782,7 @@ fn table(oid: u32, tree: &Tree) -> Result<ddl::Table, DetailError> {
             .iter()
             .map(|p| ddl::Policy { name: p.get(0), permissive: p.get(1), command: first(p.get(2)), roles: p.get(3), using: p.get(4), check: p.get(5), comment: p.get(6) })
             .collect(),
-        statistics: statistics.iter().map(|s| ddl::Statistics { schema: s.get(0), name: s.get(1), definition: s.get(2), target: s.get(3), comment: s.get(4) }).collect(),
+        statistics: statistics.iter().filter_map(|s| Some(ddl::Statistics { schema: s.get(0), name: s.get(1), definition: s.get::<_, Option<String>>(2)?, target: s.get(3), comment: s.get(4) })).collect(),
         unscripted: ddl::Unscripted { inherited_not_nulls: lost.iter().map(|k| k.get(0)).collect(), ..unscripted(r, grants, tree.role) },
         schema,
     })
@@ -854,8 +854,9 @@ fn column(r: &Row) -> ddl::Column {
     }
 }
 
-fn constraint_row(r: &Row) -> ddl::Constraint {
-    ddl::Constraint { name: r.get(0), definition: r.get(1), comment: r.get(2), after_indexes: r.get(3), index_options: r.get(4), index_tablespace: r.get(5), inherited: r.get(6), after_tree: r.get(7), not_null_column: r.get(8) }
+/// `None` for a row whose `pg_get_*def` is NULL: the object was dropped after the query took its snapshot.
+fn constraint_row(r: &Row) -> Option<ddl::Constraint> {
+    Some(ddl::Constraint { name: r.get(0), definition: r.get::<_, Option<String>>(1)?, comment: r.get(2), after_indexes: r.get(3), index_options: r.get(4), index_tablespace: r.get(5), inherited: r.get(6), after_tree: r.get(7), not_null_column: r.get(8) })
 }
 
 fn index_row(r: &Row) -> ddl::Index {
@@ -873,12 +874,12 @@ fn index_row(r: &Row) -> ddl::Index {
     }
 }
 
-fn trigger_row(r: &Row) -> ddl::Trigger {
-    ddl::Trigger { name: r.get(0), definition: r.get(1), enabled: first(r.get(2)), comment: r.get(3), cloned: false }
+fn trigger_row(r: &Row) -> Option<ddl::Trigger> {
+    Some(ddl::Trigger { name: r.get(0), definition: r.get::<_, Option<String>>(1)?, enabled: first(r.get(2)), comment: r.get(3), cloned: false })
 }
 
-fn cloned_trigger_row(r: &Row) -> ddl::Trigger {
-    ddl::Trigger { cloned: r.get(4), ..trigger_row(r) }
+fn cloned_trigger_row(r: &Row) -> Option<ddl::Trigger> {
+    Some(ddl::Trigger { cloned: r.get(4), ..trigger_row(r)? })
 }
 
 fn rule_row(r: &Row) -> ddl::Rule {
@@ -900,10 +901,11 @@ async fn routine(tx: &Transaction<'_>, role: &str, oid: u32) -> Result<ObjectScr
     let r = r.ok_or(DetailError::Gone)?;
     let kind: &str = r.get(0);
     let name: String = r.get(1);
+    let arguments = r.get::<_, Option<&str>>(5).ok_or(DetailError::Gone)?;
     let Some(definition) = r.get::<_, Option<String>>(2) else {
         return Err(refused("Aggregates cannot be scripted yet."));
     };
-    let signature = format!("{}({})", ddl::qualified(r.get(4), &name), r.get::<_, &str>(5));
+    let signature = format!("{}({arguments})", ddl::qualified(r.get(4), &name));
     let routine = ddl::Routine {
         definition,
         procedure: kind == "p",
@@ -933,7 +935,10 @@ async fn index(tx: &Transaction<'_>, relation: u32, name: &str) -> Result<Object
                LEFT JOIN pg_constraint k ON k.conindid = i.indexrelid AND k.conrelid = i.indrelid AND k.contype IN ('p', 'u', 'x')
                WHERE i.indrelid = $1 AND ic.relname = $2";
     let r = tx.query_opt(sql, &[&relation, &name]).await.map_err(failed)?.ok_or(DetailError::Gone)?;
-    let constraint = r.get::<_, Option<String>>(10).map(|name| ddl::Constraint { name, definition: r.get(11), comment: r.get(15), index_options: r.get(16), index_tablespace: r.get(5), ..Default::default() });
+    let constraint = match r.get::<_, Option<String>>(10) {
+        Some(name) => Some(ddl::Constraint { name, definition: r.get::<_, Option<String>>(11).ok_or(DetailError::Gone)?, comment: r.get(15), index_options: r.get(16), index_tablespace: r.get(5), ..Default::default() }),
+        None => None,
+    };
     let (schema, table): (&str, &str) = (r.get(12), r.get(13));
     let ddl = ddl::index_script(&index_row(&r), constraint.as_ref(), r.get(17), keyword(r.get(14)), schema, &ddl::qualified(schema, table));
     Ok(script::object_script(name, ddl))
@@ -945,7 +950,7 @@ async fn trigger(tx: &Transaction<'_>, relation: u32, name: &str) -> Result<Obje
                WHERE t.tgrelid = $1 AND t.tgname = $2";
     let r = tx.query_opt(sql, &[&relation, &name]).await.map_err(failed)?.ok_or(DetailError::Gone)?;
     let table = ddl::qualified(r.get(4), r.get(5));
-    Ok(script::object_script(name, script::Ddl::complete(ddl::script(ddl::trigger(&trigger_row(&r), keyword(r.get(6)), &table)))))
+    Ok(script::object_script(name, script::Ddl::complete(ddl::script(ddl::trigger(&trigger_row(&r).ok_or(DetailError::Gone)?, keyword(r.get(6)), &table)))))
 }
 
 #[cfg(test)]
