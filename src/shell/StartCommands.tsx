@@ -5,14 +5,8 @@ import { commandLabel, shortcutLabel, startSections } from "./commands";
 export function StartCommands() {
   const db = useWorkspace(shownDb);
   return (
-    <div data-testid="no-tabs" className="flex h-full flex-col overflow-y-auto bg-bg p-5">
+    <div data-testid="no-tabs" className="flex h-full flex-col overflow-y-auto p-5">
       <div className="mx-auto my-auto w-full max-w-[320px] shrink-0">
-        {!db && (
-          <div className="mb-3 px-2.5">
-            <h1 className="text-ui-14 font-semibold text-fg">Your SQL workspace</h1>
-            <p className="mt-1 text-ui-13 text-dim">Open a query or connect to a database to begin.</p>
-          </div>
-        )}
         {startSections(db !== null).map((section, s) => (
           <ul key={s} className={s > 0 ? "mt-2 flex flex-col gap-0.5 border-t border-border pt-2" : "flex flex-col gap-0.5"}>
             {section.map((c, i) => (
