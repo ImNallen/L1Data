@@ -849,7 +849,7 @@ pub struct Session {
     pub client: tokio_postgres::Client,
     pub backend_pid: i32,
     pub server: ServerInfo,
-    pub search_path: Option<String>,              // the schema last set, compared with the console config before each run
+    search_path: SearchPath,                      // Settled(schema), or Unsettled after a SET inside a transaction
     cancel: CancelToken,
     tls: MakeTlsConnector,
     notices: mpsc::UnboundedReceiver<DbError>,   // fed by the Connection driver task (poll_message)
@@ -908,8 +908,8 @@ pub fn delete_sql(schema: &str, table: &str, key: &[CellWrite]) -> String;
 
 ```rust
 async fn run_task(console: Arc<Console>, shared: Arc<Shared>, mut session: Session, plan: RunPlan, stop: Arc<AtomicBool>) -> Result<(), Orphaned> {
-    // if session.search_path != plan.schema => session.set_search_path(plan.schema)
     for (i, stmt) in plan.statements.iter().enumerate() {
+        // session.use_schema(plan.schema, txn): SET search_path unless the path is settled on plan.schema
         if stop.load() { mark rest Cancelled/Skipped; break }
         let kind = stmt.kind;                            // classified by console_run
         output(Statement { i, text })                    // TablePage logs the SQL the engine built
@@ -1346,7 +1346,7 @@ Engine phase (every `todo!()` in `crates/engine` filled in, self-check wired). T
 - **`StmtKind` carries the command tag.** `Ddl(String)` and `Other(String)` hold the tag Postgres would print (`CREATE TABLE`, `SET`, `TRUNCATE TABLE`), because tokio-postgres reports only a row count. `NoTxnBlock(String)` (`VACUUM`, `CREATE DATABASE`, `... CONCURRENTLY`, `ALTER SYSTEM`) is excluded from the implicit `BEGIN`. `COPY ... TO STDOUT` is `CopyStdio` too, since the simple protocol cannot carry it either. `UNION`/`INTERSECT`/`EXCEPT` and a leading parenthesis classify as `Query`.
 - **Console state split for sync readers.** `Console.results` (std mutex) and `Console.latest` (the last published `ConsoleState`) sit next to the tokio-mutexed `ConsoleInner`, so `result_page`, `result_cell`, and `boot()` never take the async lock. The design's `SessionSlot::InRun` is `SessionSlot::Busy { run_id, backend_pid, cancel, stop }`. `console_commit`, `console_rollback`, and `table_apply` move the session through the same slot, so a run during a commit reports `Busy`.
 - **Connections keep their entry.** `ConnSlot::Disconnected` replaces removal on disconnect, so `rev` stays monotonic across reconnects. Only `connection_delete` removes the entry.
-- **Schema changes apply at the next run.** The run task compares the session's `search_path` with the console config and issues `SET search_path TO "<schema>"` (the schema alone) before the first statement. One path serves both the busy and the idle case. `SET TimeZone` failures (an OS zone Postgres does not know) are ignored.
+- **Schema changes apply at the next statement.** Before each statement of a run, and before an Explain, `Session::use_schema` issues `SET search_path TO "<schema>"` (the schema alone) unless the session's path is settled on that schema. A path set outside a transaction is settled. A path set inside one is not, because a rollback of that transaction, or to a savepoint taken before the `SET`, reverts it on the server, so the session sends it again before every statement until a `SET` lands outside a transaction. An aborted transaction refuses `SET`, so the first statement after its rollback sends it. One path serves both the busy and the idle case. `SET TimeZone` failures (an OS zone Postgres does not know) are ignored.
 - **A FATAL answer is a dead session.** `pg_terminate_backend` delivers `FATAL 57P01` to the statement in flight before the driver task sees EOF, so the run task treats any FATAL as a loss and waits up to 500 ms for the driver's reason. `Session::closed_reason` also consults `Client::is_closed`.
 - **Cancel between statements.** The next pending statement is marked `Cancelled`, the rest `Skipped`, outcome `Cancelled`. A statement that fails with `57014` while the stop flag is set is `Cancelled`; the same code without the flag (a `statement_timeout`) is `Failed`.
 - **Catalog and database-list refresh obligations retain their original connection and transaction policy.** PostgreSQL publishes deferred invalidations for the original database only after successful commit, and discards them on rollback or retirement. SQL Server can commit DDL before opening another native transaction, so its pending invalidations settle after commit, rollback, session loss or close. Native batches record their possible invalidations before execution, so forced close cannot orphan the obligation. A busy close waits for client cleanup before scheduling metadata reloads. SELECT INTO records a catalog obligation. Opaque EXEC/EXECUTE and implicit procedure calls conservatively record both catalog and database-list obligations because their metadata effects cannot be read from the calling text. This includes native sp_rename and dynamic SQL. SQL Server catalog invalidation refreshes every currently tracked database slot on the original connection because three-part names and procedures can change another database. It uses each slot's existing refresh gate and opens no untracked databases. Ordinary read statements create no obligation; read-only procedure calls can incur extra refresh work. Refresh gates still coalesce bursts.

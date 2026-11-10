@@ -15,7 +15,6 @@ pub struct Session {
     driver: Driver,
     pub backend_pid: i32,
     pub server: ServerInfo,
-    pub search_path: Option<String>,
 }
 
 enum Driver {
@@ -81,11 +80,11 @@ impl Session {
         match p.database_kind {
             DatabaseKind::Postgres => {
                 let driver = postgres::PgSession::open(p, schema, timezone).await?;
-                Ok(Self { backend_pid: driver.backend_pid, server: driver.server.clone(), search_path: driver.search_path.clone(), driver: Driver::Postgres(driver) })
+                Ok(Self { backend_pid: driver.backend_pid, server: driver.server.clone(), driver: Driver::Postgres(driver) })
             }
             DatabaseKind::SqlServer => {
                 let driver = mssql::MsSession::open(p).await?;
-                Ok(Self { backend_pid: driver.backend_pid, server: driver.server.clone(), search_path: schema.map(str::to_owned), driver: Driver::SqlServer(driver) })
+                Ok(Self { backend_pid: driver.backend_pid, server: driver.server.clone(), driver: Driver::SqlServer(driver) })
             }
         }
     }
@@ -95,7 +94,7 @@ impl Session {
             DatabaseKind::Postgres => Self::open(p, None, timezone).await,
             DatabaseKind::SqlServer => {
                 let driver = mssql::MsSession::open_metadata(p).await?;
-                Ok(Self { backend_pid: driver.backend_pid, server: driver.server.clone(), search_path: None, driver: Driver::SqlServer(driver) })
+                Ok(Self { backend_pid: driver.backend_pid, server: driver.server.clone(), driver: Driver::SqlServer(driver) })
             }
         }
     }
@@ -157,13 +156,13 @@ impl Session {
             Driver::SqlServer(s) => s.closed_reason().or(fatal),
         }
     }
-    pub async fn set_search_path(&mut self, schema: Option<&str>) -> Result<(), QueryError> {
+    /// Call before every statement, not once per run, because a rollback inside the run reverts a
+    /// path that was set in its transaction. SQL Server has no session schema to set.
+    pub async fn use_schema(&mut self, schema: Option<&str>, txn: TxnState) -> Result<(), QueryError> {
         match &mut self.driver {
-            Driver::Postgres(p) => p.set_search_path(schema).await.map_err(|e| postgres::query_failure(e, None))?,
-            Driver::SqlServer(_) => {}
+            Driver::Postgres(p) => p.use_schema(schema, txn).await.map_err(|e| postgres::query_failure(e, None)),
+            Driver::SqlServer(_) => Ok(()),
         }
-        self.search_path = schema.map(str::to_owned);
-        Ok(())
     }
     pub fn drain_notices(&mut self) -> Vec<OutputBody> {
         match &mut self.driver {

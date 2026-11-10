@@ -148,25 +148,6 @@ pub(crate) async fn run(
         max_bytes: settings.max_result_bytes,
     };
 
-    if session.search_path != schema {
-        if let Err(error) = session.set_search_path(schema.as_deref()).await {
-            let lost = session.closed_reason();
-            return finish(
-                &console,
-                &shared,
-                session,
-                run_id,
-                &batch,
-                &connection,
-                &database,
-                started,
-                entered,
-                lost,
-                console::PlanEnd::Failed(error),
-            )
-            .await;
-        }
-    }
     if let Err(error) = session.batch(on_sql).await {
         let lost = session.closed_reason();
         let end = if stop.load(Ordering::Relaxed) {

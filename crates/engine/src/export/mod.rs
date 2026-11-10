@@ -301,8 +301,7 @@ impl Writer {
 
 async fn export_task(job: Job, mut session: Session, mut encoder: Encoder, file: Replacement, stop: Arc<AtomicBool>, reply: oneshot::Sender<Result<ExportSummary, ExportError>>) {
     let mut writer = Writer::spawn(&job.shared, file);
-    let schema = job.set.origin.schema.as_deref().filter(|s| session.search_path.as_deref() != Some(*s));
-    let opened = match job.fence.open(schema) {
+    let opened = match job.fence.open(job.set.origin.schema.as_deref()) {
         Some(sql) => session.batch(&sql).await,
         None => Ok(()),
     };
