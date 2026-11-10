@@ -107,6 +107,7 @@ impl Pipes {
         for (key, value) in &spec.env_set {
             command.env(key, value);
         }
+        crate::shell_path::hide_console(&mut command);
         #[cfg(unix)]
         command.process_group(0);
         let mut child = command.spawn().map_err(|e| match e.kind() {

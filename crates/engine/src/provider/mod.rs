@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use crate::Shared;
 use crate::console::now_ms;
-use crate::shell_path::{self, AgentPath, is_executable};
+use crate::shell_path::{self, AgentPath};
 use crate::model::{AgentError, AppEvent, Decision, EffortId, ModelId, ModelOption, ProbeOutcome, ProviderConfig, ProviderInfo, ProviderKind, ProviderState, ToolCallId, TurnOutcome};
 
 pub(crate) use crate::BoxFuture;
@@ -148,7 +148,7 @@ pub(crate) struct HostEnv {
 
 impl HostEnv {
     pub(crate) async fn capture(agent_path: &AgentPath, cwd: PathBuf) -> Self {
-        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let home = shell_path::home();
         let path = shell_path::search_path(agent_path, &home).await;
         Self { path, home, cwd }
     }
@@ -158,23 +158,22 @@ impl HostEnv {
     }
 
     pub(crate) fn expand_home(&self, path: &str) -> PathBuf {
-        match path.strip_prefix("~/") {
-            Some(rest) => self.home.join(rest),
-            None if path == "~" => self.home.clone(),
-            None => PathBuf::from(path),
+        match path.strip_prefix('~') {
+            Some("") => self.home.clone(),
+            Some(rest) if rest.starts_with(std::path::is_separator) => self.home.join(&rest[1..]),
+            _ => PathBuf::from(path),
         }
     }
 
     pub(crate) fn resolve(&self, configured: &str, default: &str) -> Result<PathBuf, String> {
         let name = configured.trim();
         let name = if name.is_empty() { default } else { name };
-        if name.contains('/') || name.starts_with('~') {
+        if name.contains(std::path::is_separator) || name.starts_with('~') {
             let path = self.expand_home(name);
             let path = if path.is_absolute() { path } else { std::env::current_dir().map(|cwd| cwd.join(&path)).unwrap_or(path) };
-            return if is_executable(&path) { Ok(path) } else { Err(path.display().to_string()) };
+            return shell_path::executable(&path).ok_or_else(|| path.display().to_string());
         }
-        let dirs = self.dirs();
-        dirs.iter().map(|d| d.join(name)).find(|p| is_executable(p)).ok_or_else(|| format!("{name} on PATH ({})", dirs.iter().map(|d| d.display().to_string()).collect::<Vec<_>>().join(":")))
+        shell_path::find(&self.dirs(), name).ok_or_else(|| format!("{name} on PATH ({})", self.path.to_string_lossy()))
     }
 }
 
