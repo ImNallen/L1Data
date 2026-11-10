@@ -1319,7 +1319,10 @@ export type ProviderConfig = {
 	provider: ProviderKind,
 	enabled: boolean,
 	displayName: string,
-	/**  Empty means the provider's binary name, looked up on the login shell's PATH. `~` expands. */
+	/**
+	 *  Empty means the provider's binary name, looked up on the login shell's PATH, with `.exe`,
+	 *  `.cmd`, or `.bat` on Windows. `~` expands.
+	 */
 	binaryPath: string,
 	/**  Empty means the inherited environment variable, else the provider's default directory. */
 	configDir: string,

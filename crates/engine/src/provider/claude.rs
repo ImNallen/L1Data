@@ -108,6 +108,7 @@ async fn quick_probe(cfg: &ProviderConfig, host: &HostEnv) -> Result<Quick, Prob
     let run = |args: &'static [&'static str], limit: Duration| {
         let mut command = tokio::process::Command::new(&program);
         command.args(args).current_dir(&host.cwd).stdin(std::process::Stdio::null()).kill_on_drop(true);
+        crate::shell_path::hide_console(&mut command);
         for key in &env_remove {
             command.env_remove(key);
         }

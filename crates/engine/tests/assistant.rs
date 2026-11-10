@@ -22,7 +22,11 @@ impl Harness {
     }
 
     async fn open_in(dir: tempfile::TempDir) -> Self {
-        let engine = Engine::open(EngineConfig { data_dir: dir.path().join("data"), keys: Arc::new(MemoryKeyStore::default()), agent_path: AgentPath::Fixed("".into()), az_binary: None, user_known_hosts: None, updates: Arc::new(engine::ScriptedTransport::named("off").unwrap()) }).await.unwrap();
+        Self::open_with(dir, AgentPath::Fixed("".into())).await
+    }
+
+    async fn open_with(dir: tempfile::TempDir, agent_path: AgentPath) -> Self {
+        let engine = Engine::open(EngineConfig { data_dir: dir.path().join("data"), keys: Arc::new(MemoryKeyStore::default()), agent_path, az_binary: None, user_known_hosts: None, updates: Arc::new(engine::ScriptedTransport::named("off").unwrap()) }).await.unwrap();
         let events = engine.subscribe();
         Self { engine, events, dir }
     }
@@ -277,6 +281,26 @@ async fn usage_limits_ask_claude_without_an_initialize() {
 async fn an_empty_agent_path_finds_no_claude() {
     let mut h = Harness::open().await;
     assert_eq!(h.wait_outcome(|_| true).await, ProbeOutcome::NotFound { binary: "claude on PATH ()".into() });
+}
+
+#[tokio::test]
+async fn claude_installed_on_the_agent_path_is_found_without_a_binary_path() {
+    let bin = tempfile::tempdir().unwrap();
+    std::fs::copy(FAKE, bin.path().join(format!("claude{}", std::env::consts::EXE_SUFFIX))).unwrap();
+    let mut h = Harness::open_with(tempfile::tempdir().unwrap(), AgentPath::Fixed(bin.path().into())).await;
+    let outcome = h.wait_outcome(|_| true).await;
+    assert!(ready(&outcome), "the native installer's claude{} is found: {outcome:?}", std::env::consts::EXE_SUFFIX);
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn an_npm_claude_cmd_on_the_agent_path_is_found_and_runs() {
+    let bin = tempfile::tempdir().unwrap();
+    std::fs::write(bin.path().join("claude"), "#!/bin/sh\nexec node cli.js \"$@\"\n").unwrap();
+    std::fs::write(bin.path().join("claude.cmd"), format!("@\"{FAKE}\" %*\r\n")).unwrap();
+    let mut h = Harness::open_with(tempfile::tempdir().unwrap(), AgentPath::Fixed(bin.path().into())).await;
+    let outcome = h.wait_outcome(|_| true).await;
+    assert!(ready(&outcome), "npm's claude.cmd runs through cmd.exe, and its extensionless shell shim does not: {outcome:?}");
 }
 
 #[tokio::test]

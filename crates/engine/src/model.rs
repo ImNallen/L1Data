@@ -2850,7 +2850,8 @@ pub struct ProviderConfig {
     pub provider: ProviderKind,
     pub enabled: bool,
     pub display_name: String,
-    /// Empty means the provider's binary name, looked up on the login shell's PATH. `~` expands.
+    /// Empty means the provider's binary name, looked up on the login shell's PATH, with `.exe`,
+    /// `.cmd`, or `.bat` on Windows. `~` expands.
     pub binary_path: String,
     /// Empty means the inherited environment variable, else the provider's default directory.
     pub config_dir: String,

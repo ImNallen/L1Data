@@ -5,12 +5,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::model::ConnectError;
-use crate::shell_path::{self, AgentPath, is_executable};
+use crate::shell_path::{self, AgentPath};
 
 const RESOURCE: &str = "https://database.windows.net/";
 const REFRESH_BEFORE: Duration = Duration::from_secs(5 * 60);
 const AZ_TIMEOUT: Duration = Duration::from_secs(30);
-const AZ_NAMES: &[&str] = if cfg!(windows) { &["az.cmd", "az.exe"] } else { &["az"] };
 
 pub(crate) struct AzCli {
     agent_path: AgentPath,
@@ -80,15 +79,13 @@ impl AzCli {
     }
 
     async fn fetch(&self) -> Result<Token, ConnectError> {
-        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let home = shell_path::home();
         let path = self.path.get_or_init(|| shell_path::search_path(&self.agent_path, &home)).await;
         let program = self.program(path)?;
-        let run = tokio::process::Command::new(&program)
-            .args(["account", "get-access-token", "--resource", RESOURCE, "--output", "json"])
-            .env("PATH", path)
-            .stdin(Stdio::null())
-            .kill_on_drop(true)
-            .output();
+        let mut command = tokio::process::Command::new(&program);
+        command.args(["account", "get-access-token", "--resource", RESOURCE, "--output", "json"]).env("PATH", path).stdin(Stdio::null()).kill_on_drop(true);
+        shell_path::hide_console(&mut command);
+        let run = command.output();
         let output = tokio::time::timeout(AZ_TIMEOUT, run)
             .await
             .map_err(|_| auth(format!("Run `az login`, then try again. The Azure CLI did not answer within {} s.", AZ_TIMEOUT.as_secs())))?
@@ -103,9 +100,9 @@ impl AzCli {
     fn program(&self, path: &OsString) -> Result<PathBuf, ConnectError> {
         let missing = |at: String| auth(format!("Install the Azure CLI, run `az login`, then try again. Entra ID sign-in uses it, and it is not {at}."));
         if let Some(binary) = &self.binary {
-            return if is_executable(binary) { Ok(binary.clone()) } else { Err(missing(format!("at {}", binary.display()))) };
+            return shell_path::executable(binary).ok_or_else(|| missing(format!("at {}", binary.display())));
         }
-        shell_path::dirs(path).iter().flat_map(|dir| AZ_NAMES.iter().map(move |name| dir.join(name))).find(|p| is_executable(p)).ok_or_else(|| missing("on the PATH".into()))
+        shell_path::find(&shell_path::dirs(path), "az").ok_or_else(|| missing("on the PATH".into()))
     }
 }
 
