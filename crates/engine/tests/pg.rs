@@ -1243,6 +1243,17 @@ async fn an_all_rows_export_reruns_on_the_result_schema_after_its_switch_rolled_
 }
 
 #[tokio::test]
+async fn an_all_rows_export_reruns_on_a_path_the_script_set_itself() {
+    let mut h = Harness::start().await;
+    let tab = h.sql_tab_in(TxnMode::AutoCommit, Some("public")).await;
+    let state = h.run_ok(tab, "set search_path to lab; select current_schema() as schema").await;
+    assert_eq!(h.page(&Harness::result(&state, 1), 0, 1)[0][0].as_deref(), Some("lab"));
+    let (_, csv) = h.export(&Harness::result(&state, 1), ExportFormat::Csv, ExportScope::All, "own-path.csv").await;
+    assert_eq!(csv, "schema\r\nlab\r\n", "the export reads what the result read");
+    h.run_ok(tab, "reset search_path").await;
+}
+
+#[tokio::test]
 async fn bad_credentials_fail_with_auth_and_test_connection_works() {
     let h = Harness::start().await;
     let mut draft = draft_from_url(&url(), "x").unwrap();
