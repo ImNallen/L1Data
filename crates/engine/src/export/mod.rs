@@ -224,7 +224,7 @@ async fn run_again(shared: &Arc<Shared>, set: Arc<ResultSet>, format: ExportForm
     };
     let (reply, done) = oneshot::channel();
     let job = Job { console, shared: shared.clone(), run_id, txn, fence, sql, set, format, path };
-    shared.spawn(export_task(job, session, encoder, file, stop, reply));
+    shared.spawn_holding(job.console.clone(), run_id, export_task(job, session, encoder, file, stop, reply));
     // The task does not stop when this caller goes away, such as on a webview reload: progress
     // lives in the console snapshot and the outcome in the Output log.
     done.await.unwrap_or(Err(ExportError::Gone))

@@ -135,6 +135,23 @@ impl Shared {
         self.runtime.spawn(task)
     }
 
+    /// Spawns a task that holds `console`'s session as `run_id`. Every such task starts here,
+    /// because a panic drops the session without returning it and nothing else would free the tab.
+    pub(crate) fn spawn_holding<F>(self: &Arc<Self>, console: Arc<Console>, run_id: RunId, task: F)
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        let task = self.spawn(task);
+        let shared = self.clone();
+        self.spawn(async move {
+            let Err(e) = task.await else { return };
+            let Ok(panic) = e.try_into_panic() else { return };
+            let text = panic.downcast_ref::<&str>().map(|s| (*s).to_owned()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_default();
+            console.fail_task(&shared, run_id, format!("The task failed inside L1 Data and its session was closed: {text}")).await;
+        });
+    }
+
     pub(crate) fn settings(&self) -> Settings {
         self.settings.read().unwrap().clone()
     }
@@ -1227,7 +1244,7 @@ impl Engine {
         drop(inner);
 
         let (reply, result) = tokio::sync::oneshot::channel();
-        s.spawn(console::count_task(console, s.clone(), session, run_id, sql, stop, reply));
+        s.spawn_holding(console.clone(), run_id, console::count_task(console, s.clone(), session, run_id, sql, stop, reply));
         result.await.unwrap_or_else(|_| Err(failed("The count task stopped.")))
     }
 
@@ -1414,7 +1431,7 @@ impl Engine {
                 };
                 console.publish(&mut inner, s);
                 drop(inner);
-                s.spawn(showplan::run(console.clone(), s.clone(), launch));
+                s.spawn_holding(console.clone(), run_id, showplan::run(console.clone(), s.clone(), launch));
                 return Ok(RunAccepted { run_id, statements: ranges, sources });
             }
             let prepared = match explain::prepare(mode, current.database_kind, inner.txn, &text, &spans, &target, confirmed.as_ref()) {
@@ -1437,7 +1454,7 @@ impl Engine {
             };
             console.publish(&mut inner, s);
             drop(inner);
-            s.spawn(explain::run(console.clone(), s.clone(), launch));
+            s.spawn_holding(console.clone(), run_id, explain::run(console.clone(), s.clone(), launch));
             return Ok(RunAccepted { run_id, statements: ranges, sources });
         }
         debug_assert_eq!(sent.len(), statements.len(), "the fence bits index the planned statements");
@@ -1466,7 +1483,7 @@ impl Engine {
         drop(inner);
 
         let plan = RunPlan { run_id, text, statements, txn, schema: config.schema.clone(), database: config.database.clone(), connection, page, writes_stay_unasked, read_only };
-        s.spawn(console::run_task(console.clone(), s.clone(), session, plan, stop));
+        s.spawn_holding(console.clone(), run_id, console::run_task(console.clone(), s.clone(), session, plan, stop));
         Ok(RunAccepted { run_id, statements: ranges, sources })
     }
 
@@ -2506,6 +2523,64 @@ mod tests {
         assert_eq!(rows(&engine, observer, format!("SELECT COUNT_BIG(*) FROM sys.objects WHERE name IN (N'{name}',N'{audit}',N'{trigger}',N'{sequence}')")).await, vec![vec![Some("0".into())]]);
         engine.shutdown().await;
         if let Err(panic) = outcome { std::panic::resume_unwind(panic); }
+    }
+
+    #[cfg(feature = "pg-tests")]
+    #[tokio::test]
+    async fn a_task_that_panics_holding_the_session_fails_its_run_and_frees_the_tab() {
+        async fn finished(engine: &Engine, tab: TabId, run_id: RunId) -> ConsoleState {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    let state = engine.boot().consoles.into_iter().find(|s| s.tab_id == tab).unwrap();
+                    if matches!(state.run, RunState::Finished { run_id: r, .. } if r == run_id) { break state; }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            }).await.expect("the run ends")
+        }
+        let select = |n: u8| RunRequest::Script { text: format!("select {n}"), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() };
+
+        let (engine, _dir) = engine().await;
+        let url = std::env::var("L1_DATA_TEST_PG").unwrap_or_else(|_| "postgres://l1data:l1data@localhost:5433/shop".into());
+        let saved = engine.save_connection(draft_from_url(&url, "panic").unwrap()).await.unwrap();
+        let tab = TabId(uuid::Uuid::new_v4());
+        engine.console_configure(tab, ConsoleConfig { connection_id: saved.id, database: saved.database.clone(), schema: None, mode: TxnMode::AutoCommit }).await.unwrap();
+        let opened = engine.console_run(tab, select(1), None).await.unwrap();
+        finished(&engine, tab, opened.run_id).await;
+
+        let s = &engine.shared;
+        let console = s.console(tab).unwrap();
+        let run_id = s.next_run_id();
+        let session = {
+            let mut inner = console.inner.lock().await;
+            let SessionSlot::Idle(idle) = &inner.session else { panic!("the first run left its session idle") };
+            let target = writes::Target { saved: &saved, opened: idle.opened(), console: &inner.config, txn: inner.txn, unasked: &inner.unasked };
+            let checked = writes::check(&target, &["select 1"], None).unwrap();
+            let (session, _stop) = console.take_session(&mut inner, run_id, Work::Run(checked)).unwrap();
+            let range = DocRange { from: DocOffset(0), to: DocOffset(0) };
+            inner.run = RunState::Running {
+                run_id,
+                started_at_ms: console::now_ms(),
+                statements: [StmtStatus::Running, StmtStatus::Pending].into_iter().zip(0..).map(|(status, index)| StatementRun { index, range, status, outputs: Vec::new() }).collect(),
+            };
+            console.publish(&mut inner, s);
+            session
+        };
+        s.spawn_holding(console.clone(), run_id, async move {
+            let _held = session;
+            panic!("boom");
+        });
+
+        let state = finished(&engine, tab, run_id).await;
+        let RunState::Finished { outcome: RunOutcome::Failed, statements, .. } = &state.run else { panic!("{:?}", state.run) };
+        assert!(matches!(&statements[0].status, StmtStatus::Failed { error } if error.message.ends_with(": boom")), "{:?}", statements[0].status);
+        assert!(matches!(statements[1].status, StmtStatus::Skipped), "{:?}", statements[1].status);
+        assert!(matches!(state.session, SessionState::Lost { .. }) && state.work.is_none(), "{state:?}");
+
+        let next = engine.console_run(tab, select(2), None).await.expect("the tab accepts another run");
+        let state = finished(&engine, tab, next.run_id).await;
+        assert!(matches!(state.run, RunState::Finished { outcome: RunOutcome::Ok, .. }), "{:?}", state.run);
+        assert!(matches!(state.session, SessionState::Open { .. }), "{:?}", state.session);
+        engine.shutdown().await;
     }
 
     #[tokio::test]

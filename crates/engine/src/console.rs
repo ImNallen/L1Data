@@ -140,6 +140,30 @@ impl ConsoleInner {
         std::mem::replace(&mut self.session, next)
     }
 
+    /// Finishes a run whose task will not.
+    fn end_run(&mut self, in_flight: StmtStatus, rows: RowsState, outcome: RunOutcome) -> Option<u16> {
+        let RunState::Running { run_id, started_at_ms, statements } = &mut self.run else { return None };
+        let mut stopped = None;
+        for s in statements.iter_mut() {
+            if matches!(s.status, StmtStatus::Pending | StmtStatus::Preparing | StmtStatus::Running) {
+                for output in &mut s.outputs {
+                    if let RunOutput::Rows { state, .. } = output {
+                        if *state == RowsState::Streaming { *state = rows; }
+                    }
+                }
+                s.status = if stopped.is_none() { in_flight.clone() } else { StmtStatus::Skipped };
+                stopped.get_or_insert(s.index);
+            }
+        }
+        self.run = RunState::Finished {
+            run_id: *run_id,
+            elapsed_ms: (now_ms() - *started_at_ms).clamp(0, u32::MAX as i64) as u32,
+            statements: std::mem::take(statements),
+            outcome,
+        };
+        stopped
+    }
+
     pub fn finish_refreshes(&mut self, committed: bool) -> Option<(DatabaseRef, Owed)> {
         if self.txn != TxnState::Idle { return None; }
         self.end_refreshes(committed)
@@ -375,26 +399,7 @@ impl Console {
             stop.store(true, Ordering::Relaxed);
         }
         let due = inner.finish_refreshes(false);
-        if let RunState::Running { run_id, started_at_ms, statements } = &mut inner.run {
-            let mut in_flight = true;
-            for s in statements.iter_mut() {
-                if matches!(s.status, StmtStatus::Pending | StmtStatus::Preparing | StmtStatus::Running) {
-                    for output in &mut s.outputs {
-                        if let RunOutput::Rows { state, .. } = output {
-                            if *state == RowsState::Streaming { *state = RowsState::Cancelled; }
-                        }
-                    }
-                    s.status = if in_flight { StmtStatus::Cancelled } else { StmtStatus::Skipped };
-                    in_flight = false;
-                }
-            }
-            inner.run = RunState::Finished {
-                run_id: *run_id,
-                elapsed_ms: (now_ms() - *started_at_ms).clamp(0, u32::MAX as i64) as u32,
-                statements: std::mem::take(statements),
-                outcome: RunOutcome::Cancelled,
-            };
-        }
+        inner.end_run(StmtStatus::Cancelled, RowsState::Cancelled, RunOutcome::Cancelled);
         self.publish(&mut inner, shared);
         drop(inner);
         match session {
@@ -412,6 +417,23 @@ impl Console {
                 drop(session);
                 if let Some((db, owed)) = due { shared.schedule_refreshes(db, owed); }
             }
+        }
+    }
+
+    /// Ends the work of a task that panicked while it held the session. The session died with the
+    /// task, so the slot is `Lost` and the next run opens a new one.
+    pub async fn fail_task(&self, shared: &Arc<Shared>, run_id: RunId, message: String) {
+        let error = crate::session::error(message.clone());
+        let edited = self.edit(shared, run_id, |inner| {
+            let statement = inner.end_run(StmtStatus::Failed { error: error.clone() }, RowsState::Failed, RunOutcome::Failed);
+            let held = inner.end_session(SessionSlot::Lost { reason: message, transaction: TransactionLoss::Unknown });
+            (statement, held, inner.finish_refreshes(false))
+        }).await;
+        let Ok((statement, held, due)) = edited else { return };
+        self.output(shared, run_id, OutputBody::Error { statement, error });
+        if let Some((db, owed)) = due && let SessionSlot::Busy { mut session_release, .. } = held {
+            while session_release.changed().await.is_ok() {}
+            shared.schedule_refreshes(db, owed);
         }
     }
 
