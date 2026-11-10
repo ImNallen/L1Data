@@ -4517,6 +4517,31 @@ async fn a_cell_that_is_not_utf8_fails_its_statement_and_the_tab_runs_again() {
 }
 
 #[tokio::test]
+async fn a_cell_that_is_not_utf8_leaves_its_open_transaction_to_commit() {
+    let mut h = Harness::start().await;
+    let writer = h.sql_tab(TxnMode::Manual).await;
+    let reader = h.sql_tab(TxnMode::AutoCommit).await;
+    let table = unique("public.t_unread");
+    h.run_ok(reader, &format!("create table {table} (id int)")).await;
+    h.run_ok(writer, &format!("insert into {table} values (1)")).await;
+    h.run_ok(writer, "set client_encoding = 'LATIN1'").await;
+
+    let state = h.run(writer, "select g, chr(233) as raw from generate_series(1, 3) g").await;
+    assert!(matches!(statuses(&state)[0], StmtStatus::Failed { error } if error.message == "Column \"raw\" holds text that is not valid UTF-8."), "{:?}", state.run);
+    assert_eq!(state.txn, TxnState::Active, "the server ran the statement, so the transaction is still open");
+    h.engine.console_commit(writer, None).await.expect("the pending insert commits");
+    assert_eq!(h.scalar(reader, &format!("select count(*) from {table}")).await, "1");
+
+    h.run_ok(writer, &format!("insert into {table} values (2)")).await;
+    let state = h.run(writer, "select chr(233) as raw, 1 / (g - 2) from generate_series(1, 3) g").await;
+    assert!(matches!(statuses(&state)[0], StmtStatus::Failed { error } if error.sqlstate.as_deref() == Some("22012")), "the server's own error wins: {:?}", state.run);
+    assert_eq!(state.txn, TxnState::Aborted);
+    assert!(matches!(h.engine.console_commit(writer, None).await, Err(TxnError::RolledBack)));
+    assert_eq!(h.scalar(reader, &format!("select count(*) from {table}")).await, "1");
+    h.run_ok(reader, &format!("drop table {table}")).await;
+}
+
+#[tokio::test]
 async fn the_catalog_loads_while_functions_are_dropped() {
     let h = Harness::start().await;
     h.engine.connect(h.conn).await.unwrap();
