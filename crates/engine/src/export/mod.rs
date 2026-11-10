@@ -411,7 +411,7 @@ async fn pump(job: &Job, session: &mut Session, encoder: &mut Encoder, writer: &
                 halt = Some(Halt::Cancelled);
                 break;
             }
-            Some(Ok(QueryEvent::Prepared | QueryEvent::Complete { .. })) => {}
+            Some(Ok(QueryEvent::Prepared | QueryEvent::Complete { .. } | QueryEvent::ServerDone)) => {}
             Some(Ok(QueryEvent::Notice(body))) => log.push(body),
             Some(Ok(QueryEvent::ServerError(e))) => {
                 halt.get_or_insert(Halt::Query(e));

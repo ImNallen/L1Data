@@ -609,9 +609,10 @@ pub async fn run_task(console: Arc<Console>, shared: Arc<Shared>, mut session: S
         };
         let (fence, ran) = match opened {
             Ok(fence) => (fence, run_outputs(&console, &shared, &mut session, &plan, index, &caps, &stop).await?),
-            Err(error) => (None, Err(Failed { error, logged: false })),
+            Err(error) => (None, Err(Failed { error, logged: false, server_done: false })),
         };
         let logged = matches!(ran, Err(Failed { logged: true, .. }));
+        let unread = matches!(ran, Err(Failed { server_done: true, .. }));
         let result = ran.map_err(|failed| failed.error);
         let cancelled = stop.load(Ordering::Relaxed) && result.is_err();
         let result = result.map_err(|mut e| {
@@ -628,7 +629,9 @@ pub async fn run_task(console: Arc<Console>, shared: Arc<Shared>, mut session: S
         }
         let refused = fence.is_some() && matches!(&result, Err(error) if error.sqlstate.as_deref() == Some(READ_ONLY_VIOLATION));
         if fence.is_none() {
-            txn = session.observed_txn().unwrap_or_else(|| txn_after(txn, &stmt.kind, finished));
+            // A result this side could not read did not fail on the server, so it aborted nothing there.
+            let on_server = if unread { StmtOutcome::Ok } else { finished };
+            txn = session.observed_txn().unwrap_or_else(|| txn_after(txn, &stmt.kind, on_server));
         }
         let (status, history) = match &result {
             Ok((rows, tags)) => (StmtStatus::Finished, if let Some(rows) = rows { HistoryOutcome::Rows { rows: *rows } } else { HistoryOutcome::Command { tag: tags.join("; ") } }),
@@ -792,6 +795,7 @@ async fn run_outputs(console: &Console, shared: &Shared, session: &mut Session, 
     let mut reported = None;
     let mut nth: u16 = 0;
     let mut rerun: Option<Rerun> = None;
+    let mut server_done = false;
     let mut log = OutputBatch::new(console, shared, run_id);
     let mut stream = session.query(sql);
     loop {
@@ -853,6 +857,7 @@ async fn run_outputs(console: &Console, shared: &Shared, session: &mut Session, 
                 }
             }
             Ok(QueryEvent::Notice(body)) => log.push(body),
+            Ok(QueryEvent::ServerDone) => server_done = true,
             Ok(QueryEvent::ServerError(error)) => {
                 if let Some((set, out)) = active.take() { end_rows(&set, &mut outputs[out], started, RowsState::Failed); }
                 let stmt = &plan.statements[index];
@@ -877,8 +882,8 @@ async fn run_outputs(console: &Console, shared: &Shared, session: &mut Session, 
     log.send();
     console.edit(shared, run_id, |inner| Console::statements_mut(inner)[index].outputs = outputs).await?;
     Ok(match (failure, reported) {
-        (Some(error), _) => Err(Failed { error, logged: false }),
-        (None, Some(error)) => Err(Failed { error, logged: true }),
+        (Some(error), _) => Err(Failed { error, logged: false, server_done }),
+        (None, Some(error)) => Err(Failed { error, logged: true, server_done: false }),
         (None, None) => Ok((rows, tags)),
     })
 }
@@ -886,6 +891,7 @@ async fn run_outputs(console: &Console, shared: &Shared, session: &mut Session, 
 struct Failed {
     error: QueryError,
     logged: bool,
+    server_done: bool,
 }
 
 fn end_rows(set: &ResultSet, output: &mut RunOutput, started: Instant, state: RowsState) {
