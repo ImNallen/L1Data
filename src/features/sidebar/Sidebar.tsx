@@ -1,4 +1,4 @@
-import { BookmarkIcon, ChartNoAxesColumnIcon, ClockIcon, DatabaseIcon, PlusIcon, SettingsIcon, type LucideIcon } from "lucide-react";
+import { ChartNoAxesColumnIcon, DatabaseIcon, LibraryBigIcon, PlusIcon, SettingsIcon, type LucideIcon } from "lucide-react";
 import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
 import type { DatabaseRef } from "../../ipc/bindings";
 import { isViewKind, useCatalog, viewFor } from "../../state/catalog";
@@ -218,8 +218,7 @@ export function Sidebar({ hosted }: { hosted: HostedWindow | null }) {
         >
           <SidebarToggle />
           <div className="flex-1" />
-          <SidebarAction testId="open-history" label="Query history" icon={ClockIcon} onOpen={() => openQueries("history")} />
-          <SidebarAction testId="open-saved-queries" label="Saved queries" icon={BookmarkIcon} onOpen={() => openQueries("saved")} />
+          <SidebarAction testId="open-queries" label="Queries" icon={LibraryBigIcon} onOpen={() => openQueries()} />
           <SidebarAction testId="new-connection" label="New connection" icon={PlusIcon} onOpen={() => open({ kind: "connection", editing: null })} />
         </div>
         {first ? (

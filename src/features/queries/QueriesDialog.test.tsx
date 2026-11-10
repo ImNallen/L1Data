@@ -7,6 +7,7 @@ import type { HistoryBrowsePage, SavedQuery } from "../../ipc/bindings";
 import { handleGlobalKey } from "../../shell/commands";
 import { useLive } from "../../state/live";
 import { useWorkspace } from "../../state/workspace";
+import { Sidebar } from "../sidebar/Sidebar";
 import { QueriesDialog } from "./QueriesDialog";
 
 const page: HistoryBrowsePage = { groups: [], counts: { all: 7, failed: 2, writes: 1 }, hasMore: false, revision: 1 };
@@ -35,7 +36,30 @@ afterEach(() => {
   useLive.setState(useLive.getInitialState(), true);
 });
 
+function Shell() {
+  return (
+    <>
+      <Sidebar hosted={null} />
+      <QueriesDialog />
+    </>
+  );
+}
+
 const pressed = (testId: string) => screen.getByTestId(testId).getAttribute("aria-pressed");
+
+it("opens on History the first time, and on the tab shown last after that", async () => {
+  const user = userEvent.setup();
+  render(<Shell />);
+  await user.click(screen.getByTestId("open-queries"));
+  expect(screen.getByRole("dialog", { name: "Query history" })).toBe(screen.getByTestId("queries-dialog"));
+  expect(pressed("queries-tab-history")).toBe("true");
+  await user.click(screen.getByTestId("queries-tab-saved"));
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByTestId("queries-dialog")).toBeNull());
+  await user.click(screen.getByTestId("open-queries"));
+  expect(screen.getByRole("dialog", { name: "Saved queries" })).toBeTruthy();
+  expect(pressed("queries-tab-saved")).toBe("true");
+});
 
 it("switches panes inside the same dialog, focuses the new search, and counts each tab", async () => {
   const user = userEvent.setup();
