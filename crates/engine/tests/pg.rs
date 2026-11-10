@@ -4486,3 +4486,30 @@ async fn a_reference_chain_runs_as_ctes_and_names_the_cells_it_inlined() {
     assert!(page.sources.is_empty());
     h.wait_finished(tab, page.run_id).await;
 }
+
+#[tokio::test]
+async fn a_cell_that_is_not_utf8_fails_its_statement_and_the_tab_runs_again() {
+    let mut h = Harness::start().await;
+    let tab = h.sql_tab(TxnMode::AutoCommit).await;
+    let script = |text: &str| RunRequest::Script { text: text.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() };
+    let wait = Duration::from_secs(10);
+    h.run_ok(tab, "set client_encoding = 'LATIN1'").await;
+
+    let accepted = h.start_run(tab, "select 'ok' as fine, chr(233) as raw").await;
+    let finished = tokio::time::timeout(wait, h.wait_finished(tab, accepted.run_id)).await;
+    let next = h.engine.console_run(tab, script("select 1"), None).await;
+    let (Ok(state), Ok(next)) = (finished, &next) else {
+        let console = h.console(tab);
+        panic!("the run never ended or the tab refused the next one: work {:?}, run {:?}, next run {next:?}", console.work, console.run);
+    };
+
+    let RunState::Finished { outcome: RunOutcome::Failed, statements, .. } = &state.run else { panic!("{:?}", state.run) };
+    let StmtStatus::Failed { error } = &statements[0].status else { panic!("{:?}", statements[0].status) };
+    assert_eq!(error.message, "Column \"raw\" holds text that is not valid UTF-8.");
+    assert_eq!(error.hint.as_deref(), Some("L1 Data reads text as UTF-8. Run SET client_encoding = 'UTF8' on this tab."));
+    assert!(matches!(state.session, SessionState::Open { .. }), "a bad cell does not cost the session: {:?}", state.session);
+
+    let state = tokio::time::timeout(wait, h.wait_finished(tab, next.run_id)).await.expect("the next run ends");
+    assert!(matches!(state.run, RunState::Finished { outcome: RunOutcome::Ok, .. }), "{:?}", state.run);
+    assert_eq!(h.page(&Harness::result(&state, 0), 0, 1), [[Some("1".to_owned())]]);
+}
