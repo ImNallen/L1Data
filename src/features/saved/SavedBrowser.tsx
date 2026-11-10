@@ -1,6 +1,5 @@
-import * as Dialog from "@radix-ui/react-dialog";
 import { BookmarkIcon, BookmarkPlusIcon, CopyIcon, PencilIcon, Trash2Icon } from "lucide-react";
-import { useEffect, useMemo, useReducer, useRef, useState, type KeyboardEvent, type Ref } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import type { SavedQuery, SavedQueryError, SavedQueryId } from "../../ipc/bindings";
 import { savedQueryErrorText } from "../../ipc/errors";
 import { commandForKey } from "../../shell/commands";
@@ -9,8 +8,7 @@ import { databaseKindFor } from "../../state/databaseKind";
 import { useLive } from "../../state/live";
 import { activeTab, tabTarget, useWorkspace, type SavedEntry } from "../../state/workspace";
 import { day } from "../../ui/day";
-import { ACTIVE_OPTION, Button, cx, DatabaseBadge, DialogSurface, Highlight, inputClass, Kbd } from "../../ui/primitives";
-import { focusEditor } from "../editor/editorStates";
+import { ACTIVE_OPTION, Button, cx, DatabaseBadge, Highlight, inputClass, Kbd } from "../../ui/primitives";
 import { SqlText } from "../editor/SqlText";
 import { canInsert, copySaved, deleteSaved, insertSaved, openSaved, saveActiveQuery, updateSaved } from "./savedActions";
 import { keepSelection, rankSaved, savedKey, step, type SavedAction } from "./savedList";
@@ -28,21 +26,20 @@ function initialPane(entry: SavedEntry, items: SavedQuery[]): Pane {
 
 const editErrorText = (e: SavedQueryError) => (e.kind === "NothingToSave" ? "Enter the SQL to save." : savedQueryErrorText(e));
 
-export function SavedPalette() {
-  const entry = useWorkspace((s) => (s.overlay.kind === "saved" ? s.overlay.entry : null));
-  const close = useWorkspace((s) => s.close);
-  const [opened, setOpened] = useState<{ entry: SavedEntry; key: number }>({ entry: { kind: "browse" }, key: 0 });
-  if (entry && entry !== opened.entry) setOpened({ entry, key: opened.key + 1 });
-  return (
-    <Dialog.Root open={entry !== null} onOpenChange={(open) => !open && close()}>
-      <Dialog.Portal>
-        <SavedDialog key={opened.key} entry={opened.entry} close={close} />
-      </Dialog.Portal>
-    </Dialog.Root>
-  );
-}
-
-function SavedDialog({ entry, close, ref }: { entry: SavedEntry; close: () => void; ref?: Ref<HTMLDivElement> }) {
+/** While a query is being edited, Esc or a click outside steps the edit back through `holdOpen` instead of closing. */
+export function SavedBrowser({
+  entry,
+  close,
+  closeToEditor,
+  holdOpen,
+  controls,
+}: {
+  entry: SavedEntry;
+  close: () => void;
+  closeToEditor: () => void;
+  holdOpen: RefObject<(() => boolean) | null>;
+  controls: (locked: boolean) => ReactNode;
+}) {
   const items = useLive((s) => s.savedQueries.items);
   const activeKind = useWorkspace((s) => {
     const tab = activeTab(s);
@@ -64,7 +61,6 @@ function SavedDialog({ entry, close, ref }: { entry: SavedEntry; close: () => vo
   const selected = ranked.find((r) => r.query.id === selectedId)?.query;
   const [pane, dispatch] = useReducer(paneReducer, undefined, () => initialPane(entry, items));
   const [copyError, setCopyError] = useState(false);
-  const restoreFocus = useRef(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const insertable = canInsert();
@@ -78,18 +74,21 @@ function SavedDialog({ entry, close, ref }: { entry: SavedEntry; close: () => vo
   }, [selectedId]);
   useEffect(() => {
     if (pane.kind === "view") searchRef.current?.focus();
-    if (pane.kind === "done") finish();
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs on a pane change, and `finish` is new on every render
+    if (pane.kind === "done") closeToEditor();
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs on a pane change, and `closeToEditor` is new on every render
   }, [pane.kind]);
 
-  function finish() {
-    restoreFocus.current = true;
-    close();
+  function held() {
+    if (listKeysLive(pane)) return false;
+    dispatch({ type: "escape" });
+    return true;
   }
-  function leave() {
-    if (listKeysLive(pane)) close();
-    else dispatch({ type: "escape" });
-  }
+  useEffect(() => {
+    holdOpen.current = held;
+    return () => {
+      holdOpen.current = null;
+    };
+  });
   function select(id: SavedQueryId | null) {
     setPick({
       id,
@@ -110,10 +109,10 @@ function SavedDialog({ entry, close, ref }: { entry: SavedEntry; close: () => vo
   function act(action: SavedAction) {
     if (action === "next" || action === "previous") return select(step(ranked, selectedId, action));
     if (!selected) return;
-    if (action === "copy") return void copySaved(selected).then((ok) => (ok ? finish() : setCopyError(true)));
+    if (action === "copy") return void copySaved(selected).then((ok) => (ok ? closeToEditor() : setCopyError(true)));
     if (action === "primary" && insertable) insertSaved(selected);
     else openSaved(selected);
-    finish();
+    closeToEditor();
   }
   function submit() {
     if (pane.kind !== "edit" || pane.saving) return;
@@ -124,7 +123,8 @@ function SavedDialog({ entry, close, ref }: { entry: SavedEntry; close: () => vo
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (commandForKey(e.nativeEvent)?.id === "saved-queries") {
       e.preventDefault();
-      return leave();
+      if (!held()) close();
+      return;
     }
     if (!listKeysLive(pane)) return;
     const box = searchRef.current;
@@ -139,32 +139,11 @@ function SavedDialog({ entry, close, ref }: { entry: SavedEntry; close: () => vo
     e.stopPropagation();
     act(action);
   }
-  function holdOpen(e: Event) {
-    if (listKeysLive(pane)) return;
-    e.preventDefault();
-    dispatch({ type: "escape" });
-  }
-
   const count = text.trim()
     ? `${ranked.length.toLocaleString()} of ${items.length.toLocaleString()}`
     : `${items.length.toLocaleString()} saved ${items.length === 1 ? "query" : "queries"}`;
   return (
-    <DialogSurface
-      ref={ref}
-      aria-describedby={undefined}
-      data-testid="saved-palette"
-      onKeyDown={onKeyDown}
-      onEscapeKeyDown={holdOpen}
-      onPointerDownOutside={holdOpen}
-      onCloseAutoFocus={(event) => {
-        if (!restoreFocus.current) return;
-        event.preventDefault();
-        restoreFocus.current = false;
-        focusEditor();
-      }}
-      className="flex h-[640px] w-[960px] flex-col overflow-hidden"
-    >
-      <Dialog.Title className="sr-only">Saved queries</Dialog.Title>
+    <div className="flex min-h-0 flex-1 flex-col" onKeyDown={onKeyDown}>
       <div className="flex min-h-14 shrink-0 items-center gap-3 border-b border-control px-4">
         <BookmarkIcon size={18} className="shrink-0 text-muted" aria-hidden />
         <input
@@ -186,15 +165,7 @@ function SavedDialog({ entry, close, ref }: { entry: SavedEntry; close: () => vo
           placeholder="Search saved queries by name or SQL"
           className="h-12 min-w-0 flex-1 bg-transparent text-ui-14 text-fg outline-none placeholder:text-dim"
         />
-        <button
-          type="button"
-          data-testid="saved-close"
-          aria-label="Close saved queries"
-          onClick={leave}
-          className="ml-1 border-l border-control pl-3 text-dim outline-none hover:text-fg focus-visible:ring-1 focus-visible:ring-focus"
-        >
-          <Kbd>esc</Kbd>
-        </button>
+        {controls(frozen)}
       </div>
       {items.length === 0 ? (
         <div data-testid="saved-empty" className="grid min-h-0 flex-1 place-items-center p-8 text-center">
@@ -379,7 +350,7 @@ function SavedDialog({ entry, close, ref }: { entry: SavedEntry; close: () => vo
           Save current query<Kbd>{mac ? "⌘⇧E" : "Ctrl+Shift+E"}</Kbd>
         </button>
       </div>
-    </DialogSurface>
+    </div>
   );
 }
 

@@ -70,10 +70,10 @@ it("switches table and view categories without losing access to routines", async
   expect(screen.getByTestId("tree-node-Postgres/shop/public/#functions")).toBeTruthy();
 });
 
-it("puts history, saved queries, and new connection at the right of the header, and Settings and Usage at the left of the footer", () => {
+it("puts Queries and new connection at the right of the header, and Settings and Usage at the left of the footer", () => {
   render(<Sidebar hosted={null} />);
   const ids = (testId: string) => [...screen.getByTestId(testId).querySelectorAll("button")].map((b) => b.dataset.testid);
-  expect(ids("sidebar-header")).toEqual(["toggle-sidebar", "open-history", "open-saved-queries", "new-connection"]);
+  expect(ids("sidebar-header")).toEqual(["toggle-sidebar", "open-queries", "new-connection"]);
   expect(ids("sidebar-footer")).toEqual(["open-settings", "open-usage"]);
 });
 

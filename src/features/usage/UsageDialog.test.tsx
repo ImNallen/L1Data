@@ -8,7 +8,7 @@ import type { LimitsReport } from "../../ipc/bindings";
 import { commandForKey } from "../../shell/commands";
 import { Overlays } from "../../shell/Overlays";
 import { useWorkspace } from "../../state/workspace";
-import { SavedPalette } from "../saved/SavedPalette";
+import { QueriesDialog } from "../queries/QueriesDialog";
 import { Sidebar } from "../sidebar/Sidebar";
 import { useLimits } from "./useLimits";
 
@@ -38,7 +38,7 @@ function Shell() {
     <>
       <Sidebar hosted={null} />
       <Overlays />
-      <SavedPalette />
+      <QueriesDialog />
     </>
   );
 }

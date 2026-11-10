@@ -3,10 +3,9 @@ import { Group, Panel } from "react-resizable-panels";
 import { useDatabaseMap } from "../features/databaseMap/controller";
 import { NotebookWorkspace } from "../features/editor/NotebookWorkspace";
 import { StatementChooser } from "../features/editor/StatementChooser";
-import { HistoryPalette } from "../features/history/HistoryPalette";
 import { NavigationPalette } from "../features/navigation/NavigationPalette";
 import { NotebookSwitcher } from "../features/notebooks/NotebookSwitcher";
-import { SavedPalette } from "../features/saved/SavedPalette";
+import { QueriesDialog } from "../features/queries/QueriesDialog";
 import { Sidebar } from "../features/sidebar/Sidebar";
 import { InstallingOverlay } from "../features/updates/InstallingOverlay";
 import { useWorkspace } from "../state/workspace";
@@ -73,8 +72,7 @@ export function AppLayout() {
       <NavigationPalette />
       <NotebookSwitcher />
       <CommandPalette />
-      <HistoryPalette />
-      <SavedPalette />
+      <QueriesDialog />
       {connectionMounted && <ConnectionDialog />}
       <StatementChooser />
       <Overlays />

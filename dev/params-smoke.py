@@ -168,15 +168,15 @@ class Check:
         assert self.run_id(self.pg) == before
         self.pass_case('accepted values remembered in the same tab', 'remembered.png')
 
-        self.ab('find', 'role', 'button', 'click', '--name', 'Query history')
-        self.ab('wait', '[data-testid="history-palette"]')
+        self.ab('find', 'testid', 'open-queries', 'click')
+        self.ab('wait', '[data-testid="history-input"]')
         self.ab('find', 'testid', 'history-input', 'fill', 'answer')
         self.ab('wait', '--fn', 'document.querySelector(\'[data-testid="history-sql"]\')?.textContent.includes("42")')
         history = self.evaluate('document.querySelector(\'[data-testid="history-sql"]\').textContent')
         assert ':id' not in history and '42' in history, history
         self.screenshot('history')
-        self.ab('find', 'testid', 'history-close', 'click')
-        self.ab('wait', '--fn', 'document.querySelector(\'[data-testid="history-palette"]\') === null')
+        self.ab('find', 'testid', 'queries-close', 'click')
+        self.ab('wait', '--fn', 'document.querySelector(\'[data-testid="queries-dialog"]\') === null')
         self.pass_case('history contains executed literal SQL', history)
 
         self.edit('select :cancel::text as answer')

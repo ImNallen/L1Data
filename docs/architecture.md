@@ -1146,9 +1146,10 @@ src/                          # frontend
   features/editor/{SqlEditor.tsx,editorStates.ts,runActions.ts,persistence.ts,sqlIdent.ts,theme.ts}
   features/updates/{UpdateButton.tsx,updateActions.ts,updateText.ts}   # the sidebar update button and its change list card, the install confirm loop, every update string
   features/results/{ResultsPane,ResultGrid,FilterBar}.tsx  features/results/{format,tableQuery}.ts
-  features/history/{HistoryPalette.tsx,historyList.ts}
+  features/queries/QueriesDialog.tsx   # one dialog for query history and saved queries, with the History and Saved switch
+  features/history/{HistoryBrowser.tsx,historyList.ts}
   features/notebooks/{NotebookSwitcher.tsx,notebookActions.ts,notebookFiles.ts,notebookDirty.ts,switcherItems.ts}   # the switcher, notebook files (open, save, reconcile, the close question), and unsaved state
-  features/saved/{SavedPalette.tsx,savedActions.ts,savedList.ts,savedPane.ts}   # the Saved queries palette, its pure ranking and keys, and its preview reducer
+  features/saved/{SavedBrowser.tsx,savedActions.ts,savedList.ts,savedPane.ts}   # the Saved tab, its pure ranking and keys, and its preview reducer
   testing/shopCatalog.ts      # catalog fixture for vitest
   testing/notebooks.ts        # cellsState and moveCell: store fields for cells grouped by database, for vitest
   **/*.test.ts(x)             # vitest, next to the code under test

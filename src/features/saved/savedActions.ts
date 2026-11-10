@@ -20,7 +20,7 @@ const ws = () => useWorkspace.getState();
 
 function showSaved(reply: SaveQueryReply) {
   useLive.getState().hydrateSaved(reply.queries);
-  ws().open({ kind: "saved", entry: reply.alreadySaved ? { kind: "existing", id: reply.id } : { kind: "name", id: reply.id } });
+  ws().open({ kind: "queries", tab: "saved", entry: reply.alreadySaved ? { kind: "existing", id: reply.id } : { kind: "name", id: reply.id } });
 }
 
 export async function saveActiveQuery(): Promise<void> {
@@ -35,7 +35,6 @@ export async function saveActiveQuery(): Promise<void> {
 }
 
 export async function saveHistoryQuery(sql: string, databaseKind: DatabaseKind): Promise<void> {
-  ws().close();
   const res = await commands.savedQuerySave(sql, { kind: "all" }, databaseKind);
   if (res.status === "error") return ws().notify(savedQueryErrorText(res.error));
   showSaved(res.data);
