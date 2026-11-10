@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ConsoleState } from "../../ipc/bindings";
+import * as connectionActions from "../connections/connectionActions";
 import * as runActions from "../editor/runActions";
 import { dropEditor } from "../editor/editorStates";
 import { buildCatalogView, useCatalog } from "../../state/catalog";
@@ -220,4 +221,130 @@ it("explains a failed connection under its row, with Retry and Edit connection",
   expect(within(screen.getByTestId("tree-node-Postgres")).getByText("Failed")).toBeTruthy();
   await user.click(within(card).getByRole("button", { name: "Edit connection…" }));
   expect(useWorkspace.getState().overlay).toEqual({ kind: "connection", editing: "p" });
+});
+
+it("opens one picker from the heading, anchors to it, and returns focus on Done and Escape", async () => {
+  const user = userEvent.setup();
+  render(<Sidebar hosted={null} />);
+  const trigger = screen.getByTestId("heading-schema-picker");
+  const anchor = trigger.closest<HTMLElement>("[data-picker-anchor]")!;
+  vi.spyOn(anchor, "getBoundingClientRect").mockReturnValue({
+    left: 0,
+    top: 300,
+    bottom: 352,
+    width: 256,
+    right: 256,
+    height: 52,
+    x: 0,
+    y: 300,
+    toJSON: () => ({}),
+  });
+  await user.click(trigger);
+  expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  const dialog = screen.getByRole("dialog", { name: "Schemas in sidebar" });
+  expect(dialog.style.left).toBe("260px");
+  expect(dialog.style.top).toBe("300px");
+  expect(within(dialog).getByText("shop · Postgres")).toBeTruthy();
+  expect(document.activeElement).toBe(screen.getByTestId("picker-filter"));
+  await user.click(screen.getByTestId("picker-done"));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(trigger);
+  await user.click(trigger);
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(trigger);
+});
+
+it("closes the heading picker when the selected database changes", async () => {
+  addSecondDatabase();
+  const user = userEvent.setup();
+  render(<Sidebar hosted={null} />);
+  await user.click(screen.getByTestId("heading-schema-picker"));
+  expect(screen.getByRole("dialog").textContent).toContain("shop · Postgres");
+  act(() => useWorkspace.getState().showDatabase({ connectionId: "q", database: "shop" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  await user.click(screen.getByTestId("heading-schema-picker"));
+  expect(screen.getByRole("dialog").textContent).toContain("shop · Alpha");
+  await user.keyboard("{Escape}");
+});
+
+it("sends visibility edits immediately and keeps the heading reachable through None and restoration", async () => {
+  const edit = vi.spyOn(connectionActions, "editView").mockResolvedValue();
+  const user = userEvent.setup();
+  render(<Sidebar hosted={null} />);
+  const trigger = screen.getByTestId("heading-schema-picker");
+  await user.click(trigger);
+  await user.click(screen.getByTestId("picker-none"));
+  expect(edit).toHaveBeenLastCalledWith("p", { kind: "Schemas", database: "shop", preset: "None" });
+  act(() => useLive.setState({ connections: { p: connectedState("p", [databaseState("shop", true, [])]) } }));
+  expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  expect(screen.getByText("No schemas shown")).toBeTruthy();
+  expect(screen.getByTestId("heading-schema-picker")).toBe(trigger);
+  await user.click(screen.getByTestId("picker-done"));
+  expect(document.activeElement).toBe(trigger);
+  await user.click(trigger);
+  await user.click(screen.getByTestId("picker-default-only"));
+  expect(edit).toHaveBeenLastCalledWith("p", { kind: "Schemas", database: "shop", preset: "DefaultOnly" });
+  act(() => useLive.setState({ connections: { p: connectedState("p", [databaseState("shop", true, ["public"])]) } }));
+  expect(screen.queryByText("No schemas shown")).toBeNull();
+  expect(screen.getByTestId("tree-node-Postgres/shop/public/orders")).toBeTruthy();
+  await user.click(screen.getByRole("switch", { name: "Show system schemas" }));
+  expect(edit).toHaveBeenLastCalledWith("p", { kind: "ShowSystemSchemas", database: "shop", show: true });
+  await user.click(screen.getByTestId("picker-done"));
+});
+
+it("keeps picker search separate from both sidebar searches and distinguishes an empty catalog", async () => {
+  const user = userEvent.setup();
+  render(<Sidebar hosted={null} />);
+  await user.type(screen.getByTestId("sidebar-search"), "shop");
+  await user.type(screen.getByTestId("object-search"), "orders");
+  await user.click(screen.getByTestId("heading-schema-picker"));
+  await user.type(screen.getByTestId("picker-filter"), "missing-schema");
+  expect(screen.getByText("No matches")).toBeTruthy();
+  expect(screen.getByTestId("sidebar-search")).toHaveProperty("value", "shop");
+  expect(screen.getByTestId("object-search")).toHaveProperty("value", "orders");
+  await user.clear(screen.getByTestId("picker-filter"));
+  const catalog = { ...shopCatalog("p", 1), schemas: [] };
+  act(() => useCatalog.setState({ views: { [dbKey(catalog.db)]: buildCatalogView(catalog) } }));
+  expect(screen.getByText("No items available")).toBeTruthy();
+  await user.click(screen.getByTestId("picker-done"));
+});
+
+it("edits database rows and the system switch without waiting for Done", async () => {
+  const edit = vi.spyOn(connectionActions, "editView").mockResolvedValue();
+  vi.spyOn(connectionActions, "probeDatabases").mockImplementation(() => {});
+  const user = userEvent.setup();
+  render(<Sidebar hosted={null} />);
+  await user.click(screen.getByTestId("db-pill-Postgres"));
+  expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  expect(screen.getByRole("dialog", { name: "Databases in sidebar" })).toBeTruthy();
+  await user.click(screen.getByTestId("picker-check-shop"));
+  expect(edit).toHaveBeenLastCalledWith("p", { kind: "Database", name: "shop", shown: false });
+  await user.click(screen.getByTestId("picker-all"));
+  expect(edit).toHaveBeenLastCalledWith("p", { kind: "Databases", preset: "All" });
+  await user.click(screen.getByRole("switch", { name: "Show system databases" }));
+  expect(edit).toHaveBeenLastCalledWith("p", { kind: "ShowSystemDatabases", show: true });
+  await user.click(screen.getByTestId("picker-done"));
+  expect(document.activeElement).toBe(screen.getByTestId("db-pill-Postgres"));
+});
+
+it("shows authoritative schema loading and failure states with catalog retry", async () => {
+  const refresh = vi.spyOn(connectionActions, "refreshCatalog").mockResolvedValue();
+  useCatalog.setState({ views: {} });
+  useLive.setState({ connections: { p: connectedState("p", [{ ...databaseState("shop", true, []), catalog: { kind: "Loading" } }]) } });
+  const user = userEvent.setup();
+  render(<Sidebar hosted={null} />);
+  await user.click(screen.getByTestId("heading-schema-picker"));
+  expect(screen.getByText("Loading schemas")).toBeTruthy();
+  act(() =>
+    useLive.setState({
+      connections: {
+        p: connectedState("p", [{ ...databaseState("shop", true, []), catalog: { kind: "Failed", message: "Catalog access denied", version: null } }]),
+      },
+    }),
+  );
+  expect(screen.getByRole("dialog").textContent).toContain("Catalog access denied");
+  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Retry" }));
+  expect(refresh).toHaveBeenCalledWith({ connectionId: "p", database: "shop" });
+  await user.keyboard("{Escape}");
 });
