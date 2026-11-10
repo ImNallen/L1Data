@@ -126,6 +126,9 @@ def main():
         cleanup_errors = []
         try:
             if created:
+                if original_failure:
+                    logs = subprocess.run(["docker", "logs", name], text=True, capture_output=True)
+                    print(f"fixture log:\n{logs.stdout}\n{logs.stderr}", file=sys.stderr, flush=True)
                 run(["docker", "rm", "-f", "-v", name], timeout=30)
             remaining = run(["docker", "ps", "-a", "--filter", f"name=^/{name}$", "--format", "{{.Names}}"])
             assert not remaining.stdout.strip(), f"fixture container remains: {name}"
