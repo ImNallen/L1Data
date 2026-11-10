@@ -4559,3 +4559,89 @@ async fn a_reference_chain_runs_as_ctes_and_names_the_cells_it_inlined() {
     assert!(page.sources.is_empty());
     h.wait_finished(tab, page.run_id).await;
 }
+
+#[tokio::test]
+async fn a_cell_that_is_not_utf8_fails_its_statement_and_the_tab_runs_again() {
+    let mut h = Harness::start().await;
+    let tab = h.sql_tab(TxnMode::AutoCommit).await;
+    let script = |text: &str| RunRequest::Script { text: text.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() };
+    let wait = Duration::from_secs(10);
+    h.run_ok(tab, "set client_encoding = 'LATIN1'").await;
+
+    let accepted = h.start_run(tab, "select 'ok' as fine, chr(233) as raw").await;
+    let finished = tokio::time::timeout(wait, h.wait_finished(tab, accepted.run_id)).await;
+    let next = h.engine.console_run(tab, script("select 1"), None).await;
+    let (Ok(state), Ok(next)) = (finished, &next) else {
+        let console = h.console(tab);
+        panic!("the run never ended or the tab refused the next one: work {:?}, run {:?}, next run {next:?}", console.work, console.run);
+    };
+
+    let RunState::Finished { outcome: RunOutcome::Failed, statements, .. } = &state.run else { panic!("{:?}", state.run) };
+    let StmtStatus::Failed { error } = &statements[0].status else { panic!("{:?}", statements[0].status) };
+    assert_eq!(error.message, "Column \"raw\" holds text that is not valid UTF-8.");
+    assert_eq!(error.hint.as_deref(), Some("L1 Data reads text as UTF-8. Run SET client_encoding = 'UTF8' on this tab."));
+    assert!(matches!(state.session, SessionState::Open { .. }), "a bad cell does not cost the session: {:?}", state.session);
+
+    let state = tokio::time::timeout(wait, h.wait_finished(tab, next.run_id)).await.expect("the next run ends");
+    assert!(matches!(state.run, RunState::Finished { outcome: RunOutcome::Ok, .. }), "{:?}", state.run);
+    assert_eq!(h.page(&Harness::result(&state, 0), 0, 1), [[Some("1".to_owned())]]);
+    h.run_ok(tab, "set client_encoding = 'UTF8'").await;
+    assert_eq!(h.scalar(tab, "select chr(233)").await, "é", "the hint is true");
+}
+
+#[tokio::test]
+async fn a_cell_that_is_not_utf8_leaves_its_open_transaction_to_commit() {
+    let mut h = Harness::start().await;
+    let writer = h.sql_tab(TxnMode::Manual).await;
+    let reader = h.sql_tab(TxnMode::AutoCommit).await;
+    let table = unique("public.t_unread");
+    h.run_ok(reader, &format!("create table {table} (id int)")).await;
+    h.run_ok(writer, &format!("insert into {table} values (1)")).await;
+    h.run_ok(writer, "set client_encoding = 'LATIN1'").await;
+
+    let state = h.run(writer, "select g, chr(233) as raw from generate_series(1, 3) g").await;
+    assert!(matches!(statuses(&state)[0], StmtStatus::Failed { error } if error.message == "Column \"raw\" holds text that is not valid UTF-8."), "{:?}", state.run);
+    assert_eq!(state.txn, TxnState::Active, "the server ran the statement, so the transaction is still open");
+    h.engine.console_commit(writer, None).await.expect("the pending insert commits");
+    assert_eq!(h.scalar(reader, &format!("select count(*) from {table}")).await, "1");
+
+    h.run_ok(writer, &format!("insert into {table} values (2)")).await;
+    let state = h.run(writer, "select chr(233) as raw, 1 / (g - 2) from generate_series(1, 3) g").await;
+    assert!(matches!(statuses(&state)[0], StmtStatus::Failed { error } if error.sqlstate.as_deref() == Some("22012")), "the server's own error wins: {:?}", state.run);
+    assert_eq!(state.txn, TxnState::Aborted);
+    assert!(matches!(h.engine.console_commit(writer, None).await, Err(TxnError::RolledBack)));
+    assert_eq!(h.scalar(reader, &format!("select count(*) from {table}")).await, "1");
+    h.run_ok(reader, &format!("drop table {table}")).await;
+}
+
+#[tokio::test]
+async fn the_catalog_loads_while_functions_are_dropped() {
+    let h = Harness::start().await;
+    h.engine.connect(h.conn).await.unwrap();
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut churn = Vec::new();
+    for _ in 0..8 {
+        let (client, stop) = (h.oracle().await, stop.clone());
+        churn.push(tokio::spawn(async move {
+            let name = unique("t_fn_churn");
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                client.batch_execute(&format!("create function public.{name}(a int, b text) returns int language sql as 'select 1'")).await.unwrap();
+                client.batch_execute(&format!("drop function public.{name}")).await.unwrap();
+            }
+        }));
+    }
+
+    let loaded = futures_util::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(async {
+        for _ in 0..300 {
+            h.engine.refresh_catalog(h.db()).await.unwrap();
+        }
+    }))
+    .await;
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    for worker in churn {
+        worker.await.unwrap();
+    }
+    if let Err(panic) = loaded {
+        std::panic::resume_unwind(panic);
+    }
+}

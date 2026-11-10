@@ -64,9 +64,10 @@ pub async fn load(client: &Client, db: DatabaseRef, oid: u32, catalog_version: u
         })
         .collect();
 
+    // `pg_get_constraintdef` and `pg_get_indexdef` return NULL for an object dropped after the query took its snapshot.
     let keys = keys
         .iter()
-        .map(|r| {
+        .filter_map(|r| {
             let kind = match r.get::<_, String>(1).as_str() {
                 "p" => KeyKind::Primary,
                 "u" => KeyKind::Unique,
@@ -77,23 +78,23 @@ pub async fn load(client: &Client, db: DatabaseRef, oid: u32, catalog_version: u
                     on_delete: fk_action(&r.get::<_, String>(6)),
                     on_update: fk_action(&r.get::<_, String>(7)),
                 },
-                _ => KeyKind::Check { definition: r.get(8) },
+                _ => KeyKind::Check { definition: r.get::<_, Option<String>>(8)? },
             };
-            KeyInfo { name: r.get(0), columns: r.get(2), kind }
+            Some(KeyInfo { name: r.get(0), columns: r.get(2), kind })
         })
         .collect();
 
     let indexes = indexes
         .iter()
-        .map(|r| IndexInfo {
+        .filter_map(|r| Some(IndexInfo {
             name: r.get(0),
             method: r.get(1),
             unique: r.get(2),
             primary: r.get(3),
             valid: r.get(4),
-            keys: index_keys(r.get(5)).to_owned(),
+            keys: index_keys(r.get::<_, Option<&str>>(5)?).to_owned(),
             predicate: r.get(6),
-        })
+        }))
         .collect();
 
     let triggers = triggers

@@ -579,7 +579,7 @@ pub async fn import(
     drop(inner);
     let (tx, rx) = tokio::sync::oneshot::channel();
     let shared = s.clone();
-    s.spawn(async move {
+    s.spawn_holding(console.clone(), run_id, async move {
         let result = run::run(
             &shared, console, run_id, session, stop, plan, unasked,
         )
