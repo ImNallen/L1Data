@@ -164,6 +164,14 @@ impl Session {
             Driver::SqlServer(_) => Ok(()),
         }
     }
+    /// True when `use_schema` would send nothing. A path the user's own `SET` put on the session
+    /// then stays in force, and a statement run again must not replace it.
+    pub fn settled_on(&self, schema: Option<&str>) -> bool {
+        match &self.driver {
+            Driver::Postgres(p) => p.settled_on(schema),
+            Driver::SqlServer(_) => true,
+        }
+    }
     pub fn drain_notices(&mut self) -> Vec<OutputBody> {
         match &mut self.driver {
             Driver::Postgres(p) => p.drain_notices().iter().map(postgres::notice).collect(),

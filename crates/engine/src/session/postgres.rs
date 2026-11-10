@@ -126,9 +126,13 @@ impl PgSession {
         Ok(session)
     }
 
+    pub fn settled_on(&self, schema: Option<&str>) -> bool {
+        matches!(&self.search_path, SearchPath::Settled(s) if s.as_deref() == schema)
+    }
+
     pub async fn use_schema(&mut self, schema: Option<&str>, txn: TxnState) -> Result<(), tokio_postgres::Error> {
         // An aborted transaction refuses `SET`. The first statement after it sends the path.
-        if txn == TxnState::Aborted || matches!(&self.search_path, SearchPath::Settled(s) if s.as_deref() == schema) {
+        if txn == TxnState::Aborted || self.settled_on(schema) {
             return Ok(());
         }
         if let Some(s) = schema {
