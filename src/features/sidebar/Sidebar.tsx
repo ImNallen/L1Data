@@ -179,6 +179,7 @@ export function Sidebar({ hosted }: { hosted: HostedWindow | null }) {
   const inNotebook = useWorkspace((s) => s.shown.kind === "notebook");
   const showDatabase = useWorkspace((s) => s.showDatabase);
   const open = useWorkspace((s) => s.open);
+  const openQueries = useWorkspace((s) => s.openQueries);
   const openSettings = useWorkspace((s) => s.openSettings);
   const query = useWorkspace((s) => s.treeQuery);
   const setTreeQuery = useWorkspace((s) => s.setTreeQuery);
@@ -217,13 +218,8 @@ export function Sidebar({ hosted }: { hosted: HostedWindow | null }) {
         >
           <SidebarToggle />
           <div className="flex-1" />
-          <SidebarAction testId="open-history" label="Query history" icon={ClockIcon} onOpen={() => open({ kind: "history" })} />
-          <SidebarAction
-            testId="open-saved-queries"
-            label="Saved queries"
-            icon={BookmarkIcon}
-            onOpen={() => open({ kind: "saved", entry: { kind: "browse" } })}
-          />
+          <SidebarAction testId="open-history" label="Query history" icon={ClockIcon} onOpen={() => openQueries("history")} />
+          <SidebarAction testId="open-saved-queries" label="Saved queries" icon={BookmarkIcon} onOpen={() => openQueries("saved")} />
           <SidebarAction testId="new-connection" label="New connection" icon={PlusIcon} onOpen={() => open({ kind: "connection", editing: null })} />
         </div>
         {first ? (

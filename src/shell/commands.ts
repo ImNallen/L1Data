@@ -45,9 +45,10 @@ const hasWorkspaceTab = () => {
 };
 
 function toggleSaved() {
-  const wasOpen = ws().overlay.kind === "saved";
-  ws().closeSettings();
-  if (!wasOpen) ws().open({ kind: "saved", entry: { kind: "browse" } });
+  const { overlay, screen } = ws();
+  if (overlay.kind === "queries" && overlay.tab === "saved") return ws().close();
+  if (screen.kind === "settings") ws().closeSettings();
+  ws().openQueries("saved");
 }
 
 const startsNotebook = () => ws().shown.kind === "start" && shownDb(ws()) !== null;

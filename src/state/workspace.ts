@@ -65,14 +65,16 @@ export type RelationRef = { db: DatabaseRef; schema: string; relation: string };
 
 export type SavedEntry = { kind: "browse" } | { kind: "name"; id: SavedQueryId } | { kind: "existing"; id: SavedQueryId };
 
+export type QueriesTab = "history" | "saved";
+export type QueriesOverlay = { kind: "queries"; tab: "history" } | { kind: "queries"; tab: "saved"; entry: SavedEntry };
+
 export type Overlay =
   | { kind: "none" }
-  | { kind: "history" }
+  | QueriesOverlay
   | { kind: "navigation" }
   | { kind: "notebooks" }
   | { kind: "commands" }
   | { kind: "usage" }
-  | { kind: "saved"; entry: SavedEntry }
   | { kind: "connection"; editing: ConnectionId | null }
   | { kind: "cell"; title: string; value: string | null }
   | { kind: "record"; meta: ResultMeta; row: number }
@@ -116,6 +118,8 @@ export type WorkspaceData = {
   settings: Settings;
   selected: RelationRef | null;
   overlay: Overlay;
+  /** The tab the Queries dialog showed last, where its sidebar button opens it. Kept in memory only. */
+  queriesTab: QueriesTab;
   screen: Screen;
   /** Filters the connection tree in place. Not saved, and kept across a trip to settings. */
   treeQuery: string;
@@ -363,6 +367,8 @@ type WorkspaceActions = {
   setSettings(s: Settings): void;
   select(r: RelationRef | null): void;
   open(o: Overlay): void;
+  /** Opens the Queries dialog on `tab`, or on the tab it showed last. */
+  openQueries(tab?: QueriesTab): void;
   close(): void;
   answer(choice: string): void;
   openSettings(section?: SettingsSectionId): void;
@@ -405,6 +411,7 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
   settings: DEFAULT_SETTINGS,
   selected: null,
   overlay: { kind: "none" },
+  queriesTab: "history",
   screen: { kind: "workspace" },
   treeQuery: "",
   toast: null,
@@ -573,7 +580,8 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
     }),
   setSettings: (settings) => set({ settings }),
   select: (selected) => set({ selected }),
-  open: (overlay) => set({ overlay }),
+  open: (overlay) => set(overlay.kind === "queries" ? { overlay, queriesTab: overlay.tab } : { overlay }),
+  openQueries: (tab = get().queriesTab) => get().open(tab === "history" ? { kind: "queries", tab } : { kind: "queries", tab, entry: { kind: "browse" } }),
   close: () => set({ overlay: { kind: "none" } }),
   answer: (choice) => {
     const overlay = get().overlay;

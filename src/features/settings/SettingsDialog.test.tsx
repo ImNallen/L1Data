@@ -12,7 +12,7 @@ import { activeId, confirm, useWorkspace } from "../../state/workspace";
 import { connectionConfig } from "../../testing/connections";
 import { openSqlTab } from "../editor/runActions";
 import { dropEditor } from "../editor/editorStates";
-import { SavedPalette } from "../saved/SavedPalette";
+import { QueriesDialog } from "../queries/QueriesDialog";
 import { InstallingOverlay } from "../updates/InstallingOverlay";
 import { SettingsDialog } from "./SettingsScreen";
 
@@ -74,7 +74,7 @@ function Dialogs() {
       <textarea data-testid="opener" />
       <SettingsDialog />
       <Overlays />
-      <SavedPalette />
+      <QueriesDialog />
     </>
   );
 }

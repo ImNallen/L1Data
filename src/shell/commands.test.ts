@@ -65,7 +65,7 @@ it("does not save while a dialog is up", async () => {
   const cmds = recordIpc();
   seedEditor("t1", "select 1;");
   useWorkspace.getState().addTab({ id: "t1", title: "a.sql", console: { db: null, mode: "AutoCommit" }, table: null });
-  useWorkspace.getState().open({ kind: "history" });
+  useWorkspace.getState().open({ kind: "queries", tab: "history" });
   press("s")?.run();
   press("s", { metaKey: true, shiftKey: true })?.run();
   press("e", { metaKey: true, shiftKey: true })?.run();
@@ -89,9 +89,18 @@ it("maps each shortcut to its command", () => {
 it("toggles Saved queries on its shortcut, leaving settings for the workspace first", () => {
   useWorkspace.getState().openSettings("general");
   press("e")?.run();
-  expect([useWorkspace.getState().screen, useWorkspace.getState().overlay]).toEqual([{ kind: "workspace" }, { kind: "saved", entry: { kind: "browse" } }]);
+  expect([useWorkspace.getState().screen, useWorkspace.getState().overlay]).toEqual([
+    { kind: "workspace" },
+    { kind: "queries", tab: "saved", entry: { kind: "browse" } },
+  ]);
   press("e")?.run();
   expect(useWorkspace.getState().overlay).toEqual({ kind: "none" });
+});
+
+it("switches the Queries dialog from History to Saved on the Saved queries shortcut", () => {
+  useWorkspace.getState().open({ kind: "queries", tab: "history" });
+  press("e")?.run();
+  expect(useWorkspace.getState().overlay).toEqual({ kind: "queries", tab: "saved", entry: { kind: "browse" } });
 });
 
 it("saves the active tab's statement on ⌘⇧E", async () => {
@@ -100,7 +109,7 @@ it("saves the active tab's statement on ⌘⇧E", async () => {
   seedEditor("t1", "select 1;");
   useWorkspace.getState().addTab({ id: "t1", title: "a.sql", console: { db: null, mode: "AutoCommit" }, table: null });
   press("e", { metaKey: true, shiftKey: true })?.run();
-  await vi.waitFor(() => expect(useWorkspace.getState().overlay).toEqual({ kind: "saved", entry: { kind: "name", id: 1 } }));
+  await vi.waitFor(() => expect(useWorkspace.getState().overlay).toEqual({ kind: "queries", tab: "saved", entry: { kind: "name", id: 1 } }));
 });
 
 it("takes Cmd alone on macOS and leaves the Ctrl chords to the editor", () => {
@@ -157,7 +166,7 @@ const searchState = () => {
 };
 
 it("opens quick navigation on ⌘P, replacing the current overlay and preserving the tree filter", () => {
-  useWorkspace.getState().open({ kind: "history" });
+  useWorkspace.getState().open({ kind: "queries", tab: "history" });
   useWorkspace.getState().setTreeQuery("orders");
   press("p")?.run();
   expect(searchState()).toEqual({ screen: { kind: "workspace" }, overlay: { kind: "navigation" }, sidebar: true, treeQuery: "orders" });
@@ -212,7 +221,7 @@ it.each(["w", ",", "t"])("drops the settings search when ⌘%s leaves settings, 
 });
 
 it("closes an open overlay when ⌘, opens settings", () => {
-  useWorkspace.getState().open({ kind: "history" });
+  useWorkspace.getState().open({ kind: "queries", tab: "history" });
   press(",")?.run();
   expect([useWorkspace.getState().screen, useWorkspace.getState().overlay]).toEqual([{ kind: "settings", section: "general", query: "" }, { kind: "none" }]);
 });
@@ -247,7 +256,10 @@ it("preserves a pending approval and every unrelated overlay on the command-pane
   expect(useWorkspace.getState().overlay).toBe(approval);
   useWorkspace.getState().answer("run");
   expect(await answer).toBe("run");
-  for (const overlay of [{ kind: "history" }, { kind: "connection", editing: null }] as const) {
+  for (const overlay of [
+    { kind: "queries", tab: "history" },
+    { kind: "connection", editing: null },
+  ] as const) {
     useWorkspace.getState().open(overlay);
     openCommandPalette();
     expect(useWorkspace.getState().overlay).toBe(overlay);

@@ -136,12 +136,12 @@ it("filters unavailable actions reactively and rechecks a stale selection before
   act(() => useWorkspace.getState().setActive(tab));
   const replacement = useWorkspace.getState().overlay;
   act(() => {
-    useWorkspace.getState().open({ kind: "history" });
+    useWorkspace.getState().open({ kind: "queries", tab: "history" });
     fireEvent.click(screen.getByTestId("command-item-new-query"));
   });
   expect(allCells(useWorkspace.getState())).toHaveLength(1);
   expect(useWorkspace.getState().overlay).not.toBe(replacement);
-  expect(useWorkspace.getState().overlay.kind).toBe("history");
+  expect(useWorkspace.getState().overlay).toEqual({ kind: "queries", tab: "history" });
 });
 
 it("offers Save query for edited table text and hides it again for unchanged browse text", async () => {
@@ -205,9 +205,9 @@ it("keeps successor dialogs focused, including an asynchronous saved-query dialo
   await act(async () => {
     reply?.({ id: 1, alreadySaved: false, queries: { rev: 2, items: [] } });
   });
-  await waitFor(() => expect(document.activeElement?.closest('[role="dialog"]')?.getAttribute("data-testid")).toBe("saved-palette"));
+  await waitFor(() => expect(document.activeElement?.closest('[role="dialog"]')?.getAttribute("data-testid")).toBe("queries-dialog"));
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-  expect(document.activeElement?.closest('[role="dialog"]')?.getAttribute("data-testid")).toBe("saved-palette");
+  expect(document.activeElement?.closest('[role="dialog"]')?.getAttribute("data-testid")).toBe("queries-dialog");
 });
 
 it("preserves Settings and its filter on cancel, shows accurate labels, and can close Settings", async () => {

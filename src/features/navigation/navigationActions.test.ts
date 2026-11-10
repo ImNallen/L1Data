@@ -80,12 +80,12 @@ it("uses the engine table action and closes the popup before its asynchronous er
     expect(cmd).toBe("table_script");
     expect(args).toEqual({ db: ref.db, schema: ref.schema, table: ref.relation });
     expect(ws().overlay.kind).toBe("none");
-    ws().open({ kind: "history" });
+    ws().open({ kind: "queries", tab: "history" });
     return { text: "engine browse template", acceptedTexts: ["engine browse template"] };
   });
   ws().open({ kind: "navigation" });
   const opened = await activateDestination({ kind: "relation", ref });
   expect(opened && ws().tabs[opened]?.console.db).toEqual(reporting);
   expect(opened && textOf(opened)).toBe("engine browse template");
-  expect(ws().overlay.kind).toBe("history");
+  expect(ws().overlay).toEqual({ kind: "queries", tab: "history" });
 });

@@ -45,7 +45,7 @@ it("saves the statement at the cursor of the active tab and opens the palette on
   expect(calls).toEqual([
     { cmd: "saved_query_save", args: { text: "select 1;\nselect 2;", target: { kind: "cursor", offset: 12 }, databaseKind: "Postgres" } },
   ]);
-  expect(useWorkspace.getState().overlay).toEqual({ kind: "saved", entry: { kind: "name", id: 4 } });
+  expect(useWorkspace.getState().overlay).toEqual({ kind: "queries", tab: "saved", entry: { kind: "name", id: 4 } });
   expect(useLive.getState().savedQueries).toEqual(saved.queries);
 });
 
@@ -53,7 +53,7 @@ it("opens the palette on the entry already saved instead of naming a duplicate",
   recordIpc(() => ({ id: 4, alreadySaved: true, queries: list(2, query(4, "select 2", "select 2")) }));
   openSqlTab({ text: "select 2" });
   await saveActiveQuery();
-  expect(useWorkspace.getState().overlay).toEqual({ kind: "saved", entry: { kind: "existing", id: 4 } });
+  expect(useWorkspace.getState().overlay).toEqual({ kind: "queries", tab: "saved", entry: { kind: "existing", id: 4 } });
 });
 
 it("says why nothing was saved, and saves nothing with no tab or while a dialog is up", async () => {
@@ -63,7 +63,7 @@ it("says why nothing was saved, and saves nothing with no tab or while a dialog 
   await saveActiveQuery();
   expect(useWorkspace.getState().toast?.text).toBe("Open a query tab to save a query.");
   openSqlTab({ text: "select 1" });
-  useWorkspace.getState().open({ kind: "history" });
+  useWorkspace.getState().open({ kind: "queries", tab: "history" });
   await saveActiveQuery();
   expect(calls).toEqual([]);
   useWorkspace.getState().close();
@@ -73,14 +73,14 @@ it("says why nothing was saved, and saves nothing with no tab or while a dialog 
   expect(useWorkspace.getState().overlay).toEqual({ kind: "none" });
 });
 
-it("saves a history query whole in its dialect, closing history for the palette", async () => {
+it("saves a history query whole in its dialect, then switches the dialog to its Saved entry", async () => {
   const calls = recordIpc(() => ({ id: 9, alreadySaved: false, queries: list(2, query(9, "Locks", "select * from sys.dm_tran_locks", "SqlServer")) }));
-  useWorkspace.getState().open({ kind: "history" });
+  useWorkspace.getState().open({ kind: "queries", tab: "history" });
   const saving = saveHistoryQuery("select * from sys.dm_tran_locks", "SqlServer");
-  expect(useWorkspace.getState().overlay).toEqual({ kind: "none" });
+  expect(useWorkspace.getState().overlay).toEqual({ kind: "queries", tab: "history" });
   await saving;
   expect(calls[0]).toEqual({ cmd: "saved_query_save", args: { text: "select * from sys.dm_tran_locks", target: { kind: "all" }, databaseKind: "SqlServer" } });
-  expect(useWorkspace.getState().overlay).toEqual({ kind: "saved", entry: { kind: "name", id: 9 } });
+  expect(useWorkspace.getState().overlay).toEqual({ kind: "queries", tab: "saved", entry: { kind: "name", id: 9 } });
 });
 
 it("writes the clipboard before any IPC, then records the use and names the copy", async () => {

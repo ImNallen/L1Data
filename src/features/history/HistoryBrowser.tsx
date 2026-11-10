@@ -1,14 +1,12 @@
-import * as Dialog from "@radix-ui/react-dialog";
 import { BookmarkPlusIcon, CheckIcon, ClockIcon, CopyIcon, PlayIcon } from "lucide-react";
-import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { commands, type HistoryFilter, type HistoryOutcome } from "../../ipc/bindings";
 import { isMac } from "../../shell/hostedWindow";
 import { sameDb } from "../../state/dbKey";
 import { useLive } from "../../state/live";
 import { activeTab, confirm, tabTarget, useWorkspace } from "../../state/workspace";
 import { day } from "../../ui/day";
-import { ACTIVE_OPTION, Button, cx, DialogSurface, Kbd, DatabaseBadge, StatusDot } from "../../ui/primitives";
-import { focusEditor } from "../editor/editorStates";
+import { ACTIVE_OPTION, Button, cx, Kbd, DatabaseBadge, StatusDot } from "../../ui/primitives";
 import { SqlText } from "../editor/SqlText";
 import { formatElapsed, pluralRows } from "../results/format";
 import { saveHistoryQuery } from "../saved/savedActions";
@@ -61,13 +59,13 @@ async function clearHistory() {
   try {
     await commands.historyClear();
     useLive.setState({ historyTail: [] });
-    useWorkspace.getState().open({ kind: "history" });
+    useWorkspace.getState().openQueries("history");
   } catch (e) {
     useWorkspace.getState().notify(String(e));
   }
 }
 
-function HistoryBrowser({ close, restoreEditorFocus }: { close: () => void; restoreEditorFocus: () => void }) {
+export function HistoryBrowser({ closeToEditor, controls }: { closeToEditor: () => void; controls: ReactNode }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<HistoryFilter>("All");
   const [copied, setCopied] = useState(false);
@@ -126,14 +124,11 @@ function HistoryBrowser({ close, restoreEditorFocus }: { close: () => void; rest
       return;
     }
     if (action === "insert") {
-      if (!insertHistoryQuery(detail.sql)) return;
-      restoreEditorFocus();
-      close();
+      if (insertHistoryQuery(detail.sql)) closeToEditor();
       return;
     }
     openHistoryQuery(selected, detail.sql, action === "run");
-    restoreEditorFocus();
-    close();
+    closeToEditor();
   }
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     const search = searchRef.current;
@@ -151,7 +146,7 @@ function HistoryBrowser({ close, restoreEditorFocus }: { close: () => void; rest
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col" onKeyDown={onKeyDown}>
+    <div className="flex min-h-0 flex-1 flex-col" onKeyDown={onKeyDown}>
       <div className="flex min-h-14 shrink-0 items-center gap-3 border-b border-control px-4">
         <ClockIcon size={18} className="shrink-0 text-muted" aria-hidden />
         <input
@@ -192,16 +187,7 @@ function HistoryBrowser({ close, restoreEditorFocus }: { close: () => void; rest
             </button>
           ))}
         </div>
-        <Dialog.Close asChild>
-          <button
-            type="button"
-            data-testid="history-close"
-            aria-label="Close history"
-            className="ml-1 border-l border-control pl-3 text-dim outline-none hover:text-fg focus-visible:ring-1 focus-visible:ring-focus"
-          >
-            <Kbd>esc</Kbd>
-          </button>
-        </Dialog.Close>
+        {controls}
       </div>
       {error && (
         <div role="alert" className="flex shrink-0 items-center justify-between gap-3 border-b border-control px-4 py-2 text-ui-12 text-danger">
@@ -458,37 +444,5 @@ function HistoryBrowser({ close, restoreEditorFocus }: { close: () => void; rest
         </button>
       </div>
     </div>
-  );
-}
-
-export function HistoryPalette() {
-  const open = useWorkspace((s) => s.overlay.kind === "history");
-  const close = useWorkspace((s) => s.close);
-  const restoreFocus = useRef(false);
-  return (
-    <Dialog.Root open={open} onOpenChange={(value) => !value && close()}>
-      <Dialog.Portal>
-        <DialogSurface
-          aria-describedby={undefined}
-          data-testid="history-palette"
-          onCloseAutoFocus={(event) => {
-            if (restoreFocus.current) {
-              event.preventDefault();
-              restoreFocus.current = false;
-              focusEditor();
-            }
-          }}
-          className="h-[640px] w-[960px] overflow-hidden"
-        >
-          <Dialog.Title className="sr-only">Query history</Dialog.Title>
-          <HistoryBrowser
-            close={close}
-            restoreEditorFocus={() => {
-              restoreFocus.current = true;
-            }}
-          />
-        </DialogSurface>
-      </Dialog.Portal>
-    </Dialog.Root>
   );
 }

@@ -30,7 +30,7 @@ it("answers null when the question is cancelled, replaced, or swept away by anot
   const cancelled = ask(q("a"));
   ws().close();
   const replaced = ask(q("b"));
-  ws().open({ kind: "history" });
+  ws().open({ kind: "queries", tab: "history" });
   const settings = ask(q("c"));
   ws().openSettings();
   const search = ask(q("d"));
