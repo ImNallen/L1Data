@@ -1,8 +1,10 @@
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import { BookmarkIcon, ChartNoAxesColumnIcon, ClockIcon, DatabaseIcon, PlusIcon, SlidersHorizontalIcon } from "lucide-react";
 import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
+import type { DatabaseRef } from "../../ipc/bindings";
 import { isViewKind, useCatalog, viewFor } from "../../state/catalog";
-import { useLive } from "../../state/live";
+import { dbKey } from "../../state/dbKey";
+import { instanceOf, useLive } from "../../state/live";
 import { shownDb, useWorkspace } from "../../state/workspace";
 import { cx, IconButton, MenuContent, MenuItem } from "../../ui/primitives";
 import { parseQuery } from "../../ui/textMatch";
@@ -10,6 +12,8 @@ import type { HostedWindow } from "../../shell/hostedWindow";
 import { SidebarToggle, windowLeadingInset } from "../../shell/WindowEdgeActions";
 import { openTableTab } from "../editor/runActions";
 import { UpdateButton } from "../updates/UpdateButton";
+import { countText, schemaCount, type ShownCount } from "./pickers";
+import { PickerHost, PickerPill, useIsPickerOpen, type PickerTarget } from "./VisibilityPopover";
 import { ConnectionTree } from "./ConnectionTree";
 import { SidebarSearch } from "./SidebarSearch";
 import { focusFirstRow } from "./treeFocus";
@@ -139,6 +143,20 @@ function FirstConnection({ onAdd }: { onAdd: () => void }) {
   );
 }
 
+function SchemaTrigger({ db, count, label, testId }: { db: DatabaseRef; count: ShownCount | null; label?: string; testId: string }) {
+  const target: PickerTarget = { kind: "schemas", db };
+  const active = useIsPickerOpen(target);
+  return (
+    <PickerPill
+      target={target}
+      active={active}
+      count={count ?? { shown: 0, total: 0, warn: false }}
+      label={label ?? (count ? `Schemas ${countText(count)}` : "Schemas…")}
+      testId={testId}
+    />
+  );
+}
+
 export function Sidebar({ hosted }: { hosted: HostedWindow | null }) {
   const configs = useWorkspace((s) => s.configs);
   const shown = useWorkspace(shownDb);
@@ -156,6 +174,8 @@ export function Sidebar({ hosted }: { hosted: HostedWindow | null }) {
   // The start commands with no database chosen browse the first connection's database. A notebook with no connection browses none.
   const db = useMemo(() => shown ?? (!inNotebook && first ? { connectionId: first.id, database: first.database } : null), [shown, inNotebook, first]);
   const catalog = useCatalog((s) => viewFor(s.views, db)?.catalog);
+  const databaseState = useLive((s) => (db ? instanceOf(s.connections[db.connectionId])?.databases.find((d) => d.name === db.database) : undefined));
+  const shownSchemas = databaseState ? schemaCount(databaseState, catalog) : null;
   const databaseScope = useMemo(() => ({ kind: "databases" as const, selected: db, select: showDatabase }), [db, showDatabase]);
   const objectScope = useMemo(() => db && { kind: "objects" as const, db, category }, [db, category]);
   const filter = useTreeFilter(query);
@@ -241,12 +261,20 @@ export function Sidebar({ hosted }: { hosted: HostedWindow | null }) {
       </section>
       <SplitHandle container={root} />
       <section className="flex min-h-0 flex-1 flex-col">
-        <div className="flex h-[42px] shrink-0 items-center gap-2 px-[18px]">
+        <div data-picker-anchor className="flex min-h-[42px] shrink-0 items-center gap-2 px-[18px]">
           {db && <DatabaseIcon size={14} className="shrink-0 text-keyword" />}
-          <h2 className="min-w-0 shrink truncate text-ui-13 font-semibold">{db?.database ?? "Database objects"}</h2>
-          {db && <span className="min-w-0 flex-1 truncate text-ui-11 text-dim">on {configs[db.connectionId]?.name}</span>}
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-ui-13 font-semibold">{db?.database ?? "Database objects"}</h2>
+            {db && <div className="truncate text-ui-11 text-dim">{configs[db.connectionId]?.name}</div>}
+          </div>
+          {db && databaseState && <SchemaTrigger key={dbKey(db)} db={db} count={shownSchemas} testId="heading-schema-picker" />}
         </div>
-        {objectScope ? (
+        {db && shownSchemas?.shown === 0 ? (
+          <div className="flex flex-col items-center gap-2 px-4 py-8 text-ui-12 text-dim">
+            <p>No schemas shown</p>
+            <SchemaTrigger key={dbKey(db)} db={db} count={shownSchemas} label="Choose schemas" testId="empty-schema-picker" />
+          </div>
+        ) : objectScope ? (
           <>
             <SidebarSearch
               testId="object-search"
@@ -266,6 +294,7 @@ export function Sidebar({ hosted }: { hosted: HostedWindow | null }) {
           <p className="px-6 pt-12 text-center text-ui-11.5 leading-relaxed text-dim">Choose a database to browse its tables, views, and routines.</p>
         )}
       </section>
+      <PickerHost />
     </aside>
   );
 }

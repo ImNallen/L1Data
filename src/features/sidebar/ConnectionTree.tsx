@@ -60,7 +60,7 @@ import { openSqlTab, openTableTab } from "../editor/runActions";
 import { columnType, defaultText, indexText, keyText, triggerText, type RowText } from "./detailText";
 import { databaseCount, schemaCount } from "./pickers";
 import type { FilteredRelation, FilteredSchema, TreeFilter } from "./treeFilter";
-import { PickerHost, PickerPill, type PickerTarget } from "./VisibilityPopover";
+import { PickerPill, type PickerTarget } from "./VisibilityPopover";
 import { INDENT, VirtualTree, type RowNode, type TintGroup, type TreeNode } from "./VirtualTree";
 import type { ShownCount } from "./pickers";
 
@@ -1338,7 +1338,6 @@ export function ConnectionTree({
         ) : (
           <VirtualTree key={filter ? `search:${query}` : "tree"} nodes={tree.b.out} scrollRef={ref} />
         )}
-        <PickerHost />
       </div>
       {/* The loading and failure notes are rows that scroll in and out of the DOM, so the announcements live here, outside the tree. */}
       <div role="status" className="sr-only">

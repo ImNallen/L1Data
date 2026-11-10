@@ -112,17 +112,17 @@ describe("countText", () => {
 describe("databasePicker", () => {
   it("lists the server's databases with their schema counts and access", () => {
     const m = databasePicker(config, prod, "");
-    expect(m.title).toBe("Databases in prod-postgres");
-    expect(m.subtitle).toBe("2 of 5 databases shown");
-    expect(m.placeholder).toBe("Find a database");
-    expect(m.footnote).toBe("Adding a database also shows its default schema");
+    expect(m.title).toBe("Databases in sidebar");
+    expect(m.count).toEqual({ shown: 2, total: 5, warn: false });
+    expect(m.placeholder).toBe("Search databases…");
+    expect(m.context).toBe("prod-postgres");
     expect(m.systemLabel).toBe("Show system databases");
     expect(m.showSystem).toBe(false);
     expect(m.items).toEqual([
       { name: "legacy_crm", checked: false, isDefault: false, system: false, disabled: false, trailing: "2 schemas" },
       { name: "postgres", checked: false, isDefault: false, system: false, disabled: false, trailing: "1 schema" },
       { name: "reporting", checked: true, isDefault: false, system: false, disabled: false, trailing: "…" },
-      { name: "secret", checked: false, isDefault: false, system: false, disabled: true, trailing: "no access", trailingTitle: "No CONNECT privilege" },
+      { name: "secret", checked: false, isDefault: false, system: false, disabled: true, trailing: "No access", trailingTitle: "No CONNECT privilege" },
       { name: "shop", checked: true, isDefault: true, system: false, disabled: false, trailing: "4 schemas" },
       {
         name: "vault",
@@ -130,7 +130,7 @@ describe("databasePicker", () => {
         isDefault: false,
         system: false,
         disabled: false,
-        trailing: "no access",
+        trailing: "No access",
         trailingTitle: "permission denied for database vault",
       },
     ]);
@@ -146,20 +146,20 @@ describe("databasePicker", () => {
         isDefault: false,
         system: true,
         disabled: true,
-        trailing: "no access",
+        trailing: "No access",
         trailingTitle: "Connections are not allowed",
       },
     ]);
   });
 
-  it("filters by a case-insensitive substring and keeps the subtitle on the whole list", () => {
+  it("filters by a case-insensitive substring and counts the whole list", () => {
     const m = databasePicker(config, prod, " CR ");
     expect(m.items.map((i) => i.name)).toEqual(["legacy_crm", "secret"]);
-    expect(m.subtitle).toBe("2 of 5 databases shown");
+    expect(m.count).toEqual({ shown: 2, total: 5, warn: false });
   });
 
   it("says database for a server with one", () => {
-    expect(databasePicker(config, instance([db("shop", { shown: true })]), "").subtitle).toBe("1 of 1 database shown");
+    expect(databasePicker(config, instance([db("shop", { shown: true })]), "").count).toEqual({ shown: 1, total: 1, warn: false });
   });
 
   it("builds the engine's intents", () => {
@@ -172,11 +172,11 @@ describe("databasePicker", () => {
 
 describe("schemaPicker", () => {
   it("lists the database's schemas with their table counts", () => {
-    const m = schemaPicker(shopState, shopCatalog, "");
-    expect(m.title).toBe("Schemas in shop");
-    expect(m.subtitle).toBe("2 of 4 schemas shown");
-    expect(m.placeholder).toBe("Find a schema");
-    expect(m.footnote).toBeNull();
+    const m = schemaPicker(shopState, shopCatalog, "", config.name);
+    expect(m.title).toBe("Schemas in sidebar");
+    expect(m.count).toEqual({ shown: 2, total: 4, warn: false });
+    expect(m.placeholder).toBe("Search schemas…");
+    expect(m.context).toBe("shop · prod-postgres");
     expect(m.systemLabel).toBe("Show system schemas");
     expect(m.items).toEqual([
       { name: "analytics_tmp", checked: false, isDefault: false, trailing: "1 table", disabled: false, system: false },
@@ -187,14 +187,14 @@ describe("schemaPicker", () => {
   });
 
   it("lists system schemas while they are shown, filtered like the database picker", () => {
-    const m = schemaPicker({ ...shopState, showSystemSchemas: true }, shopCatalog, "PG_");
+    const m = schemaPicker({ ...shopState, showSystemSchemas: true }, shopCatalog, "PG_", config.name);
     expect(m.showSystem).toBe(true);
-    expect(m.subtitle).toBe("3 of 6 schemas shown");
+    expect(m.count).toEqual({ shown: 3, total: 6, warn: false });
     expect(m.items).toEqual([{ name: "pg_catalog", checked: true, isDefault: false, trailing: "64 tables", disabled: false, system: true }]);
   });
 
   it("builds the engine's intents for its database", () => {
-    const m = schemaPicker(shopState, shopCatalog, "");
+    const m = schemaPicker(shopState, shopCatalog, "", config.name);
     expect(m.preset("None")).toEqual({ kind: "Schemas", database: "shop", preset: "None" });
     expect(m.toggle("billing", true)).toEqual({ kind: "Schema", database: "shop", name: "billing", shown: true });
     expect(m.setShowSystem(false)).toEqual({ kind: "ShowSystemSchemas", database: "shop", show: false });
@@ -214,26 +214,30 @@ describe("pickerBox", () => {
   const window_ = { width: 1280, height: 577 };
   const row = (left: number, top: number, width: number) => ({ left, top, bottom: top + 24, width });
 
-  it("widens past a 256 px sidebar's 240 px row to 288 px, from the row's left edge, under the row", () => {
-    expect(pickerBox(row(8, 98, 240), window_)).toEqual({ anchor: { top: 126 }, left: 8, width: 288, maxHeight: 443 });
+  it("opens beside the sidebar with a preferred width of 360", () => {
+    expect(pickerBox(row(8, 98, 240), window_)).toEqual({ anchor: { top: 98 }, left: 252, width: 360, maxHeight: 471 });
+    expect(pickerBox(row(8, 98, 400), window_)).toEqual({ anchor: { top: 98 }, left: 412, width: 360, maxHeight: 471 });
   });
 
-  it("matches a row wider than 288 px", () => {
-    expect(pickerBox(row(8, 98, 400), window_)).toEqual({ anchor: { top: 126 }, left: 8, width: 400, maxHeight: 443 });
-  });
-
-  it("stays inside a narrow window", () => {
+  it("clamps to narrow windows and opens below or above the anchor", () => {
     expect(pickerBox(row(8, 98, 240), { width: 280, height: 577 })).toEqual({ anchor: { top: 126 }, left: 8, width: 264, maxHeight: 443 });
-    expect(pickerBox(row(120, 98, 240), { width: 400, height: 577 })).toEqual({ anchor: { top: 126 }, left: 104, width: 288, maxHeight: 443 });
+    expect(pickerBox(row(120, 98, 240), { width: 400, height: 577 })).toEqual({ anchor: { top: 126 }, left: 32, width: 360, maxHeight: 443 });
+    expect(pickerBox(row(8, 500, 240), { width: 400, height: 577 })).toEqual({ anchor: { bottom: 81 }, left: 8, width: 360, maxHeight: 488 });
   });
 
-  it("opens above a row near the bottom of the window, as tall as the room above it", () => {
-    expect(pickerBox(row(8, 500, 240), window_)).toEqual({ anchor: { bottom: 81 }, left: 8, width: 288, maxHeight: 488 });
+  it("keeps a picker beside a low row inside the viewport", () => {
+    expect(pickerBox(row(8, 500, 240), window_)).toEqual({ anchor: { top: 329 }, left: 252, width: 360, maxHeight: 240 });
+    expect(pickerBox(row(8, 100, 240), { width: 1280, height: 180 })).toEqual({ anchor: { top: 8 }, left: 252, width: 360, maxHeight: 164 });
   });
 
-  it("stays below while the room below fits the picker, and otherwise takes the larger side", () => {
-    expect(pickerBox(row(8, 300, 240), window_)).toEqual({ anchor: { top: 328 }, left: 8, width: 288, maxHeight: 241 });
-    expect(pickerBox(row(8, 100, 240), { width: 1280, height: 300 })).toEqual({ anchor: { top: 128 }, left: 8, width: 288, maxHeight: 164 });
-    expect(pickerBox(row(8, 200, 240), { width: 1280, height: 300 })).toEqual({ anchor: { bottom: 104 }, left: 8, width: 288, maxHeight: 188 });
+  it("uses the roomier vertical side in short narrow windows", () => {
+    expect(pickerBox(row(8, 100, 240), { width: 400, height: 300 })).toEqual({ anchor: { top: 128 }, left: 8, width: 360, maxHeight: 164 });
+    expect(pickerBox(row(8, 200, 240), { width: 400, height: 300 })).toEqual({ anchor: { bottom: 104 }, left: 8, width: 360, maxHeight: 188 });
+  });
+
+  it("moves upward to fit its rows and footer beside a low heading", () => {
+    const box = pickerBox(row(8, 300, 240), window_, 494);
+    expect(box.anchor).toEqual({ top: 75 });
+    expect(box.maxHeight).toBeGreaterThanOrEqual(494);
   });
 });

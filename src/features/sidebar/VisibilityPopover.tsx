@@ -8,8 +8,8 @@ import { useCatalog, viewFor } from "../../state/catalog";
 import { dbKey } from "../../state/dbKey";
 import { instanceOf, useLive } from "../../state/live";
 import { useWorkspace } from "../../state/workspace";
-import { Button, cx, IconButton, inputClass, Spinner } from "../../ui/primitives";
-import { editView, probeDatabases } from "../connections/connectionActions";
+import { Button, cx, IconButton, Spinner, Switch } from "../../ui/primitives";
+import { editView, probeDatabases, refreshCatalog } from "../connections/connectionActions";
 import { countText, databasePicker, namesToProbe, pickerBox, schemaPicker, type PickerItem, type PickerModel, type ShownCount } from "./pickers";
 
 export type PickerTarget = { kind: "databases"; id: ConnectionId } | { kind: "schemas"; db: DatabaseRef };
@@ -54,6 +54,7 @@ export function PickerPill({
     <button
       type="button"
       data-testid={testId}
+      aria-label={target.kind === "schemas" ? "Choose schemas" : "Choose databases"}
       aria-haspopup="dialog"
       aria-expanded={active}
       onClick={(e) => {
@@ -98,7 +99,7 @@ function DatabasesPicker({ id, trigger }: { id: ConnectionId; trigger: HTMLEleme
   if (!config || !instance) return null;
   const model = databasePicker(config, instance, query);
   return (
-    <Popover testId="picker-databases" trigger={trigger} title={model.title} subtitle={model.subtitle}>
+    <Popover testId="picker-databases" trigger={trigger} title={model.title} context={model.context}>
       <PickerBody
         model={model}
         query={query}
@@ -114,13 +115,20 @@ function SchemasPicker({ db, trigger }: { db: DatabaseRef; trigger: HTMLElement 
   useCloseWhenGone(trigger);
   const state = useLive((s) => instanceOf(s.connections[db.connectionId])?.databases.find((d) => d.name === db.database));
   const catalog = useCatalog((s) => viewFor(s.views, db)?.catalog);
+  const connectionName = useWorkspace((s) => s.configs[db.connectionId]?.name ?? "");
   const [query, setQuery] = useState("");
   if (!state) return null;
+  const failure =
+    state.catalog.kind === "Failed" ? (
+      <div role="alert" className="flex shrink-0 items-center gap-2 text-ui-12 text-danger">
+        <span className="min-w-0 flex-1 break-words">{state.catalog.message}</span>
+        <Button onClick={() => void refreshCatalog(db)}>Retry</Button>
+      </div>
+    ) : null;
   if (!catalog) {
-    const failed = state.catalog.kind === "Failed" ? state.catalog.message : null;
     return (
-      <Popover testId="picker-schemas" trigger={trigger} title={`Schemas in ${db.database}`} subtitle={failed ?? "Loading catalog"}>
-        {!failed && (
+      <Popover testId="picker-schemas" trigger={trigger} title="Schemas in sidebar" context={`${db.database} · ${connectionName}`}>
+        {failure ?? (
           <div className="flex h-8 items-center gap-2 border-t border-control px-3 text-ui-12 text-muted">
             <Spinner /> Loading schemas
           </div>
@@ -128,9 +136,10 @@ function SchemasPicker({ db, trigger }: { db: DatabaseRef; trigger: HTMLElement 
       </Popover>
     );
   }
-  const model = schemaPicker(state, catalog, query);
+  const model = schemaPicker(state, catalog, query, connectionName);
   return (
-    <Popover testId="picker-schemas" trigger={trigger} title={model.title} subtitle={model.subtitle}>
+    <Popover testId="picker-schemas" trigger={trigger} title={model.title} context={model.context}>
+      {failure}
       <PickerBody model={model} query={query} onQuery={setQuery} onEdit={(edit) => void editView(db.connectionId, edit)} />
     </Popover>
   );
@@ -158,27 +167,17 @@ function wrapTab(e: ReactKeyboardEvent<HTMLElement>) {
  * Placed by `pickerBox` beside the trigger's row. Escape and a click outside close it. It holds keyboard focus while open
  * and gives it back to the pill when it closes.
  */
-function Popover({
-  testId,
-  trigger,
-  title,
-  subtitle,
-  children,
-}: {
-  testId: string;
-  trigger: HTMLElement;
-  title: string;
-  subtitle: string;
-  children: ReactNode;
-}) {
+function Popover({ testId, trigger, title, context, children }: { testId: string; trigger: HTMLElement; title: string; context: string; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const close = usePicker((s) => s.close);
 
   const place = useCallback(() => {
     const el = ref.current;
-    const row = trigger.closest<HTMLElement>('[role="treeitem"]');
-    if (!el || !row) return;
-    const box = pickerBox(row.getBoundingClientRect(), { width: window.innerWidth, height: window.innerHeight });
+    const row = trigger.closest<HTMLElement>("[data-picker-anchor]") ?? trigger.closest<HTMLElement>('[role="treeitem"]') ?? trigger;
+    if (!el) return;
+    const list = el.querySelector<HTMLElement>("[data-picker-list]");
+    const contentHeight = el.scrollHeight + (list ? Math.max(0, list.scrollHeight - list.clientHeight) : 0);
+    const box = pickerBox(row.getBoundingClientRect(), { width: window.innerWidth, height: window.innerHeight }, contentHeight);
     el.style.top = "top" in box.anchor ? `${box.anchor.top}px` : "";
     el.style.bottom = "bottom" in box.anchor ? `${box.anchor.bottom}px` : "";
     el.style.left = `${box.left}px`;
@@ -228,24 +227,25 @@ function Popover({
       aria-label={title}
       tabIndex={-1}
       onKeyDown={wrapTab}
-      className="motion-pop fixed z-30 flex flex-col overflow-hidden rounded-xl border border-control bg-raised shadow-[var(--shadow-popover)] outline-none"
+      className="motion-pop fixed z-30 flex w-[360px] max-w-[calc(100vw-16px)] flex-col gap-2.5 overflow-y-auto rounded-[10px] border border-border p-4 bg-raised shadow-[var(--shadow-popover)] outline-none"
     >
-      <div className="relative shrink-0 px-3 pt-2.5 pb-2">
+      <div className="relative shrink-0">
         <div title={title} className="truncate pr-7 text-ui-14 font-semibold text-fg">
           {title}
         </div>
-        <div className="truncate text-ui-12 text-muted">{subtitle}</div>
-        <IconButton data-testid="picker-close" aria-label="Close" onClick={close} className="absolute top-2 right-2 size-6">
+
+        <IconButton data-testid="picker-close" aria-label="Close" onClick={close} className="absolute -top-0.5 -right-0.5 size-6">
           <XIcon size={15} />
         </IconButton>
       </div>
+      <div className="shrink-0 truncate text-ui-11 text-dim">{context}</div>
       {children}
     </div>,
     document.body,
   );
 }
 
-const ROW_HEIGHT = 32;
+const ROW_HEIGHT = 38;
 
 function Check({ checked, disabled, onChange, testId }: { checked: boolean; disabled?: boolean; onChange: (on: boolean) => void; testId: string }) {
   return (
@@ -256,7 +256,7 @@ function Check({ checked, disabled, onChange, testId }: { checked: boolean; disa
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
-        className="peer size-4 appearance-none rounded-[4px] border border-dim checked:border-run checked:bg-run"
+        className="peer size-4 appearance-none rounded-[3px] border border-control checked:border-run checked:bg-run"
       />
       <CheckIcon size={12} strokeWidth={3} className="pointer-events-none absolute text-run-fg opacity-0 peer-checked:opacity-100" />
     </span>
@@ -264,9 +264,14 @@ function Check({ checked, disabled, onChange, testId }: { checked: boolean; disa
 }
 
 const QUICK_ACTIONS = [
-  { preset: "All", label: "All", testId: "picker-all" },
-  { preset: "DefaultOnly", label: "Default only", testId: "picker-default-only" },
-  { preset: "None", label: "None", testId: "picker-none" },
+  { preset: "All", label: "All", testId: "picker-all", title: "Show all current and future non-system items. Select system items individually." },
+  {
+    preset: "DefaultOnly",
+    label: "Default only",
+    testId: "picker-default-only",
+    title: "Follow the default as it changes. Hide all other items.",
+  },
+  { preset: "None", label: "None", testId: "picker-none", title: "Hide all items, including system items. Open notebooks and queries stay open." },
 ] as const;
 
 /** `probe` asks the engine for the schema counts of the rows on screen; only the database picker has one. */
@@ -299,33 +304,39 @@ function PickerBody({
 
   return (
     <>
-      <div className="relative mx-3 shrink-0">
+      <div className="relative shrink-0">
         <SearchIcon size={15} className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-muted" />
         <input
           data-testid="picker-filter"
+          aria-label={model.placeholder}
           data-autofocus
           value={query}
           onChange={(e) => onQuery(e.target.value)}
           placeholder={model.placeholder}
-          className={cx(inputClass, "pl-8")}
+          className="h-[39px] w-full rounded-[5px] bg-hover pr-2 pl-8 text-ui-12 text-fg placeholder:text-dim"
         />
       </div>
-      <div className="flex shrink-0 gap-1 px-1.5 py-1.5">
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <span className="mr-auto text-ui-11 text-muted">
+          {model.count.shown} of {model.count.total} shown
+        </span>
         {QUICK_ACTIONS.map((a) => (
           <button
             key={a.preset}
             type="button"
             data-testid={a.testId}
+            title={a.title}
             onClick={() => onEdit(model.preset(a.preset))}
-            className="h-7 rounded-md px-1.5 text-ui-13 text-muted hover:bg-hover hover:text-fg"
+            className="rounded text-ui-11 font-medium text-keyword hover:bg-hover"
           >
             {a.label}
           </button>
         ))}
       </div>
-      <div ref={listRef} className="min-h-0 shrink overflow-y-auto border-t border-control" style={{ maxHeight: 10 * ROW_HEIGHT }}>
+      <div className="h-px shrink-0 bg-border" />
+      <div ref={listRef} data-picker-list className="min-h-[38px] shrink overflow-y-auto" style={{ maxHeight: 10 * ROW_HEIGHT }}>
         {model.items.length === 0 ? (
-          <div className="flex h-8 items-center px-3 text-ui-13 text-muted">No matches</div>
+          <div className="flex h-8 items-center px-3 text-ui-13 text-muted">{query.trim() ? "No matches" : "No items available"}</div>
         ) : (
           <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
             {rows.map((r) => {
@@ -336,7 +347,7 @@ function PickerBody({
                   data-testid={`picker-row-${item.name}`}
                   title={item.disabled ? item.trailingTitle : undefined}
                   style={{ height: ROW_HEIGHT, transform: `translateY(${r.start}px)` }}
-                  className={cx("absolute inset-x-0 top-0 flex items-center gap-2.5 px-3", item.disabled ? "opacity-45" : "hover:bg-hover")}
+                  className={cx("absolute inset-x-0 top-0 flex items-center gap-2.5 rounded-[5px] px-2", item.disabled ? "opacity-65" : "hover:bg-hover")}
                 >
                   <Check
                     testId={`picker-check-${item.name}`}
@@ -344,9 +355,9 @@ function PickerBody({
                     disabled={item.disabled}
                     onChange={(on) => onEdit(model.toggle(item.name, on))}
                   />
-                  <span className="min-w-0 truncate text-ui-14 text-fg">{item.name}</span>
-                  {item.isDefault && <span className="shrink-0 rounded-[4px] bg-pill px-1.5 py-0.5 text-ui-11 leading-none text-muted">default</span>}
-                  <span title={item.trailingTitle} className="ml-auto shrink-0 pl-2 text-ui-12 text-muted tabular-nums">
+                  <span className="min-w-0 truncate text-ui-12 text-fg">{item.name}</span>
+                  <span title={item.trailingTitle} className={cx("ml-auto shrink-0 pl-2 text-ui-10 tabular-nums", item.disabled ? "text-danger" : "text-dim")}>
+                    {item.isDefault && "Default · "}
                     {item.trailing}
                   </span>
                 </label>
@@ -355,15 +366,15 @@ function PickerBody({
           </div>
         )}
       </div>
-      {model.footnote && <div className="shrink-0 px-3 pt-1.5 pb-2.5 text-ui-12 text-muted">{model.footnote}</div>}
-      <div className="flex shrink-0 items-center justify-between gap-2 border-t border-control px-3 py-2.5">
-        <label className="flex min-w-0 items-center gap-2.5 text-ui-13 text-muted">
-          <Check testId="picker-system" checked={model.showSystem} onChange={(on) => onEdit(model.setShowSystem(on))} />
-          <span title={model.systemLabel} className="truncate">
-            {model.systemLabel}
-          </span>
-        </label>
-        <Button data-testid="picker-done" onClick={close}>
+      <div className="h-px shrink-0 bg-border" />
+      <div className="flex shrink-0 items-center justify-between gap-2 text-ui-12 text-muted">
+        <span>{model.systemLabel}</span>
+        <Switch testId="picker-system" label={model.systemLabel} checked={model.showSystem} onCheckedChange={(on) => onEdit(model.setShowSystem(on))} />
+      </div>
+      <p className="shrink-0 text-ui-11 leading-[17px] text-dim">{model.footnote}</p>
+      <div className="flex shrink-0 items-center justify-between gap-2">
+        <span className="text-ui-10 text-dim">Sidebar visibility only</span>
+        <Button variant="primary" data-testid="picker-done" onClick={close} className="h-[29px] rounded-[5px] px-1.5 text-ui-11">
           Done
         </Button>
       </div>
