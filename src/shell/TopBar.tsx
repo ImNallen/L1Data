@@ -360,12 +360,7 @@ export function TopBar({ hosted, notebook = false }: { hosted: HostedWindow | nu
               <PlusIcon size={14} />
             </IconButton>
           )}
-          {layout.rightPanel === null && (
-            <>
-              <div className="mx-1 h-5 w-px bg-border" />
-              <WindowEdgeActions hosted={hosted} />
-            </>
-          )}
+          {layout.rightPanel === null && <WindowEdgeActions hosted={hosted} />}
         </div>
       </div>
     </header>

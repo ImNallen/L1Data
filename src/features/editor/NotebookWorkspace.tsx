@@ -57,7 +57,6 @@ function staleReason(id: TabId): string {
 function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: number; viewport: number; focused: boolean }) {
   const tab = useWorkspace((s) => s.tabs[id]);
   const active = useWorkspace((s) => activeId(s) === id);
-  const showResults = useWorkspace((s) => s.layout.results);
   const codeSize = useWorkspace((s) => s.settings.codeFont.size);
   const density = useWorkspace((s) => s.settings.density);
   const pageSize = useWorkspace((s) => s.settings.tablePageSize);
@@ -79,7 +78,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
   const [draftTitle, setDraftTitle] = useState("");
   const [dragged, setDragged] = useState<DraggedHeights>({ editor: null, results: null });
   const [dragging, setDragging] = useState(false);
-  const hasResults = showResults && ((tab?.table != null && active) || (console !== undefined && console.run.kind !== "Idle"));
+  const hasResults = (tab?.table != null && active) || (console !== undefined && console.run.kind !== "Idle");
   const rowCounts = console ? rowResults(console.run).map((result) => result.meta.rowCount) : [];
   const largest = rowCounts.length > 0 ? Math.max(...rowCounts) : undefined;
   const table = tab?.table != null;

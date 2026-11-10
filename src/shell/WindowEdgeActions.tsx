@@ -1,4 +1,4 @@
-import { PanelBottomDashedIcon, PanelBottomIcon, PanelLeftDashedIcon, PanelLeftIcon, PanelRightDashedIcon, PanelRightIcon } from "lucide-react";
+import { PanelLeftDashedIcon, PanelLeftIcon, PanelRightDashedIcon, PanelRightIcon } from "lucide-react";
 import { useWorkspace } from "../state/workspace";
 import { IconButton } from "../ui/primitives";
 import { WindowControls } from "./WindowChrome";
@@ -18,7 +18,6 @@ export const WINDOW_HEADER_HEIGHT = "h-[56px]";
 const PANEL_ICONS = {
   left: { hidden: PanelLeftDashedIcon, shown: PanelLeftIcon },
   right: { hidden: PanelRightDashedIcon, shown: PanelRightIcon },
-  bottom: { hidden: PanelBottomDashedIcon, shown: PanelBottomIcon },
 };
 
 function PanelIcon({ side, shown }: { side: keyof typeof PANEL_ICONS; shown: boolean }) {
@@ -43,18 +42,11 @@ export function SidebarToggle() {
   );
 }
 
-// Lives in whichever header touches the window's right edge, so it never moves when the right panel opens.
 export function WindowEdgeActions({ hosted }: { hosted: HostedWindow | null }) {
-  const results = useWorkspace((s) => s.layout.results);
   const rightPanel = useWorkspace((s) => s.layout.rightPanel);
   const setLayout = useWorkspace((s) => s.setLayout);
   return (
     <div className="flex items-center gap-2">
-      {rightPanel === null && (
-        <IconButton data-testid="toggle-results" aria-label="Toggle results" aria-expanded={results} onClick={() => setLayout({ results: !results })}>
-          <PanelIcon side="bottom" shown={results} />
-        </IconButton>
-      )}
       <IconButton
         data-testid="toggle-right-panel"
         aria-label="Toggle right panel"

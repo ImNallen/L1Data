@@ -84,25 +84,19 @@ it("uses the engine's canonical template for bracketed table names", async () =>
   expect(tab && isBrowsing(tab)).toBe(true);
 });
 
-it("opens the results when a table opens, new or already in a tab", async () => {
+it("opens a table in one tab, new or already open", async () => {
   const ref = { db: { connectionId: "c1", database: "shop" }, schema: "public", relation: "orders" };
-  useWorkspace.setState({ layout: { ...useWorkspace.getState().layout, results: false } });
   await openTableTab(ref);
   const tab = useWorkspace.getState().tabs[activeId(useWorkspace.getState())!];
-  expect([tab, useWorkspace.getState().layout.results]).toEqual([
-    {
-      id: tab?.id,
-      title: "orders",
-      console: { db: { connectionId: "c1", database: "shop" }, mode: "AutoCommit" },
-      table: { schema: "public", table: "orders", page: 0, query: { orderBy: "", filters: [], where: "" } },
-    },
-    true,
-  ]);
+  expect(tab).toEqual({
+    id: tab?.id,
+    title: "orders",
+    console: { db: { connectionId: "c1", database: "shop" }, mode: "AutoCommit" },
+    table: { schema: "public", table: "orders", page: 0, query: { orderBy: "", filters: [], where: "" } },
+  });
 
-  useWorkspace.setState({ layout: { ...useWorkspace.getState().layout, results: false } });
   await openTableTab(ref);
   expect(Object.keys(useWorkspace.getState().tabs)).toHaveLength(1);
-  expect(useWorkspace.getState().layout.results).toBe(true);
 });
 
 it("writes settings one at a time, so the write that lands last carries every change", async () => {
