@@ -291,7 +291,6 @@ async function runTab(tabId: TabId, target?: PageTarget, script?: RunTarget, mod
     return;
   }
   if (target?.countContext && !isCurrentCount(target.countContext)) return;
-  showResults();
   if (target && request.kind === "tablePage") ws().setTablePage(tabId, target.page, target.exactRowCount);
   if (request.kind === "script") {
     sent.set(tabId, { runId: res.data.runId, text });
@@ -444,10 +443,6 @@ export async function openDrill(r: ResultRef, row: number): Promise<void> {
   runActive({ kind: "all" });
 }
 
-function showResults() {
-  if (!ws().layout.results) ws().setLayout({ results: true });
-}
-
 export async function openTableTab(ref: RelationRef, query?: TableQuery): Promise<TabId | null> {
   const reusable = (t: TableTab) => query === undefined || (pendingCount(useTableEdits.getState().byTab[t.id] ?? NO_EDITS) === 0 && isBrowsing(t));
   const findOpen = () =>
@@ -461,7 +456,6 @@ export async function openTableTab(ref: RelationRef, query?: TableQuery): Promis
   };
   const existing = findOpen();
   ws().select(ref);
-  showResults();
   if (existing) return show(existing);
   const template = await browseTemplate(ref.db, ref.schema, ref.relation);
   if (template === null) return null;

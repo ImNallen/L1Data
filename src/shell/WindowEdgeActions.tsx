@@ -1,4 +1,4 @@
-import { PanelBottomDashedIcon, PanelBottomIcon, PanelLeftDashedIcon, PanelLeftIcon, PanelRightDashedIcon, PanelRightIcon } from "lucide-react";
+import { PanelLeftDashedIcon, PanelLeftIcon, PanelRightDashedIcon, PanelRightIcon } from "lucide-react";
 import { useWorkspace } from "../state/workspace";
 import { IconButton } from "../ui/primitives";
 import { WindowControls } from "./WindowChrome";
@@ -8,15 +8,16 @@ export function windowEdgeInset(hosted: HostedWindow | null): string {
   return hosted?.chrome === "custom" ? "pr-2" : "pr-3";
 }
 
-// The macOS traffic lights (traffic_light_position 18,28 in src-tauri) end at x=77; 86px leaves the same gap they leave between each other.
+// The macOS traffic lights (traffic_light_position 18,30 in src-tauri) end at x=77; 86px leaves the same gap they leave between each other.
 export function windowLeadingInset(hosted: HostedWindow | null): string {
   return hosted?.chrome === "native" ? "pl-[86px]" : "pl-3";
 }
 
+export const WINDOW_HEADER_HEIGHT = "h-[56px]";
+
 const PANEL_ICONS = {
   left: { hidden: PanelLeftDashedIcon, shown: PanelLeftIcon },
   right: { hidden: PanelRightDashedIcon, shown: PanelRightIcon },
-  bottom: { hidden: PanelBottomDashedIcon, shown: PanelBottomIcon },
 };
 
 function PanelIcon({ side, shown }: { side: keyof typeof PANEL_ICONS; shown: boolean }) {
@@ -41,18 +42,11 @@ export function SidebarToggle() {
   );
 }
 
-// Lives in whichever header touches the window's right edge, so it never moves when the right panel opens.
 export function WindowEdgeActions({ hosted }: { hosted: HostedWindow | null }) {
-  const results = useWorkspace((s) => s.layout.results);
   const rightPanel = useWorkspace((s) => s.layout.rightPanel);
   const setLayout = useWorkspace((s) => s.setLayout);
   return (
     <div className="flex items-center gap-2">
-      {rightPanel === null && (
-        <IconButton data-testid="toggle-results" aria-label="Toggle results" aria-expanded={results} onClick={() => setLayout({ results: !results })}>
-          <PanelIcon side="bottom" shown={results} />
-        </IconButton>
-      )}
       <IconButton
         data-testid="toggle-right-panel"
         aria-label="Toggle right panel"

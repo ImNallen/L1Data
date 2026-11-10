@@ -126,7 +126,7 @@ it("keeps the right-panel toggle in the top bar while the panel is closed", () =
   withLayout({ rightPanel: null });
   const topBar = renderToStaticMarkup(<TopBar hosted={null} />);
   expect(topBar).toContain(TOGGLE);
-  expect(topBar.indexOf(RESULTS)).toBeLessThan(topBar.indexOf(TOGGLE));
+  expect(topBar).not.toContain(RESULTS);
 });
 
 it("moves the right-panel toggle into the open panel's header in place of a close button", () => {
@@ -137,7 +137,7 @@ it("moves the right-panel toggle into the open panel's header in place of a clos
 
   const panel = renderToStaticMarkup(<RightPanel hosted={null} />);
   expect(panel).toContain(TOGGLE);
-  expect(panel.indexOf(RESULTS)).toBeLessThan(panel.indexOf(TOGGLE));
+  expect(panel).not.toContain(RESULTS);
   expect(panel).not.toContain('aria-label="Close panel"');
   expect(panel).toContain('data-tauri-drag-region="deep"');
 });
@@ -155,7 +155,7 @@ it("heads the right panel with Assistant, new chat, and chat history before the 
 it("insets the toggle from the window edge by the same amount in either header", () => {
   for (const hosted of [null, { chrome: "native" } as const, fakeHost]) {
     withLayout({ rightPanel: null });
-    const topBarInset = renderToStaticMarkup(<TopBar hosted={hosted} />).match(/<header[^>]*class="[^"]*\b(pr-\d)\b/)?.[1];
+    const topBarInset = renderToStaticMarkup(<TopBar hosted={hosted} notebook />).match(/<header[^>]*class="[^"]*\b(pr-\d)\b/)?.[1];
     withLayout({ rightPanel: "Assistant" });
     const panelInset = renderToStaticMarkup(<RightPanel hosted={hosted} />).match(/data-tauri-drag-region="deep" class="[^"]*\b(pr-\d)\b/)?.[1];
     expect(panelInset).toBe(topBarInset);
@@ -198,7 +198,7 @@ it("insets the sidebar toggle from the window's left edge by the same amount in 
     withLayout({ sidebar: true });
     const sidebarInset = leadingInset(renderToStaticMarkup(<Sidebar hosted={hosted} />));
     withLayout({ sidebar: false });
-    const topBarInset = leadingInset(renderToStaticMarkup(<TopBar hosted={hosted} />));
+    const topBarInset = leadingInset(renderToStaticMarkup(<TopBar hosted={hosted} notebook />));
     expect(topBarInset).toBe(sidebarInset);
     expect(topBarInset).toBe(hosted?.chrome === "native" ? "pl-[86px]" : "pl-3");
   }
@@ -231,26 +231,10 @@ function withQueryTab() {
 
 it("keeps an unrun cell compact and its results directly below it", () => {
   withQueryTab();
-  withLayout({ results: true });
   const html = renderToStaticMarkup(<AppLayout />);
   expect(html).toContain('data-testid="notebook-cell-t1"');
   expect(html).toContain('data-testid="sql-editor"');
   expect(html).not.toContain('data-testid="results-resize"');
-  expect(html).not.toContain("Results appear here");
-});
-
-it("keeps the editor while results are hidden", () => {
-  withQueryTab();
-  withLayout({ results: false });
-  const html = renderToStaticMarkup(<AppLayout />);
-  expect(html).toContain('data-testid="sql-editor"');
-  expect(html).not.toContain('class="notebook-results"');
-});
-
-it("keeps the empty notebook's start commands while results are hidden", () => {
-  withLayout({ results: false });
-  const html = renderToStaticMarkup(<AppLayout />);
-  expect(html).toContain('data-testid="no-tabs"');
   expect(html).not.toContain("Results appear here");
 });
 
@@ -315,7 +299,6 @@ function withTableTab(mode: TxnMode = "AutoCommit", color: string | null = null)
 
 it("shows the transaction mode and cursor position on a table tab", () => {
   withTableTab();
-  withLayout({ results: true });
   const html = renderToStaticMarkup(<AppLayout />);
   expect(html).toMatch(/data-testid="tx-mode"[^>]*>Auto-commit</);
   expect(html).toContain('data-testid="notebook-cell-t2"');

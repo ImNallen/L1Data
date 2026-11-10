@@ -70,7 +70,14 @@ it("switches table and view categories without losing access to routines", async
   expect(screen.getByTestId("tree-node-Postgres/shop/public/#functions")).toBeTruthy();
 });
 
-it("keeps updates visible and keyboard reachable at the right end of the sidebar header", async () => {
+it("puts history, saved queries, and new connection at the right of the header, and Settings and Usage at the left of the footer", () => {
+  render(<Sidebar hosted={null} />);
+  const ids = (testId: string) => [...screen.getByTestId(testId).querySelectorAll("button")].map((b) => b.dataset.testid);
+  expect(ids("sidebar-header")).toEqual(["toggle-sidebar", "open-history", "open-saved-queries", "new-connection"]);
+  expect(ids("sidebar-footer")).toEqual(["open-settings", "open-usage"]);
+});
+
+it("keeps updates visible and keyboard reachable at the right end of the sidebar footer", async () => {
   useLive.setState({
     updates: {
       rev: 1,
@@ -82,10 +89,10 @@ it("keeps updates visible and keyboard reachable at the right end of the sidebar
   });
   const user = userEvent.setup();
   render(<Sidebar hosted={null} />);
-  const header = screen.getByTestId("sidebar-header");
-  const update = within(header).getByRole("button", { name: "Download L1 Data 0.2.0" });
-  expect(header.lastElementChild).toBe(update);
-  screen.getByRole("button", { name: "Workspace options" }).focus();
+  const footer = screen.getByTestId("sidebar-footer");
+  const update = within(footer).getByRole("button", { name: "Download L1 Data 0.2.0" });
+  expect(footer.lastElementChild).toBe(update);
+  screen.getByTestId("open-usage").focus();
   await user.tab();
   expect(document.activeElement).toBe(update);
 });

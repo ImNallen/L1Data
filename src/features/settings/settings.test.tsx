@@ -134,12 +134,6 @@ it("shows the running version and the engine's track in General, and locks the t
   expect(downloading).toMatch(/<button[^>]*data-testid="update-action"[^>]*disabled=""[^>]*>Downloading…<\/button>/);
 });
 
-it("keeps workspace utilities behind a compact options button", () => {
-  const html = render({ screen: { kind: "workspace" } });
-  expect(html).toContain('aria-label="Workspace options"');
-  expect(html).not.toContain('data-testid="open-usage"');
-});
-
 it.each([
   ["font", ["interfaceFont", "codeFont"]],
   ["row limit", ["maxRows"]],
@@ -611,9 +605,8 @@ it("says Checking while a probe runs and keeps the last outcome on the provider'
   expect(resetTag(html)).toContain('disabled=""');
 });
 
-it("keeps the sidebar header compact without a bottom toolbar", () => {
+it("keeps the app title out of the sidebar header", () => {
   const html = render({ screen: { kind: "workspace" } });
-  expect(html).toContain('aria-label="Workspace options"');
   expect(html).not.toContain('data-testid="app-title"');
 });
 

@@ -383,13 +383,13 @@ fn main() {
             let window = WebviewWindowBuilder::from_config(app.handle(), &app.config().app.windows[0])?
                 .theme(window_theme(engine.settings().color_scheme));
             // macOS keeps the native traffic lights over the webview; Windows and Linux draw their own chrome.
-            // At y 31 the lights' centers sit 28px down, on the line the 56px sidebar, context row, and assistant headers center on.
+            // At y 30 the lights' centers sit 28px down, on the line the 56px sidebar, context row, and assistant headers center on.
             #[cfg(target_os = "macos")]
             let window = window
                 .decorations(true)
                 .title_bar_style(tauri::TitleBarStyle::Overlay)
                 .hidden_title(true)
-                .traffic_light_position(tauri::LogicalPosition::new(18.0, 31.0));
+                .traffic_light_position(tauri::LogicalPosition::new(18.0, 30.0));
             let window = window.build()?;
             // The configured background is the dark one; System only resolves once the window exists.
             if matches!(window.theme(), Ok(tauri::Theme::Light))
