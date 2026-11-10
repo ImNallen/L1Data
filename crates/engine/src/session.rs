@@ -52,6 +52,9 @@ pub enum QueryEvent {
     Complete { affected_rows: Option<u64> },
     Notice(OutputBody),
     ServerError(QueryError),
+    /// The server ran the statement to its end. The `Err` that follows is a failure to read the
+    /// result on this side, so the transaction is as the statement left it.
+    ServerDone,
 }
 pub type QueryStream<'a> = Pin<Box<dyn Stream<Item = Result<QueryEvent, QueryError>> + Send + 'a>>;
 

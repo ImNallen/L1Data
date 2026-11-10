@@ -288,7 +288,7 @@ async fn read_plan(session: &mut Session, sql: &str, stop: &AtomicBool) -> Read 
                 failure = Some(session::error("Cancelled"));
                 break;
             }
-            Ok(QueryEvent::Prepared) | Ok(QueryEvent::Notice(_)) => {}
+            Ok(QueryEvent::Prepared) | Ok(QueryEvent::Notice(_)) | Ok(QueryEvent::ServerDone) => {}
             Ok(QueryEvent::Columns(next)) => columns = Some(next),
             Ok(QueryEvent::Row(row)) if cell.is_none() => cell = row.into_iter().next().flatten(),
             Ok(QueryEvent::Row(_)) | Ok(QueryEvent::Complete { .. }) => {}
