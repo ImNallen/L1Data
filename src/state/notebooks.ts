@@ -66,6 +66,15 @@ export function adjacentCell(cells: readonly TabId[], cell: TabId, step: -1 | 1)
   return at === -1 ? undefined : cells[at + step];
 }
 
+/** `cells` with `cell` moved to `index`, clamped to the ends. The same array when `cell` is missing or already there. */
+export function moveCell(cells: TabId[], cell: TabId, index: number): TabId[] {
+  const from = cells.indexOf(cell);
+  const to = Math.min(Math.max(index, 0), cells.length - 1);
+  if (from === -1 || from === to) return cells;
+  const rest = cells.filter((id) => id !== cell);
+  return [...rest.slice(0, to), cell, ...rest.slice(to)];
+}
+
 /** The database's name for its first notebook, then the lowest free "<name> 2", "<name> 3", and so on. */
 export function newNotebook(existing: Iterable<Notebook>, db: DatabaseRef | null): Notebook {
   const name = notebookTitle(db);

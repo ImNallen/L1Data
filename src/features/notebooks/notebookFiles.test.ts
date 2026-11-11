@@ -232,12 +232,12 @@ describe("unsaved", () => {
   });
 
   it("follows the cells added, closed, and moved since the last save", async () => {
-    const id = await openFile("/q/a.sql", { plain: false, header: NO_HEADER, cells: [cell("select 1;"), cell("select 2;")] });
+    await openFile("/q/a.sql", { plain: false, header: NO_HEADER, cells: [cell("select 1;"), cell("select 2;")] });
     const [a, b] = shown().cells as [string, string];
-    useWorkspace.setState({ notebooks: { ...ws().notebooks, [id]: { ...shown(), cells: [b, a] } } });
-    expect(dirty()).toBe(true);
-    useWorkspace.setState({ notebooks: { ...ws().notebooks, [id]: { ...shown(), cells: [a, b] } } });
-    expect(dirty()).toBe(false);
+    ws().moveCell(a, 1);
+    expect([shown().cells, dirty()]).toEqual([[b, a], true]);
+    ws().moveCell(a, 0);
+    expect([shown().cells, dirty()]).toEqual([[a, b], false]);
     const c = openSqlTab();
     expect([shown().cells, dirty()]).toEqual([[a, b, c], true]);
     await closeTab(c);
@@ -264,6 +264,13 @@ describe("unsaved", () => {
     insertAtCursor(a, "-- edited ");
     expect(await saveNotebook(id)).toBe(true);
     expect(saves()[0]?.notebook.cells.map((c) => c.meta)).toEqual([NO_META, NO_META]);
+  });
+
+  it("writes the cells in their moved order, and reads saved after", async () => {
+    const id = await openFile("/q/a.sql", { plain: false, header: NO_HEADER, cells: [cell("select 1;"), cell("select 2;"), cell("select 3;")] });
+    ws().moveCell(shown().cells[2]!, 0);
+    expect(await saveNotebook(id)).toBe(true);
+    expect([dirty(), texts(disk.get("/q/a.sql")?.notebook)]).toEqual([false, ["select 3;", "select 1;", "select 2;"]]);
   });
 
   it("is unknown for a notebook restored unsaved, until boot reads the file", async () => {

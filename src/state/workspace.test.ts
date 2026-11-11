@@ -255,6 +255,27 @@ describe("notebooks", () => {
     expect(ws().tabs).toBe(tabs);
   });
 
+  it("moves a cell within its notebook and shows it active there, and leaves everything alone for a move in place", () => {
+    ws().addTab(cell("a"));
+    ws().addTab(cell("b"));
+    ws().addTab(cell("c"));
+    ws().addTab(cell("p", postgres));
+    const tabs = ws().tabs;
+    ws().moveCell("a", 2);
+    expect([shownDb(ws()), shape(), ws().tabs]).toEqual([
+      shop,
+      [
+        ["shop", ["b", "c", "a"], "a"],
+        ["postgres", ["p"], "p"],
+      ],
+      tabs,
+    ]);
+    const { notebooks } = ws();
+    ws().moveCell("b", 0);
+    ws().moveCell("gone", 0);
+    expect(ws().notebooks).toBe(notebooks);
+  });
+
   it("drops a notebook with its last cell and shows the start commands on its database", () => {
     ws().addTab(cell("a"));
     ws().addTab(cell("b"));
