@@ -1,5 +1,6 @@
 import { DENSITY_FACTOR, gridRowHeight } from "../../shell/appearance";
 import { StartCommands } from "../../shell/StartCommands";
+import { EditorView } from "@codemirror/view";
 import { CopyPlusIcon, ListIndentIncreaseIcon, PlayIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { TabId } from "../../ipc/bindings";
@@ -13,6 +14,7 @@ import { ResultsPane } from "../results/ResultsPane";
 import { CellResizeHandle } from "./CellResizeHandle";
 import { CELL_SCROLL_MARGIN, cellHeights, EDITOR_MIN, pinnedTop, type DraggedHeights } from "./cellSizing";
 import { closeTab } from "./closeTab";
+import { goToCell } from "../notebooks/cellNavigation";
 import { staleness, stalenessText } from "../notebooks/references";
 import { docText } from "./docText";
 import { activateEditor, docOf, onBuffersChanged, textOf } from "./editorStates";
@@ -111,8 +113,8 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
     if (focused && !dragging && !refocused) cell.current?.scrollIntoView({ block: "nearest" });
   }, [focused, dragging, dragged, heights.results, viewport]);
   if (!tab) return null;
-  const activate = (focus = false) => {
-    setFocusOnActivate(focus);
+  const activate = () => {
+    setFocusOnActivate(false);
     useWorkspace.getState().setActive(id);
     activateEditor(id);
   };
@@ -247,8 +249,12 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
         <div
           className="notebook-editor"
           style={{ height: heights.editor }}
-          onMouseDown={() => {
-            if (!active) activate(true);
+          onMouseDownCapture={(event) => {
+            if (active || event.button !== 0) return;
+            // The preview would take focus itself, then lose it as the shared editor replaces it.
+            event.preventDefault();
+            const pos = EditorView.findFromDOM(event.currentTarget)?.posAtCoords({ x: event.clientX, y: event.clientY }, false);
+            goToCell(id, pos === undefined ? undefined : () => pos);
           }}
         >
           {active ? (

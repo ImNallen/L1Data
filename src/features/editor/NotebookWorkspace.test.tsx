@@ -255,6 +255,27 @@ it("holds both cells' sizes through a press on an inactive cell until after the 
   expect(resultsHeights()).toEqual([COMPACT, FILLED]);
 });
 
+it("focuses the editor at the clicked spot on one click into an inactive cell's SQL", async () => {
+  // jsdom has no layout, so a click's coordinates stand for a line and column.
+  vi.spyOn(EditorView.prototype, "posAtCoords").mockImplementation(function (this: EditorView, { x, y }: { x: number; y: number }) {
+    return this.state.doc.line(y).from + x;
+  });
+  await renderNotebook();
+  const target = cell("b").querySelector(".cm-line") as HTMLElement;
+  const at = { button: 0, clientX: 2, clientY: 3 };
+
+  fireEvent.pointerDown(target, at);
+  fireEvent.mouseDown(target, at);
+  fireEvent.mouseUp(target, at);
+  fireEvent.pointerUp(target, at);
+  fireEvent.click(target, at);
+  await afterClick();
+
+  expect(activeId(useWorkspace.getState())).toBe("b");
+  expect(document.activeElement).toBe(within(cell("b")).getByTestId("sql-editor").querySelector(".cm-content"));
+  expect(cursorOf(editorStateOf("b"))).toEqual({ line: 3, col: 3 });
+});
+
 it("keeps a clicked cell in place while the cell above it shrinks, instead of snapping it into view", async () => {
   withRowCounts({ a: [1000], b: [1000] });
   await renderNotebook();
