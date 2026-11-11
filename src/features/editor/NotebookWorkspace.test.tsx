@@ -129,6 +129,14 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it("lays out an inactive cell's SQL unwrapped, as its editor does", async () => {
+  await renderNotebook();
+  expect([cell("a").querySelector(".cm-content.cm-lineWrapping"), screen.getByTestId("cell-preview-b").querySelector(".cm-content.cm-lineWrapping")]).toEqual([
+    null,
+    null,
+  ]);
+});
+
 it("steps the query height with the arrow keys and returns to automatic on double-click", async () => {
   await renderNotebook();
   const handle = screen.getByRole("separator", { name: "Resize query in Cell a" });
