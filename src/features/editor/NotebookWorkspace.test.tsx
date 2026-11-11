@@ -442,13 +442,32 @@ describe("a collapsed cell", () => {
     expect([toggle("b").getAttribute("aria-label"), toggle("b").getAttribute("aria-expanded")]).toEqual(["Expand cell", "false"]);
     expect(cell("b").querySelector(".notebook-editor, .notebook-results")).toBeNull();
     expect(screen.queryAllByRole("separator").filter((s) => s.getAttribute("aria-label")?.endsWith("in Cell b"))).toEqual([]);
-    expect(within(cell("b")).getByTestId("tab-b").textContent).toBe("Cell bSELECT id, name FROM customers60 rows");
+    expect(within(cell("b")).getByTestId("tab-b").textContent).toBe("Cell bSELECT id, name FROM customers60 rows · 5 ms");
     expect(cell("a").querySelector(".notebook-editor")).not.toBeNull();
 
     fireEvent.click(toggle("b"));
     expect([toggle("b").getAttribute("aria-label"), toggle("b").getAttribute("aria-expanded")]).toEqual(["Collapse cell", "true"]);
     expect(cell("b").querySelector(".notebook-editor")).not.toBeNull();
     expect(resultsHeight("b")).toBeGreaterThan(0);
+  });
+
+  it("shows a failed run's error in its header instead of the row count", async () => {
+    withRowCounts({ b: [60] });
+    const run = useLive.getState().consoles.b!.run;
+    if (run.kind !== "Finished") throw new Error("expected a finished run");
+    const error = { severity: "ERROR", sqlstate: "42P01", message: 'relation "nope" does not exist', detail: null, hint: null, context: null, position: 14 };
+    const failed = {
+      ...run,
+      outcome: "Failed" as const,
+      statements: [...run.statements, { index: 1, range: { from: 0, to: 1 }, status: { kind: "Failed" as const, error }, outputs: [] }],
+    };
+    useLive.setState({ consoles: { b: { ...useLive.getState().consoles.b!, run: failed } } });
+    await renderNotebook();
+    fireEvent.click(toggle("b"));
+
+    const status = within(cell("b")).getByTestId("cell-run-status-b");
+    expect(status.textContent).toBe('relation "nope" does not exist');
+    expect(status.className).toContain("text-danger");
   });
 
   it("stays collapsed when its header activates it", async () => {

@@ -1,15 +1,16 @@
 import { DENSITY_FACTOR, gridRowHeight } from "../../shell/appearance";
 import { StartCommands } from "../../shell/StartCommands";
 import { EditorView } from "@codemirror/view";
-import { ChevronRightIcon, CopyPlusIcon, ListIndentIncreaseIcon, PlayIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
+import { ChevronRightIcon, CircleAlertIcon, CopyPlusIcon, ListIndentIncreaseIcon, PlayIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import type { TabId } from "../../ipc/bindings";
+import type { RunState, TabId } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
-import { canCancel, hasUncommittedWork, isBusy, resultKey, rowResults, shownResult } from "../../state/status";
+import { canCancel, hasUncommittedWork, isBusy, resultKey, rowResults, runSummary, shownResult, type ResultPick } from "../../state/status";
 import { notebookOf } from "../../state/notebooks";
 import { activeId, shownNotebook, useWorkspace } from "../../state/workspace";
 import { cx, IconButton } from "../../ui/primitives";
-import { hasResultPager, pluralRows } from "../results/format";
+import { useNow } from "../../ui/useNow";
+import { hasResultPager } from "../results/format";
 import { ResultsPane } from "../results/ResultsPane";
 import { CellResizeHandle } from "./CellResizeHandle";
 import { CELL_SCROLL_MARGIN, cellHeights, EDITOR_MIN, pinnedTop, type DraggedHeights } from "./cellSizing";
@@ -56,6 +57,23 @@ function staleReason(id: TabId): string {
 }
 
 const UNDRAGGED: DraggedHeights = { editor: null, results: null };
+
+/** A collapsed cell's last run, as the results pane would sum it up, so a failure shows without opening the cell. */
+function RunStatus({ id, run, picked }: { id: TabId; run: RunState; picked: ResultPick | undefined }) {
+  const now = useNow(run.kind === "Running", 1000);
+  const summary = runSummary(run, picked, now);
+  if (!summary) return null;
+  return (
+    <span
+      data-testid={`cell-run-status-${id}`}
+      title={summary.text}
+      className={cx("flex max-w-[40%] shrink-0 items-center gap-1 text-ui-11 font-normal tabular-nums", summary.tone === "error" ? "text-danger" : "text-dim")}
+    >
+      {summary.tone === "error" && <CircleAlertIcon size={12} className="shrink-0" aria-label="Query failed" />}
+      <span className="truncate">{summary.text}</span>
+    </span>
+  );
+}
 
 function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: number; viewport: number; focused: boolean }) {
   const tab = useWorkspace((s) => s.tabs[id]);
@@ -214,7 +232,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
                   <span data-testid={`cell-summary-${id}`} className="min-w-0 flex-1 truncate font-mono text-ui-11 font-normal text-dim">
                     {firstLine.trim()}
                   </span>
-                  {shown && !shown.plan && <span className="shrink-0 text-ui-11 font-normal text-dim tabular-nums">{pluralRows(shown.meta.rowCount)}</span>}
+                  {console && <RunStatus id={id} run={console.run} picked={picked} />}
                 </>
               )}
               {stale && (
