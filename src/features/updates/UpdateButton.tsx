@@ -2,7 +2,6 @@ import * as HoverCard from "@radix-ui/react-hover-card";
 import { DownloadIcon, RefreshCwIcon, RotateCwIcon, TriangleAlertIcon } from "lucide-react";
 import { useLive } from "../../state/live";
 import { cx, IconButton, Spinner } from "../../ui/primitives";
-import { useNow } from "../../ui/useNow";
 import { runUpdateAction } from "./updateActions";
 import { changeSections, updateButtonView, type ChangeSection, type UpdateButtonView } from "./updateText";
 
@@ -60,19 +59,19 @@ function UpdateCard({ view, sections }: { view: UpdateButtonView; sections: Chan
         collisionPadding={8}
         className="motion-pop z-50 flex max-h-[min(420px,70vh)] w-60 max-w-[calc(100vw-16px)] flex-col gap-2.5 overflow-hidden rounded-lg border border-border bg-raised p-3.5 text-ui-12 leading-[1.5] text-fg"
       >
-        <p className="shrink-0 text-ui-13 font-semibold break-words">{view.heading}</p>
-        <p className="shrink-0 text-ui-11 break-words text-muted">{view.tooltip}</p>
+        <p className="shrink-0 text-ui-13 font-semibold break-words">{view.title}</p>
+        <p className="shrink-0 text-ui-11 break-words text-muted">{view.detail}</p>
         {sections.length > 0 && <div className="h-px shrink-0 bg-border" />}
         {sections.length > 0 && (
           <div data-testid="update-changes" className="min-h-0 space-y-2.5 overflow-y-auto">
             {sections.map((section) => (
-              <section key={section.heading}>
-                <h3 className="pb-2.5 font-medium">{section.heading}</h3>
+              <section key={section.version}>
+                <h3 className="pb-2.5 font-medium">{section.version}</h3>
                 <ul className="list-disc space-y-2.5 pl-3">
                   {section.items.map((item, i) => (
                     <li key={i}>
                       <p className="break-words">{item.title}</p>
-                      {item.credit && <p className="mt-0.5 -ml-3 text-ui-11 break-words text-muted">{item.credit}</p>}
+                      {item.pr && <p className="mt-0.5 -ml-3 text-ui-11 break-words text-muted">{item.pr}</p>}
                     </li>
                   ))}
                 </ul>
@@ -89,8 +88,7 @@ function UpdateCard({ view, sections }: { view: UpdateButtonView; sections: Chan
 /** Keep the button focusable while a step runs so its hover card can explain the progress. */
 export function UpdateButton() {
   const updates = useLive((s) => s.updates);
-  const now = useNow(updates?.status.kind === "UpToDate", 60_000);
-  const view = updates && updateButtonView(updates, now);
+  const view = updates && updateButtonView(updates.status);
   if (!updates || !view) return null;
   const { action } = view;
   const sections = changeSections(updates.status);
