@@ -1,4 +1,4 @@
-import type { ChangeItem, ChatId, RestartImpact, TabId, UpdatesOff, UpdateState, UpdateStatus } from "../../ipc/bindings";
+import type { ChatId, RestartImpact, TabId, UpdatesOff, UpdateState, UpdateStatus } from "../../ipc/bindings";
 import { updateFailureText } from "../../ipc/errors";
 import { timeAgo } from "../assistant/assistantText";
 
@@ -14,8 +14,8 @@ export type UpdateButtonView = {
   /** Whole percent for the ring. null draws an indeterminate ring. */
   percent: number | null;
   label: string;
-  heading: string;
-  tooltip: string;
+  title: string;
+  detail: string | null;
   /** Draws the accent dot when a click takes the next step of an update. */
   attention: boolean;
 };
@@ -46,49 +46,40 @@ function progressText(percent: number | null): string {
   return percent === null ? "" : ` ${percent}%`;
 }
 
-export function updateButtonView(u: UpdateState, nowMs: number): UpdateButtonView | null {
-  const status = u.status;
-  const view = (glyph: UpdateGlyph, label: string, tooltip: string, heading = `L1 Data ${u.currentVersion}`) => ({
+export function updateButtonView(status: UpdateStatus): UpdateButtonView | null {
+  const view = (glyph: UpdateGlyph, label: string, title: string, detail: string | null = null): UpdateButtonView => ({
     action: updateAction(status),
     glyph,
     percent: null,
     label,
-    heading,
-    tooltip,
+    title,
+    detail,
     attention: false,
   });
   switch (status.kind) {
     case "Disabled":
       return null;
     case "Idle":
-      return view("check", "Check for updates", `L1 Data ${u.currentVersion}`, "Check for updates");
-    case "UpToDate": {
-      const checked = u.checkedAtMs === null ? "" : ` Checked ${timeAgo(nowMs, u.checkedAtMs)}.`;
-      return view("check", "Check for updates", `L1 Data ${u.currentVersion} is up to date.${checked} Click to check again.`);
-    }
+      return view("check", "Check for update", "Check for update");
+    case "UpToDate":
+      return view("check", "Check for update", "Check for update", "Up to date");
     case "Checking":
-      return view("spinner", "Checking for updates", "Checking for updates…");
+      return view("spinner", "Checking for update", "Checking for update…");
     case "Available": {
-      const older = status.downgrade ? ". It is the latest Stable build, older than this nightly." : "";
-      return {
-        ...view("available", `Download L1 Data ${status.version}`, `Update available · Click the icon to download${older}`, `L1 Data ${status.version}`),
-        attention: true,
-      };
+      const title = status.downgrade ? `Stable ${status.version} is older than this build` : `${status.version} is available`;
+      return { ...view("available", `Download L1 Data ${status.version}`, title, "Click to download"), attention: true };
     }
     case "Downloading":
       return {
-        ...view("ring", `Downloading L1 Data ${status.version}`, `Downloading…${progressText(status.percent)}`, `L1 Data ${status.version}`),
+        ...view("ring", `Downloading L1 Data ${status.version}`, `Downloading ${status.version}`, status.percent === null ? null : `${status.percent}%`),
         percent: status.percent,
       };
     case "Downloaded":
-      return {
-        ...view("restart", `Restart to install L1 Data ${status.version}`, "Ready to install · Restart required", `L1 Data ${status.version}`),
-        attention: true,
-      };
+      return { ...view("restart", `Restart to install L1 Data ${status.version}`, `${status.version} is ready`, "Click to restart"), attention: true };
     case "Installing":
-      return view("spinner", "Restarting", "Restarting to install…", `L1 Data ${status.version}`);
+      return view("spinner", "Restarting", "Restarting to install…");
     case "Failed":
-      return view("error", "Update failed", `${updateFailureText(status.failure)} Click to try again.`, "Update failed");
+      return view("error", "Update failed", updateFailureText(status.failure), "Click to retry");
     default: {
       const unreachable: never = status;
       return unreachable;
@@ -96,22 +87,17 @@ export function updateButtonView(u: UpdateState, nowMs: number): UpdateButtonVie
   }
 }
 
-export type ChangeSection = { heading: string; items: { title: string; credit: string | null }[] };
+/** version is null when the offered release is the only one with changes to list. */
+export type ChangeSection = { version: string | null; items: { title: string; pr: string | null }[] };
 
-function credit({ author, pr }: ChangeItem): string | null {
-  const parts = [author !== null && `@${author}`, pr !== null && `#${pr}`].filter((part) => part !== false);
-  return parts.length === 0 ? null : parts.join(" · ");
-}
-
-/** The offered release's changes, then each skipped release's. Empty omits the release-notes section. */
+/** The offered release's changes, then each skipped release's. */
 export function changeSections(status: UpdateStatus): ChangeSection[] {
   if (status.kind !== "Available" && status.kind !== "Downloading" && status.kind !== "Downloaded") return [];
-  return status.changes
-    .filter((release) => release.items.length > 0)
-    .map((release) => ({
-      heading: release.version === status.version ? "What's changed" : `Changes in ${release.version}`,
-      items: release.items.map((item) => ({ title: item.title, credit: credit(item) })),
-    }));
+  const releases = status.changes.filter((release) => release.items.length > 0);
+  return releases.map((release) => ({
+    version: releases.length === 1 && release.version === status.version ? null : release.version,
+    items: release.items.map((item) => ({ title: item.title, pr: item.pr === null ? null : `#${item.pr}` })),
+  }));
 }
 
 export function disabledText(reason: UpdatesOff): string {

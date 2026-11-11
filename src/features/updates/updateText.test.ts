@@ -42,28 +42,26 @@ describe("the update button", () => {
     ]);
   });
 
-  it("is hidden while updates are off, and otherwise draws a glyph and explains itself", () => {
-    const views = EVERY.map((s) => updateButtonView(state(s), NOW));
-    expect(views.map((v) => v && [v.glyph, v.attention, v.tooltip])).toEqual([
+  it("is hidden while updates are off, and otherwise draws a glyph and says where the update is in one line", () => {
+    const views = EVERY.map((s) => updateButtonView(s));
+    expect(views.map((v) => v && [v.glyph, v.attention, v.title, v.detail, v.label])).toEqual([
       null,
-      ["check", false, "L1 Data 0.1.0"],
-      ["spinner", false, "Checking for updates…"],
-      ["check", false, "L1 Data 0.1.0 is up to date. Checked 5m ago. Click to check again."],
-      ["available", true, "Update available · Click the icon to download"],
-      ["ring", false, "Downloading… 42%"],
-      ["restart", true, "Ready to install · Restart required"],
-      ["spinner", false, "Restarting to install…"],
-      ["error", false, "Couldn't reach GitHub for updates. Click to try again."],
+      ["check", false, "Check for update", null, "Check for update"],
+      ["spinner", false, "Checking for update…", null, "Checking for update"],
+      ["check", false, "Check for update", "Up to date", "Check for update"],
+      ["available", true, "0.2.0 is available", "Click to download", "Download L1 Data 0.2.0"],
+      ["ring", false, "Downloading 0.2.0", "42%", "Downloading L1 Data 0.2.0"],
+      ["restart", true, "0.2.0 is ready", "Click to restart", "Restart to install L1 Data 0.2.0"],
+      ["spinner", false, "Restarting to install…", null, "Restarting"],
+      ["error", false, "Couldn't reach GitHub for updates.", "Click to retry", "Update failed"],
     ]);
   });
 
-  it("names an older stable as one, and draws an indeterminate ring when the size is unknown", () => {
-    const nightly = "0.1.1-nightly.20261023.5";
-    const older = updateButtonView(state({ kind: "Available", version: "0.1.0", downgrade: true, changes: [] }, nightly), NOW);
-    expect(older?.heading).toBe("L1 Data 0.1.0");
-    expect(older?.tooltip).toBe("Update available · Click the icon to download. It is the latest Stable build, older than this nightly.");
-    const unknown = updateButtonView(state({ kind: "Downloading", version: "0.2.0", downgrade: false, percent: null, changes: [] }), NOW);
-    expect([unknown?.heading, unknown?.percent, unknown?.tooltip]).toEqual(["L1 Data 0.2.0", null, "Downloading…"]);
+  it("names an older stable as one, and draws an indeterminate ring with no percent when the size is unknown", () => {
+    const older = updateButtonView({ kind: "Available", version: "0.1.0", downgrade: true, changes: [] });
+    expect([older?.title, older?.detail]).toEqual(["Stable 0.1.0 is older than this build", "Click to download"]);
+    const unknown = updateButtonView({ kind: "Downloading", version: "0.2.0", downgrade: false, percent: null, changes: [] });
+    expect([unknown?.title, unknown?.detail, unknown?.percent]).toEqual(["Downloading 0.2.0", null, null]);
   });
 });
 
@@ -86,31 +84,50 @@ describe("the update's change list", () => {
     },
   ];
 
-  it("heads the offered release as what changed and each skipped one by its version, and credits what the feed names", () => {
+  it("labels each release by its version when several have changes, and credits only the PR", () => {
     expect(changeSections({ kind: "Available", version: "0.2.0", downgrade: false, changes })).toEqual([
       {
-        heading: "What's changed",
+        version: "0.2.0",
         items: [
-          { title: "feat(app): name the run target", credit: "@ImNallen · #50" },
-          { title: "fix(ui): cancel a cell edit on Escape", credit: "#51" },
+          { title: "feat(app): name the run target", pr: "#50" },
+          { title: "fix(ui): cancel a cell edit on Escape", pr: "#51" },
         ],
       },
       {
-        heading: "Changes in 0.1.1",
+        version: "0.1.1",
         items: [
-          { title: "chore(ui): tighten the footer", credit: "@ImNallen" },
-          { title: "docs(readme): list the shortcuts", credit: null },
+          { title: "chore(ui): tighten the footer", pr: null },
+          { title: "docs(readme): list the shortcuts", pr: null },
         ],
       },
     ]);
   });
 
-  it("stays through the download, and never says what changed about a release the feed did not list", () => {
+  it("leaves a lone release with changes unlabeled", () => {
+    const lone = changes.slice(0, 2);
+    expect(changeSections({ kind: "Available", version: "0.2.0", downgrade: false, changes: lone })).toEqual([
+      {
+        version: null,
+        items: [
+          { title: "feat(app): name the run target", pr: "#50" },
+          { title: "fix(ui): cancel a cell edit on Escape", pr: "#51" },
+        ],
+      },
+    ]);
+  });
+
+  it("labels a lone earlier release, so its changes aren't read as the offered build's", () => {
+    const earlierOnly = [changes[0]!, changes[2]!].map((r) => (r.version === "0.2.0" ? { ...r, items: [] } : r));
+    expect(changeSections({ kind: "Available", version: "0.2.0", downgrade: false, changes: earlierOnly }).map((s) => s.version)).toEqual(["0.1.1"]);
+  });
+
+  it("stays through the download", () => {
     const downloading = changeSections({ kind: "Downloading", version: "0.2.0", downgrade: false, percent: 10, changes });
     const downloaded = changeSections({ kind: "Downloaded", version: "0.2.0", downgrade: false, changes });
-    expect([downloading.length, downloaded.length]).toEqual([2, 2]);
-    const skipped = changeSections({ kind: "Available", version: "0.2.1", downgrade: false, changes });
-    expect(skipped.map((s) => s.heading)).toEqual(["Changes in 0.2.0", "Changes in 0.1.1"]);
+    expect([downloading.map((s) => s.version), downloaded.map((s) => s.version)]).toEqual([
+      ["0.2.0", "0.1.1"],
+      ["0.2.0", "0.1.1"],
+    ]);
   });
 
   it("has nothing to show in any other status", () => {

@@ -2,7 +2,6 @@ import * as HoverCard from "@radix-ui/react-hover-card";
 import { DownloadIcon, RefreshCwIcon, RotateCwIcon, TriangleAlertIcon } from "lucide-react";
 import { useLive } from "../../state/live";
 import { cx, IconButton, Spinner } from "../../ui/primitives";
-import { useNow } from "../../ui/useNow";
 import { runUpdateAction } from "./updateActions";
 import { changeSections, updateButtonView, type ChangeSection, type UpdateButtonView } from "./updateText";
 
@@ -49,7 +48,8 @@ function Glyph({ view }: { view: UpdateButtonView }) {
   }
 }
 
-function UpdateCard({ view, sections }: { view: UpdateButtonView; sections: ChangeSection[] }) {
+function UpdateHover({ view, sections }: { view: UpdateButtonView; sections: ChangeSection[] }) {
+  const card = sections.length > 0;
   return (
     <HoverCard.Portal>
       <HoverCard.Content
@@ -58,29 +58,41 @@ function UpdateCard({ view, sections }: { view: UpdateButtonView; sections: Chan
         align="end"
         sideOffset={6}
         collisionPadding={8}
-        className="motion-pop z-50 flex max-h-[min(420px,70vh)] w-60 max-w-[calc(100vw-16px)] flex-col gap-2.5 overflow-hidden rounded-lg border border-border bg-raised p-3.5 text-ui-12 leading-[1.5] text-fg"
-      >
-        <p className="shrink-0 text-ui-13 font-semibold break-words">{view.heading}</p>
-        <p className="shrink-0 text-ui-11 break-words text-muted">{view.tooltip}</p>
-        {sections.length > 0 && <div className="h-px shrink-0 bg-border" />}
-        {sections.length > 0 && (
-          <div data-testid="update-changes" className="min-h-0 space-y-2.5 overflow-y-auto">
-            {sections.map((section) => (
-              <section key={section.heading}>
-                <h3 className="pb-2.5 font-medium">{section.heading}</h3>
-                <ul className="list-disc space-y-2.5 pl-3">
-                  {section.items.map((item, i) => (
-                    <li key={i}>
-                      <p className="break-words">{item.title}</p>
-                      {item.credit && <p className="mt-0.5 -ml-3 text-ui-11 break-words text-muted">{item.credit}</p>}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ))}
-          </div>
+        className={cx(
+          "motion-pop z-50 border border-border bg-raised text-fg shadow-[var(--shadow-float)]",
+          card
+            ? "flex max-h-[min(420px,70vh)] w-[312px] max-w-[calc(100vw-16px)] flex-col gap-3 overflow-hidden rounded-lg p-3"
+            : "inline-flex max-w-[280px] gap-1.5 rounded-md px-2 py-[5px] text-ui-12",
         )}
-        {sections.length > 0 && <p className="shrink-0 text-ui-10 text-dim">GitHub-generated release notes</p>}
+      >
+        {card ? (
+          <>
+            <div className="flex shrink-0 items-baseline justify-between gap-2">
+              <p className="min-w-0 text-ui-12 font-medium break-words">{view.title}</p>
+              {view.detail && <p className="shrink-0 text-ui-11 text-dim">{view.detail}</p>}
+            </div>
+            <div data-testid="update-changes" className="flex min-h-0 flex-col gap-3.5 overflow-y-auto">
+              {sections.map((section) => (
+                <section key={section.version ?? ""} className="flex flex-col gap-1.5">
+                  {section.version && <h3 className="text-ui-11 font-medium text-dim">{section.version}</h3>}
+                  <ul className="flex flex-col gap-1.5">
+                    {section.items.map((item, i) => (
+                      <li key={i} className="flex gap-3">
+                        <span className="min-w-0 flex-1 text-ui-12 break-words">{item.title}</span>
+                        {item.pr && <span className="shrink-0 text-ui-11 text-dim tabular-nums">{item.pr}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <span className="min-w-0 break-words">{view.title}</span>
+            {view.detail && <span className="shrink-0 text-dim">{view.detail}</span>}
+          </>
+        )}
       </HoverCard.Content>
     </HoverCard.Portal>
   );
@@ -89,8 +101,7 @@ function UpdateCard({ view, sections }: { view: UpdateButtonView; sections: Chan
 /** Keep the button focusable while a step runs so its hover card can explain the progress. */
 export function UpdateButton() {
   const updates = useLive((s) => s.updates);
-  const now = useNow(updates?.status.kind === "UpToDate", 60_000);
-  const view = updates && updateButtonView(updates, now);
+  const view = updates && updateButtonView(updates.status);
   if (!updates || !view) return null;
   const { action } = view;
   const sections = changeSections(updates.status);
@@ -110,7 +121,7 @@ export function UpdateButton() {
           {view.attention && <span className="absolute top-0.5 right-0.5 size-[5px] rounded-full bg-run" />}
         </IconButton>
       </HoverCard.Trigger>
-      <UpdateCard view={view} sections={sections} />
+      <UpdateHover view={view} sections={sections} />
     </HoverCard.Root>
   );
 }
