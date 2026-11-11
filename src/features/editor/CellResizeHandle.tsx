@@ -1,4 +1,5 @@
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { flushSync } from "react-dom";
 import { handleLook } from "../../shell/ResizeHandle";
 import { clamp } from "./cellSizing";
 
@@ -13,10 +14,9 @@ type CellResizeHandleProps = {
   max: number;
   lineColor: string;
   onResize(px: number | null): void;
-  onDragChange(dragging: boolean): void;
 };
 
-export function CellResizeHandle({ label, testId, value, min, max, lineColor, onResize, onDragChange }: CellResizeHandleProps) {
+export function CellResizeHandle({ label, testId, value, min, max, lineColor, onResize }: CellResizeHandleProps) {
   const [dragging, setDragging] = useState(false);
   const drag = useRef<{ y: number; from: number; moved: boolean } | null>(null);
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
@@ -25,7 +25,6 @@ export function CellResizeHandle({ label, testId, value, min, max, lineColor, on
     e.currentTarget.setPointerCapture(e.pointerId);
     drag.current = { y: e.clientY, from: value, moved: false };
     setDragging(true);
-    onDragChange(true);
     // Shrinking the last cell would pull the scroller's end up and clamp scrollTop, sliding the handle away from the pointer.
     e.currentTarget.closest<HTMLElement>(".notebook-workspace")?.style.setProperty(DRAG_SLACK, `${value - min}px`);
   };
@@ -38,14 +37,14 @@ export function CellResizeHandle({ label, testId, value, min, max, lineColor, on
   const onPointerEnd = (e: PointerEvent<HTMLDivElement>) => {
     drag.current = null;
     setDragging(false);
-    onDragChange(false);
     e.currentTarget.closest<HTMLElement>(".notebook-workspace")?.style.removeProperty(DRAG_SLACK);
   };
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const step = { ArrowUp: -STEP, ArrowDown: STEP }[e.key];
     if (step === undefined) return;
     e.preventDefault();
-    onResize(clamp(value + step, min, max));
+    flushSync(() => onResize(clamp(value + step, min, max)));
+    e.currentTarget.scrollIntoView({ block: "nearest" });
   };
   return (
     <div
