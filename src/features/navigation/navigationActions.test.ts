@@ -89,3 +89,15 @@ it("uses the engine table action and closes the popup before its asynchronous er
   expect(opened && textOf(opened)).toBe("engine browse template");
   expect(ws().overlay).toEqual({ kind: "queries", tab: "history" });
 });
+
+it("expands a collapsed cell it goes to, so the editor it focuses is there", async () => {
+  mockIPC(() => null);
+  const first = openSqlTab({ db: shop });
+  const second = openSqlTab({ db: shop });
+  ws().setCollapsed([first, second], true);
+  ws().open({ kind: "navigation" });
+
+  expect(await activateDestination({ kind: "tab", tabId: first })).toBe(first);
+  expect(ws().tabs[first]?.collapsed).toBeUndefined();
+  expect(ws().tabs[second]?.collapsed).toBe(true);
+});
