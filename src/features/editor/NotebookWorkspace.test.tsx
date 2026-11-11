@@ -358,6 +358,33 @@ it("holds the notebook's end under the pointer when a drag that shrank the last 
   expect(notebook.scrollHeight).toBe(1500 + COMPACT - 100);
 });
 
+it("keeps the slack a released drag left behind when the next drag on the last cell starts", async () => {
+  withRowCounts({ a: [1000], b: [1000] });
+  await renderNotebook();
+  const notebook = screen.getByTestId("notebook");
+  const scrollHeight = () => 1500 + resultsHeight("b") + (parseFloat(notebook.style.getPropertyValue("--notebook-drag-slack")) || 0);
+  let scrollTop = 0;
+  Object.defineProperty(notebook, "scrollHeight", { get: scrollHeight });
+  Object.defineProperty(notebook, "scrollTop", {
+    get: () => (scrollTop = Math.min(scrollTop, scrollHeight() - viewport)),
+    set: (px: number) => {
+      scrollTop = px;
+    },
+  });
+  notebook.scrollTop = 10_000;
+  const end = notebook.scrollTop;
+  const handle = screen.getByRole("separator", { name: "Resize results in Cell b" });
+  fireEvent.pointerDown(handle, { button: 0, clientY: 500 });
+  fireEvent.pointerMove(handle, { clientY: -10_000 });
+  fireEvent.pointerUp(handle, { clientY: -10_000 });
+  expect(notebook.scrollTop).toBe(end);
+
+  fireEvent.pointerDown(handle, { button: 0, clientY: 300 });
+  expect(notebook.scrollTop).toBe(end);
+  fireEvent.pointerUp(handle, { clientY: 300 });
+  expect(notebook.scrollTop).toBe(end);
+});
+
 it("scrolls only as far as keeps a handle in view while the arrow keys step it", async () => {
   withRowCounts({ a: [1000] });
   await renderNotebook();

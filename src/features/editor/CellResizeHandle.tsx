@@ -44,9 +44,12 @@ export function CellResizeHandle({ label, testId, value, min, max, lineColor, on
     e.currentTarget.setPointerCapture(e.pointerId);
     drag.current = { y: e.clientY, from: value, moved: false };
     setDragging(true);
+    const notebook = e.currentTarget.closest<HTMLElement>(".notebook-workspace");
+    const retained = parseFloat(notebook?.style.getPropertyValue(DRAG_SLACK) ?? "") || 0;
     stopTrimming();
     // Shrinking the last cell would pull the scroller's end up and clamp scrollTop, sliding the handle away from the pointer.
-    e.currentTarget.closest<HTMLElement>(".notebook-workspace")?.style.setProperty(DRAG_SLACK, `${value - min}px`);
+    // Slack an earlier drag left behind may be what holds scrollTop now, so this drag's allowance adds to it.
+    notebook?.style.setProperty(DRAG_SLACK, `${retained + value - min}px`);
   };
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
     if (!drag.current) return;
