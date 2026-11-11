@@ -6,6 +6,25 @@ import { clamp } from "./cellSizing";
 const STEP = 8;
 const DRAG_SLACK = "--notebook-drag-slack";
 
+let stopTrimming = () => {};
+
+/** Trims the drag slack to the room that holds scrollTop, and drops it once the notebook scrolls back above that room. */
+function releaseSlack(notebook: HTMLElement) {
+  const trim = () => {
+    const slack = parseFloat(notebook.style.getPropertyValue(DRAG_SLACK)) || 0;
+    const room = notebook.scrollTop + notebook.clientHeight - (notebook.scrollHeight - slack);
+    if (room > 0) notebook.style.setProperty(DRAG_SLACK, `${room}px`);
+    else stopTrimming();
+  };
+  stopTrimming = () => {
+    notebook.removeEventListener("scroll", trim);
+    notebook.style.removeProperty(DRAG_SLACK);
+    stopTrimming = () => {};
+  };
+  notebook.addEventListener("scroll", trim, { passive: true });
+  trim();
+}
+
 type CellResizeHandleProps = {
   label: string;
   testId: string;
@@ -25,6 +44,7 @@ export function CellResizeHandle({ label, testId, value, min, max, lineColor, on
     e.currentTarget.setPointerCapture(e.pointerId);
     drag.current = { y: e.clientY, from: value, moved: false };
     setDragging(true);
+    stopTrimming();
     // Shrinking the last cell would pull the scroller's end up and clamp scrollTop, sliding the handle away from the pointer.
     e.currentTarget.closest<HTMLElement>(".notebook-workspace")?.style.setProperty(DRAG_SLACK, `${value - min}px`);
   };
@@ -35,9 +55,11 @@ export function CellResizeHandle({ label, testId, value, min, max, lineColor, on
     onResize(clamp(drag.current.from + e.clientY - drag.current.y, min, max));
   };
   const onPointerEnd = (e: PointerEvent<HTMLDivElement>) => {
+    if (!drag.current) return;
     drag.current = null;
     setDragging(false);
-    e.currentTarget.closest<HTMLElement>(".notebook-workspace")?.style.removeProperty(DRAG_SLACK);
+    const notebook = e.currentTarget.closest<HTMLElement>(".notebook-workspace");
+    if (notebook) releaseSlack(notebook);
   };
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const step = { ArrowUp: -STEP, ArrowDown: STEP }[e.key];
