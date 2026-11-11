@@ -576,3 +576,78 @@ describe("arrow keys at a cell's edge", () => {
     expect(completionStatus(view.state)).toBe("active");
   });
 });
+
+describe("moving a cell", () => {
+  const order = () => screen.getAllByTestId(/^notebook-cell-/).map((el) => el.dataset.testid?.slice("notebook-cell-".length));
+  const number = (id: TabId) => screen.getByTestId(`cell-grip-${id}`).textContent;
+  const dropLine = () => document.querySelector<HTMLElement>('[data-testid="cell-drop-line"]');
+  const RECTS: Record<string, DOMRect> = {
+    notebook: DOMRect.fromRect({ y: 0, width: 800, height: 858 }),
+    "notebook-cell-a": DOMRect.fromRect({ x: 24, y: 100, width: 752, height: 200 }),
+    "notebook-cell-b": DOMRect.fromRect({ x: 24, y: 328, width: 752, height: 200 }),
+  };
+
+  beforeEach(() => {
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      return RECTS[this.getAttribute("data-testid") ?? ""] ?? DOMRect.fromRect();
+    });
+  });
+
+  it("moves the cell with ⌥↓ and ⌥↑ on its focused title, keeps the title focused, and leaves plain arrows to move focus", async () => {
+    await renderNotebook();
+    const [a, b] = [screen.getByTestId("tab-a"), screen.getByTestId("tab-b")];
+    act(() => a.focus());
+
+    fireEvent.keyDown(a, { key: "ArrowDown", altKey: true });
+    expect([order(), number("a"), number("b"), document.activeElement]).toEqual([["b", "a"], "02", "01", a]);
+    fireEvent.keyDown(a, { key: "ArrowDown", altKey: true });
+    expect([order(), document.activeElement]).toEqual([["b", "a"], a]);
+
+    fireEvent.keyDown(a, { key: "ArrowUp" });
+    expect([order(), document.activeElement]).toEqual([["b", "a"], b]);
+    fireEvent.keyDown(b, { key: "ArrowDown", altKey: true });
+    expect([order(), activeId(useWorkspace.getState()), document.activeElement]).toEqual([["a", "b"], "b", b]);
+  });
+
+  it("drags a cell by its number past the middle of another and drops it there, with a line where it will land", async () => {
+    await renderNotebook();
+    const grip = screen.getByTestId("cell-grip-a");
+
+    fireEvent.pointerDown(grip, { button: 0, clientY: 120 });
+    fireEvent.pointerMove(grip, { clientY: 122 });
+    expect(cell("a").hasAttribute("data-dragging")).toBe(false);
+    fireEvent.pointerMove(grip, { clientY: 400 });
+    expect([cell("a").hasAttribute("data-dragging"), dropLine()]).toEqual([true, null]);
+    fireEvent.pointerMove(grip, { clientY: 450 });
+    expect(dropLine()?.style.top).toBe("542px");
+
+    fireEvent.pointerUp(grip);
+    expect([order(), number("a"), activeId(useWorkspace.getState()), dropLine(), cell("a").hasAttribute("data-dragging")]).toEqual([
+      ["b", "a"],
+      "02",
+      "a",
+      null,
+      false,
+    ]);
+  });
+
+  it("puts the cell back on Esc, and changes nothing for a drop where the cell already is", async () => {
+    await renderNotebook();
+    const grip = screen.getByTestId("cell-grip-b");
+    const { notebooks } = useWorkspace.getState();
+
+    fireEvent.pointerDown(grip, { button: 0, clientY: 340 });
+    fireEvent.pointerMove(grip, { clientY: 150 });
+    expect(dropLine()?.style.top).toBe("86px");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect([dropLine(), cell("b").hasAttribute("data-dragging")]).toEqual([null, false]);
+    fireEvent.pointerMove(grip, { clientY: 160 });
+    fireEvent.pointerUp(grip);
+
+    fireEvent.pointerDown(grip, { button: 0, clientY: 340 });
+    fireEvent.pointerMove(grip, { clientY: 400 });
+    fireEvent.pointerUp(grip);
+    expect([order(), useWorkspace.getState().notebooks]).toEqual([["a", "b"], notebooks]);
+    expect(useWorkspace.getState().notebooks).toBe(notebooks);
+  });
+});

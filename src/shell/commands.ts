@@ -4,6 +4,7 @@ import { saveActiveQuery } from "../features/saved/savedActions";
 import { openNavigation } from "../features/navigation/navigationActions";
 import { openNotebookSwitcher } from "../features/notebooks/notebookActions";
 import { openNotebookFiles, saveNotebook, type SaveMode } from "../features/notebooks/notebookFiles";
+import { adjacentCell } from "../state/notebooks";
 import { pendingCount, useTableEdits } from "../state/tableEdits";
 import { activeId, activeTab, shownDb, shownNotebook, useWorkspace, type Overlay } from "../state/workspace";
 import { isMac } from "./hostedWindow";
@@ -182,6 +183,24 @@ const COLLAPSE_OTHERS: Command = {
   },
 };
 
+const moveActiveCell = (step: -1 | 1): Command => {
+  const target = () => {
+    const id = activeId(ws());
+    const cells = shownNotebook(ws())?.cells ?? [];
+    return id && adjacentCell(cells, id, step) ? { id, index: cells.indexOf(id) + step } : undefined;
+  };
+  return {
+    id: step < 0 ? "move-cell-up" : "move-cell-down",
+    group: "Query",
+    label: step < 0 ? "Move cell up" : "Move cell down",
+    available: () => hasWorkspaceTab() && target() !== undefined,
+    run: () => {
+      const to = target();
+      if (to) ws().moveCell(to.id, to.index);
+    },
+  };
+};
+
 export const COMMANDS: Command[] = [
   ...START_COMMANDS,
   COLLAPSE_CELL,
@@ -194,6 +213,8 @@ export const COMMANDS: Command[] = [
   },
   SWITCH_NOTEBOOK,
   CLOSE_TAB,
+  moveActiveCell(-1),
+  moveActiveCell(1),
   SAVE,
   SAVE_AS,
   SAVE_QUERY,

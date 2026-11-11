@@ -245,7 +245,7 @@ it("shares the command registry with Cmd and Ctrl Shift+P while keeping plain P 
   expect(press("p")?.id).toBe("navigation");
   expect(pressOff("p", { ctrlKey: true })?.id).toBe("navigation");
   expect(new Set(COMMANDS.map((c) => c.id)).size).toBe(COMMANDS.length);
-  expect(COMMANDS.filter((c) => c.palette !== false)).toHaveLength(14);
+  expect(COMMANDS.filter((c) => c.palette !== false)).toHaveLength(16);
   expect(START_COMMANDS.map((c) => c.id)).toEqual(["new-query", "open-file", "new-connection", "navigation", "saved-queries", "settings"]);
   expect(START_COMMANDS.every((c) => COMMANDS.includes(c))).toBe(true);
 });
@@ -295,4 +295,22 @@ it("collapses or expands the active cell, labelled for its state, and collapses 
   expect([collapsed(), commandLabel(toggle)]).toEqual([[true, false, true], "Collapse cell"]);
   useWorkspace.setState(cellsState([cell("solo")]));
   expect([commandAvailable(toggle), commandAvailable(others)]).toEqual([true, false]);
+});
+
+it("moves the active cell up and down from the command panel, and offers neither move past the notebook's ends", () => {
+  vi.stubGlobal("window", { crypto });
+  const command = (id: string) => COMMANDS.find((c) => c.id === id)!;
+  const offered = () => ["move-cell-up", "move-cell-down"].filter((id) => commandAvailable(command(id)));
+  expect([commandLabel(command("move-cell-up")), commandLabel(command("move-cell-down")), offered()]).toEqual(["Move cell up", "Move cell down", []]);
+  const cell = (id: string) => ({ id, title: id, console: { db: { connectionId: "c", database: "shop" }, mode: "AutoCommit" as const }, table: null });
+  for (const id of ["a", "b", "c"]) useWorkspace.getState().addTab(cell(id));
+  expect(offered()).toEqual(["move-cell-up"]);
+  command("move-cell-up").run();
+  command("move-cell-up").run();
+  expect([allCells(useWorkspace.getState()), offered()]).toEqual([["c", "a", "b"], ["move-cell-down"]]);
+  command("move-cell-down").run();
+  expect([allCells(useWorkspace.getState()), offered()]).toEqual([
+    ["a", "c", "b"],
+    ["move-cell-up", "move-cell-down"],
+  ]);
 });

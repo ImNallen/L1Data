@@ -252,7 +252,7 @@ textarea,
 }
 
 /* Reduced motion, painted on the root by shell/appearance.ts: menus and dialogs fade in place, transforms snap,
-   notebook cells resize at once when focus moves, and endless pulses stop, since their colour and text already
+   notebook cells resize at once when focus moves, a dragged cell's drop line jumps between cells, and endless pulses stop, since their colour and text already
    carry the state. Colour and opacity transitions stay as feedback, and spinners keep turning because they are
    the only sign that work is still running. These rules sit outside any layer so they beat Tailwind's utilities. */
 :root[data-motion="reduced"] .motion-pop[data-state="open"] {
@@ -265,6 +265,9 @@ textarea,
   animation: none;
 }
 :root[data-motion="reduced"] .notebook-workspace[data-settling] :is(.notebook-editor, .notebook-results) {
+  transition: none;
+}
+:root[data-motion="reduced"] .notebook-drop-line {
   transition: none;
 }
 :root[data-motion="reduced"] .transition-transform {
@@ -352,6 +355,75 @@ textarea,
   gap: 8px;
   min-height: 40px;
   padding: 4px 10px;
+}
+.notebook-cell[data-dragging] {
+  opacity: 0.45;
+}
+.notebook-cell-grip {
+  display: grid;
+  place-items: center;
+  margin: -2px -4px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: var(--color-muted);
+  cursor: grab;
+  touch-action: none;
+}
+.notebook-cell-grip > * {
+  grid-area: 1 / 1;
+  transition: opacity 120ms ease-out;
+}
+.notebook-cell-grip > svg,
+.notebook-cell-grip:is(:hover, [data-dragging]) > span {
+  opacity: 0;
+}
+.notebook-cell-grip:is(:hover, [data-dragging]) {
+  background: var(--color-hover);
+}
+.notebook-cell-grip:is(:hover, [data-dragging]) > svg {
+  opacity: 1;
+}
+.notebook-cell-grip[data-dragging] {
+  cursor: grabbing;
+}
+.notebook-drag-ghost {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 320px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--color-focus);
+  border-radius: 6px;
+  background: var(--color-bg);
+  box-shadow: var(--shadow-float);
+  color: var(--color-fg);
+  font-size: var(--text-ui-12);
+  font-weight: 500;
+  pointer-events: none;
+}
+.notebook-drop-line {
+  position: fixed;
+  z-index: 61;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: 1px;
+  background: var(--color-focus);
+  pointer-events: none;
+  transition: top 80ms ease-out;
+}
+.notebook-drop-line::before {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: -4px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--color-focus);
+  border-radius: 50%;
+  background: var(--color-canvas);
 }
 .notebook-editor {
   min-height: 64px;

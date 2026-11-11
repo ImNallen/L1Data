@@ -22,6 +22,7 @@ import { useLive } from "./live";
 import { cellMeta, fileName, fileStem, metaKey } from "./notebookFile";
 import {
   followActive,
+  moveCell,
   NO_DATABASE,
   newNotebook,
   notebookFor,
@@ -353,6 +354,8 @@ type WorkspaceActions = {
    */
   closeTab(id: TabId): void;
   setActive(id: TabId): void;
+  /** Moves the cell to `index` in its notebook and shows it active there. Its text, results, and session stay with it. */
+  moveCell(id: TabId, index: number): void;
   /** Shows the most recent notebook on `db`, or the start commands on it when it has none. Never touches a cell. */
   showDatabase(db: DatabaseRef | null): void;
   showNotebook(id: NotebookId): void;
@@ -521,6 +524,13 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
       const notebook = notebookOf(s.notebooks, id);
       if (!notebook || (notebook.active === id && shownNotebook(s) === notebook)) return {};
       return showNotebook({ ...s.notebooks, [notebook.id]: { ...notebook, active: id } }, notebook.id);
+    }),
+  moveCell: (id, index) =>
+    set((s) => {
+      const notebook = notebookOf(s.notebooks, id);
+      if (!notebook) return {};
+      const cells = moveCell(notebook.cells, id, index);
+      return cells === notebook.cells ? {} : showNotebook({ ...s.notebooks, [notebook.id]: { ...notebook, cells, active: id } }, notebook.id);
     }),
   showDatabase: (db) =>
     set((s) => {

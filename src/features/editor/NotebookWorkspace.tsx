@@ -3,6 +3,7 @@ import { StartCommands } from "../../shell/StartCommands";
 import { EditorView } from "@codemirror/view";
 import { ChevronRightIcon, CircleAlertIcon, CopyPlusIcon, ListIndentIncreaseIcon, PlayIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { flushSync } from "react-dom";
 import type { RunState, TabId } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
 import { canCancel, hasUncommittedWork, isBusy, resultKey, rowResults, runSummary, shownResult, type ResultPick } from "../../state/status";
@@ -12,6 +13,7 @@ import { cx, IconButton } from "../../ui/primitives";
 import { useNow } from "../../ui/useNow";
 import { hasResultPager } from "../results/format";
 import { ResultsPane } from "../results/ResultsPane";
+import { CellGrip } from "./CellGrip";
 import { CellResizeHandle } from "./CellResizeHandle";
 import { CELL_SCROLL_MARGIN, cellHeights, EDITOR_MIN, pinnedTop, type DraggedHeights } from "./cellSizing";
 import { closeTab } from "./closeTab";
@@ -23,6 +25,8 @@ import { cancelActive, formatActive, openSqlTab, runActive } from "./runActions"
 import { SqlEditor } from "./SqlEditor";
 import { SqlText } from "./SqlText";
 import { databaseKindFor } from "../../state/databaseKind";
+
+const MOVE_KEYS: Partial<Record<string, -1 | 1>> = { ArrowUp: -1, ArrowDown: 1 };
 
 function AddCell({ after }: { after?: TabId }) {
   return (
@@ -133,7 +137,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
     wasFocused.current = focused;
     // The notebook pins a newly focused cell while it grows, so this keeps it in view only through later size changes.
     if (focused && !refocused) cell.current?.scrollIntoView({ block: "nearest" });
-  }, [focused, automaticResults, viewport, collapsed]);
+  }, [focused, automaticResults, viewport, collapsed, index]);
   if (!tab) return null;
   const activate = () => {
     setFocusOnActivate(false);
@@ -186,7 +190,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
           >
             <ChevronRightIcon size={14} className={cx("transition-transform", !collapsed && "rotate-90")} />
           </IconButton>
-          <span className="font-mono text-ui-11 text-dim tabular-nums">{String(index + 1).padStart(2, "0")}</span>
+          <CellGrip id={id} index={index} title={tab.title} />
           {renaming ? (
             <input
               autoFocus
@@ -211,6 +215,15 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
               data-active={active}
               onClick={() => activate()}
               onKeyDown={(e) => {
+                const move = e.altKey ? MOVE_KEYS[e.key] : undefined;
+                if (move) {
+                  e.preventDefault();
+                  const title = e.currentTarget;
+                  // React moves a cell by reinserting its nodes, which blurs the title in an engine that drops focus on removal.
+                  flushSync(() => useWorkspace.getState().moveCell(id, index + move));
+                  title.focus();
+                  return;
+                }
                 const direction = ["ArrowLeft", "ArrowUp"].includes(e.key) ? -1 : ["ArrowRight", "ArrowDown"].includes(e.key) ? 1 : 0;
                 if (!direction && e.key !== "Home" && e.key !== "End") return;
                 e.preventDefault();
