@@ -88,6 +88,7 @@ beforeEach(() => {
     return this.getAttribute("data-testid") === "notebook" ? viewport : 0;
   });
   Element.prototype.scrollIntoView = () => {};
+  Element.prototype.getAnimations = () => [];
   Range.prototype.getClientRects = () => Object.assign([], { item: () => null });
   HTMLElement.prototype.setPointerCapture = () => {};
   vi.stubGlobal(
@@ -249,6 +250,32 @@ it("holds both cells' sizes through a press on an inactive cell until after the 
 
   await afterClick();
   expect(resultsHeights()).toEqual([COMPACT, FILLED]);
+});
+
+it("keeps a clicked cell in place while the cell above it shrinks, instead of snapping it into view", async () => {
+  withRowCounts({ a: [1000], b: [1000] });
+  await renderNotebook();
+  const notebook = screen.getByTestId("notebook");
+  let scrollTop = 1000;
+  Object.defineProperty(notebook, "scrollTop", {
+    get: () => scrollTop,
+    set: (px: number) => {
+      scrollTop = px;
+    },
+  });
+  vi.spyOn(cell("b"), "getBoundingClientRect").mockImplementation(() => DOMRect.fromRect({ y: resultsHeight("a") + 828 - scrollTop, height: 300 }));
+  const scroll = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+  const target = cell("b").querySelector(".notebook-results") as HTMLElement;
+  expect(cell("b").getBoundingClientRect().top).toBe(500);
+
+  fireEvent.pointerDown(target);
+  fireEvent.mouseDown(target);
+  fireEvent.pointerUp(target);
+  await afterClick();
+
+  expect(resultsHeights()).toEqual([COMPACT, FILLED]);
+  expect(cell("b").getBoundingClientRect().top).toBe(500);
+  expect(scroll).not.toHaveBeenCalled();
 });
 
 it("resizes straight away when a cell activates without a press", async () => {

@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { cellHeights, type CellSizingInput } from "./cellSizing";
+import { cellHeights, pinnedTop, type CellSizingInput } from "./cellSizing";
 
 const CHROME = 80;
 const ROW = 24;
@@ -86,4 +86,18 @@ it("gives a charted result the chart's height whatever its row count", () => {
   expect(heights({ results: query(6, false, true) }).results).toBe(340);
   expect(heights({ results: query(1000, false, true), focused: false }).results).toBe(340);
   expect(heights({ results: query(6) }).results).toBe(224);
+});
+
+it("keeps a growing cell at its anchor while its bottom stays in view", () => {
+  expect(pinnedTop(300, 400, 900, 8)).toBe(300);
+});
+
+it("raises a growing cell only as far as its bottom needs", () => {
+  expect(pinnedTop(500, 487, 945, 8)).toBe(450);
+  expect(pinnedTop(500, 929, 945, 8)).toBe(8);
+});
+
+it("pins a cell taller than the viewport, or one above it, at the margin", () => {
+  expect(pinnedTop(300, 2000, 900, 8)).toBe(8);
+  expect(pinnedTop(-200, 400, 900, 8)).toBe(8);
 });

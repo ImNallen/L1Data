@@ -44,6 +44,10 @@ const CHART_BODY = 260;
 
 export const clamp = (px: number, min: number, max: number) => Math.min(max, Math.max(min, px));
 
+/** Where a growing cell's top sits: at its anchor, raised only as far as keeps its bottom in view, and never above the margin. */
+export const pinnedTop = (anchorTop: number, height: number, viewport: number, margin: number) =>
+  Math.max(margin, Math.min(anchorTop, viewport - margin - height));
+
 export function cellHeights({ viewport, lines, lineHeight, results, focused, dragged }: CellSizingInput): CellHeights {
   const room = viewport - CELL_CHROME;
   const editorAuto = Math.min(lines * lineHeight + EDITOR_PADDING, Math.round(room * EDITOR_AUTO_SHARE));

@@ -1,7 +1,7 @@
 import { DENSITY_FACTOR, gridRowHeight } from "../../shell/appearance";
 import { StartCommands } from "../../shell/StartCommands";
 import { CopyPlusIcon, ListIndentIncreaseIcon, PlayIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { TabId } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
 import { canCancel, hasUncommittedWork, isBusy, resultKey, rowResults, shownResult } from "../../state/status";
@@ -11,7 +11,7 @@ import { cx, IconButton } from "../../ui/primitives";
 import { hasResultPager } from "../results/format";
 import { ResultsPane } from "../results/ResultsPane";
 import { CellResizeHandle } from "./CellResizeHandle";
-import { CELL_SCROLL_MARGIN, cellHeights, EDITOR_MIN, type DraggedHeights } from "./cellSizing";
+import { CELL_SCROLL_MARGIN, cellHeights, EDITOR_MIN, pinnedTop, type DraggedHeights } from "./cellSizing";
 import { closeTab } from "./closeTab";
 import { staleness, stalenessText } from "../notebooks/references";
 import { docText } from "./docText";
@@ -103,8 +103,12 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
     focused,
     dragged,
   });
+  const wasFocused = useRef(focused);
   useEffect(() => {
-    if (focused && !dragging) cell.current?.scrollIntoView({ block: "nearest" });
+    const refocused = wasFocused.current !== focused;
+    wasFocused.current = focused;
+    // The notebook pins a newly focused cell while it grows, so this keeps it in view only through later size changes.
+    if (focused && !dragging && !refocused) cell.current?.scrollIntoView({ block: "nearest" });
   }, [focused, dragging, dragged, heights.results, viewport]);
   if (!tab) return null;
   const activate = (focus = false) => {
@@ -274,18 +278,23 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
   );
 }
 
-function useFocusAfterClick() {
+function useFocusAfterClick(willFocus: (id: TabId) => void) {
   const active = useWorkspace(activeId);
   const [focused, setFocused] = useState(active);
   const pressed = useRef(false);
+  const focus = useEffectEvent((next: TabId | null) => {
+    if (next === focused) return;
+    if (next) willFocus(next);
+    setFocused(next);
+  });
   useLayoutEffect(() => {
-    if (!pressed.current) setFocused(active);
+    if (!pressed.current) focus(active);
   }, [active]);
   useEffect(() => {
     const release = () => {
       if (!pressed.current) return;
       pressed.current = false;
-      setTimeout(() => setFocused(activeId(useWorkspace.getState())), 0);
+      setTimeout(() => focus(activeId(useWorkspace.getState())), 0);
     };
     window.addEventListener("pointerup", release, true);
     window.addEventListener("pointercancel", release, true);
@@ -301,11 +310,21 @@ function useFocusAfterClick() {
 }
 
 const NO_CELLS: TabId[] = [];
+const SCROLL_KEYS = ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End"];
+const cellRect = (scroller: HTMLElement, id: TabId) => scroller.querySelector(`[data-testid="notebook-cell-${id}"]`)?.getBoundingClientRect();
+const resizing = (animation: Animation) => animation instanceof CSSTransition && animation.transitionProperty === "height";
 
 export function NotebookWorkspace() {
   const cells = useWorkspace((s) => shownNotebook(s)?.cells ?? NO_CELLS);
-  const { focused, onPointerDownCapture } = useFocusAfterClick();
   const scroller = useRef<HTMLDivElement>(null);
+  const settle = useRef<{ id: TabId; anchorTop: number } | null>(null);
+  const { focused, onPointerDownCapture } = useFocusAfterClick((id) => {
+    const el = scroller.current;
+    const rect = el && cellRect(el, id);
+    if (!el || !rect) return;
+    settle.current = { id, anchorTop: rect.top - el.getBoundingClientRect().top };
+    el.dataset.settling = "";
+  });
   const [viewport, setViewport] = useState(0);
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -316,6 +335,31 @@ export function NotebookWorkspace() {
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    let frame = 0;
+    const step = () => {
+      const pin = settle.current;
+      const rect = pin && cellRect(el, pin.id);
+      if (pin && rect) el.scrollTop += rect.top - el.getBoundingClientRect().top - pinnedTop(pin.anchorTop, rect.height, el.clientHeight, CELL_SCROLL_MARGIN);
+      if (el.getAnimations({ subtree: true }).some(resizing)) frame = requestAnimationFrame(step);
+      else {
+        settle.current = null;
+        delete el.dataset.settling;
+      }
+    };
+    const release = (e: Event) => {
+      if (!(e instanceof KeyboardEvent) || SCROLL_KEYS.includes(e.key)) settle.current = null;
+    };
+    step();
+    const inputs = ["wheel", "touchmove", "keydown"] as const;
+    for (const input of inputs) el.addEventListener(input, release, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      for (const input of inputs) el.removeEventListener(input, release);
+    };
+  }, [focused]);
   return (
     <div ref={scroller} data-testid="notebook" className="notebook-workspace" onPointerDownCapture={onPointerDownCapture}>
       {cells.length === 0 ? (
