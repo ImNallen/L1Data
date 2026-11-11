@@ -349,13 +349,6 @@ textarea,
   min-height: 40px;
   padding: 4px 10px;
 }
-.notebook-run {
-  height: 28px;
-  padding: 5px 10px;
-  border-radius: 6px;
-  font-size: var(--text-ui-12);
-  font-weight: 500;
-}
 .notebook-editor {
   min-height: 64px;
 }

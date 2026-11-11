@@ -1,14 +1,13 @@
 import { DENSITY_FACTOR, gridRowHeight } from "../../shell/appearance";
 import { StartCommands } from "../../shell/StartCommands";
-import * as Menu from "@radix-ui/react-dropdown-menu";
-import { EllipsisIcon, ListIndentIncreaseIcon, PlayIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
+import { CopyPlusIcon, ListIndentIncreaseIcon, PlayIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { TabId } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
 import { canCancel, hasUncommittedWork, isBusy, resultKey, rowResults, shownResult } from "../../state/status";
 import { notebookOf } from "../../state/notebooks";
 import { activeId, shownNotebook, useWorkspace } from "../../state/workspace";
-import { Button, cx, IconButton, MenuContent, MenuItem } from "../../ui/primitives";
+import { cx, IconButton } from "../../ui/primitives";
 import { hasResultPager } from "../results/format";
 import { ResultsPane } from "../results/ResultsPane";
 import { CellResizeHandle } from "./CellResizeHandle";
@@ -17,7 +16,7 @@ import { closeTab } from "./closeTab";
 import { staleness, stalenessText } from "../notebooks/references";
 import { docText } from "./docText";
 import { activateEditor, docOf, onBuffersChanged, textOf } from "./editorStates";
-import { cancelActive, explainActive, explainSupported, formatActive, openSqlTab, runActive } from "./runActions";
+import { cancelActive, formatActive, openSqlTab, runActive } from "./runActions";
 import { SqlEditor } from "./SqlEditor";
 import { SqlText } from "./SqlText";
 import { databaseKindFor } from "../../state/databaseKind";
@@ -207,13 +206,20 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
               aria-label={console?.txn === "Aborted" ? "Transaction aborted" : "Uncommitted transaction"}
             />
           )}
-          <span className="text-ui-10 text-dim" title="Run this cell">
-            ⌘ ↵
-          </span>
-          <Button
+          <IconButton
+            aria-label="Format SQL"
+            title="Format SQL"
+            onClick={() => {
+              activate();
+              void formatActive();
+            }}
+          >
+            <ListIndentIncreaseIcon size={14} />
+          </IconButton>
+          <IconButton
             data-testid={active ? (cancellable ? "cancel-btn" : "run-btn") : undefined}
-            variant={cancellable ? "outline" : "primary"}
-            className="notebook-run"
+            aria-label={cancellable ? "Stop" : "Run cell"}
+            title={cancellable ? "Stop" : "Run cell"}
             disabled={busy && !cancellable}
             onClick={() => {
               activate();
@@ -221,54 +227,18 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
               else runActive({ kind: "all" });
             }}
           >
-            {cancellable ? <SquareIcon size={11} /> : <PlayIcon size={12} />}
-            {cancellable ? "Stop" : "Run"}
-          </Button>
-          <Menu.Root modal={false}>
-            <Menu.Trigger asChild>
-              <IconButton aria-label={`Cell actions for ${tab.title}`} title="Cell actions">
-                <EllipsisIcon size={15} />
-              </IconButton>
-            </Menu.Trigger>
-            <MenuContent align="end">
-              <MenuItem
-                onSelect={() => {
-                  activate();
-                  void formatActive();
-                }}
-              >
-                <ListIndentIncreaseIcon size={14} />
-                Format SQL
-              </MenuItem>
-              <MenuItem onSelect={() => openSqlTab({ db: tab.console.db, schema: tab.console.schema, text, title: `${tab.title} copy` })}>
-                Duplicate cell
-              </MenuItem>
-              {explainSupported(databaseKind) && (
-                <>
-                  <MenuItem
-                    onSelect={() => {
-                      activate();
-                      explainActive("Explain");
-                    }}
-                  >
-                    Explain
-                  </MenuItem>
-                  <MenuItem
-                    onSelect={() => {
-                      activate();
-                      explainActive("ExplainAnalyze");
-                    }}
-                  >
-                    Explain Analyze
-                  </MenuItem>
-                </>
-              )}
-              <MenuItem onSelect={() => void closeTab(id)}>
-                <XIcon size={14} />
-                Close cell
-              </MenuItem>
-            </MenuContent>
-          </Menu.Root>
+            {cancellable ? <SquareIcon fill="currentColor" size={11} /> : <PlayIcon fill="currentColor" size={13} className="text-run-icon" />}
+          </IconButton>
+          <IconButton
+            aria-label="Duplicate cell"
+            title="Duplicate cell"
+            onClick={() => openSqlTab({ db: tab.console.db, schema: tab.console.schema, text, title: `${tab.title} copy` })}
+          >
+            <CopyPlusIcon size={14} />
+          </IconButton>
+          <IconButton aria-label="Close cell" title="Close cell" onClick={() => void closeTab(id)}>
+            <XIcon size={14} />
+          </IconButton>
         </div>
         <div
           className="notebook-editor"

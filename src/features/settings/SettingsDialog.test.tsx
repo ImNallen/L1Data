@@ -221,6 +221,8 @@ it("keeps cell actions keyboard accessible when another editor activates", async
   expect(activeId(useWorkspace.getState())).toBe(first);
   expect(document.activeElement).toBe(screen.getByTestId(`tab-${first}`));
   await user.tab();
+  expect(document.activeElement?.getAttribute("aria-label")).toBe("Format SQL");
+  await user.tab();
   expect(document.activeElement).toBe(screen.getByTestId("run-btn"));
   await user.click(screen.getByTestId(`tab-${second}`));
   expect(activeId(useWorkspace.getState())).toBe(second);
