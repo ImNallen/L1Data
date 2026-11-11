@@ -1,7 +1,8 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { SearchIcon } from "lucide-react";
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
-import { docOf, focusEditor, onBuffersChanged } from "../features/editor/editorStates";
+import { docOf, onBuffersChanged } from "../features/editor/editorStates";
+import { focusActiveCell } from "../features/notebooks/cellNavigation";
 import { activeId, useWorkspace, type Screen } from "../state/workspace";
 import type { TabId } from "../ipc/bindings";
 import { ACTIVE_OPTION, cx, DialogSurface, Kbd } from "../ui/primitives";
@@ -128,6 +129,8 @@ export function CommandPalette() {
     if (useWorkspace.getState().overlay.kind !== "none") return;
     const element = opener.current?.element;
     if (element instanceof HTMLElement && element.isConnected) element.focus();
+    // A command such as Collapse cell can remove the editor the panel was opened from.
+    else if (useWorkspace.getState().screen.kind === "workspace") focusActiveCell();
   };
 
   return (
@@ -157,7 +160,7 @@ export function CommandPalette() {
               if (screen.kind === opener.current?.screen && active === opener.current.active) {
                 if (document.activeElement === document.body) restoreFocus();
               } else if (screen.kind === "workspace") {
-                if (active) focusEditor();
+                if (active) focusActiveCell();
                 else document.querySelector<HTMLElement>('[data-testid="start-new-query"]')?.focus();
               }
             });
