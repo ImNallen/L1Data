@@ -7,10 +7,13 @@ import { adjacentCell, notebookOf } from "../../state/notebooks";
 import { activeId, useWorkspace } from "../../state/workspace";
 import { activateEditor, editorStateOf, focusEditor, moveCursor } from "../editor/editorStates";
 
-/** Makes `id` the active cell with the editor focused in it, and puts its cursor at `at` when given. */
+/** Makes `id` the active cell, expanded, with the editor focused in it, and puts its cursor at `at` when given. */
 export function goToCell(id: TabId, at?: (state: EditorState) => number): void {
   // React moves the editor into the cell on commit, and the move drops focus, so commit now and focus after it.
-  flushSync(() => useWorkspace.getState().setActive(id));
+  flushSync(() => {
+    useWorkspace.getState().setCollapsed([id], false);
+    useWorkspace.getState().setActive(id);
+  });
   activateEditor(id);
   if (at) moveCursor(id, at(editorStateOf(id)));
   focusEditor();

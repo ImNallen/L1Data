@@ -90,8 +90,8 @@ export function notebookDatabase(
 }
 
 /**
- * A cell the file does not title takes a new cell's title, or keeps the one `reuse` gave the cell at its place. A table
- * cell browses only on a connection, and SQL Server cells commit automatically.
+ * A cell the file does not title takes a new cell's title, or keeps the one `reuse` gave the cell at its place, as it keeps
+ * that cell's collapse. A table cell browses only on a connection, and SQL Server cells commit automatically.
  */
 function cellTabs(cells: readonly NotebookCell[], db: DatabaseRef | null, reuse: readonly (Tab | undefined)[] = []): Tab[] {
   const manualOk = databaseKindFor(db, ws().configs) !== "SqlServer";
@@ -105,6 +105,7 @@ function cellTabs(cells: readonly NotebookCell[], db: DatabaseRef | null, reuse:
       title: meta.title ?? table?.table ?? untitled,
       console: { db, mode: meta.manual && manualOk ? "Manual" : "AutoCommit", ...(meta.schema && { schema: meta.schema }) },
       table,
+      ...(old?.collapsed && { collapsed: true }),
     });
   });
   return tabs;

@@ -159,8 +159,33 @@ const SAVE_QUERY: Command = {
   run: () => void saveActiveQuery(),
 };
 
+const COLLAPSE_CELL: Command = {
+  id: "collapse-cell",
+  group: "Query",
+  label: "Collapse cell",
+  labelForContext: () => (activeTab(ws())?.collapsed ? "Expand cell" : "Collapse cell"),
+  available: hasWorkspaceTab,
+  run: () => {
+    const tab = activeTab(ws());
+    if (tab) ws().setCollapsed([tab.id], !tab.collapsed);
+  },
+};
+
+const COLLAPSE_OTHERS: Command = {
+  id: "collapse-other-cells",
+  group: "Query",
+  label: "Collapse other cells",
+  available: () => hasWorkspaceTab() && (shownNotebook(ws())?.cells.length ?? 0) > 1,
+  run: () => {
+    const active = activeId(ws());
+    ws().setCollapsed(shownNotebook(ws())?.cells.filter((id) => id !== active) ?? [], true);
+  },
+};
+
 export const COMMANDS: Command[] = [
   ...START_COMMANDS,
+  COLLAPSE_CELL,
+  COLLAPSE_OTHERS,
   {
     id: "reset-panels",
     group: "Workspace",

@@ -41,6 +41,7 @@ fn saved(connection_id: ConnectionId, database: &str, table: bool) -> TabSnapsho
         console: ConsoleConfigSnapshot { connection_id: Some(connection_id), database: Some(database.into()), schema: None, mode: TxnMode::AutoCommit },
         table: table.then(|| TableSnapshot { schema: "dbo".into(), table: "orders".into(), page: 0, query: TableQuery::default() }),
         file: None,
+        collapsed: false,
     }
 }
 

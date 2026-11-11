@@ -87,6 +87,7 @@ describe("notebook files", () => {
     console: console(database),
     table: null,
     file,
+    collapsed: false,
   });
   const layout = {
     sidebar: true,

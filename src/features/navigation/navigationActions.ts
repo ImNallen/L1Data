@@ -20,6 +20,7 @@ export async function activateDestination(destination: Destination): Promise<Tab
     case "tab":
       if (!workspace.tabs[destination.tabId]) return null;
       workspace.closeSettings();
+      workspace.setCollapsed([destination.tabId], false);
       workspace.setActive(destination.tabId);
       return destination.tabId;
     case "database": {

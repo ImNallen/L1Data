@@ -2356,7 +2356,7 @@ mod tests {
         let tab = TabId(uuid::Uuid::new_v4());
         engine.save_workspace(Workspace {
             tabs: vec![TabSnapshot {
-                id: tab, title: "Saved Manual".into(), text: Some("UPDATE dbo.target SET n=2".into()), table: None, file: None,
+                id: tab, title: "Saved Manual".into(), text: Some("UPDATE dbo.target SET n=2".into()), table: None, file: None, collapsed: false,
                 console: ConsoleConfigSnapshot { connection_id: Some(connection.id), database: Some("shop".into()), schema: None, mode: TxnMode::Manual },
             }], active: Some(tab), ..Workspace::default()
         });

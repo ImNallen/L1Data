@@ -3,7 +3,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import { dropEditor, seedEditor } from "../features/editor/editorStates";
 import { setCell, useTableEdits } from "../state/tableEdits";
 import { allCells, ask, EMPTY_QUERY, shownNotebook, useWorkspace } from "../state/workspace";
-import { COMMANDS, START_COMMANDS, commandForKey, commandLabel, handleGlobalKey, openCommandPalette } from "./commands";
+import { cellsState } from "../testing/notebooks";
+import { COMMANDS, START_COMMANDS, commandAvailable, commandForKey, commandLabel, handleGlobalKey, openCommandPalette, type Command } from "./commands";
 
 type Mods = Partial<Record<"metaKey" | "ctrlKey" | "shiftKey" | "altKey", boolean>>;
 const chord = (key: string, mods: Mods) => ({ key, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods });
@@ -244,7 +245,7 @@ it("shares the command registry with Cmd and Ctrl Shift+P while keeping plain P 
   expect(press("p")?.id).toBe("navigation");
   expect(pressOff("p", { ctrlKey: true })?.id).toBe("navigation");
   expect(new Set(COMMANDS.map((c) => c.id)).size).toBe(COMMANDS.length);
-  expect(COMMANDS.filter((c) => c.palette !== false)).toHaveLength(12);
+  expect(COMMANDS.filter((c) => c.palette !== false)).toHaveLength(14);
   expect(START_COMMANDS.map((c) => c.id)).toEqual(["new-query", "open-file", "new-connection", "navigation", "saved-queries", "settings"]);
   expect(START_COMMANDS.every((c) => COMMANDS.includes(c))).toBe(true);
 });
@@ -277,4 +278,21 @@ it("starts the notebook of a database that has none from ⌘T, labelled New note
   const notebook = shownNotebook(useWorkspace.getState());
   expect([notebook?.db, notebook?.title, notebook?.cells.length]).toEqual([postgres, "postgres", 1]);
   expect(commandLabel(newQuery)).toBe("New query tab");
+});
+
+it("collapses or expands the active cell, labelled for its state, and collapses every other cell of the notebook", () => {
+  const db = { connectionId: "c", database: "shop" };
+  const cell = (id: string) => ({ id, title: id, console: { db, mode: "AutoCommit" as const }, table: null });
+  useWorkspace.setState(cellsState(["a", "b", "c"].map(cell), "b"));
+  const [toggle, others] = ["collapse-cell", "collapse-other-cells"].map((id) => COMMANDS.find((c) => c.id === id)!) as [Command, Command];
+  const collapsed = () => ["a", "b", "c"].map((id) => useWorkspace.getState().tabs[id]?.collapsed ?? false);
+  expect([commandLabel(toggle), commandLabel(others)]).toEqual(["Collapse cell", "Collapse other cells"]);
+  toggle.run();
+  expect([collapsed(), commandLabel(toggle)]).toEqual([[false, true, false], "Expand cell"]);
+  others.run();
+  expect(collapsed()).toEqual([true, true, true]);
+  toggle.run();
+  expect([collapsed(), commandLabel(toggle)]).toEqual([[true, false, true], "Collapse cell"]);
+  useWorkspace.setState(cellsState([cell("solo")]));
+  expect([commandAvailable(toggle), commandAvailable(others)]).toEqual([true, false]);
 });

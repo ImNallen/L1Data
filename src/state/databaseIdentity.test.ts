@@ -25,6 +25,7 @@ function saved(database: string | null, table = false, connectionId = config.id)
     console: { connectionId, database, schema: null, mode: "AutoCommit" },
     table: table ? { schema: "dbo", table: "orders", page: 3, query: EMPTY_QUERY } : null,
     file: null,
+    collapsed: false,
   };
 }
 

@@ -1,14 +1,15 @@
 import { DENSITY_FACTOR, gridRowHeight } from "../../shell/appearance";
 import { StartCommands } from "../../shell/StartCommands";
 import { EditorView } from "@codemirror/view";
-import { CopyPlusIcon, ListIndentIncreaseIcon, PlayIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
+import { ChevronRightIcon, CircleAlertIcon, CopyPlusIcon, ListIndentIncreaseIcon, PlayIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import type { TabId } from "../../ipc/bindings";
+import type { RunState, TabId } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
-import { canCancel, hasUncommittedWork, isBusy, resultKey, rowResults, shownResult } from "../../state/status";
+import { canCancel, hasUncommittedWork, isBusy, resultKey, rowResults, runSummary, shownResult, type ResultPick } from "../../state/status";
 import { notebookOf } from "../../state/notebooks";
 import { activeId, shownNotebook, useWorkspace } from "../../state/workspace";
 import { cx, IconButton } from "../../ui/primitives";
+import { useNow } from "../../ui/useNow";
 import { hasResultPager } from "../results/format";
 import { ResultsPane } from "../results/ResultsPane";
 import { CellResizeHandle } from "./CellResizeHandle";
@@ -57,6 +58,23 @@ function staleReason(id: TabId): string {
 
 const UNDRAGGED: DraggedHeights = { editor: null, results: null };
 
+/** A collapsed cell's last run, as the results pane would sum it up, so a failure shows without opening the cell. */
+function RunStatus({ id, run, picked }: { id: TabId; run: RunState; picked: ResultPick | undefined }) {
+  const now = useNow(run.kind === "Running", 1000);
+  const summary = runSummary(run, picked, now);
+  if (!summary) return null;
+  return (
+    <span
+      data-testid={`cell-run-status-${id}`}
+      title={summary.text}
+      className={cx("flex max-w-[40%] shrink-0 items-center gap-1 text-ui-11 font-normal tabular-nums", summary.tone === "error" ? "text-danger" : "text-dim")}
+    >
+      {summary.tone === "error" && <CircleAlertIcon size={12} className="shrink-0" aria-label="Query failed" />}
+      <span className="truncate">{summary.text}</span>
+    </span>
+  );
+}
+
 function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: number; viewport: number; focused: boolean }) {
   const tab = useWorkspace((s) => s.tabs[id]);
   const active = useWorkspace((s) => activeId(s) === id);
@@ -89,6 +107,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
   const shown = console ? shownResult(console.run, picked) : undefined;
   const shownKey = shown ? resultKey(shown) : "";
   const chart = useWorkspace((s) => s.resultDisplay[id]?.[shownKey]?.display === "chart");
+  const collapsed = tab?.collapsed === true;
   const sizing = {
     viewport,
     lines: text.split("\n").length,
@@ -114,13 +133,14 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
     wasFocused.current = focused;
     // The notebook pins a newly focused cell while it grows, so this keeps it in view only through later size changes.
     if (focused && !refocused) cell.current?.scrollIntoView({ block: "nearest" });
-  }, [focused, automaticResults, viewport]);
+  }, [focused, automaticResults, viewport, collapsed]);
   if (!tab) return null;
   const activate = () => {
     setFocusOnActivate(false);
     useWorkspace.getState().setActive(id);
     activateEditor(id);
   };
+  const firstLine = text.split("\n").find((line) => line.trim()) ?? "";
   const busy = isBusy(console);
   const pending = hasUncommittedWork(console);
   const cancellable = canCancel(console);
@@ -149,6 +169,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
         ref={cell}
         data-testid={`notebook-cell-${id}`}
         data-active={active}
+        data-collapsed={collapsed}
         style={{ scrollMarginBlock: CELL_SCROLL_MARGIN }}
         className={cx("notebook-cell", stale && "notebook-cell-stale", active && "notebook-cell-active")}
         onFocusCapture={() => {
@@ -156,6 +177,15 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
         }}
       >
         <div className="notebook-cell-heading">
+          <IconButton
+            aria-label={collapsed ? "Expand cell" : "Collapse cell"}
+            aria-expanded={!collapsed}
+            title={collapsed ? "Expand cell" : "Collapse cell"}
+            className="-mr-1"
+            onClick={() => useWorkspace.getState().setCollapsed([id], !collapsed)}
+          >
+            <ChevronRightIcon size={14} className={cx("transition-transform", !collapsed && "rotate-90")} />
+          </IconButton>
           <span className="font-mono text-ui-11 text-dim tabular-nums">{String(index + 1).padStart(2, "0")}</span>
           {renaming ? (
             <input
@@ -197,6 +227,14 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
               title={tab.title}
             >
               <span className="min-w-0 truncate">{tab.title}</span>
+              {collapsed && (
+                <>
+                  <span data-testid={`cell-summary-${id}`} className="min-w-0 flex-1 truncate font-mono text-ui-11 font-normal text-dim">
+                    {firstLine.trim()}
+                  </span>
+                  {console && <RunStatus id={id} run={console.run} picked={picked} />}
+                </>
+              )}
               {stale && (
                 <span
                   data-testid={`stale-${id}`}
@@ -249,24 +287,26 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
             <XIcon size={14} />
           </IconButton>
         </div>
-        <div
-          className="notebook-editor"
-          style={{ height: heights.editor }}
-          onMouseDownCapture={(event) => {
-            if (active || event.button !== 0) return;
-            // The preview would take focus itself, then lose it as the shared editor replaces it.
-            event.preventDefault();
-            const pos = EditorView.findFromDOM(event.currentTarget)?.posAtCoords({ x: event.clientX, y: event.clientY }, false);
-            goToCell(id, pos === undefined ? undefined : () => pos);
-          }}
-        >
-          {active ? (
-            <SqlEditor tabId={id} autoFocus={focusOnActivate} />
-          ) : (
-            <SqlText mode="view" text={text} databaseKind={databaseKind} label={`SQL in ${tab.title}`} testId={`cell-preview-${id}`} />
-          )}
-        </div>
-        {heights.results !== null && (
+        {!collapsed && (
+          <div
+            className="notebook-editor"
+            style={{ height: heights.editor }}
+            onMouseDownCapture={(event) => {
+              if (active || event.button !== 0) return;
+              // The preview would take focus itself, then lose it as the shared editor replaces it.
+              event.preventDefault();
+              const pos = EditorView.findFromDOM(event.currentTarget)?.posAtCoords({ x: event.clientX, y: event.clientY }, false);
+              goToCell(id, pos === undefined ? undefined : () => pos);
+            }}
+          >
+            {active ? (
+              <SqlEditor tabId={id} autoFocus={focusOnActivate} />
+            ) : (
+              <SqlText mode="view" text={text} databaseKind={databaseKind} label={`SQL in ${tab.title}`} testId={`cell-preview-${id}`} />
+            )}
+          </div>
+        )}
+        {!collapsed && heights.results !== null && (
           <>
             <CellResizeHandle {...editorHandle} lineColor="bg-border" />
             <div
@@ -281,7 +321,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
           </>
         )}
       </section>
-      <CellResizeHandle {...lowerHandle} lineColor="bg-transparent" />
+      {!collapsed && <CellResizeHandle {...lowerHandle} lineColor="bg-transparent" />}
       <AddCell after={id} />
     </>
   );
