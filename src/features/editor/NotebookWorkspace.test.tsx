@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
+import { completionStatus } from "@codemirror/autocomplete";
+import { EditorView } from "@codemirror/view";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConsoleState, ResultMeta, TabId } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
 import { dropRowCaches } from "../../state/rowCache";
 import { activeId, useWorkspace, type Tab } from "../../state/workspace";
-import { dropEditor, seedEditor } from "./editorStates";
+import { cellNavigation } from "../notebooks/cellNavigation";
+import { cursorOf, dropEditor, editorStateOf, installEditorBehavior, moveCursor, seedEditor } from "./editorStates";
 import { NotebookWorkspace } from "./NotebookWorkspace";
 import { cellsState } from "../../testing/notebooks";
 
@@ -336,4 +339,89 @@ it("marks a cell stale once a cell its run inlined changes, and says which one",
 
   act(() => useWorkspace.getState().setRunSources("a", []));
   expect(screen.queryByTestId("stale-a")).toBeNull();
+});
+
+describe("arrow keys at a cell's edge", () => {
+  const content = (id: TabId) => cell(id).querySelector<HTMLElement>(".cm-content")!;
+  const cursor = (id: TabId) => cursorOf(editorStateOf(id));
+  const lineStart = (id: TabId, line: number) => editorStateOf(id).doc.line(line).from;
+
+  beforeEach(() => {
+    installEditorBehavior(cellNavigation);
+    for (const id of IDS) seedEditor(id, FIVE_LINES);
+  });
+
+  afterEach(() => installEditorBehavior([]));
+
+  it("moves down from the last line into the next cell's first line, and back up, at the same column", async () => {
+    await renderNotebook();
+    act(() => moveCursor("a", lineStart("a", 5) + 4));
+
+    fireEvent.keyDown(content("a"), { key: "ArrowDown" });
+    expect(activeId(useWorkspace.getState())).toBe("b");
+    expect(cursor("b")).toEqual({ line: 1, col: 5 });
+    expect(document.activeElement).toBe(content("b"));
+
+    act(() => moveCursor("b", 2));
+    fireEvent.keyDown(content("b"), { key: "ArrowUp" });
+    expect(activeId(useWorkspace.getState())).toBe("a");
+    expect(cursor("a")).toEqual({ line: 5, col: 3 });
+    expect(document.activeElement).toBe(content("a"));
+  });
+
+  it("keeps the column within a shorter line", async () => {
+    await renderNotebook();
+    act(() => moveCursor("a", lineStart("a", 5) + 11));
+    fireEvent.keyDown(content("a"), { key: "ArrowDown" });
+    expect(cursor("b")).toEqual({ line: 1, col: 7 });
+  });
+
+  it("stays in the cell away from its edge, past the notebook's ends, with a selection, or with a modifier", async () => {
+    await renderNotebook();
+    act(() => moveCursor("a", lineStart("a", 4)));
+    fireEvent.keyDown(content("a"), { key: "ArrowDown" });
+    act(() => moveCursor("a", 0));
+    fireEvent.keyDown(content("a"), { key: "ArrowUp" });
+    act(() => moveCursor("a", lineStart("a", 5)));
+    fireEvent.keyDown(content("a"), { key: "ArrowDown", shiftKey: true });
+    fireEvent.keyDown(content("a"), { key: "ArrowDown", altKey: true });
+    fireEvent.keyDown(content("a"), { key: "ArrowDown", metaKey: true });
+    const view = EditorView.findFromDOM(content("a"))!;
+    act(() => view.dispatch({ selection: { anchor: lineStart("a", 5), head: lineStart("a", 5) + 2 } }));
+    fireEvent.keyDown(content("a"), { key: "ArrowDown" });
+    expect(activeId(useWorkspace.getState())).toBe("a");
+
+    await act(async () => useWorkspace.getState().setActive("b"));
+    act(() => moveCursor("b", lineStart("b", 5)));
+    fireEvent.keyDown(content("b"), { key: "ArrowDown" });
+    expect(activeId(useWorkspace.getState())).toBe("b");
+  });
+
+  it("leaves the arrows to an open completion list", async () => {
+    mockIPC((cmd, args) => {
+      if (cmd !== "completion_context") throw new Error(`Unexpected IPC command: ${cmd}`);
+      const { text } = args as { text: string };
+      return {
+        kind: "Complete",
+        from: text.length - 1,
+        expect: { kind: "Keyword" },
+        qualifier: null,
+        relations: [],
+        ctes: [],
+        keywords: ["SELECT"],
+        functions: [],
+      };
+    });
+    await renderNotebook();
+    const view = EditorView.findFromDOM(content("a"))!;
+    const end = view.state.doc.length;
+    act(() => view.dispatch({ changes: { from: end, insert: " s" }, selection: { anchor: end + 2 }, userEvent: "input.type" }));
+    await waitFor(() => expect(completionStatus(view.state)).toBe("active"));
+    // The list ignores keys for its first 75 ms, so a press that early would not reach it.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 100)));
+
+    fireEvent.keyDown(content("a"), { key: "ArrowDown" });
+    expect(activeId(useWorkspace.getState())).toBe("a");
+    expect(completionStatus(view.state)).toBe("active");
+  });
 });

@@ -6,7 +6,8 @@ import { notebookOf } from "../../state/notebooks";
 import { activeId, useWorkspace } from "../../state/workspace";
 import { provideCellNames } from "../editor/completion";
 import { docText } from "../editor/docText";
-import { activateEditor, docOf, editorStateOf, referenceAt, showReferences } from "../editor/editorStates";
+import { docOf, editorStateOf, referenceAt, showReferences } from "../editor/editorStates";
+import { goToCell } from "./cellNavigation";
 
 const ws = () => useWorkspace.getState();
 
@@ -52,8 +53,7 @@ async function markReferences(): Promise<void> {
 function jumpTo(from: TabId, name: string): boolean {
   const target = notebookTabs(from).find((t) => t.title === name);
   if (!target || target.id === from) return false;
-  ws().setActive(target.id);
-  activateEditor(target.id);
+  goToCell(target.id);
   return true;
 }
 

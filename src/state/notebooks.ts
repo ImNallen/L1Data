@@ -60,6 +60,12 @@ export function notebookOf(notebooks: Notebooks, cell: TabId): Notebook | undefi
   return Object.values(notebooks).find((n) => n.cells.includes(cell));
 }
 
+/** The cell `step` places before (-1) or after (1) `cell` in `cells`, if there is one. */
+export function adjacentCell(cells: readonly TabId[], cell: TabId, step: -1 | 1): TabId | undefined {
+  const at = cells.indexOf(cell);
+  return at === -1 ? undefined : cells[at + step];
+}
+
 /** The database's name for its first notebook, then the lowest free "<name> 2", "<name> 3", and so on. */
 export function newNotebook(existing: Iterable<Notebook>, db: DatabaseRef | null): Notebook {
   const name = notebookTitle(db);

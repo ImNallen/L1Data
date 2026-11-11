@@ -55,6 +55,7 @@ import { closeChooser, openChooser } from "./chooserState";
 import { cancelStaleParams, finishParams, forgetParams, promptParams } from "./paramsState";
 import { docText } from "./docText";
 import { installCellReferences, notebookSources, refreshReferences } from "../notebooks/cellReferences";
+import { cellNavigation } from "../notebooks/cellNavigation";
 
 const ws = () => useWorkspace.getState();
 const notify = (text: string) => ws().notify(text);
@@ -749,6 +750,7 @@ export function installRunBehavior(): void {
   });
   installEditorBehavior([
     installCellReferences(),
+    cellNavigation,
     Prec.highest(
       keymap.of([
         { key: "Mod-Enter", run: () => (void runOrChoose(), true) },
