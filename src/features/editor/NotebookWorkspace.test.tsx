@@ -311,7 +311,7 @@ it("resizes straight away when a cell activates without a press", async () => {
   expect(resultsHeights()).toEqual([COMPACT, FILLED]);
 });
 
-it("brings the focused cell back into view when a resize ends, not while it runs", async () => {
+it("keeps the notebook still through a drag and reset of the focused cell, and follows the viewport after", async () => {
   withRowCounts({ a: [1000] });
   await renderNotebook();
   const scroll = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
@@ -320,14 +320,25 @@ it("brings the focused cell back into view when a resize ends, not while it runs
   fireEvent.pointerDown(handle, { button: 0, clientY: 100 });
   fireEvent.pointerMove(handle, { clientY: 160 });
   expect(editorHeight("a")).toBe(EDITOR + 60);
+  fireEvent.pointerUp(handle, { clientY: 160 });
+  fireEvent.doubleClick(handle);
+  expect(editorHeight("a")).toBe(EDITOR);
   expect(scroll).not.toHaveBeenCalled();
 
-  fireEvent.pointerUp(handle, { clientY: 160 });
-  expect(scroll).toHaveBeenCalledTimes(1);
-  expect(scroll.mock.contexts[0]).toBe(cell("a"));
+  resizeViewport(1058);
+  expect(scroll.mock.contexts).toEqual([cell("a")]);
+});
+
+it("scrolls only as far as keeps a handle in view while the arrow keys step it", async () => {
+  withRowCounts({ a: [1000] });
+  await renderNotebook();
+  const scroll = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+  const handle = screen.getByRole("separator", { name: "Resize query in Cell a" });
 
   fireEvent.keyDown(handle, { key: "ArrowDown" });
-  expect(scroll).toHaveBeenCalledTimes(2);
+  expect(editorHeight("a")).toBe(EDITOR + 8);
+  expect(scroll.mock.contexts).toEqual([handle]);
+  expect(scroll.mock.calls).toEqual([[{ block: "nearest" }]]);
 });
 
 it("follows a focused cell's results while they grow, and stops once they reach the viewport", async () => {
