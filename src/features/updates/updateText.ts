@@ -87,7 +87,7 @@ export function updateButtonView(status: UpdateStatus): UpdateButtonView | null 
   }
 }
 
-/** version is null when only one release has changes to list. */
+/** version is null when the offered release is the only one with changes to list. */
 export type ChangeSection = { version: string | null; items: { title: string; pr: string | null }[] };
 
 /** The offered release's changes, then each skipped release's. */
@@ -95,7 +95,7 @@ export function changeSections(status: UpdateStatus): ChangeSection[] {
   if (status.kind !== "Available" && status.kind !== "Downloading" && status.kind !== "Downloaded") return [];
   const releases = status.changes.filter((release) => release.items.length > 0);
   return releases.map((release) => ({
-    version: releases.length > 1 ? release.version : null,
+    version: releases.length === 1 && release.version === status.version ? null : release.version,
     items: release.items.map((item) => ({ title: item.title, pr: item.pr === null ? null : `#${item.pr}` })),
   }));
 }

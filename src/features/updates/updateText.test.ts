@@ -116,6 +116,11 @@ describe("the update's change list", () => {
     ]);
   });
 
+  it("labels a lone earlier release, so its changes aren't read as the offered build's", () => {
+    const earlierOnly = [changes[0]!, changes[2]!].map((r) => (r.version === "0.2.0" ? { ...r, items: [] } : r));
+    expect(changeSections({ kind: "Available", version: "0.2.0", downgrade: false, changes: earlierOnly }).map((s) => s.version)).toEqual(["0.1.1"]);
+  });
+
   it("stays through the download", () => {
     const downloading = changeSections({ kind: "Downloading", version: "0.2.0", downgrade: false, percent: 10, changes });
     const downloaded = changeSections({ kind: "Downloaded", version: "0.2.0", downgrade: false, changes });
