@@ -252,9 +252,9 @@ textarea,
 }
 
 /* Reduced motion, painted on the root by shell/appearance.ts: menus and dialogs fade in place, transforms snap,
-   and endless pulses stop, since their colour and text already carry the state. Colour and opacity transitions
-   stay as feedback, and spinners keep turning because they are the only sign that work is still running.
-   These rules sit outside any layer so they beat Tailwind's utilities. */
+   notebook cells resize at once when focus moves, and endless pulses stop, since their colour and text already
+   carry the state. Colour and opacity transitions stay as feedback, and spinners keep turning because they are
+   the only sign that work is still running. These rules sit outside any layer so they beat Tailwind's utilities. */
 :root[data-motion="reduced"] .motion-pop[data-state="open"] {
   animation-name: fade-in;
 }
@@ -263,6 +263,9 @@ textarea,
 }
 :root[data-motion="reduced"] .animate-pulse {
   animation: none;
+}
+:root[data-motion="reduced"] .notebook-workspace[data-settling] :is(.notebook-editor, .notebook-results) {
+  transition: none;
 }
 :root[data-motion="reduced"] .transition-transform {
   transition-property: none;
@@ -325,6 +328,7 @@ textarea,
   font-size: var(--text-ui-12);
 }
 .notebook-workspace {
+  --cell-settle-duration: 180ms;
   height: 100%;
   overflow: auto;
   padding: 0 24px calc(32px + var(--notebook-drag-slack, 0px));
@@ -368,6 +372,9 @@ textarea,
 }
 .notebook-results {
   overflow: hidden;
+}
+.notebook-workspace[data-settling] :is(.notebook-editor, .notebook-results) {
+  transition: height var(--cell-settle-duration) ease-out;
 }
 .notebook-results [data-testid="cursor-position"] {
   display: none;
