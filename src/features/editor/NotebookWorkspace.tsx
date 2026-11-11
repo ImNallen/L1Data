@@ -315,7 +315,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
             {active ? (
               <SqlEditor tabId={id} autoFocus={focusOnActivate} />
             ) : (
-              <SqlText mode="view" text={text} databaseKind={databaseKind} label={`SQL in ${tab.title}`} testId={`cell-preview-${id}`} />
+              <SqlText mode="view" wrap={false} text={text} databaseKind={databaseKind} label={`SQL in ${tab.title}`} testId={`cell-preview-${id}`} />
             )}
           </div>
         )}
