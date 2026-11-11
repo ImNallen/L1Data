@@ -1,8 +1,9 @@
 import { GripVerticalIcon } from "lucide-react";
 import { useEffect, useRef, useState, type PointerEvent } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import type { TabId } from "../../ipc/bindings";
 import { useWorkspace } from "../../state/workspace";
+import { focusActiveCell } from "../notebooks/cellNavigation";
 import { clamp } from "./cellSizing";
 
 const START_PX = 4;
@@ -95,7 +96,11 @@ export function CellGrip({ id, index, title }: { id: TabId; index: number; title
   const onPointerUp = () => {
     const p = press.current;
     end();
-    if (p?.moved && p.to !== p.from) useWorkspace.getState().moveCell(id, p.to);
+    if (!p?.moved || p.to === p.from) return;
+    const hadFocus = p.scroller.contains(document.activeElement);
+    // The drop makes this cell active, which takes the shared editor out of the cell that held focus.
+    flushSync(() => useWorkspace.getState().moveCell(id, p.to));
+    if (hadFocus) focusActiveCell();
   };
   return (
     <span

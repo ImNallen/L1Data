@@ -7,7 +7,8 @@ import type { DatabaseKind } from "../../ipc/bindings";
 import { SQL_DIALECT } from "./sqlDialect";
 import { editorHighlighting, editorTheme, functionCallStyle } from "./theme";
 
-type Common = { databaseKind: DatabaseKind; label: string; testId: string };
+/** `wrap` folds long lines at the pane edge. A notebook cell keeps them whole, as its editor does. */
+type Common = { databaseKind: DatabaseKind; label: string; testId: string; wrap: boolean };
 
 export type SqlTextProps =
   | (Common & { mode: "view"; text: string })
@@ -18,7 +19,7 @@ export function SqlText(props: SqlTextProps) {
   const latest = useRef(props);
   // oxlint-disable-next-line react/refs -- the editor's listeners read the newest props, and nothing renders from this ref
   latest.current = props;
-  const { mode, databaseKind, label } = props;
+  const { mode, databaseKind, label, wrap } = props;
   const doc = props.mode === "view" ? props.text : props.initial;
   useEffect(() => {
     if (!host.current) return;
@@ -53,7 +54,7 @@ export function SqlText(props: SqlTextProps) {
           EditorView.contentAttributes.of({ "aria-label": label, tabindex: "0" }),
           lineNumbers(),
           drawSelection(),
-          EditorView.lineWrapping,
+          wrap ? EditorView.lineWrapping : [],
           sql({ dialect: SQL_DIALECT[databaseKind] }),
           editorTheme,
           editorHighlighting,
@@ -67,6 +68,6 @@ export function SqlText(props: SqlTextProps) {
       view.focus();
     }
     return () => view.destroy();
-  }, [mode, doc, databaseKind, label]);
+  }, [mode, doc, databaseKind, label, wrap]);
   return <div ref={host} data-testid={props.testId} className="h-full min-h-0" />;
 }

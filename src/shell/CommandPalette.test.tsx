@@ -8,7 +8,7 @@ import { docOf, dropEditor, replaceDoc, seedEditor } from "../features/editor/ed
 import { browseTemplate, openSqlTab } from "../features/editor/runActions";
 import { useCatalog } from "../state/catalog";
 import { useLive } from "../state/live";
-import { allCells, ask, EMPTY_QUERY, useWorkspace } from "../state/workspace";
+import { activeId, allCells, ask, EMPTY_QUERY, useWorkspace } from "../state/workspace";
 import { AppLayout } from "./AppLayout";
 import { preloadSurfaces } from "./lazySurfaces";
 import { CommandPalette } from "./CommandPalette";
@@ -111,6 +111,18 @@ it("wraps arrow selection, guards composition keys and Escape, and runs Enter on
   fireEvent.keyDown(input, { key: "Enter" });
   expect(allCells(useWorkspace.getState())).toHaveLength(1);
   await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("SQL editor"));
+});
+
+it("puts focus on the cell's title when Collapse cell hides the editor it was opened from", async () => {
+  const user = userEvent.setup();
+  render(<AppLayout />);
+  act(() => openSqlTab({}));
+  await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("SQL editor"));
+  act(openCommandPalette);
+  await user.keyboard("Collapse cell{Enter}");
+  const id = activeId(useWorkspace.getState());
+  expect(useWorkspace.getState().tabs[id!]?.collapsed).toBe(true);
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId(`tab-${id}`)));
 });
 
 it("filters unavailable actions reactively and rechecks a stale selection before running it", async () => {

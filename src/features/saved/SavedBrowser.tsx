@@ -257,7 +257,7 @@ export function SavedBrowser({
                 </div>
               </div>
               <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg border border-control bg-bg">
-                <SqlText mode="view" text={selected.sql} databaseKind={selected.databaseKind} label="Saved SQL" testId="saved-sql" />
+                <SqlText mode="view" wrap text={selected.sql} databaseKind={selected.databaseKind} label="Saved SQL" testId="saved-sql" />
               </div>
               {copyError && (
                 <p role="alert" className="text-ui-11 text-danger">
@@ -398,6 +398,7 @@ function EditForm({
         />
         <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg border border-control bg-bg">
           <SqlText
+            wrap
             mode="edit"
             initial={edit.base.sql}
             databaseKind={edit.databaseKind}

@@ -129,6 +129,14 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it("lays out an inactive cell's SQL unwrapped, as its editor does", async () => {
+  await renderNotebook();
+  expect([cell("a").querySelector(".cm-content.cm-lineWrapping"), screen.getByTestId("cell-preview-b").querySelector(".cm-content.cm-lineWrapping")]).toEqual([
+    null,
+    null,
+  ]);
+});
+
 it("steps the query height with the arrow keys and returns to automatic on double-click", async () => {
   await renderNotebook();
   const handle = screen.getByRole("separator", { name: "Resize query in Cell a" });
@@ -629,6 +637,25 @@ describe("moving a cell", () => {
       null,
       false,
     ]);
+  });
+
+  it("hands typing focus to the cell a drag moves: its editor, or its title while it is collapsed", async () => {
+    const dragAbove = (id: TabId) => {
+      const grip = screen.getByTestId(`cell-grip-${id}`);
+      fireEvent.pointerDown(grip, { button: 0, clientY: 340 });
+      fireEvent.pointerMove(grip, { clientY: 150 });
+      fireEvent.pointerUp(grip);
+    };
+    await renderNotebook();
+    act(() => cell("a").querySelector<HTMLElement>(".cm-content")!.focus());
+    dragAbove("b");
+    expect([order(), activeId(useWorkspace.getState()), document.activeElement]).toEqual([["b", "a"], "b", cell("b").querySelector(".cm-content")]);
+
+    act(() => useWorkspace.getState().moveCell("a", 0));
+    act(() => useWorkspace.getState().setCollapsed(["b"], true));
+    act(() => cell("a").querySelector<HTMLElement>(".cm-content")!.focus());
+    dragAbove("b");
+    expect([order(), document.activeElement]).toEqual([["b", "a"], screen.getByTestId("tab-b")]);
   });
 
   it("puts the cell back on Esc, and changes nothing for a drop where the cell already is", async () => {

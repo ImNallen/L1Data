@@ -322,7 +322,7 @@ export function HistoryBrowser({ closeToEditor, controls }: { closeToEditor: () 
               </div>
               <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg border border-control bg-bg">
                 {detail ? (
-                  <SqlText mode="view" text={detail.sql} databaseKind={detail.databaseKind} label="Query SQL" testId="history-sql" />
+                  <SqlText mode="view" wrap text={detail.sql} databaseKind={detail.databaseKind} label="Query SQL" testId="history-sql" />
                 ) : (
                   <p role="status" className="p-4 text-ui-12 text-dim">
                     Loading SQL…

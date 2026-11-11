@@ -19,6 +19,15 @@ export function goToCell(id: TabId, at?: (state: EditorState) => number): void {
   focusEditor();
 }
 
+/** Puts keyboard focus on the active cell: in its editor, or on its title while it is collapsed and has no editor. */
+export function focusActiveCell(): void {
+  const s = useWorkspace.getState();
+  const id = activeId(s);
+  if (!id) return;
+  if (s.tabs[id]?.collapsed) document.querySelector<HTMLElement>(`button[data-tab-id="${CSS.escape(id)}"]`)?.focus();
+  else focusEditor();
+}
+
 const STEPS: Partial<Record<string, -1 | 1>> = { ArrowUp: -1, ArrowDown: 1 };
 
 /** Moves to the neighboring cell, at the same column, when the cursor sits on the edge line facing it. */
