@@ -329,6 +329,35 @@ it("keeps the notebook still through a drag and reset of the focused cell, and f
   expect(scroll.mock.contexts).toEqual([cell("a")]);
 });
 
+it("holds the notebook's end under the pointer when a drag that shrank the last cell ends", async () => {
+  withRowCounts({ a: [1000], b: [1000] });
+  await renderNotebook();
+  const notebook = screen.getByTestId("notebook");
+  // jsdom has no layout, so the notebook's height is the last cell's results, the CSS drag slack, and a fixed rest.
+  const scrollHeight = () => 1500 + resultsHeight("b") + (parseFloat(notebook.style.getPropertyValue("--notebook-drag-slack")) || 0);
+  let scrollTop = 0;
+  Object.defineProperty(notebook, "scrollHeight", { get: scrollHeight });
+  Object.defineProperty(notebook, "scrollTop", {
+    get: () => (scrollTop = Math.min(scrollTop, scrollHeight() - viewport)),
+    set: (px: number) => {
+      scrollTop = px;
+    },
+  });
+  notebook.scrollTop = 10_000;
+  const end = notebook.scrollTop;
+  const handle = screen.getByRole("separator", { name: "Resize results in Cell b" });
+
+  fireEvent.pointerDown(handle, { button: 0, clientY: 500 });
+  fireEvent.pointerMove(handle, { clientY: 400 });
+  expect(resultsHeight("b")).toBe(COMPACT - 100);
+  fireEvent.pointerUp(handle, { clientY: 400 });
+  expect(notebook.scrollTop).toBe(end);
+
+  notebook.scrollTop = end - 300;
+  fireEvent.scroll(notebook);
+  expect(notebook.scrollHeight).toBe(1500 + COMPACT - 100);
+});
+
 it("scrolls only as far as keeps a handle in view while the arrow keys step it", async () => {
   withRowCounts({ a: [1000] });
   await renderNotebook();
