@@ -21,6 +21,7 @@ beforeAll(preloadSurfaces);
 
 beforeEach(() => {
   Element.prototype.scrollIntoView = () => {};
+  Element.prototype.getAnimations = () => [];
   Range.prototype.getClientRects = () => Object.assign([], { item: () => null });
   Range.prototype.getBoundingClientRect = () => new DOMRect();
   useWorkspace.setState((s) => ({ settings: { ...s.settings, panelMotionMs: 0 } }));

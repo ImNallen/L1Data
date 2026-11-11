@@ -20,6 +20,7 @@ beforeAll(preloadSurfaces);
 
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
+  Element.prototype.getAnimations = () => [];
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
   vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
   vi.stubGlobal(
