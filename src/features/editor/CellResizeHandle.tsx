@@ -1,9 +1,29 @@
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { flushSync } from "react-dom";
 import { handleLook } from "../../shell/ResizeHandle";
 import { clamp } from "./cellSizing";
 
 const STEP = 8;
 const DRAG_SLACK = "--notebook-drag-slack";
+
+let stopTrimming = () => {};
+
+/** Trims the drag slack to the room that holds scrollTop, and drops it once the notebook scrolls back above that room. */
+function releaseSlack(notebook: HTMLElement) {
+  const trim = () => {
+    const slack = parseFloat(notebook.style.getPropertyValue(DRAG_SLACK)) || 0;
+    const room = notebook.scrollTop + notebook.clientHeight - (notebook.scrollHeight - slack);
+    if (room > 0) notebook.style.setProperty(DRAG_SLACK, `${room}px`);
+    else stopTrimming();
+  };
+  stopTrimming = () => {
+    notebook.removeEventListener("scroll", trim);
+    notebook.style.removeProperty(DRAG_SLACK);
+    stopTrimming = () => {};
+  };
+  notebook.addEventListener("scroll", trim, { passive: true });
+  trim();
+}
 
 type CellResizeHandleProps = {
   label: string;
@@ -13,10 +33,9 @@ type CellResizeHandleProps = {
   max: number;
   lineColor: string;
   onResize(px: number | null): void;
-  onDragChange(dragging: boolean): void;
 };
 
-export function CellResizeHandle({ label, testId, value, min, max, lineColor, onResize, onDragChange }: CellResizeHandleProps) {
+export function CellResizeHandle({ label, testId, value, min, max, lineColor, onResize }: CellResizeHandleProps) {
   const [dragging, setDragging] = useState(false);
   const drag = useRef<{ y: number; from: number; moved: boolean } | null>(null);
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
@@ -25,9 +44,12 @@ export function CellResizeHandle({ label, testId, value, min, max, lineColor, on
     e.currentTarget.setPointerCapture(e.pointerId);
     drag.current = { y: e.clientY, from: value, moved: false };
     setDragging(true);
-    onDragChange(true);
+    const notebook = e.currentTarget.closest<HTMLElement>(".notebook-workspace");
+    const retained = parseFloat(notebook?.style.getPropertyValue(DRAG_SLACK) ?? "") || 0;
+    stopTrimming();
     // Shrinking the last cell would pull the scroller's end up and clamp scrollTop, sliding the handle away from the pointer.
-    e.currentTarget.closest<HTMLElement>(".notebook-workspace")?.style.setProperty(DRAG_SLACK, `${value - min}px`);
+    // Slack an earlier drag left behind may be what holds scrollTop now, so this drag's allowance adds to it.
+    notebook?.style.setProperty(DRAG_SLACK, `${retained + value - min}px`);
   };
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
     if (!drag.current) return;
@@ -36,16 +58,18 @@ export function CellResizeHandle({ label, testId, value, min, max, lineColor, on
     onResize(clamp(drag.current.from + e.clientY - drag.current.y, min, max));
   };
   const onPointerEnd = (e: PointerEvent<HTMLDivElement>) => {
+    if (!drag.current) return;
     drag.current = null;
     setDragging(false);
-    onDragChange(false);
-    e.currentTarget.closest<HTMLElement>(".notebook-workspace")?.style.removeProperty(DRAG_SLACK);
+    const notebook = e.currentTarget.closest<HTMLElement>(".notebook-workspace");
+    if (notebook) releaseSlack(notebook);
   };
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const step = { ArrowUp: -STEP, ArrowDown: STEP }[e.key];
     if (step === undefined) return;
     e.preventDefault();
-    onResize(clamp(value + step, min, max));
+    flushSync(() => onResize(clamp(value + step, min, max)));
+    e.currentTarget.scrollIntoView({ block: "nearest" });
   };
   return (
     <div

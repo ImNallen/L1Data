@@ -55,6 +55,8 @@ function staleReason(id: TabId): string {
   return stalenessText(staleness(sources, cells));
 }
 
+const UNDRAGGED: DraggedHeights = { editor: null, results: null };
+
 function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: number; viewport: number; focused: boolean }) {
   const tab = useWorkspace((s) => s.tabs[id]);
   const active = useWorkspace((s) => activeId(s) === id);
@@ -77,8 +79,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
   const [focusOnActivate, setFocusOnActivate] = useState(active);
   const [renaming, setRenaming] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
-  const [dragged, setDragged] = useState<DraggedHeights>({ editor: null, results: null });
-  const [dragging, setDragging] = useState(false);
+  const [dragged, setDragged] = useState<DraggedHeights>(UNDRAGGED);
   const hasResults = (tab?.table != null && active) || (console !== undefined && console.run.kind !== "Idle");
   const rowCounts = console ? rowResults(console.run).map((result) => result.meta.rowCount) : [];
   const largest = rowCounts.length > 0 ? Math.max(...rowCounts) : undefined;
@@ -88,7 +89,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
   const shown = console ? shownResult(console.run, picked) : undefined;
   const shownKey = shown ? resultKey(shown) : "";
   const chart = useWorkspace((s) => s.resultDisplay[id]?.[shownKey]?.display === "chart");
-  const heights = cellHeights({
+  const sizing = {
     viewport,
     lines: text.split("\n").length,
     lineHeight: Math.round(codeSize * 1.54),
@@ -103,15 +104,17 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
         }
       : null,
     focused,
-    dragged,
-  });
+  };
+  const heights = cellHeights({ ...sizing, dragged });
+  // A size the user chose never scrolls the notebook, so only the automatic size keeps the cell in view.
+  const automaticResults = cellHeights({ ...sizing, dragged: UNDRAGGED }).results;
   const wasFocused = useRef(focused);
   useEffect(() => {
     const refocused = wasFocused.current !== focused;
     wasFocused.current = focused;
     // The notebook pins a newly focused cell while it grows, so this keeps it in view only through later size changes.
-    if (focused && !dragging && !refocused) cell.current?.scrollIntoView({ block: "nearest" });
-  }, [focused, dragging, dragged, heights.results, viewport]);
+    if (focused && !refocused) cell.current?.scrollIntoView({ block: "nearest" });
+  }, [focused, automaticResults, viewport]);
   if (!tab) return null;
   const activate = () => {
     setFocusOnActivate(false);
@@ -265,7 +268,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
         </div>
         {heights.results !== null && (
           <>
-            <CellResizeHandle {...editorHandle} lineColor="bg-border" onDragChange={setDragging} />
+            <CellResizeHandle {...editorHandle} lineColor="bg-border" />
             <div
               className="notebook-results"
               style={{ height: heights.results }}
@@ -278,7 +281,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
           </>
         )}
       </section>
-      <CellResizeHandle {...lowerHandle} lineColor="bg-transparent" onDragChange={setDragging} />
+      <CellResizeHandle {...lowerHandle} lineColor="bg-transparent" />
       <AddCell after={id} />
     </>
   );

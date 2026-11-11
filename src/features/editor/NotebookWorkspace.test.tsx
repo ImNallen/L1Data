@@ -311,7 +311,7 @@ it("resizes straight away when a cell activates without a press", async () => {
   expect(resultsHeights()).toEqual([COMPACT, FILLED]);
 });
 
-it("brings the focused cell back into view when a resize ends, not while it runs", async () => {
+it("keeps the notebook still through a drag and reset of the focused cell, and follows the viewport after", async () => {
   withRowCounts({ a: [1000] });
   await renderNotebook();
   const scroll = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
@@ -320,14 +320,81 @@ it("brings the focused cell back into view when a resize ends, not while it runs
   fireEvent.pointerDown(handle, { button: 0, clientY: 100 });
   fireEvent.pointerMove(handle, { clientY: 160 });
   expect(editorHeight("a")).toBe(EDITOR + 60);
+  fireEvent.pointerUp(handle, { clientY: 160 });
+  fireEvent.doubleClick(handle);
+  expect(editorHeight("a")).toBe(EDITOR);
   expect(scroll).not.toHaveBeenCalled();
 
-  fireEvent.pointerUp(handle, { clientY: 160 });
-  expect(scroll).toHaveBeenCalledTimes(1);
-  expect(scroll.mock.contexts[0]).toBe(cell("a"));
+  resizeViewport(1058);
+  expect(scroll.mock.contexts).toEqual([cell("a")]);
+});
+
+it("holds the notebook's end under the pointer when a drag that shrank the last cell ends", async () => {
+  withRowCounts({ a: [1000], b: [1000] });
+  await renderNotebook();
+  const notebook = screen.getByTestId("notebook");
+  // jsdom has no layout, so the notebook's height is the last cell's results, the CSS drag slack, and a fixed rest.
+  const scrollHeight = () => 1500 + resultsHeight("b") + (parseFloat(notebook.style.getPropertyValue("--notebook-drag-slack")) || 0);
+  let scrollTop = 0;
+  Object.defineProperty(notebook, "scrollHeight", { get: scrollHeight });
+  Object.defineProperty(notebook, "scrollTop", {
+    get: () => (scrollTop = Math.min(scrollTop, scrollHeight() - viewport)),
+    set: (px: number) => {
+      scrollTop = px;
+    },
+  });
+  notebook.scrollTop = 10_000;
+  const end = notebook.scrollTop;
+  const handle = screen.getByRole("separator", { name: "Resize results in Cell b" });
+
+  fireEvent.pointerDown(handle, { button: 0, clientY: 500 });
+  fireEvent.pointerMove(handle, { clientY: 400 });
+  expect(resultsHeight("b")).toBe(COMPACT - 100);
+  fireEvent.pointerUp(handle, { clientY: 400 });
+  expect(notebook.scrollTop).toBe(end);
+
+  notebook.scrollTop = end - 300;
+  fireEvent.scroll(notebook);
+  expect(notebook.scrollHeight).toBe(1500 + COMPACT - 100);
+});
+
+it("keeps the slack a released drag left behind when the next drag on the last cell starts", async () => {
+  withRowCounts({ a: [1000], b: [1000] });
+  await renderNotebook();
+  const notebook = screen.getByTestId("notebook");
+  const scrollHeight = () => 1500 + resultsHeight("b") + (parseFloat(notebook.style.getPropertyValue("--notebook-drag-slack")) || 0);
+  let scrollTop = 0;
+  Object.defineProperty(notebook, "scrollHeight", { get: scrollHeight });
+  Object.defineProperty(notebook, "scrollTop", {
+    get: () => (scrollTop = Math.min(scrollTop, scrollHeight() - viewport)),
+    set: (px: number) => {
+      scrollTop = px;
+    },
+  });
+  notebook.scrollTop = 10_000;
+  const end = notebook.scrollTop;
+  const handle = screen.getByRole("separator", { name: "Resize results in Cell b" });
+  fireEvent.pointerDown(handle, { button: 0, clientY: 500 });
+  fireEvent.pointerMove(handle, { clientY: -10_000 });
+  fireEvent.pointerUp(handle, { clientY: -10_000 });
+  expect(notebook.scrollTop).toBe(end);
+
+  fireEvent.pointerDown(handle, { button: 0, clientY: 300 });
+  expect(notebook.scrollTop).toBe(end);
+  fireEvent.pointerUp(handle, { clientY: 300 });
+  expect(notebook.scrollTop).toBe(end);
+});
+
+it("scrolls only as far as keeps a handle in view while the arrow keys step it", async () => {
+  withRowCounts({ a: [1000] });
+  await renderNotebook();
+  const scroll = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+  const handle = screen.getByRole("separator", { name: "Resize query in Cell a" });
 
   fireEvent.keyDown(handle, { key: "ArrowDown" });
-  expect(scroll).toHaveBeenCalledTimes(2);
+  expect(editorHeight("a")).toBe(EDITOR + 8);
+  expect(scroll.mock.contexts).toEqual([handle]);
+  expect(scroll.mock.calls).toEqual([[{ block: "nearest" }]]);
 });
 
 it("follows a focused cell's results while they grow, and stops once they reach the viewport", async () => {
