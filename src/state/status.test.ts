@@ -210,7 +210,7 @@ describe("workspace snapshot", () => {
     },
   };
   const tabs: Tab[] = [
-    { id: "a", title: "Untitled-2.sql", console: { db: { connectionId: "c", database: "reporting" }, mode: "Manual" }, table: null },
+    { id: "a", title: "Untitled-2.sql", console: { db: { connectionId: "c", database: "reporting" }, mode: "Manual" }, table: null, collapsed: true },
     {
       id: "b",
       title: "orders",
@@ -237,7 +237,7 @@ describe("workspace snapshot", () => {
     },
   };
 
-  it("round-trips every tab's text and mode, and a table tab's binding", () => {
+  it("round-trips every tab's text, mode, and collapse, and a table tab's binding", () => {
     const snap = workspaceSnapshot(state, { textOf: (id) => `-- text of ${id}`, isNotebookDirty: () => false });
     expect(snap.tabs).toEqual([
       {
@@ -252,6 +252,7 @@ describe("workspace snapshot", () => {
           query: { orderBy: "total DESC", filters: [{ column: "status", op: "Eq", value: "paid" }], where: "total > 10" },
         },
         file: null,
+        collapsed: false,
       },
       {
         id: "a",
@@ -260,6 +261,7 @@ describe("workspace snapshot", () => {
         console: { connectionId: "c", database: "reporting", schema: null, mode: "Manual" },
         table: null,
         file: null,
+        collapsed: true,
       },
     ]);
     expect(snap.tabs.map((t) => tabFromSnapshot(t, configs))).toEqual([tabs[1], tabs[0]]);
@@ -280,6 +282,7 @@ describe("workspace snapshot", () => {
       console: { connectionId: "c", database: "shop", schema: null, mode: "AutoCommit" as const },
       table: { schema: "public", table: "orders", page: 2, query: { orderBy: "", filters: [], where: "" } },
       file: null,
+      collapsed: false,
     };
     expect(tabFromSnapshot(saved, configs)).toEqual({
       id: "b",
@@ -291,8 +294,24 @@ describe("workspace snapshot", () => {
 
   it("restores a tab saved before tabs carried a database onto the connection's configured database", () => {
     const saved: Workspace["tabs"] = [
-      { id: "a", title: "q.sql", text: "select 1", console: { connectionId: "c", database: null, schema: "lab", mode: "AutoCommit" }, table: null, file: null },
-      { id: "d", title: "free.sql", text: "", console: { connectionId: null, database: null, schema: null, mode: "Manual" }, table: null, file: null },
+      {
+        id: "a",
+        title: "q.sql",
+        text: "select 1",
+        console: { connectionId: "c", database: null, schema: "lab", mode: "AutoCommit" },
+        table: null,
+        file: null,
+        collapsed: false,
+      },
+      {
+        id: "d",
+        title: "free.sql",
+        text: "",
+        console: { connectionId: null, database: null, schema: null, mode: "Manual" },
+        table: null,
+        file: null,
+        collapsed: false,
+      },
     ];
     expect(saved.map((t) => tabFromSnapshot(t, configs))).toEqual([
       { id: "a", title: "q.sql", console: { db: { connectionId: "c", database: "shop" }, mode: "AutoCommit", schema: "lab" }, table: null },
@@ -308,6 +327,7 @@ describe("workspace snapshot", () => {
       console: { connectionId: "gone", database: "shop", schema: null, mode: "Manual" as const },
       table: { schema: "public", table: "orders", page: 0, query: { orderBy: "", filters: [], where: "" } },
       file: null,
+      collapsed: false,
     };
     expect(tabFromSnapshot(saved, configs)).toEqual({ id: "b", title: "orders", console: { db: null, mode: "Manual" }, table: null });
   });

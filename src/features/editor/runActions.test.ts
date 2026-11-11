@@ -480,6 +480,7 @@ it.each(["SELECT * FROM public.orders", "SELECT * FROM public.orders;", "\n SELE
       console: { connectionId: "c1", database: "shop", schema: null, mode: "AutoCommit" },
       table: { schema: "public", table: "orders", page: 2, query },
       file: null,
+      collapsed: false,
     };
     const ws = useWorkspace.getState();
     seedEditor(id, text);

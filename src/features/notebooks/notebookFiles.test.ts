@@ -246,6 +246,26 @@ describe("unsaved", () => {
     expect([question(), shown().cells, dirty()]).toEqual([null, [a], true]);
   });
 
+  it("ignores a collapsed cell, which the workspace keeps across a restart and a reload and the file never records", async () => {
+    const id = await openFile("/q/a.sql", { plain: false, header: NO_HEADER, cells: [cell("select 1;"), cell("select 2;")] });
+    const [a, b] = shown().cells as [string, string];
+    ws().setCollapsed([b], true);
+    expect(dirty()).toBe(false);
+    const saved: Workspace = JSON.parse(JSON.stringify(workspaceSnapshot(ws(), { textOf, isNotebookDirty: notebookDirty })));
+    for (const t of Object.keys(ws().tabs)) dropEditor(t);
+    useWorkspace.setState(useWorkspace.getInitialState(), true);
+    for (const t of saved.tabs) seedEditor(t.id, t.text ?? "");
+    ws().restore(saved, [], DEFAULT_SETTINGS);
+    const collapsed = () => [a, b].map((c) => ws().tabs[c]?.collapsed ?? false);
+    expect([collapsed(), dirty()]).toEqual([[false, true], false]);
+    writeDisk("/q/a.sql", { plain: false, header: NO_HEADER, cells: [cell("select 1;"), cell("select 3;")] });
+    await reconcileNotebookFiles();
+    expect([shown().cells.map(textOf), collapsed(), dirty()]).toEqual([["select 1;", "select 3;"], [false, true], false]);
+    insertAtCursor(a, "-- edited ");
+    expect(await saveNotebook(id)).toBe(true);
+    expect(saves()[0]?.notebook.cells.map((c) => c.meta)).toEqual([NO_META, NO_META]);
+  });
+
   it("is unknown for a notebook restored unsaved, until boot reads the file", async () => {
     await openFile("/q/a.sql", plainFile("select 1;"));
     insertAtCursor(shown().cells[0]!, "-- mine ");

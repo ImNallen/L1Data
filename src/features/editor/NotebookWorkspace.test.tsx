@@ -429,6 +429,41 @@ it("marks a cell stale once a cell its run inlined changes, and says which one",
   expect(screen.queryByTestId("stale-a")).toBeNull();
 });
 
+describe("a collapsed cell", () => {
+  const toggle = (id: TabId) => within(cell(id)).getByRole("button", { name: /^(Collapse|Expand) cell$/ });
+
+  it("shows only its header with its first SQL line and row count, and opens again from the chevron", async () => {
+    seedEditor("b", "\n  \n  SELECT id, name FROM customers\nWHERE id > 1");
+    withRowCounts({ b: [60] });
+    await renderNotebook();
+    expect(within(cell("b")).queryByTestId(`cell-summary-b`)).toBeNull();
+
+    fireEvent.click(toggle("b"));
+    expect([toggle("b").getAttribute("aria-label"), toggle("b").getAttribute("aria-expanded")]).toEqual(["Expand cell", "false"]);
+    expect(cell("b").querySelector(".notebook-editor, .notebook-results")).toBeNull();
+    expect(screen.queryAllByRole("separator").filter((s) => s.getAttribute("aria-label")?.endsWith("in Cell b"))).toEqual([]);
+    expect(within(cell("b")).getByTestId("tab-b").textContent).toBe("Cell bSELECT id, name FROM customers60 rows");
+    expect(cell("a").querySelector(".notebook-editor")).not.toBeNull();
+
+    fireEvent.click(toggle("b"));
+    expect([toggle("b").getAttribute("aria-label"), toggle("b").getAttribute("aria-expanded")]).toEqual(["Collapse cell", "true"]);
+    expect(cell("b").querySelector(".notebook-editor")).not.toBeNull();
+    expect(resultsHeight("b")).toBeGreaterThan(0);
+  });
+
+  it("stays collapsed when its header activates it", async () => {
+    act(() => useWorkspace.getState().setCollapsed(["b"], true));
+    await renderNotebook();
+    fireEvent.click(within(cell("b")).getByTestId("tab-b"));
+    await afterClick();
+    expect([activeId(useWorkspace.getState()), toggle("b").getAttribute("aria-expanded"), cell("b").querySelector(".notebook-editor")]).toEqual([
+      "b",
+      "false",
+      null,
+    ]);
+  });
+});
+
 describe("arrow keys at a cell's edge", () => {
   const content = (id: TabId) => cell(id).querySelector<HTMLElement>(".cm-content")!;
   const cursor = (id: TabId) => cursorOf(editorStateOf(id));
@@ -455,6 +490,15 @@ describe("arrow keys at a cell's edge", () => {
     expect(activeId(useWorkspace.getState())).toBe("a");
     expect(cursor("a")).toEqual({ line: 5, col: 3 });
     expect(document.activeElement).toBe(content("a"));
+  });
+
+  it("expands a collapsed cell it moves into", async () => {
+    act(() => useWorkspace.getState().setCollapsed(["b"], true));
+    await renderNotebook();
+    act(() => moveCursor("a", lineStart("a", 5) + 4));
+    fireEvent.keyDown(content("a"), { key: "ArrowDown" });
+    expect([activeId(useWorkspace.getState()), cursor("b"), document.activeElement]).toEqual(["b", { line: 1, col: 5 }, content("b")]);
+    expect(within(cell("b")).getByRole("button", { name: "Collapse cell" }).getAttribute("aria-expanded")).toBe("true");
   });
 
   it("keeps the column within a shorter line", async () => {

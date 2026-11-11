@@ -46,8 +46,11 @@ export type ConsoleTarget = { db: DatabaseRef | null; mode: TxnMode; schema?: st
 /** The table a tab opened from the sidebar browses, in the tab's console database. */
 export type TableBrowse = { schema: string; table: string; page: number; query: TableQuery; exactRowCount?: number };
 
-/** One cell of a notebook. A file belongs to the notebook, not to a cell. */
-export type Tab = { id: TabId; title: string; console: ConsoleTarget; table: TableBrowse | null };
+/**
+ * One cell of a notebook. A file belongs to the notebook, not to a cell. A `collapsed` cell shows only its header; the
+ * workspace keeps it, the notebook file never does.
+ */
+export type Tab = { id: TabId; title: string; console: ConsoleTarget; table: TableBrowse | null; collapsed?: true };
 /** A tab bound to a table. Its console always names a database. */
 export type TableTab = Tab & { table: TableBrowse; console: ConsoleTarget & { db: DatabaseRef } };
 
@@ -171,6 +174,7 @@ export function tabFromSnapshot(t: TabSnapshot, configs: Record<ConnectionId, Co
     title: t.title,
     console: { db, mode: t.console.mode, ...(t.console.schema && { schema: t.console.schema }) },
     table,
+    ...(t.collapsed && { collapsed: true }),
   };
 }
 
@@ -287,6 +291,7 @@ export function workspaceSnapshot(s: Pick<WorkspaceData, "tabs" | "notebooks" | 
         console: { connectionId: db?.connectionId ?? null, database: db?.database ?? null, schema: t.console.schema ?? null, mode },
         table: t.table && { schema: t.table.schema, table: t.table.table, page: t.table.page, query: t.table.query },
         file: null,
+        collapsed: t.collapsed === true,
       },
     ];
   });
@@ -354,6 +359,7 @@ type WorkspaceActions = {
   /** A blank title keeps the old one. */
   renameNotebook(id: NotebookId, title: string): void;
   renameTab(id: TabId, title: string): void;
+  setCollapsed(ids: readonly TabId[], collapsed: boolean): void;
   /** A cell's database is its notebook's, so a patch never moves it. */
   patchConsole(id: TabId, patch: Partial<Pick<ConsoleTarget, "mode" | "schema">>): void;
   setTablePage(id: TabId, page: number, exactRowCount?: number): void;
@@ -533,6 +539,16 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
     set((s) => {
       const t = s.tabs[id];
       return t ? { tabs: { ...s.tabs, [id]: { ...t, title } } } : {};
+    }),
+  setCollapsed: (ids, collapsed) =>
+    set((s) => {
+      const changed = ids.flatMap((id) => {
+        const t = s.tabs[id];
+        if (!t || (t.collapsed === true) === collapsed) return [];
+        const { collapsed: _, ...expanded } = t;
+        return [[id, collapsed ? { ...expanded, collapsed: true as const } : expanded]];
+      });
+      return changed.length ? { tabs: { ...s.tabs, ...Object.fromEntries(changed) } } : {};
     }),
   patchConsole: (id, patch) =>
     set((s) => {

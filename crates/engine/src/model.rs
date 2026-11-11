@@ -1774,6 +1774,8 @@ pub struct TabSnapshot {
     /// Read only from workspaces saved while a file belonged to one tab, which the frontend moves into a notebook of
     /// its own. This build writes `None`: a file belongs to a notebook.
     pub file: Option<FileSnapshot>,
+    /// The notebook shows only the cell's header. Kept with the workspace, never in a notebook file.
+    pub collapsed: bool,
 }
 
 /// The table a tab opened from the sidebar browses, in the tab's console database.
@@ -1821,6 +1823,8 @@ impl<'de> Deserialize<'de> for TabSnapshot {
             /// Parsed on its own, so a `file` a later build wrote drops the binding and keeps the tab. A tab that
             /// failed to parse would fail the workspace, which `boot()` replaces with an empty one.
             file: Option<serde_json::Value>,
+            #[serde(default)]
+            collapsed: bool,
         }
         #[derive(Deserialize)]
         #[serde(untagged)]
@@ -1829,10 +1833,12 @@ impl<'de> Deserialize<'de> for TabSnapshot {
             Current(Current),
         }
         Ok(match Saved::deserialize(d)? {
-            Saved::Current(Current { id, title, text, console, table, file }) => {
-                Self { id, title, text, console, table, file: file.and_then(FileSnapshot::lenient) }
+            Saved::Current(Current { id, title, text, console, table, file, collapsed }) => {
+                Self { id, title, text, console, table, file: file.and_then(FileSnapshot::lenient), collapsed }
             }
-            Saved::Legacy(Legacy::Sql { id, title, text, console }) => Self { id, title, text: Some(text), console, table: None, file: None },
+            Saved::Legacy(Legacy::Sql { id, title, text, console }) => {
+                Self { id, title, text: Some(text), console, table: None, file: None, collapsed: false }
+            }
             Saved::Legacy(Legacy::Table { id, connection_id, database, schema, table, page, query }) => Self {
                 id,
                 title: table.clone(),
@@ -1840,6 +1846,7 @@ impl<'de> Deserialize<'de> for TabSnapshot {
                 console: ConsoleConfigSnapshot { connection_id: Some(connection_id), database, schema: None, mode: TxnMode::AutoCommit },
                 table: Some(TableSnapshot { schema, table, page, query }),
                 file: None,
+                collapsed: false,
             },
         })
     }
@@ -3313,7 +3320,7 @@ mod tests {
             "id": TAB, "title": "orders", "text": "select * from orders",
             "console": { "connectionId": CONN, "database": "shop", "schema": null, "mode": "Manual" },
             "table": { "schema": "public", "table": "orders", "page": 1, "query": { "orderBy": "", "filters": [], "where": "total > 0" } },
-            "file": null
+            "file": null, "collapsed": false
         });
         let tab: TabSnapshot = serde_json::from_value(value.clone()).unwrap();
         assert_eq!((tab.text.as_deref(), tab.console.mode), (Some("select * from orders"), TxnMode::Manual));
@@ -3322,7 +3329,8 @@ mod tests {
 
         let plain = json!({
             "id": TAB, "title": "Untitled-1.sql", "text": "",
-            "console": { "connectionId": null, "database": null, "schema": null, "mode": "AutoCommit" }, "table": null, "file": null
+            "console": { "connectionId": null, "database": null, "schema": null, "mode": "AutoCommit" }, "table": null, "file": null,
+            "collapsed": true
         });
         let tab: TabSnapshot = serde_json::from_value(plain.clone()).unwrap();
         assert_eq!(serde_json::to_value(&tab).unwrap(), plain);
@@ -3360,6 +3368,18 @@ mod tests {
             format: FileFormat { bom: true, crlf: false },
         };
         assert_eq!(tab.file, Some(FileSnapshot { binding, dirty: true }));
+        let mut written = value;
+        written["collapsed"] = json!(false);
+        assert_eq!(serde_json::to_value(&tab).unwrap(), written);
+    }
+
+    #[test]
+    fn a_tab_saved_before_collapse_loads_expanded_and_a_collapsed_tab_round_trips() {
+        assert!(!serde_json::from_value::<TabSnapshot>(file_tab(json!(null))).unwrap().collapsed);
+        let mut value = file_tab(json!(null));
+        value["collapsed"] = json!(true);
+        let tab: TabSnapshot = serde_json::from_value(value.clone()).unwrap();
+        assert!(tab.collapsed);
         assert_eq!(serde_json::to_value(&tab).unwrap(), value);
     }
 

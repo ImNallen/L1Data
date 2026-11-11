@@ -1839,6 +1839,8 @@ export type TabSnapshot = {
 	 *  its own. This build writes `None`: a file belongs to a notebook.
 	 */
 	file: FileSnapshot | null,
+	/**  The notebook shows only the cell's header. Kept with the workspace, never in a notebook file. */
+	collapsed: boolean,
 };
 
 /**  Staged edits to one table, applied together by `table_apply`. Rows to update or delete are found by primary key. */
