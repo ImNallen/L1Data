@@ -78,7 +78,7 @@ it.each([
   const hosted = hostedWindow(userAgent);
   expect(hosted?.chrome).toBe("custom");
 
-  const topBar = renderToStaticMarkup(<TopBar hosted={hosted} />);
+  const topBar = renderToStaticMarkup(<AppLayout />);
   expect(controlOrder(topBar)).toEqual(['data-testid="window-minimize"', 'data-testid="window-maximize"', 'data-testid="window-close"']);
   expect(topBar.indexOf('data-testid="toggle-right-panel"')).toBeLessThan(topBar.indexOf('data-testid="window-controls"'));
 
@@ -122,31 +122,20 @@ const TOGGLE = 'data-testid="toggle-right-panel"';
 const CONTROLS = 'data-testid="window-controls"';
 const RESULTS = 'data-testid="toggle-results"';
 
-it("keeps the right-panel toggle in the top bar while the panel is closed", () => {
-  withLayout({ rightPanel: null });
-  const topBar = renderToStaticMarkup(<TopBar hosted={null} />);
-  expect(topBar).toContain(TOGGLE);
-  expect(topBar).not.toContain(RESULTS);
+it.each([null, "Assistant"] as const)("keeps one right-panel toggle outside the headers with panel %s", (rightPanel) => {
+  withLayout({ rightPanel });
+  const layout = renderToStaticMarkup(<AppLayout />);
+  expect(layout.split(TOGGLE)).toHaveLength(2);
+  expect(renderToStaticMarkup(<TopBar hosted={null} />)).not.toContain(TOGGLE);
+  expect(renderToStaticMarkup(<RightPanel hosted={null} />)).not.toContain(TOGGLE);
+  expect(layout).not.toContain(RESULTS);
 });
 
-it("moves the right-panel toggle into the open panel's header in place of a close button", () => {
-  withLayout({ rightPanel: "Assistant" });
-  const topBar = renderToStaticMarkup(<TopBar hosted={null} />);
-  expect(topBar).not.toContain(TOGGLE);
-  expect(topBar).not.toContain(RESULTS);
-
-  const panel = renderToStaticMarkup(<RightPanel hosted={null} />);
-  expect(panel).toContain(TOGGLE);
-  expect(panel).not.toContain(RESULTS);
-  expect(panel).not.toContain('aria-label="Close panel"');
-  expect(panel).toContain('data-tauri-drag-region="deep"');
-});
-
-it("heads the right panel with Assistant, new chat, and chat history before the panel toggles, over the chat composer", () => {
+it("heads the right panel with Assistant, new chat, and chat history over the chat composer", () => {
   withLayout({ rightPanel: "Assistant" });
   const panel = renderToStaticMarkup(<RightPanel hosted={null} />);
   expect(panel).toMatch(/<aside[^>]*aria-labelledby="right-panel-title".*<h2 id="right-panel-title"[^>]*>Assistant<\/h2>/);
-  const order = ['data-testid="assistant-new"', 'data-testid="assistant-history"', TOGGLE, 'data-testid="assistant-panel"'].map((id) => panel.indexOf(id));
+  const order = ['data-testid="assistant-new"', 'data-testid="assistant-history"', 'data-testid="assistant-panel"'].map((id) => panel.indexOf(id));
   expect(order.every((at, i) => at > (order[i - 1] ?? 0))).toBe(true);
   expect(panel).toMatch(/<textarea[^>]*data-testid="assistant-input"[^>]*placeholder="Message assistant…"/);
   expect(panel).not.toContain("coming soon");
@@ -163,34 +152,26 @@ it("insets the toggle from the window edge by the same amount in either header",
   }
 });
 
-it("keeps the custom window controls after the toggle in whichever header holds it", () => {
-  withLayout({ rightPanel: null });
-  const closed = renderToStaticMarkup(<TopBar hosted={fakeHost} />);
-  expect(closed).toContain(CONTROLS);
-  expect(closed.indexOf(TOGGLE)).toBeLessThan(closed.indexOf(CONTROLS));
-
-  withLayout({ rightPanel: "Assistant" });
+it.each([null, "Assistant"] as const)("keeps custom window controls after the toggle with panel %s", (rightPanel) => {
+  inTauri(WINDOWS);
+  withLayout({ rightPanel });
+  const html = renderToStaticMarkup(<AppLayout />);
+  expect(controlOrder(html)).toEqual(['data-testid="window-minimize"', 'data-testid="window-maximize"', 'data-testid="window-close"']);
+  expect(html.indexOf(TOGGLE)).toBeLessThan(html.indexOf(CONTROLS));
   expect(renderToStaticMarkup(<TopBar hosted={fakeHost} />)).not.toContain(CONTROLS);
-  const open = renderToStaticMarkup(<RightPanel hosted={fakeHost} />);
-  expect(controlOrder(open)).toEqual(['data-testid="window-minimize"', 'data-testid="window-maximize"', 'data-testid="window-close"']);
-  expect(open.indexOf(TOGGLE)).toBeLessThan(open.indexOf(CONTROLS));
+  expect(renderToStaticMarkup(<RightPanel hosted={fakeHost} />)).not.toContain(CONTROLS);
 });
 
 const SIDEBAR_TOGGLE = 'data-testid="toggle-sidebar"';
 const leadingInset = (html: string) => html.match(/data-tauri-drag-region="deep" class="[^"]*\b(pl-\S+?)(?=[\s"])/)?.[1];
 
-it("puts the sidebar toggle before the app title while the sidebar is open, and keeps it out of the top bar", () => {
-  withLayout({ sidebar: true });
-  const sidebar = renderToStaticMarkup(<Sidebar hosted={null} />);
-  expect(sidebar).toContain(SIDEBAR_TOGGLE);
-  expect(sidebar.indexOf(SIDEBAR_TOGGLE)).toBeLessThan(sidebar.indexOf('data-testid="new-connection"'));
+it.each([true, false])("keeps one leading sidebar toggle outside the headers when open is %s", (sidebar) => {
+  withLayout({ sidebar });
+  const html = renderToStaticMarkup(<AppLayout />);
+  expect(html.split(SIDEBAR_TOGGLE)).toHaveLength(2);
+  expect(html.match(/<(?:button|a|input)\b[^>]*/)?.[0]).toContain(SIDEBAR_TOGGLE);
+  expect(renderToStaticMarkup(<Sidebar hosted={null} />)).not.toContain(SIDEBAR_TOGGLE);
   expect(renderToStaticMarkup(<TopBar hosted={null} />)).not.toContain(SIDEBAR_TOGGLE);
-});
-
-it("leads the top bar with the sidebar toggle once the sidebar is hidden", () => {
-  withLayout({ sidebar: false });
-  const topBar = renderToStaticMarkup(<TopBar hosted={null} />);
-  expect(topBar.match(/<(?:button|a|input)\b[^>]*/)?.[0]).toContain(SIDEBAR_TOGGLE);
 });
 
 it("insets the sidebar toggle from the window's left edge by the same amount in either header", () => {

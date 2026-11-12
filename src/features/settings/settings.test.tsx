@@ -69,10 +69,10 @@ it("keeps workspace chrome behind settings with its own navigation and close con
 
 const sidebarHeader = (html: string) => /<div data-testid="sidebar-header"[^>]*>(?:(?!<\/div>).)*<\/div>/.exec(html)?.[0];
 
-it("keeps the sidebar header, toggle and app title, identical in settings and the workspace", () => {
+it("keeps the sidebar header identical in settings and the workspace", () => {
   const settings = sidebarHeader(render(settingsOpen()));
   const workspace = sidebarHeader(render({ screen: { kind: "workspace" } }));
-  expect(settings).toContain('data-testid="toggle-sidebar"');
+  expect(render(settingsOpen()).split('data-testid="toggle-sidebar"')).toHaveLength(2);
   expect(settings).toContain('data-testid="sidebar-header"');
   expect(settings).toBe(workspace);
 });

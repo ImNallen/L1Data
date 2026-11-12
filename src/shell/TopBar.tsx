@@ -23,7 +23,7 @@ import { openNotebookSwitcher } from "../features/notebooks/notebookActions";
 import { useNotebookDirty } from "../features/notebooks/notebookDirty";
 import { activeTab, shownDb, shownNotebook, useWorkspace } from "../state/workspace";
 import { Button, CONNECTION_TONE_LABEL, Kbd, MenuContent, MenuItem, MenuLabel, StatusDot, IconButton, cx } from "../ui/primitives";
-import { SidebarToggle, WindowEdgeActions, windowEdgeInset, windowLeadingInset } from "./WindowEdgeActions";
+import { WindowEdgeActionsSpacer, windowEdgeInset, windowLeadingInset } from "./WindowEdgeActions";
 import type { HostedWindow } from "./hostedWindow";
 
 const MODE_LABEL: Record<TxnMode, string> = { AutoCommit: "Auto-commit", Manual: "Manual" };
@@ -159,7 +159,7 @@ export function TopBar({ hosted, notebook = false }: { hosted: HostedWindow | nu
         )}
       >
         <div className={cx("flex min-w-0 flex-1 items-center gap-2", expandedActions ? "@max-[760px]:basis-full" : "@max-[520px]:basis-full")}>
-          {!layout.sidebar && <SidebarToggle />}
+          {!layout.sidebar && <div aria-hidden className="size-7 shrink-0" />}
           {tab || db ? (
             <Menu.Root modal={false}>
               <Menu.Trigger data-testid="tab-connection" title={config?.name} className={cx(TARGET_TRIGGER, "-ml-1 flex-1", config ? "text-fg" : "text-dim")}>
@@ -360,7 +360,7 @@ export function TopBar({ hosted, notebook = false }: { hosted: HostedWindow | nu
               <PlusIcon size={14} />
             </IconButton>
           )}
-          {layout.rightPanel === null && <WindowEdgeActions hosted={hosted} />}
+          {layout.rightPanel === null && <WindowEdgeActionsSpacer hosted={hosted} />}
         </div>
       </div>
     </header>

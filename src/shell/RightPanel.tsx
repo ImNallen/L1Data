@@ -4,7 +4,7 @@ import { ChatHistory } from "../features/assistant/ChatHistory";
 import { cx, IconButton } from "../ui/primitives";
 import type { HostedWindow } from "./hostedWindow";
 import { AssistantPanel } from "./lazySurfaces";
-import { WINDOW_HEADER_HEIGHT, WindowEdgeActions, windowEdgeInset } from "./WindowEdgeActions";
+import { WINDOW_HEADER_HEIGHT, WindowEdgeActionsSpacer, windowEdgeInset } from "./WindowEdgeActions";
 
 export function RightPanel({ hosted }: { hosted: HostedWindow | null }) {
   return (
@@ -18,7 +18,7 @@ export function RightPanel({ hosted }: { hosted: HostedWindow | null }) {
           <PlusIcon size={16} />
         </IconButton>
         <ChatHistory />
-        <WindowEdgeActions hosted={hosted} />
+        <WindowEdgeActionsSpacer hosted={hosted} />
       </div>
       <AssistantPanel />
     </aside>

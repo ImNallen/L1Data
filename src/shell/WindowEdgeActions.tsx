@@ -25,7 +25,6 @@ function PanelIcon({ side, shown }: { side: keyof typeof PANEL_ICONS; shown: boo
   return <Icon size={16} />;
 }
 
-// Lives in whichever header touches the window's left edge, so it never moves when the sidebar opens or closes.
 export function SidebarToggle() {
   const sidebar = useWorkspace((s) => s.layout.sidebar);
   const setLayout = useWorkspace((s) => s.setLayout);
@@ -40,6 +39,10 @@ export function SidebarToggle() {
       <PanelIcon side="left" shown={sidebar} />
     </IconButton>
   );
+}
+
+export function WindowEdgeActionsSpacer({ hosted }: { hosted: HostedWindow | null }) {
+  return <div aria-hidden className={`shrink-0 ${hosted?.chrome === "custom" ? "w-[calc(var(--spacing)*34+1px)]" : "w-7"}`} />;
 }
 
 export function WindowEdgeActions({ hosted }: { hosted: HostedWindow | null }) {
