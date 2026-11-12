@@ -151,7 +151,7 @@ export function PixelColumn({ column, open, children }: { column: Column; open: 
         width: phase === "entering" || phase === "closing" ? 0 : width,
         minWidth: sliding ? 0 : min,
         flexShrink: shrink,
-        transition: phase === "opening" || phase === "closing" ? "width var(--panel-duration) cubic-bezier(0.2, 0, 0, 1)" : undefined,
+        transition: phase === "opening" || phase === "closing" ? "width var(--panel-duration) var(--panel-ease)" : undefined,
       }}
       onTransitionEnd={(e) => {
         if (e.target === e.currentTarget && e.propertyName === "width") settle();

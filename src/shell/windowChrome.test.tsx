@@ -7,6 +7,7 @@ import { AppLayout } from "./AppLayout";
 import { preloadSurfaces } from "./lazySurfaces";
 import { RightPanel } from "./RightPanel";
 import { ResizeEdges, WindowControlButtons } from "./WindowChrome";
+import { WindowEdgeActionsSpacer } from "./WindowEdgeActions";
 import { TopBar } from "./TopBar";
 import { hostedWindow, type CustomChrome } from "./hostedWindow";
 import { cellsState } from "../testing/notebooks";
@@ -141,15 +142,38 @@ it("heads the right panel with Assistant, new chat, and chat history over the ch
   expect(panel).not.toContain("coming soon");
 });
 
-it("insets the toggle from the window edge by the same amount in either header", () => {
-  for (const hosted of [null, { chrome: "native" } as const, fakeHost]) {
-    withLayout({ rightPanel: null });
-    const topBarInset = renderToStaticMarkup(<TopBar hosted={hosted} notebook />).match(/<header[^>]*class="[^"]*\b(pr-\d)\b/)?.[1];
-    withLayout({ rightPanel: "Assistant" });
-    const panelInset = renderToStaticMarkup(<RightPanel hosted={hosted} />).match(/data-tauri-drag-region="deep" class="[^"]*\b(pr-\d)\b/)?.[1];
-    expect(panelInset).toBe(topBarInset);
-    expect(topBarInset).toBe(hosted?.chrome === "custom" ? "pr-2" : "pr-3");
-  }
+// The width a Tailwind padding or width class resolves to at the default density, where one spacing unit is 4px.
+function classPx(className: string | undefined): number {
+  const [, units, arbitrary] = /^[a-z]+-(?:(\d+)|\[(?:calc\()?(.+?)\)?\])$/.exec(className ?? "") ?? [];
+  if (units !== undefined) return Number(units) * 4;
+  if (arbitrary === undefined) throw new Error(`unrecognised class ${className}`);
+  return arbitrary.split("+").reduce((sum, term) => sum + (term.endsWith("px") ? Number(term.slice(0, -2)) : 4 * Number(term.split("*")[1])), 0);
+}
+const headerPadding = (html: string, side: "l" | "r") => html.match(new RegExp(`<header[^>]*class="[^"]*\\b(p${side}-\\S+?)(?=[\\s"])`))?.[1];
+const toggleInset = (html: string, side: "l" | "r") =>
+  html.match(new RegExp(`absolute top-0 ${side === "l" ? "left" : "right"}-0[^"]*\\b(p${side}-\\S+?)(?=[\\s"])`))?.[1];
+const CHROMES = [
+  ["the browser", null],
+  ["macOS", MAC],
+  ["Windows", WINDOWS],
+] as const;
+
+it.each(CHROMES)("insets the right-panel toggle by the same amount as both headers' trailing edge in %s", (_where, userAgent) => {
+  if (userAgent) inTauri(userAgent);
+  const hosted = hostedWindow(userAgent ?? undefined);
+  withLayout({ rightPanel: "Assistant" });
+  const inset = toggleInset(renderToStaticMarkup(<AppLayout />), "r");
+  expect(renderToStaticMarkup(<RightPanel hosted={hosted} />).match(/data-tauri-drag-region="deep" class="[^"]*\b(pr-\S+?)(?=[\s"])/)?.[1]).toBe(inset);
+  expect(headerPadding(renderToStaticMarkup(<TopBar hosted={hosted} notebook />), "r")).toBe(inset);
+});
+
+it.each(CHROMES)("ends the top bar's actions a gap before the window-edge actions when the right panel is closed in %s", (_where, userAgent) => {
+  if (userAgent) inTauri(userAgent);
+  const hosted = hostedWindow(userAgent ?? undefined);
+  withLayout({ rightPanel: null });
+  const inset = classPx(toggleInset(renderToStaticMarkup(<AppLayout />), "r"));
+  const actions = classPx(renderToStaticMarkup(<WindowEdgeActionsSpacer hosted={hosted} />).match(/\b(w-\S+?)(?=[\s"])/)?.[1]);
+  expect(classPx(headerPadding(renderToStaticMarkup(<TopBar hosted={hosted} notebook />), "r"))).toBe(inset + actions + 8);
 });
 
 it.each([null, "Assistant"] as const)("keeps custom window controls after the toggle with panel %s", (rightPanel) => {
@@ -163,7 +187,6 @@ it.each([null, "Assistant"] as const)("keeps custom window controls after the to
 });
 
 const SIDEBAR_TOGGLE = 'data-testid="toggle-sidebar"';
-const leadingInset = (html: string) => html.match(/data-tauri-drag-region="deep" class="[^"]*\b(pl-\S+?)(?=[\s"])/)?.[1];
 
 it.each([true, false])("keeps one leading sidebar toggle outside the headers when open is %s", (sidebar) => {
   withLayout({ sidebar });
@@ -174,15 +197,15 @@ it.each([true, false])("keeps one leading sidebar toggle outside the headers whe
   expect(renderToStaticMarkup(<TopBar hosted={null} />)).not.toContain(SIDEBAR_TOGGLE);
 });
 
-it("insets the sidebar toggle from the window's left edge by the same amount in either header", () => {
-  for (const hosted of [null, { chrome: "native" } as const, fakeHost]) {
-    withLayout({ sidebar: true });
-    const sidebarInset = leadingInset(renderToStaticMarkup(<Sidebar hosted={hosted} />));
-    withLayout({ sidebar: false });
-    const topBarInset = leadingInset(renderToStaticMarkup(<TopBar hosted={hosted} notebook />));
-    expect(topBarInset).toBe(sidebarInset);
-    expect(topBarInset).toBe(hosted?.chrome === "native" ? "pl-[86px]" : "pl-3");
-  }
+it.each(CHROMES)("starts the sidebar header at the sidebar toggle, and the closed-sidebar top bar right after it, in %s", (_where, userAgent) => {
+  if (userAgent) inTauri(userAgent);
+  const hosted = hostedWindow(userAgent ?? undefined);
+  withLayout({ sidebar: false });
+  const layout = renderToStaticMarkup(<AppLayout />);
+  const inset = toggleInset(layout, "l");
+  expect(renderToStaticMarkup(<Sidebar hosted={hosted} />).match(/data-tauri-drag-region="deep" class="[^"]*\b(pl-\S+?)(?=[\s"])/)?.[1]).toBe(inset);
+  const toggle = classPx(layout.match(new RegExp(`<button[^>]*class="[^"]*\\b(size-\\d+)\\b[^"]*"[^>]*${SIDEBAR_TOGGLE}`))?.[1]);
+  expect(classPx(headerPadding(renderToStaticMarkup(<TopBar hosted={hosted} notebook />), "l"))).toBe(classPx(inset) + toggle);
 });
 
 // An empty element: the line itself is the handle, with no pill inside it.
