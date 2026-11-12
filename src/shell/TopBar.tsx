@@ -23,7 +23,7 @@ import { openNotebookSwitcher } from "../features/notebooks/notebookActions";
 import { useNotebookDirty } from "../features/notebooks/notebookDirty";
 import { activeTab, shownDb, shownNotebook, useWorkspace } from "../state/workspace";
 import { Button, CONNECTION_TONE_LABEL, Kbd, MenuContent, MenuItem, MenuLabel, StatusDot, IconButton, cx } from "../ui/primitives";
-import { WindowEdgeActionsSpacer, windowEdgeInset, windowLeadingInset } from "./WindowEdgeActions";
+import { windowEdgeClearance, windowEdgeInset, windowLeadingClearance } from "./WindowEdgeActions";
 import type { HostedWindow } from "./hostedWindow";
 
 const MODE_LABEL: Record<TxnMode, string> = { AutoCommit: "Auto-commit", Manual: "Manual" };
@@ -146,8 +146,9 @@ export function TopBar({ hosted, notebook = false }: { hosted: HostedWindow | nu
       data-tauri-drag-region="deep"
       className={cx(
         notebook ? "workspace-context @container shrink-0" : "@container shrink-0 border-b-2 border-transparent pt-[2px]",
-        windowEdgeInset(hosted),
-        layout.sidebar ? (notebook ? "pl-[24px] max-[1100px]:pl-[16px]" : "pl-4") : windowLeadingInset(hosted),
+        "follow-panels",
+        layout.rightPanel === null ? windowEdgeClearance(hosted) : windowEdgeInset(hosted),
+        layout.sidebar ? (notebook ? "pl-[24px] max-[1100px]:pl-[16px]" : "pl-4") : windowLeadingClearance(hosted),
       )}
       data-testid="top-bar"
       data-environment={environment ?? undefined}
@@ -159,7 +160,6 @@ export function TopBar({ hosted, notebook = false }: { hosted: HostedWindow | nu
         )}
       >
         <div className={cx("flex min-w-0 flex-1 items-center gap-2", expandedActions ? "@max-[760px]:basis-full" : "@max-[520px]:basis-full")}>
-          {!layout.sidebar && <div aria-hidden className="size-7 shrink-0" />}
           {tab || db ? (
             <Menu.Root modal={false}>
               <Menu.Trigger data-testid="tab-connection" title={config?.name} className={cx(TARGET_TRIGGER, "-ml-1 flex-1", config ? "text-fg" : "text-dim")}>
@@ -360,7 +360,6 @@ export function TopBar({ hosted, notebook = false }: { hosted: HostedWindow | nu
               <PlusIcon size={14} />
             </IconButton>
           )}
-          {layout.rightPanel === null && <WindowEdgeActionsSpacer hosted={hosted} />}
         </div>
       </div>
     </header>

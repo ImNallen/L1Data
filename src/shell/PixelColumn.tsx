@@ -141,23 +141,25 @@ export function PixelColumn({ column, open, children }: { column: Column; open: 
       onDoubleClick={() => save(COLUMNS[column].reset)}
     />
   );
+  // While sliding, the content keeps its full width pinned to the moving edge, so it slides with that edge instead of
+  // being wiped. The sidebar's moving edge is its end, so its content overflows the start.
   const content = (
     <div
       ref={body}
       data-testid={column}
       data-phase={sliding ? phase : undefined}
-      className="h-full overflow-hidden"
+      className={sliding && edge === "right" ? "flex h-full justify-end overflow-hidden" : "h-full overflow-hidden"}
       style={{
         width: phase === "entering" || phase === "closing" ? 0 : width,
         minWidth: sliding ? 0 : min,
         flexShrink: shrink,
-        transition: phase === "opening" || phase === "closing" ? "width var(--panel-duration) cubic-bezier(0.2, 0, 0, 1)" : undefined,
+        transition: phase === "opening" || phase === "closing" ? "width var(--panel-duration) var(--panel-ease)" : undefined,
       }}
       onTransitionEnd={(e) => {
         if (e.target === e.currentTarget && e.propertyName === "width") settle();
       }}
     >
-      <div className="h-full" style={sliding ? { width } : undefined}>
+      <div className="h-full" style={sliding ? { width, flexShrink: 0 } : undefined}>
         {children}
       </div>
     </div>

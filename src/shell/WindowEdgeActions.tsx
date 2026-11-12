@@ -13,6 +13,17 @@ export function windowLeadingInset(hosted: HostedWindow | null): string {
   return hosted?.chrome === "native" ? "pl-[86px]" : "pl-3";
 }
 
+// A header under a closed panel's toggle clears it with padding rather than a spacer element, so the clearance
+// transitions alongside the sliding column instead of appearing in one frame. Leading: the inset and the size-7
+// toggle, with no gap because .workspace-context zeroes the leading group's. Trailing: the inset, a gap-2, and the spacer.
+export function windowLeadingClearance(hosted: HostedWindow | null): string {
+  return hosted?.chrome === "native" ? "pl-[calc(86px+var(--spacing)*7)]" : "pl-10";
+}
+
+export function windowEdgeClearance(hosted: HostedWindow | null): string {
+  return hosted?.chrome === "custom" ? "pr-[calc(var(--spacing)*38+1px)]" : "pr-12";
+}
+
 export const WINDOW_HEADER_HEIGHT = "h-[56px]";
 
 const PANEL_ICONS = {
