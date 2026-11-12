@@ -44,6 +44,40 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
+it.each([
+  ["sidebar", "toggle-sidebar"],
+  ["right", "toggle-right-panel"],
+])("keeps one focused %s toggle through closing, reversal, and reopening", (column, testId) => {
+  useWorkspace.setState((s) => ({
+    layout: { ...s.layout, sidebar: true, rightPanel: "Assistant", assistantChat: "panel-test" },
+    settings: { ...s.settings, panelMotionMs: 1000, reduceMotion: "Off" },
+  }));
+  useLive.getState().seedTranscript("panel-test");
+  render(<AppLayout />);
+  const toggle = screen.getByTestId(testId);
+  toggle.focus();
+  const expectToggle = (expanded: boolean) => {
+    expect(screen.getAllByTestId(testId)).toEqual([toggle]);
+    expect(toggle.isConnected).toBe(true);
+    expect(document.activeElement).toBe(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe(String(expanded));
+  };
+
+  fireEvent.click(toggle);
+  expect(screen.getByTestId(column).dataset.phase).toBe("closing");
+  expectToggle(false);
+  fireEvent.click(toggle);
+  expectToggle(true);
+  fireEvent.click(toggle);
+  const transition = new Event("transitionend", { bubbles: true });
+  Object.defineProperty(transition, "propertyName", { value: "width" });
+  fireEvent(screen.getByTestId(column), transition);
+  expect(screen.queryByTestId(column)).toBeNull();
+  expectToggle(false);
+  fireEvent.click(toggle);
+  expectToggle(true);
+});
+
 it("opens globally, preserves the search and refocuses on repeat, and cancels to its connected opener", async () => {
   const user = userEvent.setup();
   openSqlTab({ title: "draft.sql", text: "select 1" });
