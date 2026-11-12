@@ -9,6 +9,7 @@ import { QueriesDialog } from "../features/queries/QueriesDialog";
 import { Sidebar } from "../features/sidebar/Sidebar";
 import { InstallingOverlay } from "../features/updates/InstallingOverlay";
 import { useWorkspace } from "../state/workspace";
+import { cx } from "../ui/primitives";
 import { handleGlobalKey } from "./commands";
 import { CommandPalette } from "./CommandPalette";
 import { ConnectionDialog, DatabaseMap, SettingsDialog, useMountOnce, useSurfacesReady } from "./lazySurfaces";
@@ -19,6 +20,7 @@ import { RightPanel } from "./RightPanel";
 import { ResizeEdges } from "./WindowChrome";
 import { hostedWindow } from "./hostedWindow";
 import { TopBar } from "./TopBar";
+import { SidebarToggle, WINDOW_HEADER_HEIGHT, WindowEdgeActions, windowEdgeInset, windowLeadingInset } from "./WindowEdgeActions";
 
 function useGlobalKeys() {
   useEffect(() => {
@@ -46,6 +48,11 @@ export function AppLayout() {
   return (
     <div className="relative flex h-full">
       {hosted?.chrome === "custom" && <ResizeEdges hosted={hosted} />}
+      <div className={cx("pointer-events-none absolute top-0 left-0 z-20 flex items-center", WINDOW_HEADER_HEIGHT, windowLeadingInset(hosted))}>
+        <div className="pointer-events-auto flex items-center">
+          <SidebarToggle />
+        </div>
+      </div>
       <PixelColumn column="sidebar" open={sidebar}>
         <Sidebar hosted={hosted} />
       </PixelColumn>
@@ -65,6 +72,11 @@ export function AppLayout() {
           )}
         </Group>
       </main>
+      <div className={cx("pointer-events-none absolute top-0 right-0 z-20 flex items-center", WINDOW_HEADER_HEIGHT, windowEdgeInset(hosted))}>
+        <div className="pointer-events-auto flex items-center">
+          <WindowEdgeActions hosted={hosted} />
+        </div>
+      </div>
       <PixelColumn column="right" open={rightPanel !== null}>
         <RightPanel hosted={hosted} />
       </PixelColumn>

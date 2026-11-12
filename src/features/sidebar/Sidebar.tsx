@@ -8,7 +8,7 @@ import { shownDb, useWorkspace } from "../../state/workspace";
 import { cx, IconButton } from "../../ui/primitives";
 import { parseQuery } from "../../ui/textMatch";
 import type { HostedWindow } from "../../shell/hostedWindow";
-import { SidebarToggle, WINDOW_HEADER_HEIGHT, windowLeadingInset } from "../../shell/WindowEdgeActions";
+import { WINDOW_HEADER_HEIGHT, windowLeadingInset } from "../../shell/WindowEdgeActions";
 import { openTableTab } from "../editor/runActions";
 import { UpdateButton } from "../updates/UpdateButton";
 import { countText, schemaCount, type ShownCount } from "./pickers";
@@ -216,7 +216,7 @@ export function Sidebar({ hosted }: { hosted: HostedWindow | null }) {
           data-tauri-drag-region="deep"
           className={cx("flex shrink-0 items-center gap-1 pr-3", WINDOW_HEADER_HEIGHT, windowLeadingInset(hosted))}
         >
-          <SidebarToggle />
+          <div aria-hidden className="size-7 shrink-0" />
           <div className="flex-1" />
           <SidebarAction testId="open-queries" label="Queries" icon={LibraryBigIcon} onOpen={() => openQueries()} />
           <SidebarAction testId="new-connection" label="New connection" icon={PlusIcon} onOpen={() => open({ kind: "connection", editing: null })} />
