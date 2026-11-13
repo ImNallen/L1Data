@@ -42,6 +42,10 @@ export function pageStatus(
   return { label: `${digits(first + 1)}–${digits(last)} of ${totalLabel(last, rows < size, estimate, exactRowCount)}`, isLast };
 }
 
+/** How many rows a table page holds, given the table's total row count. */
+export const pageRows = (page: number, size: number, total: number | null): number | undefined =>
+  total === null ? undefined : Math.min(size, Math.max(0, total - page * size));
+
 export type RowWindow = { start: number; length: number };
 
 export const PAGE_SIZES = [10, 100, 250, 500, 1000];

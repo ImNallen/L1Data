@@ -15,16 +15,31 @@ function heights(overrides: Partial<CellSizingInput>) {
     ...overrides,
   });
 }
-const table = (rows?: number) => ({ table: true, rows, rowHeight: ROW, chrome: CHROME, pager: false, chart: false });
-const query = (rows?: number, pager = false, chart = false) => ({ table: false, rows, rowHeight: ROW, chrome: CHROME, pager, chart });
+const table = (rows?: number, pageSize = 1000) => ({ table: true, rows, pageSize, rowHeight: ROW, chrome: CHROME, pager: false, chart: false });
+const query = (rows?: number, pager = false, chart = false, pageSize = 1000) => ({
+  table: false,
+  rows,
+  pageSize,
+  rowHeight: ROW,
+  chrome: CHROME,
+  pager,
+  chart,
+});
+const TABLE_CONTROLS = 100;
 const PAGER = 36;
 
 it("fills the room below the editor with a focused table", () => {
   expect(heights({ results: table(1000) })).toMatchObject({ editor: 128, results: 672 });
 });
 
-it("fills the room while a focused table has no row count yet", () => {
-  expect(heights({ results: table() }).results).toBe(672);
+it("sizes a focused table for one page while its rows load", () => {
+  expect(heights({ results: table(undefined, 10) }).results).toBe(CHROME + TABLE_CONTROLS + 10 * ROW);
+  expect(heights({ results: table(undefined, 10) }).results).toBe(heights({ results: table(10, 10) }).results);
+  expect(heights({ results: table(undefined, 1000) }).results).toBe(672);
+});
+
+it("shows at most a page of a focused query's rows", () => {
+  expect(heights({ results: query(200, true, false, 10) }).results).toBe(CHROME + PAGER + 10 * ROW);
 });
 
 it("sizes a short result to its content", () => {

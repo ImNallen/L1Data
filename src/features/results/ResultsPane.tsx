@@ -33,7 +33,7 @@ import {
 import { useCatalog, viewFor } from "../../state/catalog";
 import { databaseKindFor } from "../../state/databaseKind";
 import { NO_EDITS, pendingCount, useTableEdits } from "../../state/tableEdits";
-import { isFiltered, isTableTab, useWorkspace, type ResultDisplayPref, type TableTab } from "../../state/workspace";
+import { isFiltered, isTableTab, useWorkspace, type ResultDisplayPref, type Tab, type TableTab } from "../../state/workspace";
 import { Button, cx, IconButton, MenuContent, MenuItem, Spinner } from "../../ui/primitives";
 import { isMac } from "../../shell/hostedWindow";
 import { useNow } from "../../ui/useNow";
@@ -117,16 +117,20 @@ function PagerBar({
   );
 }
 
+export function useRowEstimate(tab: Tab | undefined): number | null {
+  const browse = tab?.table;
+  return useCatalog((s) => {
+    if (!browse) return null;
+    const schema = viewFor(s.views, tab?.console.db)?.catalog.schemas.find((sc) => sc.name === browse.schema);
+    return schema?.relations.find((r) => r.name === browse.table)?.rowEstimate ?? null;
+  });
+}
+
 function TablePager({ tab, rows }: { tab: TableTab; rows: number }) {
   const size = useWorkspace((s) => s.settings.tablePageSize);
   const busy = useLive((s) => isBusy(s.consoles[tab.id]));
-  const { schema, table, page, query, exactRowCount } = tab.table;
-  const estimate = useCatalog(
-    (s) =>
-      viewFor(s.views, tab.console.db)
-        ?.catalog.schemas.find((sc) => sc.name === schema)
-        ?.relations.find((r) => r.name === table)?.rowEstimate ?? null,
-  );
+  const { page, query, exactRowCount } = tab.table;
+  const estimate = useRowEstimate(tab);
   const { label, isLast } = pageStatus(page, size, rows, isFiltered(query) ? null : estimate, exactRowCount);
   return (
     <PagerBar
