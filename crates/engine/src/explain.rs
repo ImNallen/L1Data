@@ -209,6 +209,7 @@ pub(crate) struct Launch {
     prefix: u32,
 }
 
+#[expect(clippy::too_many_arguments, reason = "predates the clippy gate; group these arguments into a struct")]
 pub(crate) fn launch(
     console: &Console,
     inner: &mut ConsoleInner,
@@ -399,6 +400,7 @@ async fn read_plan(session: &mut Session, sql: &str, stop: &AtomicBool) -> Read 
     Read::Ready { cell, columns }
 }
 
+#[expect(clippy::too_many_arguments, reason = "predates the clippy gate; group these arguments into a struct")]
 fn store_plan(
     console: &Console,
     run_id: RunId,
@@ -445,6 +447,7 @@ fn ok_plan(output: RunOutput) -> End {
     End { outcome: RunOutcome::Ok, outputs: vec![output], error: None }
 }
 
+#[expect(clippy::too_many_arguments, reason = "predates the clippy gate; group these arguments into a struct")]
 async fn finish(
     console: &Console,
     shared: &Arc<Shared>,

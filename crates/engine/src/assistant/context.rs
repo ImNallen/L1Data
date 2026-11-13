@@ -241,8 +241,7 @@ fn outline_line(schema: &str, r: &Relation, detail: Detail, access: AssistantAcc
 
 fn fit(lines: Vec<String>, budget: usize) -> String {
     let mut out = String::new();
-    let mut kept = 0;
-    for line in &lines {
+    for (kept, line) in lines.iter().enumerate() {
         let more = format!("…and {} more tables; use search_catalog to find them.\n", lines.len() - kept);
         if out.chars().count() + line.chars().count() + 1 + more.len() > budget && kept + 1 < lines.len() {
             out.push_str(&more);
@@ -250,7 +249,6 @@ fn fit(lines: Vec<String>, budget: usize) -> String {
         }
         out.push_str(line);
         out.push('\n');
-        kept += 1;
     }
     out
 }

@@ -228,7 +228,7 @@ fn align(exact: &Exact, scale: i64) -> Option<Exact> {
         if coeff.len().saturating_add(delta) > MAX_DIGITS {
             return None;
         }
-        coeff.extend(std::iter::repeat(0).take(delta));
+        coeff.extend(std::iter::repeat_n(0, delta));
     }
     Some(Exact { negative: exact.negative, coeff, scale })
 }
@@ -260,7 +260,7 @@ fn div_half_even(sum: &Exact, divisor: u64, target_scale: i64) -> Option<Exact> 
         if coeff.len().saturating_add(extra) > MAX_DIGITS {
             return None;
         }
-        coeff.extend(std::iter::repeat(0).take(extra));
+        coeff.extend(std::iter::repeat_n(0, extra));
     }
     let coeff = div_mag(&coeff, divisor);
     if coeff.len() > MAX_DIGITS {

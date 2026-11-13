@@ -386,10 +386,10 @@ pub async fn import(
     if current_catalog.version != catalog.version {
         return Err(ImportError::TargetChanged);
     }
-    if let Some(fresh) = fresh {
-        if matches!(inner.session, SessionSlot::Empty | SessionSlot::Lost { .. }) {
-            inner.session = SessionSlot::Idle(fresh);
-        }
+    if let Some(fresh) = fresh
+        && matches!(inner.session, SessionSlot::Empty | SessionSlot::Lost { .. })
+    {
+        inner.session = SessionSlot::Idle(fresh);
     }
     let SessionSlot::Idle(idle) = &inner.session else {
         return Err(ImportError::Busy);

@@ -469,6 +469,7 @@ pub fn module(m: &Module) -> Ddl {
 
 /// Indexes disable last, because a disabled clustered index makes its table unreadable to every
 /// later step.
+#[expect(clippy::too_many_arguments, reason = "predates the clippy gate; group these arguments into a struct")]
 fn dependents<'a>(
     name: &str,
     disabled_keys: impl Iterator<Item = &'a str>,

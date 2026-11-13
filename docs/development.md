@@ -14,6 +14,7 @@ The `pnpm db:up` seed also creates `lab.type_zoo`, a table with one column for e
 
 ```sh
 cargo fmt --check        # Rust format of the workspace crates; cargo fmt rewrites them
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace   # engine units, bindings drift test, bridge coverage test
 cargo test -p engine --features pg-tests   # engine against PostgreSQL
 cargo test -p engine --features mssql-tests   # engine against SQL Server; needs pnpm db:up

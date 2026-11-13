@@ -1,0 +1,2 @@
+# style(rust): format the workspace with rustfmt and check it in CI (#139)
+54da556edc8915ea4270fc8bfef72e394719ca2e

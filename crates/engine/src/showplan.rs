@@ -73,6 +73,7 @@ pub(crate) fn prepare(
     Ok(Prepared { analyze, batch, on_sql, off_sql, checked })
 }
 
+#[expect(clippy::too_many_arguments, reason = "predates the clippy gate; group these arguments into a struct")]
 pub(crate) fn launch(
     console: &Console,
     inner: &mut ConsoleInner,
@@ -287,10 +288,10 @@ async fn read_showplan(session: &mut Session, sql: &str, stop: &AtomicBool) -> R
                 columns = next;
             }
             Ok(QueryEvent::Row(row)) if pending.is_none() => {
-                if let Some((cell, index)) = plan_cell(&columns, &row) {
-                    if let Some(column) = columns.get(index).cloned() {
-                        pending = Some((cell, column));
-                    }
+                if let Some((cell, index)) = plan_cell(&columns, &row)
+                    && let Some(column) = columns.get(index).cloned()
+                {
+                    pending = Some((cell, column));
                 }
             }
             Ok(QueryEvent::Complete { .. }) => {
@@ -334,6 +335,7 @@ fn plan_cell(columns: &[ColumnMeta], row: &[Option<String>]) -> Option<(String, 
     })
 }
 
+#[expect(clippy::too_many_arguments, reason = "predates the clippy gate; group these arguments into a struct")]
 async fn finish(
     console: &Console,
     shared: &Arc<Shared>,
@@ -442,7 +444,7 @@ fn node_from(event: &BytesStart<'_>) -> XmlNode {
     }
 }
 
-fn push_node(stack: &mut Vec<XmlNode>, roots: &mut Vec<XmlNode>, node: XmlNode) {
+fn push_node(stack: &mut [XmlNode], roots: &mut Vec<XmlNode>, node: XmlNode) {
     if let Some(parent) = stack.last_mut() {
         parent.children.push(node);
     } else {

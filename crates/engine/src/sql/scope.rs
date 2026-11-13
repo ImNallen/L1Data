@@ -421,10 +421,10 @@ impl<'a> Walk<'a> {
         let qualified = i
             .checked_sub(1)
             .is_some_and(|p| self.sig[p].class == Class::Dot && self.sig[p].span.end == self.sig[i].span.start);
-        if let Some(w) = self.word(i).filter(|_| !qualified) {
-            if let Some(next) = self.enter_clause(i, &w) {
-                return next;
-            }
+        if let Some(w) = self.word(i).filter(|_| !qualified)
+            && let Some(next) = self.enter_clause(i, &w)
+        {
+            return next;
         }
         let clause = self.frames[id].clause;
         match (clause, class) {
@@ -802,10 +802,10 @@ impl<'a> Walk<'a> {
             Clause::Cte if self.frames[parent].pending_cte.is_some() => Origin::CteColumns,
             _ => Origin::Other,
         };
-        if let Clause::Relation { role, slot: Slot::Expect } = clause {
-            if query {
-                self.frames[parent].clause = Clause::Relation { role, slot: Slot::Named };
-            }
+        if let Clause::Relation { role, slot: Slot::Expect } = clause
+            && query
+        {
+            self.frames[parent].clause = Clause::Relation { role, slot: Slot::Named };
         }
         if self.frames[parent].clause == Clause::Select {
             self.frames[parent].item_lexemes.push(i);
@@ -818,7 +818,7 @@ impl<'a> Walk<'a> {
         }
         let p = &self.frames[parent];
         let start = if self.kind == DatabaseKind::SqlServer { p.tree_start } else { 0 };
-        frame.lateral = lateral.then(|| start..p.rels.len());
+        frame.lateral = lateral.then_some(start..p.rels.len());
         frame.ctes_before = p.ctes.len();
         self.frames.push(frame);
         self.stack.push(self.frames.len() - 1);

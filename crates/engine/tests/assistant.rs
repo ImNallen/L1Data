@@ -2055,7 +2055,7 @@ async fn same_access_resumes_across_restart_but_legacy_provenance_and_old_recaps
         h.use_fake("resume-lost");
         h.send(chat, "Recap safe context").await;
         assert_eq!(h.wait_end(chat).await.0, TurnOutcome::Completed);
-        let prompt = h.stdin_lines().into_iter().filter(|l| l.contains("Recap safe context")).last().unwrap();
+        let prompt = h.stdin_lines().into_iter().rfind(|l| l.contains("Recap safe context")).unwrap();
         assert_eq!(prompt.contains("OLD_CONTEXT_CANARY"), !legacy, "{prompt}");
         assert!(prompt.contains("NEW_CONTEXT"));
         assert!(
@@ -2084,7 +2084,7 @@ async fn switching_access_while_a_chat_is_unloaded_excludes_its_old_context_and_
     h.use_fake("resume-lost");
     h.send(chat, "Summarize").await;
     h.wait_end(chat).await;
-    let prompt = h.stdin_lines().into_iter().filter(|l| l.contains("Summarize")).last().unwrap();
+    let prompt = h.stdin_lines().into_iter().rfind(|l| l.contains("Summarize")).unwrap();
     assert!(!prompt.contains("FULL_HISTORY_CANARY"), "{prompt}");
     assert!(prompt.contains("SAFE_NEW_HISTORY"));
 }

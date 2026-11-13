@@ -806,10 +806,11 @@ impl Shared {
         let elapsed_ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
         let fatal = result.as_ref().err().filter(|e| e.severity == "FATAL").map(|e| e.message.clone());
         let lost = session.closed_reason_settled(fatal).await;
-        if commits && lost.is_some() {
-            if let Err(error) = &mut result {
-                error.message = format!("Commit outcome is unknown because the session was lost: {}", error.message);
-            }
+        if commits
+            && lost.is_some()
+            && let Err(error) = &mut result
+        {
+            error.message = format!("Commit outcome is unknown because the session was lost: {}", error.message);
         }
         let mut lines = vec![console::statement_line(0, sql)];
         lines.extend(console::notice_lines(&mut session));
@@ -940,7 +941,7 @@ impl Engine {
         let chats = chats
             .into_iter()
             .map(|(id, r)| {
-                live_chats.remove(&id).unwrap_or_else(|| ChatState {
+                live_chats.remove(&id).unwrap_or(ChatState {
                     id,
                     rev: 0,
                     title: r.title,
@@ -1417,10 +1418,10 @@ impl Engine {
         let run_id = s.next_run_id();
         let mut inner = console.inner.lock().await;
         validate(&inner)?;
-        if let Some(idle) = fresh {
-            if matches!(inner.session, SessionSlot::Empty | SessionSlot::Lost { .. }) {
-                inner.session = SessionSlot::Idle(idle);
-            }
+        if let Some(idle) = fresh
+            && matches!(inner.session, SessionSlot::Empty | SessionSlot::Lost { .. })
+        {
+            inner.session = SessionSlot::Idle(idle);
         }
         let (session, stop) =
             console.take_session(&mut inner, run_id, Work::Count).ok_or_else(|| failed("The count tab is busy."))?;
@@ -1920,15 +1921,15 @@ impl Engine {
             Ok(())
         }
         .await;
-        if outcome.is_err() {
-            if let Err(rollback) = session.batch(undo).await {
-                let message = format!(
-                    "Staged edits failed; rollback also failed: {}. The session was retired. Commit outcome may be unknown.",
-                    rollback.message
-                );
-                session.retire(message.clone());
-                outcome = Err(ApplyError::OutcomeUnknown { error: session::error(message) });
-            }
+        if outcome.is_err()
+            && let Err(rollback) = session.batch(undo).await
+        {
+            let message = format!(
+                "Staged edits failed; rollback also failed: {}. The session was retired. Commit outcome may be unknown.",
+                rollback.message
+            );
+            session.retire(message.clone());
+            outcome = Err(ApplyError::OutcomeUnknown { error: session::error(message) });
         }
         let after = session.observed_txn().unwrap_or(match (&outcome, inside, finish) {
             (_, true, _) => TxnState::Active,

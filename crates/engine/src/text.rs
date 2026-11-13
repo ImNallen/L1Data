@@ -35,7 +35,7 @@ impl<'a> OffsetMap<'a> {
         DocOffset(units)
     }
 
-    pub fn from_utf16(&self, off: DocOffset) -> usize {
+    pub fn to_byte(&self, off: DocOffset) -> usize {
         if self.one_unit_per_byte {
             return (off.0 as usize).min(self.text.len());
         }
@@ -57,9 +57,9 @@ impl<'a> OffsetMap<'a> {
     pub fn target(&self, target: RunTarget) -> ByteTarget {
         match target {
             RunTarget::All => ByteTarget::All,
-            RunTarget::Cursor { offset } => ByteTarget::Cursor(self.from_utf16(offset)),
+            RunTarget::Cursor { offset } => ByteTarget::Cursor(self.to_byte(offset)),
             RunTarget::Selection { from, to } => {
-                ByteTarget::Selection { from: self.from_utf16(from), to: self.from_utf16(to) }
+                ByteTarget::Selection { from: self.to_byte(from), to: self.to_byte(to) }
             }
         }
     }
@@ -81,7 +81,7 @@ pub fn script_outline(text: &str, cursor: DocOffset, database_kind: DatabaseKind
     if database_kind == DatabaseKind::SqlServer {
         let map = OffsetMap::new(text);
         let spans = sql::tsql::split_batches(text).unwrap_or_default();
-        let picked = sql::tsql::pick(text, ByteTarget::Cursor(map.from_utf16(cursor))).unwrap_or_default();
+        let picked = sql::tsql::pick(text, ByteTarget::Cursor(map.to_byte(cursor))).unwrap_or_default();
         return ScriptOutline {
             unit_kind: ExecutionUnitKind::Batch,
             statements: spans.iter().map(|s| map.range(s)).collect(),
@@ -93,7 +93,7 @@ pub fn script_outline(text: &str, cursor: DocOffset, database_kind: DatabaseKind
     }
     let map = OffsetMap::new(text);
     let spans = sql::split_statements(text);
-    let picked = sql::pick(&spans, text, ByteTarget::Cursor(map.from_utf16(cursor)));
+    let picked = sql::pick(&spans, text, ByteTarget::Cursor(map.to_byte(cursor)));
     ScriptOutline {
         unit_kind: crate::model::ExecutionUnitKind::Statement,
         statements: spans.iter().map(|s| map.range(s)).collect(),
@@ -114,7 +114,7 @@ pub fn cell_references(text: &str, database_kind: DatabaseKind) -> Vec<CellRefer
 
 pub fn completion_context(text: &str, cursor: DocOffset, database_kind: DatabaseKind) -> CompletionContext {
     let map = OffsetMap::new(text);
-    let at = map.from_utf16(cursor);
+    let at = map.to_byte(cursor);
     if let Some(from) = sql::refs::typing_at(text, at, database_kind) {
         return CompletionContext::Reference { from: map.to_utf16(from) };
     }
@@ -497,9 +497,9 @@ mod tests {
         for &b in bytes.iter().rev().chain(bytes.iter()).chain(bytes.iter().step_by(3).rev()) {
             let units = map.to_utf16(b);
             assert_eq!(units, OffsetMap::new(text).to_utf16(b), "to_utf16({b})");
-            assert_eq!(map.from_utf16(units), b, "from_utf16({units:?})");
+            assert_eq!(map.to_byte(units), b, "to_byte({units:?})");
         }
-        assert_eq!(map.from_utf16(DocOffset(8)), OffsetMap::new(text).from_utf16(DocOffset(8)));
+        assert_eq!(map.to_byte(DocOffset(8)), OffsetMap::new(text).to_byte(DocOffset(8)));
     }
 
     #[test]
@@ -563,9 +563,9 @@ mod tests {
         let map = OffsetMap::new(text);
         let x = text.find("select x").unwrap();
         assert_eq!(map.to_utf16(x), DocOffset(14));
-        assert_eq!(map.from_utf16(DocOffset(14)), x);
-        assert_eq!(map.from_utf16(DocOffset(9)), 8, "inside the surrogate pair snaps to its start");
-        assert_eq!(map.from_utf16(DocOffset(999)), text.len());
+        assert_eq!(map.to_byte(DocOffset(14)), x);
+        assert_eq!(map.to_byte(DocOffset(9)), 8, "inside the surrogate pair snaps to its start");
+        assert_eq!(map.to_byte(DocOffset(999)), text.len());
         assert_eq!(map.to_utf16(999), DocOffset(text.encode_utf16().count() as u32));
     }
 

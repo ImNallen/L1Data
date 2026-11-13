@@ -89,11 +89,13 @@ impl fmt::Debug for TunnelSpec {
     }
 }
 
+type TunnelKey = (ConnectionId, Arc<TunnelSpec>);
+
 /// The engine's SSH connections. It holds each only weakly: a connection lives exactly as long as
 /// some database stream rides it.
 pub(crate) struct Tunnels {
     hosts: Arc<HostKeys>,
-    cells: Mutex<HashMap<(ConnectionId, Arc<TunnelSpec>), Arc<Cell>>>,
+    cells: Mutex<HashMap<TunnelKey, Arc<Cell>>>,
 }
 
 impl Tunnels {

@@ -155,10 +155,9 @@ impl<'a> Stmt<'a> {
             }
             Some(_) => {}
         }
-        if word.eq_ignore_ascii_case("ATOMIC") && matches!(self.last, Last::Word(w) if w.eq_ignore_ascii_case("BEGIN"))
-        {
-            self.body_depth += 1;
-        } else if self.body_depth > 0 && word.eq_ignore_ascii_case("CASE") {
+        let begin_atomic = word.eq_ignore_ascii_case("ATOMIC")
+            && matches!(self.last, Last::Word(w) if w.eq_ignore_ascii_case("BEGIN"));
+        if begin_atomic || self.body_depth > 0 && word.eq_ignore_ascii_case("CASE") {
             self.body_depth += 1;
         } else if self.body_depth > 0 && word.eq_ignore_ascii_case("END") {
             self.body_depth -= 1;

@@ -716,7 +716,8 @@ pub(crate) fn relation_names(text: &str) -> Vec<NameRef> {
                             schema: if names.len() == 2 { Some(names[0].clone()) } else { None },
                             name: names.last().unwrap().clone(),
                         };
-                        if !(name.schema.is_none() && ctes.contains(&name.name)) && !found.contains(&name) {
+                        let is_cte = name.schema.is_none() && ctes.contains(&name.name);
+                        if !is_cte && !found.contains(&name) {
                             found.push(name);
                         }
                     }

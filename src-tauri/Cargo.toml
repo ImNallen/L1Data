@@ -19,3 +19,6 @@ tauri-plugin-updater = "2"
 tauri-specta.workspace = true
 tokio = { workspace = true, features = ["time"] }
 uuid.workspace = true
+
+[lints]
+workspace = true

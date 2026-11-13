@@ -405,10 +405,10 @@ async fn cancel_retires_the_moved_session_and_transaction_buttons_remain_busy() 
                 .unwrap();
             tokio::time::timeout(Duration::from_secs(3), async {
                 loop {
-                    if let RunState::Running { ref statements, .. } = h.state().run {
-                        if statements.iter().flat_map(|s| &s.outputs).any(|o| matches!(o, RunOutput::Rows { .. })) {
-                            break;
-                        }
+                    if let RunState::Running { ref statements, .. } = h.state().run
+                        && statements.iter().flat_map(|s| &s.outputs).any(|o| matches!(o, RunOutput::Rows { .. }))
+                    {
+                        break;
                     }
                     tokio::time::sleep(Duration::from_millis(10)).await;
                 }

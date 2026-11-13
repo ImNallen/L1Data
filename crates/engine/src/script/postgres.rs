@@ -451,7 +451,7 @@ fn table_statements(t: &Table, out: &mut Vec<String>, warnings: &mut Vec<String>
         out.extend(comment(&format!("STATISTICS {stat}"), &s.comment));
     }
     out.extend(comment(&format!("{keyword} {name}"), &t.comment));
-    for k in t.constraints.iter().filter(|k| backing_index(t, k).is_none() && !(k.after_tree && !k.inherited)) {
+    for k in t.constraints.iter().filter(|k| backing_index(t, k).is_none() && (!k.after_tree || k.inherited)) {
         out.extend(comment(&format!("CONSTRAINT {} ON {name}", ident(&k.name)), &k.comment));
     }
     for c in &t.columns {
