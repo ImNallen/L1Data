@@ -62,6 +62,8 @@ impl Queries {
         } else {
             "'{}'::text[]"
         };
+        // Recent minor releases stamp every column with pg_attver, which the server sets and a script cannot.
+        let options = "ARRAY(SELECT o FROM unnest(a.attoptions) o WHERE split_part(o, '=', 1) <> 'pg_attver')";
         Queries {
             relations: RELATIONS.replace("{schema_publications}", schema_publications),
             columns: format!(
@@ -70,7 +72,7 @@ impl Queries {
         CASE WHEN a.attcollation <> t.typcollation THEN cn.nspname END, CASE WHEN a.attcollation <> t.typcollation THEN co.collname END,
         col_description(a.attrelid, a.attnum),
         ident.nspname, ident.relname, format_type(ident.seqtypid, NULL), ident.seqstart, ident.seqincrement, ident.seqmin, ident.seqmax, ident.seqcache, ident.seqcycle,
-        a.attislocal, NULLIF(a.attstattarget, -1)::int4, a.attstorage::text, t.typstorage::text, {compression}, coalesce(a.attoptions, '{{}}'), coalesce(a.attfdwoptions, '{{}}'),
+        a.attislocal, NULLIF(a.attstattarget, -1)::int4, a.attstorage::text, t.typstorage::text, {compression}, {options}, coalesce(a.attfdwoptions, '{{}}'),
         pa.position, pa.def, pa.attnotnull, pa.attstorage::text, pa.attcompression, serial.seq, a.attrelid
      FROM pg_attribute a
      JOIN pg_class c ON c.oid = a.attrelid
@@ -965,7 +967,7 @@ mod tests {
         assert!(!v13.columns.contains("attcompression::text") && v13.statistics.contains("stxstattarget"));
         let v14 = Queries::for_version(140000);
         assert!(v14.columns.contains("a.attcompression::text") && v14.columns.contains("pa.attcompression::text"));
-        assert!(v14.columns.contains("coalesce(a.attoptions, '{}')"), "{}", v14.columns);
+        assert!(v14.columns.contains("unnest(a.attoptions) o WHERE split_part(o, '=', 1) <> 'pg_attver'"), "{}", v14.columns);
         assert!(!v14.relations.contains("pg_publication_namespace") && Queries::for_version(150000).relations.contains("pg_publication_namespace"));
     }
 }

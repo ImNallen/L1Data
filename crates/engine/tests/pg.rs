@@ -3395,7 +3395,8 @@ async fn catalog_facts(client: &tokio_postgres::Client, relations: &str) -> Vec<
             UNION ALL
             SELECT concat_ws(' ', 'column', a.attnum, a.attname, format_type(a.atttypid, a.atttypmod), a.attnotnull, a.attidentity, a.attgenerated,
                              pg_get_expr(d.adbin, d.adrelid), (SELECT co.collnamespace::regnamespace::text || '.' || quote_ident(co.collname) FROM pg_collation co WHERE co.oid = a.attcollation), col_description(c.oid, a.attnum), a.attislocal, a.attinhcount,
-                             a.attstattarget, a.attstorage, to_jsonb(a) ->> 'attcompression', a.attoptions, a.attfdwoptions)
+                             a.attstattarget, a.attstorage, to_jsonb(a) ->> 'attcompression',
+                             (SELECT array_agg(o) FROM unnest(a.attoptions) o WHERE split_part(o, '=', 1) <> 'pg_attver'), a.attfdwoptions)
             FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
             WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
             UNION ALL
