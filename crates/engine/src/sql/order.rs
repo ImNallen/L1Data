@@ -12,7 +12,9 @@ pub(crate) fn parse(text: &str) -> Option<Vec<(String, bool)>> {
         let raw = &text[token.span.clone()];
         let column = match token.kind {
             LexKind::Word => raw.to_lowercase(),
-            LexKind::QuotedIdent if raw.starts_with('"') && raw.ends_with('"') && raw.len() >= 2 => raw[1..raw.len() - 1].replace("\"\"", "\""),
+            LexKind::QuotedIdent if raw.starts_with('"') && raw.ends_with('"') && raw.len() >= 2 => {
+                raw[1..raw.len() - 1].replace("\"\"", "\"")
+            }
             _ => return None,
         };
         at += 1;
@@ -41,7 +43,10 @@ mod tests {
     use super::*;
     #[test]
     fn simple_columns_and_directions_preserve_quoted_case() {
-        assert_eq!(parse("SomeName DESC, \"a\"\"b\" asc"), Some(vec![("somename".into(), true), ("a\"b".into(), false)]));
+        assert_eq!(
+            parse("SomeName DESC, \"a\"\"b\" asc"),
+            Some(vec![("somename".into(), true), ("a\"b".into(), false)])
+        );
         for advanced in ["lower(name)", "a NULLS LAST", "a; select 1", "a -- hidden", "a,"] {
             assert_eq!(parse(advanced), None);
         }

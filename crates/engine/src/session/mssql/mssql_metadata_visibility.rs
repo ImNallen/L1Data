@@ -14,10 +14,16 @@ struct Harness {
 impl Harness {
     async fn open() -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let engine =
-            Engine::open(EngineConfig { data_dir: dir.path().into(), keys: Arc::new(MemoryKeyStore::default()), agent_path: AgentPath::Fixed("".into()), az_binary: None, user_known_hosts: None, updates: Arc::new(crate::ScriptedTransport::named("off").unwrap()) })
-                .await
-                .unwrap();
+        let engine = Engine::open(EngineConfig {
+            data_dir: dir.path().into(),
+            keys: Arc::new(MemoryKeyStore::default()),
+            agent_path: AgentPath::Fixed("".into()),
+            az_binary: None,
+            user_known_hosts: None,
+            updates: Arc::new(crate::ScriptedTransport::named("off").unwrap()),
+        })
+        .await
+        .unwrap();
         Self { engine, _dir: dir }
     }
 
@@ -48,7 +54,15 @@ impl Harness {
         self.engine.connect(connection).await.unwrap();
         let tab = TabId(uuid::Uuid::new_v4());
         self.engine
-            .console_configure(tab, ConsoleConfig { connection_id: connection, database: "shop".into(), schema: None, mode: TxnMode::AutoCommit })
+            .console_configure(
+                tab,
+                ConsoleConfig {
+                    connection_id: connection,
+                    database: "shop".into(),
+                    schema: None,
+                    mode: TxnMode::AutoCommit,
+                },
+            )
             .await
             .unwrap();
         tab
@@ -73,7 +87,17 @@ impl Harness {
     }
 
     async fn sql(&self, tab: TabId, sql: &str) -> ConsoleState {
-        self.request(tab, RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }).await
+        self.request(
+            tab,
+            RunRequest::Script {
+                text: sql.into(),
+                target: RunTarget::All,
+                mode: RunMode::Run,
+                params: Vec::new(),
+                cells: Vec::new(),
+            },
+        )
+        .await
     }
 
     fn rows(&self, state: &ConsoleState) -> Vec<Vec<Option<String>>> {
@@ -95,9 +119,21 @@ fn db(connection_id: ConnectionId) -> DatabaseRef {
 }
 
 fn assert_structure(detail: &RelationDetail, stem: &str) {
-    assert!(detail.defaults.contains(&ColumnDefault { column: "id".into(), value: DefaultValue::Identity { always: true } }));
-    assert!(detail.keys.contains(&KeyInfo { name: format!("{stem}_pk"), columns: vec!["id".into()], kind: KeyKind::Primary }));
-    assert!(detail.keys.contains(&KeyInfo { name: format!("{stem}_uq"), columns: vec!["n".into()], kind: KeyKind::Unique }));
+    assert!(
+        detail
+            .defaults
+            .contains(&ColumnDefault { column: "id".into(), value: DefaultValue::Identity { always: true } })
+    );
+    assert!(detail.keys.contains(&KeyInfo {
+        name: format!("{stem}_pk"),
+        columns: vec!["id".into()],
+        kind: KeyKind::Primary
+    }));
+    assert!(detail.keys.contains(&KeyInfo {
+        name: format!("{stem}_uq"),
+        columns: vec!["n".into()],
+        kind: KeyKind::Unique
+    }));
     assert_eq!(detail.indexes.len(), 3);
     assert!(detail.indexes.iter().any(|i| i.primary && i.unique && i.valid && i.keys == "([id])"));
     let index = detail.indexes.iter().find(|i| i.name == format!("{stem}_ix")).unwrap();
@@ -114,7 +150,8 @@ fn assert_structure(detail: &RelationDetail, stem: &str) {
 #[tokio::test]
 async fn select_only_login_keeps_relation_detail_and_actual_assistant_description() {
     let h = Harness::open().await;
-    let owner = h.save("sa", std::env::var("L1_DATA_TEST_MSSQL_PASSWORD").unwrap_or_else(|_| "L1Data_dev_Str0ng".into())).await;
+    let owner =
+        h.save("sa", std::env::var("L1_DATA_TEST_MSSQL_PASSWORD").unwrap_or_else(|_| "L1Data_dev_Str0ng".into())).await;
     let owner_tab = h.connect(owner).await;
     let stem = format!("l1_metadata_{}", uuid::Uuid::new_v4().simple());
     let table = format!("{stem}_table");

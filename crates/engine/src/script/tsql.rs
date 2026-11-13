@@ -46,16 +46,25 @@ pub enum Omitted {
     /// A numbered procedure after the first, such as `;2`, which `OBJECT_DEFINITION` leaves out.
     NumberedProcedure(String),
     /// A signature or counter signature, such as `signature by certificate`, by the named key.
-    Signature { kind: String, by: String },
+    Signature {
+        kind: String,
+        by: String,
+    },
 }
 
 impl Omitted {
     fn warning(&self, object: &str) -> String {
         match self {
-            Omitted::UnseenPrivileges => format!("a complete privilege list for {object}, because this login lacks VIEW DEFINITION on the database"),
-            Omitted::UnseenClassifications => format!("every sensitivity classification on {object}, because this login lacks VIEW ANY SENSITIVITY CLASSIFICATION"),
+            Omitted::UnseenPrivileges => format!(
+                "a complete privilege list for {object}, because this login lacks VIEW DEFINITION on the database"
+            ),
+            Omitted::UnseenClassifications => format!(
+                "every sensitivity classification on {object}, because this login lacks VIEW ANY SENSITIVITY CLASSIFICATION"
+            ),
             Omitted::Owner(owner) => format!("owner {} of {object}, set by ALTER AUTHORIZATION", ident(owner)),
-            Omitted::RunsAsOwner(owner) => format!("the owner {} that EXECUTE AS OWNER on {object} runs as", ident(owner)),
+            Omitted::RunsAsOwner(owner) => {
+                format!("the owner {} that EXECUTE AS OWNER on {object} runs as", ident(owner))
+            }
             Omitted::ChangeDataCapture => format!("change data capture on {object}"),
             Omitted::FullTextIndex => format!("full-text index on {object}"),
             Omitted::HypotheticalIndex(index) => format!("hypothetical index {} on {object}", ident(index)),
@@ -106,7 +115,10 @@ pub struct Column {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Bound {
-    Object { schema: String, name: String },
+    Object {
+        schema: String,
+        name: String,
+    },
     /// SQL Server shows that a column has a bound object, but not which, to a login that cannot see it.
     Hidden,
 }
@@ -291,8 +303,13 @@ pub fn table(t: &Table) -> Ddl {
     body.extend(early.iter().map(|f| foreign_key(f)));
     for c in &t.checks {
         match &c.definition {
-            Some(definition) => body.push(format!("CONSTRAINT {} CHECK {}{definition}", ident(&c.name), replication(&c.state))),
-            None => warnings.push(format!("check constraint {} on {name}, whose definition this login cannot read", ident(&c.name))),
+            Some(definition) => {
+                body.push(format!("CONSTRAINT {} CHECK {}{definition}", ident(&c.name), replication(&c.state)))
+            }
+            None => warnings.push(format!(
+                "check constraint {} on {name}, whose definition this login cannot read",
+                ident(&c.name)
+            )),
         }
     }
     if let Some((start, end)) = &t.period {
@@ -304,12 +321,17 @@ pub fn table(t: &Table) -> Ddl {
         with.extend(options(heap));
     }
     if let Some(v) = &t.versioning {
-        let retention = v.retention.as_ref().map_or(String::new(), |(n, unit)| format!(", HISTORY_RETENTION_PERIOD = {n} {unit}S"));
+        let retention =
+            v.retention.as_ref().map_or(String::new(), |(n, unit)| format!(", HISTORY_RETENTION_PERIOD = {n} {unit}S"));
         with.push(format!("SYSTEM_VERSIONING = ON (HISTORY_TABLE = {}{retention})", qualified(&v.schema, &v.name)));
     }
     let with = if with.is_empty() { String::new() } else { format!(" WITH ({})", with.join(", ")) };
     let set = if t.keys.iter().any(|k| k.computed) { INDEX_OPTIONS } else { "" };
-    let mut parts = vec![format!("{}{set}CREATE TABLE {name} (\n    {}\n){with};\nGO\n", set_options(t.ansi_nulls, true), body.join(",\n    "))];
+    let mut parts = vec![format!(
+        "{}{set}CREATE TABLE {name} (\n    {}\n){with};\nGO\n",
+        set_options(t.ansi_nulls, true),
+        body.join(",\n    ")
+    )];
     let states: Vec<String> = early
         .iter()
         .map(|f| (&f.name, &f.state))
@@ -325,7 +347,10 @@ pub fn table(t: &Table) -> Ddl {
     }
     let mut settings = vec![];
     if let Some(limit) = t.text_in_row {
-        settings.push(format!("EXEC sys.sp_tableoption @TableNamePattern = {}, @OptionName = N'text in row', @OptionValue = N'{limit}';", quote_literal(&name)));
+        settings.push(format!(
+            "EXEC sys.sp_tableoption @TableNamePattern = {}, @OptionName = N'text in row', @OptionValue = N'{limit}';",
+            quote_literal(&name)
+        ));
     }
     if t.large_values_out_of_row {
         settings.push(format!("EXEC sys.sp_tableoption @TableNamePattern = {}, @OptionName = N'large value types out of row', @OptionValue = N'1';", quote_literal(&name)));
@@ -354,9 +379,29 @@ pub fn table(t: &Table) -> Ddl {
             format!("ALTER TABLE {name} ADD {};\n{state}GO\n", foreign_key(f))
         })
         .collect();
-    let hidden: Vec<&str> = t.checks.iter().filter(|c| c.definition.is_none()).map(|c| c.name.as_str()).chain(t.columns.iter().filter_map(|c| c.hidden_default.as_deref())).collect();
-    let props: Vec<Property> = t.properties.iter().filter(|p| !p.part().is_some_and(|(kind, constraint)| kind == "CONSTRAINT" && hidden.contains(&constraint))).cloned().collect();
-    parts.extend(dependents(&name, disabled_keys, &t.indexes, &t.statistics, &late, &t.triggers, &props, &mut warnings));
+    let hidden: Vec<&str> = t
+        .checks
+        .iter()
+        .filter(|c| c.definition.is_none())
+        .map(|c| c.name.as_str())
+        .chain(t.columns.iter().filter_map(|c| c.hidden_default.as_deref()))
+        .collect();
+    let props: Vec<Property> = t
+        .properties
+        .iter()
+        .filter(|p| !p.part().is_some_and(|(kind, constraint)| kind == "CONSTRAINT" && hidden.contains(&constraint)))
+        .cloned()
+        .collect();
+    parts.extend(dependents(
+        &name,
+        disabled_keys,
+        &t.indexes,
+        &t.statistics,
+        &late,
+        &t.triggers,
+        &props,
+        &mut warnings,
+    ));
     warnings.extend(privileges(&name, &t.privileges));
     warnings.extend(t.omitted.iter().map(|o| o.warning(&name)));
     Ddl { text: parts.join("\n"), warnings }
@@ -366,7 +411,16 @@ pub fn view(v: &View) -> Ddl {
     let mut warnings = vec![];
     let name = qualified(&v.module.schema, &v.module.name);
     let mut parts = vec![module_text(&v.module, &mut warnings)];
-    parts.extend(dependents(&name, std::iter::empty(), &v.indexes, &v.statistics, &[], &v.triggers, &v.properties, &mut warnings));
+    parts.extend(dependents(
+        &name,
+        std::iter::empty(),
+        &v.indexes,
+        &v.statistics,
+        &[],
+        &v.triggers,
+        &v.properties,
+        &mut warnings,
+    ));
     warnings.extend(privileges(&name, &v.privileges));
     Ddl { text: parts.join("\n"), warnings }
 }
@@ -384,7 +438,14 @@ pub fn key_script(k: &Key, table: &str, props: &[Property]) -> Ddl {
     standalone(text, &k.name, k.storage.disabled, table, props, warnings)
 }
 
-fn standalone(mut text: String, name: &str, disabled: bool, table: &str, props: &[Property], mut warnings: Vec<String>) -> Ddl {
+fn standalone(
+    mut text: String,
+    name: &str,
+    disabled: bool,
+    table: &str,
+    props: &[Property],
+    mut warnings: Vec<String>,
+) -> Ddl {
     if let Some(properties) = properties(props, &mut warnings) {
         text.push('\n');
         text.push_str(&properties);
@@ -408,7 +469,16 @@ pub fn module(m: &Module) -> Ddl {
 
 /// Indexes disable last, because a disabled clustered index makes its table unreadable to every
 /// later step.
-fn dependents<'a>(name: &str, disabled_keys: impl Iterator<Item = &'a str>, indexes: &'a [Index], statistics: &[Statistics], after_indexes: &[String], triggers: &[Trigger], props: &[Property], warnings: &mut Vec<String>) -> Vec<String> {
+fn dependents<'a>(
+    name: &str,
+    disabled_keys: impl Iterator<Item = &'a str>,
+    indexes: &'a [Index],
+    statistics: &[Statistics],
+    after_indexes: &[String],
+    triggers: &[Trigger],
+    props: &[Property],
+    warnings: &mut Vec<String>,
+) -> Vec<String> {
     let mut parts = vec![];
     let mut left_out = vec![];
     for i in indexes {
@@ -430,14 +500,22 @@ fn dependents<'a>(name: &str, disabled_keys: impl Iterator<Item = &'a str>, inde
                 left_out.push(("TRIGGER", trigger));
             }
             Trigger::Encrypted { schema, name: trigger } => {
-                warnings.push(format!("trigger {} on {name}, whose text is encrypted or hidden from this login", qualified(schema, trigger)));
+                warnings.push(format!(
+                    "trigger {} on {name}, whose text is encrypted or hidden from this login",
+                    qualified(schema, trigger)
+                ));
                 left_out.push(("TRIGGER", trigger));
             }
         }
     }
-    let props: Vec<Property> = props.iter().filter(|p| !p.part().is_some_and(|part| left_out.contains(&part))).cloned().collect();
+    let props: Vec<Property> =
+        props.iter().filter(|p| !p.part().is_some_and(|part| left_out.contains(&part))).cloned().collect();
     parts.extend(properties(&props, warnings));
-    let disabled: Vec<&str> = disabled_keys.chain(indexes.iter().filter(|i| i.storage.disabled && matches!(i.kind, 1 | 2 | 5 | 6)).map(|i| i.name.as_str())).collect();
+    let disabled: Vec<&str> = disabled_keys
+        .chain(
+            indexes.iter().filter(|i| i.storage.disabled && matches!(i.kind, 1 | 2 | 5 | 6)).map(|i| i.name.as_str()),
+        )
+        .collect();
     if !disabled.is_empty() {
         parts.push(disable(name, &disabled));
     }
@@ -445,24 +523,32 @@ fn dependents<'a>(name: &str, disabled_keys: impl Iterator<Item = &'a str>, inde
 }
 
 fn disable(table: &str, names: &[&str]) -> String {
-    names.iter().map(|n| format!("ALTER INDEX {} ON {table} DISABLE;\n", ident(n))).chain(std::iter::once("GO\n".to_owned())).collect()
+    names
+        .iter()
+        .map(|n| format!("ALTER INDEX {} ON {table} DISABLE;\n", ident(n)))
+        .chain(std::iter::once("GO\n".to_owned()))
+        .collect()
 }
 
 fn column(c: &Column, table: &str, warnings: &mut Vec<String>) -> String {
     let name = ident(&c.name);
     let path = format!("{table}.{name}");
-    for (on, property) in [(c.ansi_padding_off, "ANSI_PADDING OFF"), (c.filestream, "FILESTREAM"), (c.encrypted, "Always Encrypted")] {
+    for (on, property) in
+        [(c.ansi_padding_off, "ANSI_PADDING OFF"), (c.filestream, "FILESTREAM"), (c.encrypted, "Always Encrypted")]
+    {
         if on {
             warnings.push(format!("{property} on {path}"));
         }
     }
-    for (on, what) in [(c.unreadable_computed, "the computed expression"), (c.hidden_default.is_some(), "the default")] {
+    for (on, what) in [(c.unreadable_computed, "the computed expression"), (c.hidden_default.is_some(), "the default")]
+    {
         if on {
             warnings.push(format!("{what} of {path}, which this login cannot read"));
         }
     }
     if let Some(computed) = &c.computed {
-        let persisted = if computed.persisted { if c.nullable { " PERSISTED" } else { " PERSISTED NOT NULL" } } else { "" };
+        let persisted =
+            if computed.persisted { if c.nullable { " PERSISTED" } else { " PERSISTED NOT NULL" } } else { "" };
         return format!("{name} AS {}{persisted}", computed.definition);
     }
     let mut out = format!("{name} {}", c.type_name);
@@ -518,7 +604,11 @@ fn bindings(c: &Column, table: &str, warnings: &mut Vec<String>) -> Vec<String> 
     [(&c.bound_default, "default", "sp_bindefault @defname"), (&c.bound_rule, "rule", "sp_bindrule @rulename")]
         .into_iter()
         .filter_map(|(bound, what, procedure)| match bound.as_ref()? {
-            Bound::Object { schema, name } => Some(format!("EXEC sys.{procedure} = {}, @objname = {};", quote_literal(&qualified(schema, name)), quote_literal(&path))),
+            Bound::Object { schema, name } => Some(format!(
+                "EXEC sys.{procedure} = {}, @objname = {};",
+                quote_literal(&qualified(schema, name)),
+                quote_literal(&path)
+            )),
             Bound::Hidden => {
                 warnings.push(format!("the {what} bound to {path}, which this login cannot see"));
                 None
@@ -528,16 +618,25 @@ fn bindings(c: &Column, table: &str, warnings: &mut Vec<String>) -> Vec<String> 
 }
 
 fn classification(table: &str, c: &Classification) -> String {
-    let mut options: Vec<String> = [("LABEL", &c.label), ("LABEL_ID", &c.label_id), ("INFORMATION_TYPE", &c.information_type), ("INFORMATION_TYPE_ID", &c.information_type_id)]
-        .into_iter()
-        .filter_map(|(option, value)| value.as_ref().map(|v| format!("{option} = {}", quote_literal(v))))
-        .collect();
+    let mut options: Vec<String> = [
+        ("LABEL", &c.label),
+        ("LABEL_ID", &c.label_id),
+        ("INFORMATION_TYPE", &c.information_type),
+        ("INFORMATION_TYPE_ID", &c.information_type_id),
+    ]
+    .into_iter()
+    .filter_map(|(option, value)| value.as_ref().map(|v| format!("{option} = {}", quote_literal(v))))
+    .collect();
     options.extend(c.rank.as_ref().map(|rank| format!("RANK = {rank}")));
     format!("ADD SENSITIVITY CLASSIFICATION TO {table}.{} WITH ({});\n", ident(&c.column), options.join(", "))
 }
 
 fn sorted(columns: &[(String, bool)]) -> String {
-    columns.iter().map(|(c, desc)| format!("{} {}", ident(c), if *desc { "DESC" } else { "ASC" })).collect::<Vec<_>>().join(", ")
+    columns
+        .iter()
+        .map(|(c, desc)| format!("{} {}", ident(c), if *desc { "DESC" } else { "ASC" }))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn names(columns: &[String]) -> String {
@@ -555,7 +654,11 @@ fn with_options(storage: &Storage) -> String {
 
 fn options(s: &Storage) -> Vec<String> {
     let mut out = vec![];
-    for (on, option) in [(s.pad_index, "PAD_INDEX = ON"), (s.ignore_dup_key, "IGNORE_DUP_KEY = ON"), (s.no_recompute, "STATISTICS_NORECOMPUTE = ON")] {
+    for (on, option) in [
+        (s.pad_index, "PAD_INDEX = ON"),
+        (s.ignore_dup_key, "IGNORE_DUP_KEY = ON"),
+        (s.no_recompute, "STATISTICS_NORECOMPUTE = ON"),
+    ] {
         if on {
             out.push(option.to_owned());
         }
@@ -563,7 +666,11 @@ fn options(s: &Storage) -> Vec<String> {
     if s.fill_factor != 0 {
         out.push(format!("FILLFACTOR = {}", s.fill_factor));
     }
-    for (on, option) in [(s.deny_row_locks, "ALLOW_ROW_LOCKS = OFF"), (s.deny_page_locks, "ALLOW_PAGE_LOCKS = OFF"), (s.sequential_key, "OPTIMIZE_FOR_SEQUENTIAL_KEY = ON")] {
+    for (on, option) in [
+        (s.deny_row_locks, "ALLOW_ROW_LOCKS = OFF"),
+        (s.deny_page_locks, "ALLOW_PAGE_LOCKS = OFF"),
+        (s.sequential_key, "OPTIMIZE_FOR_SEQUENTIAL_KEY = ON"),
+    ] {
         if on {
             out.push(option.to_owned());
         }
@@ -622,7 +729,13 @@ fn replication(state: &State) -> &'static str {
 }
 
 fn foreign_key(f: &ForeignKey) -> String {
-    let mut out = format!("CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({})", ident(&f.name), names(&f.columns), qualified(&f.ref_schema, &f.ref_table), names(&f.ref_columns));
+    let mut out = format!(
+        "CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({})",
+        ident(&f.name),
+        names(&f.columns),
+        qualified(&f.ref_schema, &f.ref_table),
+        names(&f.ref_columns)
+    );
     for (event, action) in [("DELETE", &f.on_delete), ("UPDATE", &f.on_update)] {
         if action != "NO_ACTION" {
             out.push_str(&format!(" ON {event} {}", action.replace('_', " ")));
@@ -640,7 +753,9 @@ fn constraint_state(table: &str, constraint: &str, state: &State) -> Option<Stri
     if state.disabled {
         Some(format!("ALTER TABLE {table} NOCHECK CONSTRAINT {name};"))
     } else if state.untrusted && !state.not_for_replication {
-        Some(format!("ALTER TABLE {table} NOCHECK CONSTRAINT {name};\nALTER TABLE {table} WITH NOCHECK CHECK CONSTRAINT {name};"))
+        Some(format!(
+            "ALTER TABLE {table} NOCHECK CONSTRAINT {name};\nALTER TABLE {table} WITH NOCHECK CHECK CONSTRAINT {name};"
+        ))
     } else {
         None
     }
@@ -653,7 +768,12 @@ fn index_text(i: &Index, table: &str, warnings: &mut Vec<String>) -> Option<Stri
         return None;
     }
     let mut out = match i.kind {
-        1 | 2 => format!("CREATE {}{} INDEX {name} ON {table} ({})", if i.unique { "UNIQUE " } else { "" }, clustering(i.kind == 1), sorted(&i.keys)),
+        1 | 2 => format!(
+            "CREATE {}{} INDEX {name} ON {table} ({})",
+            if i.unique { "UNIQUE " } else { "" },
+            clustering(i.kind == 1),
+            sorted(&i.keys)
+        ),
         5 => format!("CREATE CLUSTERED COLUMNSTORE INDEX {name} ON {table}"),
         6 => format!("CREATE NONCLUSTERED COLUMNSTORE INDEX {name} ON {table} ({})", names(&i.include)),
         kind => {
@@ -699,7 +819,10 @@ fn statistics_text(s: &Statistics, table: &str, warnings: &mut Vec<String>) -> O
         }
     }
     let filter = s.filter.as_ref().map_or(String::new(), |f| format!(" WHERE {f}"));
-    let options: Vec<&str> = [(s.no_recompute, "NORECOMPUTE"), (s.auto_drop, "AUTO_DROP = ON")].into_iter().filter_map(|(on, option)| on.then_some(option)).collect();
+    let options: Vec<&str> = [(s.no_recompute, "NORECOMPUTE"), (s.auto_drop, "AUTO_DROP = ON")]
+        .into_iter()
+        .filter_map(|(on, option)| on.then_some(option))
+        .collect();
     let with = if options.is_empty() { String::new() } else { format!(" WITH {}", options.join(", ")) };
     Some(format!("CREATE STATISTICS {name} ON {table} ({}){filter}{with};\n", names(&s.columns)))
 }
@@ -736,7 +859,16 @@ fn module_text(m: &Module, warnings: &mut Vec<String>) -> String {
     warnings.extend(m.omitted.iter().map(|o| o.warning(&name)));
     let mut out = format!("{}{definition}\nGO\n", set_options(m.ansi_nulls, m.quoted_identifier));
     if !m.order.is_empty() {
-        let lines: String = m.order.iter().map(|(when, event)| format!("EXEC sys.sp_settriggerorder @triggername = {}, @order = N'{when}', @stmttype = N'{event}';\n", quote_literal(&name))).collect();
+        let lines: String = m
+            .order
+            .iter()
+            .map(|(when, event)| {
+                format!(
+                    "EXEC sys.sp_settriggerorder @triggername = {}, @order = N'{when}', @stmttype = N'{event}';\n",
+                    quote_literal(&name)
+                )
+            })
+            .collect();
         out.push_str(&format!("{lines}GO\n"));
     }
     if let Some(table) = &m.disabled_on {
@@ -762,12 +894,26 @@ fn properties(props: &[Property], warnings: &mut Vec<String>) -> Option<String> 
                 (Some(v), Some("varchar")) => format!("'{}'", v.replace('\'', "''")),
                 (Some(_), base_type) => {
                     let object = p.levels.iter().map(|(_, n)| ident(n)).collect::<Vec<_>>().join(".");
-                    warnings.push(format!("extended property {} of type {} on {object}", ident(&p.name), base_type.unwrap_or("unknown")));
+                    warnings.push(format!(
+                        "extended property {} of type {} on {object}",
+                        ident(&p.name),
+                        base_type.unwrap_or("unknown")
+                    ));
                     return None;
                 }
             };
-            let levels: String = p.levels.iter().enumerate().map(|(i, (kind, name))| format!(", @level{i}type = N'{kind}', @level{i}name = {}", quote_literal(name))).collect();
-            Some(format!("EXEC sys.sp_addextendedproperty @name = {}, @value = {value}{levels};\n", quote_literal(&p.name)))
+            let levels: String = p
+                .levels
+                .iter()
+                .enumerate()
+                .map(|(i, (kind, name))| {
+                    format!(", @level{i}type = N'{kind}', @level{i}name = {}", quote_literal(name))
+                })
+                .collect();
+            Some(format!(
+                "EXEC sys.sp_addextendedproperty @name = {}, @value = {value}{levels};\n",
+                quote_literal(&p.name)
+            ))
         })
         .collect();
     (!lines.is_empty()).then(|| format!("{}GO\n", lines.concat()))
@@ -830,19 +976,12 @@ pub fn sequence_script(s: &SequenceScript) -> Ddl {
 fn sequence_text(s: &SequenceScript, cache: &str) -> Ddl {
     let name = qualified(&s.schema, &s.name);
     let cycle = if s.cycle { "CYCLE" } else { "NO CYCLE" };
-    let cache = if cache.is_empty() {
-        String::new()
-    } else {
-        format!(" {cache}")
-    };
+    let cache = if cache.is_empty() { String::new() } else { format!(" {cache}") };
     let text = format!(
         "CREATE SEQUENCE {name} AS {} START WITH {} INCREMENT BY {} MINVALUE {} MAXVALUE {}{cache} {cycle};\n",
         s.type_name, s.start, s.increment, s.min, s.max
     );
-    Ddl {
-        text,
-        warnings: warn_object(&name, &s.privileges, &s.omitted),
-    }
+    Ddl { text, warnings: warn_object(&name, &s.privileges, &s.omitted) }
 }
 
 pub fn alias_type(
@@ -855,10 +994,7 @@ pub fn alias_type(
 ) -> Ddl {
     let name = qualified(schema, name);
     let null = if nullable { "NULL" } else { "NOT NULL" };
-    Ddl {
-        text: format!("CREATE TYPE {name} FROM {base} {null};\n"),
-        warnings: warn_object(&name, privileges, omitted),
-    }
+    Ddl { text: format!("CREATE TYPE {name} FROM {base} {null};\n"), warnings: warn_object(&name, privileges, omitted) }
 }
 
 pub fn table_type(
@@ -891,24 +1027,12 @@ pub fn table_type(
         .join(",\n");
     warnings.extend(extra.iter().cloned());
     warnings.extend(warn_object(&name, privileges, omitted));
-    Ddl {
-        text: format!("CREATE TYPE {name} AS TABLE (\n{body}\n);\n"),
-        warnings,
-    }
+    Ddl { text: format!("CREATE TYPE {name} AS TABLE (\n{body}\n);\n"), warnings }
 }
 
-pub fn synonym_script(
-    schema: &str,
-    name: &str,
-    target: &str,
-    privileges: &[Privilege],
-    omitted: &[Omitted],
-) -> Ddl {
+pub fn synonym_script(schema: &str, name: &str, target: &str, privileges: &[Privilege], omitted: &[Omitted]) -> Ddl {
     let name = qualified(schema, name);
-    Ddl {
-        text: format!("CREATE SYNONYM {name} FOR {target};\n"),
-        warnings: warn_object(&name, privileges, omitted),
-    }
+    Ddl { text: format!("CREATE SYNONYM {name} FOR {target};\n"), warnings: warn_object(&name, privileges, omitted) }
 }
 
 #[cfg(test)]
@@ -921,15 +1045,39 @@ mod tests {
     }
 
     fn table_named(name: &str) -> Table {
-        Table { schema: "dbo".into(), name: name.into(), ansi_nulls: true, lock_escalation: "TABLE".into(), columns: vec![col("id", "int")], ..Default::default() }
+        Table {
+            schema: "dbo".into(),
+            name: name.into(),
+            ansi_nulls: true,
+            lock_escalation: "TABLE".into(),
+            columns: vec![col("id", "int")],
+            ..Default::default()
+        }
     }
 
     fn index_on(name: &str, kind: u8, keys: &[&str]) -> Index {
-        Index { name: name.into(), kind, unique: false, keys: keys.iter().map(|k| (k.to_string(), false)).collect(), include: vec![], order: vec![], filter: None, on_view: false, storage: Storage::default(), computed: false, unreadable_filter: false }
+        Index {
+            name: name.into(),
+            kind,
+            unique: false,
+            keys: keys.iter().map(|k| (k.to_string(), false)).collect(),
+            include: vec![],
+            order: vec![],
+            filter: None,
+            on_view: false,
+            storage: Storage::default(),
+            computed: false,
+            unreadable_filter: false,
+        }
     }
 
     fn property(name: &str, value: &str, path: &[(&str, &str)]) -> Property {
-        Property { name: name.into(), value: Some(value.into()), base_type: Some("nvarchar".into()), levels: path.iter().map(|(k, n)| (k.to_string(), n.to_string())).collect() }
+        Property {
+            name: name.into(),
+            value: Some(value.into()),
+            base_type: Some("nvarchar".into()),
+            levels: path.iter().map(|(k, n)| (k.to_string(), n.to_string())).collect(),
+        }
     }
 
     const HEAD: &str = "SET ANSI_NULLS ON\nGO\nSET QUOTED_IDENTIFIER ON\nGO\n";
@@ -941,12 +1089,30 @@ mod tests {
                 Column { identity: Some(("100".into(), "5".into())), ..col("id", "int") },
                 Column { collation: Some("Latin1_General_BIN2".into()), ..col("code", "nvarchar(20)") },
                 Column { default: Some(("DF_tickets_qty".into(), "((1))".into())), ..col("qty", "int") },
-                Column { nullable: true, computed: Some(Computed { definition: "([price]*[qty])".into(), persisted: true }), ..col("total", "decimal(21,2)") },
+                Column {
+                    nullable: true,
+                    computed: Some(Computed { definition: "([price]*[qty])".into(), persisted: true }),
+                    ..col("total", "decimal(21,2)")
+                },
                 Column { nullable: true, ..col("a]b", "[lab].[phone]") },
             ],
             keys: vec![
-                Key { name: "PK_tickets".into(), primary: true, clustered: true, columns: vec![("id".into(), false)], storage: Storage::default() , computed: false },
-                Key { name: "UQ_code".into(), primary: false, clustered: false, columns: vec![("code".into(), true)], storage: Storage::default() , computed: false },
+                Key {
+                    name: "PK_tickets".into(),
+                    primary: true,
+                    clustered: true,
+                    columns: vec![("id".into(), false)],
+                    storage: Storage::default(),
+                    computed: false,
+                },
+                Key {
+                    name: "UQ_code".into(),
+                    primary: false,
+                    clustered: false,
+                    columns: vec![("code".into(), true)],
+                    storage: Storage::default(),
+                    computed: false,
+                },
             ],
             foreign_keys: vec![ForeignKey {
                 name: "FK_owner".into(),
@@ -959,7 +1125,11 @@ mod tests {
                 state: State::default(),
                 after_indexes: false,
             }],
-            checks: vec![Check { name: "CK_qty".into(), definition: Some("([qty]>(0))".into()), state: State::default() }],
+            checks: vec![Check {
+                name: "CK_qty".into(),
+                definition: Some("([qty]>(0))".into()),
+                state: State::default(),
+            }],
             indexes: vec![Index { include: vec!["qty".into()], ..index_on("IX_code", 2, &["code"]) }],
             triggers: vec![Trigger::Text(Module {
                 schema: "dbo".into(),
@@ -1012,7 +1182,11 @@ GO
 
     #[test]
     fn a_non_null_persisted_column_says_so() {
-        let c = Column { name: "n".into(), computed: Some(Computed { definition: "([a]+(1))".into(), persisted: true }), ..Default::default() };
+        let c = Column {
+            name: "n".into(),
+            computed: Some(Computed { definition: "([a]+(1))".into(), persisted: true }),
+            ..Default::default()
+        };
         assert_eq!(column(&c, "[dbo].[t]", &mut vec![]), "[n] AS ([a]+(1)) PERSISTED NOT NULL");
         let virtual_column = Column { computed: Some(Computed { definition: "([a])".into(), persisted: false }), ..c };
         assert_eq!(column(&virtual_column, "[dbo].[t]", &mut vec![]), "[n] AS ([a])");
@@ -1027,23 +1201,45 @@ GO
             text
         };
         assert_eq!(line(Column { nullable: true, sparse: true, ..col("s", "int") }), "[s] int SPARSE NULL");
-        assert_eq!(line(Column { nullable: true, column_set: true, ..col("cs", "xml") }), "[cs] xml COLUMN_SET FOR ALL_SPARSE_COLUMNS NULL");
         assert_eq!(
-            line(Column { nullable: true, collation: Some("Latin1_General_BIN2".into()), masked: Some("partial(1,\"x'x\",1)".into()), ..col("m", "nvarchar(100)") }),
+            line(Column { nullable: true, column_set: true, ..col("cs", "xml") }),
+            "[cs] xml COLUMN_SET FOR ALL_SPARSE_COLUMNS NULL"
+        );
+        assert_eq!(
+            line(Column {
+                nullable: true,
+                collation: Some("Latin1_General_BIN2".into()),
+                masked: Some("partial(1,\"x'x\",1)".into()),
+                ..col("m", "nvarchar(100)")
+            }),
             "[m] nvarchar(100) COLLATE Latin1_General_BIN2 MASKED WITH (FUNCTION = 'partial(1,\"x''x\",1)') NULL"
         );
-        assert_eq!(line(Column { identity: Some(("1".into(), "1".into())), not_for_replication: true, ..col("id", "int") }), "[id] int IDENTITY(1,1) NOT FOR REPLICATION NOT NULL");
-        assert_eq!(line(Column { generated: 1, ..col("vf", "datetime2(7)") }), "[vf] datetime2(7) GENERATED ALWAYS AS ROW START NOT NULL");
-        assert_eq!(line(Column { generated: 2, hidden: true, ..col("vt", "datetime2(7)") }), "[vt] datetime2(7) GENERATED ALWAYS AS ROW END HIDDEN NOT NULL");
         assert_eq!(
-            line(Column { rowguidcol: true, default: Some(("DF_g".into(), "(newid())".into())), ..col("g", "uniqueidentifier") }),
+            line(Column { identity: Some(("1".into(), "1".into())), not_for_replication: true, ..col("id", "int") }),
+            "[id] int IDENTITY(1,1) NOT FOR REPLICATION NOT NULL"
+        );
+        assert_eq!(
+            line(Column { generated: 1, ..col("vf", "datetime2(7)") }),
+            "[vf] datetime2(7) GENERATED ALWAYS AS ROW START NOT NULL"
+        );
+        assert_eq!(
+            line(Column { generated: 2, hidden: true, ..col("vt", "datetime2(7)") }),
+            "[vt] datetime2(7) GENERATED ALWAYS AS ROW END HIDDEN NOT NULL"
+        );
+        assert_eq!(
+            line(Column {
+                rowguidcol: true,
+                default: Some(("DF_g".into(), "(newid())".into())),
+                ..col("g", "uniqueidentifier")
+            }),
             "[g] uniqueidentifier ROWGUIDCOL NOT NULL CONSTRAINT [DF_g] DEFAULT (newid())"
         );
     }
 
     #[test]
     fn transaction_id_and_sequence_number_columns_replay_hidden() {
-        let line = |generated: u8| column(&Column { generated, hidden: true, ..col("g", "bigint") }, "[dbo].[t]", &mut vec![]);
+        let line =
+            |generated: u8| column(&Column { generated, hidden: true, ..col("g", "bigint") }, "[dbo].[t]", &mut vec![]);
         assert_eq!(line(7), "[g] bigint GENERATED ALWAYS AS TRANSACTION_ID START HIDDEN NOT NULL");
         assert_eq!(line(10), "[g] bigint GENERATED ALWAYS AS SEQUENCE_NUMBER END HIDDEN NOT NULL");
     }
@@ -1051,41 +1247,78 @@ GO
     #[test]
     fn columns_warn_for_ansi_padding_off_filestream_always_encrypted_and_other_generated_kinds() {
         let mut warnings = vec![];
-        column(&Column { ansi_padding_off: true, filestream: true, encrypted: true, generated: 11, ..col("c]x", "varbinary(max)") }, "[dbo].[t]", &mut warnings);
+        column(
+            &Column {
+                ansi_padding_off: true,
+                filestream: true,
+                encrypted: true,
+                generated: 11,
+                ..col("c]x", "varbinary(max)")
+            },
+            "[dbo].[t]",
+            &mut warnings,
+        );
         assert_eq!(
             warnings,
-            ["ANSI_PADDING OFF on [dbo].[t].[c]]x]", "FILESTREAM on [dbo].[t].[c]]x]", "Always Encrypted on [dbo].[t].[c]]x]", "GENERATED ALWAYS type 11 on [dbo].[t].[c]]x]"]
+            [
+                "ANSI_PADDING OFF on [dbo].[t].[c]]x]",
+                "FILESTREAM on [dbo].[t].[c]]x]",
+                "Always Encrypted on [dbo].[t].[c]]x]",
+                "GENERATED ALWAYS type 11 on [dbo].[t].[c]]x]"
+            ]
         );
     }
 
     #[test]
     fn a_computed_expression_or_default_this_login_cannot_read_warns() {
         let mut warnings = vec![];
-        column(&Column { unreadable_computed: true, hidden_default: Some("DF_b".into()), ..col("b", "int") }, "[dbo].[t]", &mut warnings);
-        assert_eq!(warnings, ["the computed expression of [dbo].[t].[b], which this login cannot read", "the default of [dbo].[t].[b], which this login cannot read"]);
+        column(
+            &Column { unreadable_computed: true, hidden_default: Some("DF_b".into()), ..col("b", "int") },
+            "[dbo].[t]",
+            &mut warnings,
+        );
+        assert_eq!(
+            warnings,
+            [
+                "the computed expression of [dbo].[t].[b], which this login cannot read",
+                "the default of [dbo].[t].[b], which this login cannot read"
+            ]
+        );
     }
 
     #[test]
     fn a_check_or_index_filter_this_login_cannot_read_is_left_out_with_a_warning() {
         let t = Table {
-            checks: vec![Check { name: "CK_hidden".into(), definition: None, state: State { disabled: true, ..State::default() } }],
+            checks: vec![Check {
+                name: "CK_hidden".into(),
+                definition: None,
+                state: State { disabled: true, ..State::default() },
+            }],
             indexes: vec![Index { unreadable_filter: true, ..index_on("IX_hidden", 2, &["id"]) }],
             ..table_named("t")
         };
         let ddl = table(&t);
         assert_eq!(
             ddl.warnings,
-            ["check constraint [CK_hidden] on [dbo].[t], whose definition this login cannot read", "filtered index [IX_hidden] on [dbo].[t], whose filter this login cannot read"]
+            [
+                "check constraint [CK_hidden] on [dbo].[t], whose definition this login cannot read",
+                "filtered index [IX_hidden] on [dbo].[t], whose filter this login cannot read"
+            ]
         );
         assert!(!ddl.text.contains("CK_hidden") && !ddl.text.contains("IX_hidden"), "{}", ddl.text);
     }
 
     #[test]
     fn a_left_out_check_or_default_takes_its_extended_property_with_it() {
-        let on = |constraint: &str| property("MS_Description", constraint, &[("SCHEMA", "dbo"), ("TABLE", "t"), ("CONSTRAINT", constraint)]);
+        let on = |constraint: &str| {
+            property("MS_Description", constraint, &[("SCHEMA", "dbo"), ("TABLE", "t"), ("CONSTRAINT", constraint)])
+        };
         let t = Table {
             columns: vec![col("id", "int"), Column { hidden_default: Some("DF_hidden".into()), ..col("n", "int") }],
-            checks: vec![Check { name: "CK_hidden".into(), definition: None, state: State::default() }, Check { name: "CK_kept".into(), definition: Some("([id]>(0))".into()), state: State::default() }],
+            checks: vec![
+                Check { name: "CK_hidden".into(), definition: None, state: State::default() },
+                Check { name: "CK_kept".into(), definition: Some("([id]>(0))".into()), state: State::default() },
+            ],
             properties: vec![on("CK_hidden"), on("DF_hidden"), on("CK_kept")],
             ..table_named("t")
         };
@@ -1099,15 +1332,25 @@ GO
         let t = Table { omitted: vec![Omitted::UnseenPrivileges, Omitted::UnseenClassifications], ..table_named("t") };
         assert_eq!(
             table(&t).warnings,
-            ["a complete privilege list for [dbo].[t], because this login lacks VIEW DEFINITION on the database", "every sensitivity classification on [dbo].[t], because this login lacks VIEW ANY SENSITIVITY CLASSIFICATION"]
+            [
+                "a complete privilege list for [dbo].[t], because this login lacks VIEW DEFINITION on the database",
+                "every sensitivity classification on [dbo].[t], because this login lacks VIEW ANY SENSITIVITY CLASSIFICATION"
+            ]
         );
-        let m = Module { omitted: vec![Omitted::UnseenPrivileges], ..procedure("CREATE PROCEDURE dbo.newname AS SELECT 1") };
-        assert_eq!(module(&m).warnings, ["a complete privilege list for [dbo].[newname], because this login lacks VIEW DEFINITION on the database"]);
+        let m = Module {
+            omitted: vec![Omitted::UnseenPrivileges],
+            ..procedure("CREATE PROCEDURE dbo.newname AS SELECT 1")
+        };
+        assert_eq!(
+            module(&m).warnings,
+            ["a complete privilege list for [dbo].[newname], because this login lacks VIEW DEFINITION on the database"]
+        );
     }
 
     #[test]
     fn constraints_replay_disabled_untrusted_and_not_for_replication() {
-        let check = |name: &str, state: State| Check { name: name.into(), definition: Some("([id]>(0))".into()), state };
+        let check =
+            |name: &str, state: State| Check { name: name.into(), definition: Some("([id]>(0))".into()), state };
         let fk = |name: &str, state: State| ForeignKey {
             name: name.into(),
             columns: vec!["id".into()],
@@ -1125,7 +1368,10 @@ GO
                 check("CK_untrusted", State { untrusted: true, ..State::default() }),
                 check("CK_nfr", State { untrusted: true, not_for_replication: true, ..State::default() }),
             ],
-            foreign_keys: vec![fk("FK_off", State { disabled: true, untrusted: true, not_for_replication: true }), fk("FK_untrusted", State { untrusted: true, ..State::default() })],
+            foreign_keys: vec![
+                fk("FK_off", State { disabled: true, untrusted: true, not_for_replication: true }),
+                fk("FK_untrusted", State { untrusted: true, ..State::default() }),
+            ],
             ..table_named("c")
         };
         assert_eq!(
@@ -1193,11 +1439,36 @@ GO
 
     #[test]
     fn keys_and_heaps_keep_their_options_compression_and_lock_escalation_and_disabled_keys_disable_last() {
-        let options = Storage { fill_factor: 80, pad_index: true, ignore_dup_key: true, no_recompute: true, deny_row_locks: true, deny_page_locks: true, sequential_key: true, compression: Some("PAGE".into()), xml_compression: true, ..Storage::default() };
+        let options = Storage {
+            fill_factor: 80,
+            pad_index: true,
+            ignore_dup_key: true,
+            no_recompute: true,
+            deny_row_locks: true,
+            deny_page_locks: true,
+            sequential_key: true,
+            compression: Some("PAGE".into()),
+            xml_compression: true,
+            ..Storage::default()
+        };
         let t = Table {
             keys: vec![
-                Key { name: "PK_h".into(), primary: true, clustered: false, columns: vec![("id".into(), false)], storage: Storage { fill_factor: 80, ..Storage::default() } , computed: false },
-                Key { name: "UQ_h".into(), primary: false, clustered: false, columns: vec![("id".into(), false)], storage: Storage { disabled: true, ..options } , computed: false },
+                Key {
+                    name: "PK_h".into(),
+                    primary: true,
+                    clustered: false,
+                    columns: vec![("id".into(), false)],
+                    storage: Storage { fill_factor: 80, ..Storage::default() },
+                    computed: false,
+                },
+                Key {
+                    name: "UQ_h".into(),
+                    primary: false,
+                    clustered: false,
+                    columns: vec![("id".into(), false)],
+                    storage: Storage { disabled: true, ..options },
+                    computed: false,
+                },
             ],
             heap: Some(Storage { compression: Some("PAGE".into()), ..Storage::default() }),
             lock_escalation: "DISABLE".into(),
@@ -1227,7 +1498,10 @@ GO
     fn bound_defaults_and_rules_replay_after_the_table_or_warn_when_hidden() {
         let object = |name: &str| Some(Bound::Object { schema: "dbo".into(), name: name.into() });
         let t = Table {
-            columns: vec![Column { bound_default: object("d_zero"), bound_rule: object("r'pos"), ..col("q ü", "int") }, Column { bound_default: Some(Bound::Hidden), bound_rule: Some(Bound::Hidden), ..col("h", "int") }],
+            columns: vec![
+                Column { bound_default: object("d_zero"), bound_rule: object("r'pos"), ..col("q ü", "int") },
+                Column { bound_default: Some(Bound::Hidden), bound_rule: Some(Bound::Hidden), ..col("h", "int") },
+            ],
             ..table_named("b]t")
         };
         let ddl = table(&t);
@@ -1243,7 +1517,13 @@ GO
             "{}",
             ddl.text
         );
-        assert_eq!(ddl.warnings, ["the default bound to [dbo].[b]]t].[h], which this login cannot see", "the rule bound to [dbo].[b]]t].[h], which this login cannot see"]);
+        assert_eq!(
+            ddl.warnings,
+            [
+                "the default bound to [dbo].[b]]t].[h], which this login cannot see",
+                "the rule bound to [dbo].[b]]t].[h], which this login cannot see"
+            ]
+        );
     }
 
     #[test]
@@ -1252,7 +1532,13 @@ GO
         let t = Table {
             indexes: vec![index_on("IX", 2, &["id"])],
             statistics: vec![
-                Statistics { columns: vec!["id".into(), "a]b".into()], filter: Some("([id]>(0))".into()), no_recompute: true, auto_drop: true, ..stats("st ü") },
+                Statistics {
+                    columns: vec!["id".into(), "a]b".into()],
+                    filter: Some("([id]>(0))".into()),
+                    no_recompute: true,
+                    auto_drop: true,
+                    ..stats("st ü")
+                },
                 Statistics { incremental: true, persisted_sample: true, ..stats("st_inc") },
                 Statistics { unreadable_filter: true, ..stats("st_hidden") },
             ],
@@ -1274,13 +1560,23 @@ GO
         );
         assert_eq!(
             ddl.warnings,
-            ["INCREMENTAL for statistics [st_inc] on [dbo].[t]", "PERSIST_SAMPLE_PERCENT for statistics [st_inc] on [dbo].[t]", "filtered statistics [st_hidden] on [dbo].[t], whose filter this login cannot read"]
+            [
+                "INCREMENTAL for statistics [st_inc] on [dbo].[t]",
+                "PERSIST_SAMPLE_PERCENT for statistics [st_inc] on [dbo].[t]",
+                "filtered statistics [st_hidden] on [dbo].[t], whose filter this login cannot read"
+            ]
         );
     }
 
     #[test]
     fn table_options_and_change_tracking_replay_after_the_table() {
-        let t = Table { text_in_row: Some(500), large_values_out_of_row: true, change_tracking: Some(true), lock_escalation: "AUTO".into(), ..table_named("o]x") };
+        let t = Table {
+            text_in_row: Some(500),
+            large_values_out_of_row: true,
+            change_tracking: Some(true),
+            lock_escalation: "AUTO".into(),
+            ..table_named("o]x")
+        };
         assert!(
             table(&t).text.ends_with(
                 "GO
@@ -1312,7 +1608,14 @@ GO
     fn filegroups_and_partition_schemes_warn_for_the_heap_keys_indexes_and_large_values() {
         let on = |place: Place| Storage { place: Some(place), ..Storage::default() };
         let t = Table {
-            keys: vec![Key { name: "PK_p".into(), primary: true, clustered: false, columns: vec![("id".into(), false)], storage: on(Place::Filegroup("FG keys".into())) , computed: false }],
+            keys: vec![Key {
+                name: "PK_p".into(),
+                primary: true,
+                clustered: false,
+                columns: vec![("id".into(), false)],
+                storage: on(Place::Filegroup("FG keys".into())),
+                computed: false,
+            }],
             indexes: vec![Index { storage: on(Place::PartitionScheme("ps]x".into())), ..index_on("IX_p", 2, &["id"]) }],
             heap: Some(on(Place::PartitionScheme("ps".into()))),
             large_values: Some(Place::Filegroup("LOB".into())),
@@ -1320,7 +1623,12 @@ GO
         };
         assert_eq!(
             table(&t).warnings,
-            ["filegroup [LOB] for large values on [dbo].[p]", "filegroup [FG keys] for index [PK_p] on [dbo].[p]", "partition scheme [ps] on [dbo].[p]", "partition scheme [ps]]x] for index [IX_p] on [dbo].[p]"]
+            [
+                "filegroup [LOB] for large values on [dbo].[p]",
+                "filegroup [FG keys] for index [PK_p] on [dbo].[p]",
+                "partition scheme [ps] on [dbo].[p]",
+                "partition scheme [ps]]x] for index [IX_p] on [dbo].[p]"
+            ]
         );
     }
 
@@ -1357,21 +1665,63 @@ GO
     #[test]
     fn incremental_statistics_and_suppressed_duplicate_key_messages_warn() {
         let t = Table {
-            keys: vec![Key { name: "PK_i".into(), primary: true, clustered: true, columns: vec![("id".into(), false)], storage: Storage { unscripted: Unscripted { incremental: true, ..Unscripted::default() }, ..Storage::default() } , computed: false }],
-            indexes: vec![Index { unique: true, storage: Storage { ignore_dup_key: true, unscripted: Unscripted { suppress_dup_key_messages: true, ..Unscripted::default() }, ..Storage::default() }, ..index_on("UX_i", 2, &["id"]) }],
+            keys: vec![Key {
+                name: "PK_i".into(),
+                primary: true,
+                clustered: true,
+                columns: vec![("id".into(), false)],
+                storage: Storage {
+                    unscripted: Unscripted { incremental: true, ..Unscripted::default() },
+                    ..Storage::default()
+                },
+                computed: false,
+            }],
+            indexes: vec![Index {
+                unique: true,
+                storage: Storage {
+                    ignore_dup_key: true,
+                    unscripted: Unscripted { suppress_dup_key_messages: true, ..Unscripted::default() },
+                    ..Storage::default()
+                },
+                ..index_on("UX_i", 2, &["id"])
+            }],
             ..table_named("i")
         };
         let ddl = table(&t);
-        assert_eq!(ddl.warnings, ["STATISTICS_INCREMENTAL for index [PK_i] on [dbo].[i]", "SUPPRESS_DUP_KEY_MESSAGES for index [UX_i] on [dbo].[i]"]);
-        assert!(!ddl.text.contains("STATISTICS_INCREMENTAL") && !ddl.text.contains("SUPPRESS_DUP_KEY_MESSAGES"), "{}", ddl.text);
-        assert!(ddl.text.contains("CREATE UNIQUE NONCLUSTERED INDEX [UX_i] ON [dbo].[i] ([id] ASC) WITH (IGNORE_DUP_KEY = ON);"), "{}", ddl.text);
+        assert_eq!(
+            ddl.warnings,
+            [
+                "STATISTICS_INCREMENTAL for index [PK_i] on [dbo].[i]",
+                "SUPPRESS_DUP_KEY_MESSAGES for index [UX_i] on [dbo].[i]"
+            ]
+        );
+        assert!(
+            !ddl.text.contains("STATISTICS_INCREMENTAL") && !ddl.text.contains("SUPPRESS_DUP_KEY_MESSAGES"),
+            "{}",
+            ddl.text
+        );
+        assert!(
+            ddl.text.contains(
+                "CREATE UNIQUE NONCLUSTERED INDEX [UX_i] ON [dbo].[i] ([id] ASC) WITH (IGNORE_DUP_KEY = ON);"
+            ),
+            "{}",
+            ddl.text
+        );
     }
 
     #[test]
     fn owners_cdc_full_text_hypothetical_indexes_numbered_procedures_signatures_and_mixed_compression_warn() {
         let t = Table {
-            heap: Some(Storage { unscripted: Unscripted { mixed_compression: true, ..Unscripted::default() }, ..Storage::default() }),
-            omitted: vec![Omitted::Owner("app]r".into()), Omitted::ChangeDataCapture, Omitted::FullTextIndex, Omitted::HypotheticalIndex("hx".into())],
+            heap: Some(Storage {
+                unscripted: Unscripted { mixed_compression: true, ..Unscripted::default() },
+                ..Storage::default()
+            }),
+            omitted: vec![
+                Omitted::Owner("app]r".into()),
+                Omitted::ChangeDataCapture,
+                Omitted::FullTextIndex,
+                Omitted::HypotheticalIndex("hx".into()),
+            ],
             ..table_named("t")
         };
         assert_eq!(
@@ -1385,22 +1735,45 @@ GO
             ]
         );
         let m = Module {
-            omitted: vec![Omitted::RunsAsOwner("dbo".into()), Omitted::NumberedProcedure("2".into()), Omitted::Signature { kind: "counter signature by certificate".into(), by: "c".into() }],
+            omitted: vec![
+                Omitted::RunsAsOwner("dbo".into()),
+                Omitted::NumberedProcedure("2".into()),
+                Omitted::Signature { kind: "counter signature by certificate".into(), by: "c".into() },
+            ],
             ..procedure("CREATE PROCEDURE dbo.newname WITH EXECUTE AS OWNER AS SELECT 1")
         };
         assert_eq!(
             module(&m).warnings,
-            ["the owner [dbo] that EXECUTE AS OWNER on [dbo].[newname] runs as", "numbered procedure [dbo].[newname];2", "counter signature by certificate [c] on [dbo].[newname]"]
+            [
+                "the owner [dbo] that EXECUTE AS OWNER on [dbo].[newname] runs as",
+                "numbered procedure [dbo].[newname];2",
+                "counter signature by certificate [c] on [dbo].[newname]"
+            ]
         );
     }
 
     #[test]
     fn a_system_versioned_table_keeps_its_period_history_table_and_retention() {
         let t = Table {
-            columns: vec![col("id", "int"), Column { generated: 1, ..col("vf", "datetime2(7)") }, Column { generated: 2, hidden: true, ..col("vt", "datetime2(7)") }],
-            keys: vec![Key { name: "PK_t".into(), primary: true, clustered: true, columns: vec![("id".into(), false)], storage: Storage::default() , computed: false }],
+            columns: vec![
+                col("id", "int"),
+                Column { generated: 1, ..col("vf", "datetime2(7)") },
+                Column { generated: 2, hidden: true, ..col("vt", "datetime2(7)") },
+            ],
+            keys: vec![Key {
+                name: "PK_t".into(),
+                primary: true,
+                clustered: true,
+                columns: vec![("id".into(), false)],
+                storage: Storage::default(),
+                computed: false,
+            }],
             period: Some(("vf".into(), "vt".into())),
-            versioning: Some(Versioning { schema: "dbo".into(), name: "t_history".into(), retention: Some((6, "MONTH".into())) }),
+            versioning: Some(Versioning {
+                schema: "dbo".into(),
+                name: "t_history".into(),
+                retention: Some((6, "MONTH".into())),
+            }),
             ..table_named("t")
         };
         assert_eq!(
@@ -1417,7 +1790,8 @@ GO
 "
             ))
         );
-        let forever = Table { versioning: Some(Versioning { schema: "h".into(), name: "x".into(), retention: None }), ..t };
+        let forever =
+            Table { versioning: Some(Versioning { schema: "h".into(), name: "x".into(), retention: None }), ..t };
         assert!(table(&forever).text.contains(") WITH (SYSTEM_VERSIONING = ON (HISTORY_TABLE = [h].[x]));\n"));
         let history = Table { history_of: Some(("dbo".into(), "t".into())), ..table_named("t_history") };
         assert_eq!(table(&history).warnings, ["history table role for [dbo].[t] on [dbo].[t_history]"]);
@@ -1425,17 +1799,32 @@ GO
 
     #[test]
     fn columnstore_indexes_keep_order_filter_and_options_under_the_index_set_options() {
-        let cci = Index { order: vec!["id".into()], storage: Storage { compression: Some("COLUMNSTORE_ARCHIVE".into()), compression_delay: Some(10), ..Storage::default() }, ..index_on("CCI", 5, &[]) };
+        let cci = Index {
+            order: vec!["id".into()],
+            storage: Storage {
+                compression: Some("COLUMNSTORE_ARCHIVE".into()),
+                compression_delay: Some(10),
+                ..Storage::default()
+            },
+            ..index_on("CCI", 5, &[])
+        };
         assert_eq!(index(&cci, "[dbo].[c]", &[]), Some(Ddl::complete("CREATE CLUSTERED COLUMNSTORE INDEX [CCI] ON [dbo].[c] ORDER ([id]) WITH (DATA_COMPRESSION = COLUMNSTORE_ARCHIVE, COMPRESSION_DELAY = 10);\nGO\n".into())));
         let ncci = Index {
             include: vec!["id".into(), "a]b".into()],
             filter: Some("([id]>(0))".into()),
-            storage: Storage { compression_delay: Some(0), deny_row_locks: true, deny_page_locks: true, ..Storage::default() },
+            storage: Storage {
+                compression_delay: Some(0),
+                deny_row_locks: true,
+                deny_page_locks: true,
+                ..Storage::default()
+            },
             ..index_on("NCCI", 6, &[])
         };
         assert_eq!(
             index(&ncci, "[dbo].[c]", &[]),
-            Some(Ddl::complete(format!("{INDEX_OPTIONS}CREATE NONCLUSTERED COLUMNSTORE INDEX [NCCI] ON [dbo].[c] ([id], [a]]b]) WHERE ([id]>(0));\nGO\n")))
+            Some(Ddl::complete(format!(
+                "{INDEX_OPTIONS}CREATE NONCLUSTERED COLUMNSTORE INDEX [NCCI] ON [dbo].[c] ([id], [a]]b]) WHERE ([id]>(0));\nGO\n"
+            )))
         );
     }
 
@@ -1444,7 +1833,16 @@ GO
         let i = Index {
             unique: true,
             include: vec!["t".into()],
-            storage: Storage { fill_factor: 70, pad_index: true, ignore_dup_key: true, deny_row_locks: true, deny_page_locks: true, compression: Some("ROW".into()), disabled: true, ..Storage::default() },
+            storage: Storage {
+                fill_factor: 70,
+                pad_index: true,
+                ignore_dup_key: true,
+                deny_row_locks: true,
+                deny_page_locks: true,
+                compression: Some("ROW".into()),
+                disabled: true,
+                ..Storage::default()
+            },
             ..index_on("IX opts", 2, &["g"])
         };
         assert_eq!(
@@ -1457,34 +1855,91 @@ GO
 
     #[test]
     fn a_key_index_opens_as_its_constraint_with_its_options_properties_and_disabled_state() {
-        let k = Key { name: "UQ_refd".into(), primary: false, clustered: false, columns: vec![("a".into(), false), ("b".into(), true)], storage: Storage { ignore_dup_key: true, deny_page_locks: true, disabled: true, ..Storage::default() } , computed: false };
-        let props = [property("MS_Description", "the key", &[("SCHEMA", "dbo"), ("TABLE", "refd"), ("CONSTRAINT", "UQ_refd")])];
+        let k = Key {
+            name: "UQ_refd".into(),
+            primary: false,
+            clustered: false,
+            columns: vec![("a".into(), false), ("b".into(), true)],
+            storage: Storage { ignore_dup_key: true, deny_page_locks: true, disabled: true, ..Storage::default() },
+            computed: false,
+        };
+        let props =
+            [property("MS_Description", "the key", &[("SCHEMA", "dbo"), ("TABLE", "refd"), ("CONSTRAINT", "UQ_refd")])];
         assert_eq!(
             key_script(&k, "[dbo].[refd]", &props),
             Ddl::complete(
                 "ALTER TABLE [dbo].[refd] ADD CONSTRAINT [UQ_refd] UNIQUE NONCLUSTERED ([a] ASC, [b] DESC) WITH (IGNORE_DUP_KEY = ON, ALLOW_PAGE_LOCKS = OFF);\nGO\n\nEXEC sys.sp_addextendedproperty @name = N'MS_Description', @value = N'the key', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'refd', @level2type = N'CONSTRAINT', @level2name = N'UQ_refd';\nGO\nALTER INDEX [UQ_refd] ON [dbo].[refd] DISABLE;\nGO\n".into()
             )
         );
-        let pk = Key { name: "PK_tickets".into(), primary: true, clustered: true, columns: vec![("id".into(), false)], storage: Storage::default() , computed: false };
-        assert_eq!(key_script(&pk, "[dbo].[tickets]", &[]).text, "ALTER TABLE [dbo].[tickets] ADD CONSTRAINT [PK_tickets] PRIMARY KEY CLUSTERED ([id] ASC);\nGO\n");
+        let pk = Key {
+            name: "PK_tickets".into(),
+            primary: true,
+            clustered: true,
+            columns: vec![("id".into(), false)],
+            storage: Storage::default(),
+            computed: false,
+        };
+        assert_eq!(
+            key_script(&pk, "[dbo].[tickets]", &[]).text,
+            "ALTER TABLE [dbo].[tickets] ADD CONSTRAINT [PK_tickets] PRIMARY KEY CLUSTERED ([id] ASC);\nGO\n"
+        );
     }
 
     #[test]
     fn an_index_or_key_on_a_computed_column_gets_the_index_set_options() {
         let i = Index { computed: true, ..index_on("IX total", 2, &["total"]) };
-        assert_eq!(index(&i, "[dbo].[t]", &[]).unwrap().text, format!("{INDEX_OPTIONS}CREATE NONCLUSTERED INDEX [IX total] ON [dbo].[t] ([total] ASC);\nGO\n"));
-        let k = Key { name: "UQ_total".into(), primary: false, clustered: false, columns: vec![("total".into(), false)], storage: Storage::default(), computed: true };
-        assert!(key_script(&k, "[dbo].[t]", &[]).text.starts_with(&format!("{INDEX_OPTIONS}ALTER TABLE [dbo].[t] ADD CONSTRAINT [UQ_total]")));
+        assert_eq!(
+            index(&i, "[dbo].[t]", &[]).unwrap().text,
+            format!("{INDEX_OPTIONS}CREATE NONCLUSTERED INDEX [IX total] ON [dbo].[t] ([total] ASC);\nGO\n")
+        );
+        let k = Key {
+            name: "UQ_total".into(),
+            primary: false,
+            clustered: false,
+            columns: vec![("total".into(), false)],
+            storage: Storage::default(),
+            computed: true,
+        };
+        assert!(
+            key_script(&k, "[dbo].[t]", &[])
+                .text
+                .starts_with(&format!("{INDEX_OPTIONS}ALTER TABLE [dbo].[t] ADD CONSTRAINT [UQ_total]"))
+        );
         let t = Table { keys: vec![k], ..table_named("t") };
-        assert!(table(&t).text.starts_with(&format!("{HEAD}{INDEX_OPTIONS}CREATE TABLE [dbo].[t] (")), "{}", table(&t).text);
+        assert!(
+            table(&t).text.starts_with(&format!("{HEAD}{INDEX_OPTIONS}CREATE TABLE [dbo].[t] (")),
+            "{}",
+            table(&t).text
+        );
     }
 
     #[test]
     fn xml_spatial_hash_and_unknown_indexes_warn_in_a_table_and_refuse_alone() {
-        let t = Table { indexes: vec![index_on("IX x", 3, &["x"]), index_on("SIX", 4, &["g"]), index_on("H", 7, &["id"]), index_on("Q", 9, &["id"]), index_on("ok", 2, &["id"])], ..table_named("t") };
+        let t = Table {
+            indexes: vec![
+                index_on("IX x", 3, &["x"]),
+                index_on("SIX", 4, &["g"]),
+                index_on("H", 7, &["id"]),
+                index_on("Q", 9, &["id"]),
+                index_on("ok", 2, &["id"]),
+            ],
+            ..table_named("t")
+        };
         let ddl = table(&t);
-        assert_eq!(ddl.warnings, ["XML index [IX x] on [dbo].[t]", "spatial index [SIX] on [dbo].[t]", "hash index [H] on [dbo].[t]", "index of type 9 [Q] on [dbo].[t]"]);
-        assert!(ddl.text.ends_with("GO\n\nCREATE NONCLUSTERED INDEX [ok] ON [dbo].[t] ([id] ASC);\nGO\n"), "{}", ddl.text);
+        assert_eq!(
+            ddl.warnings,
+            [
+                "XML index [IX x] on [dbo].[t]",
+                "spatial index [SIX] on [dbo].[t]",
+                "hash index [H] on [dbo].[t]",
+                "index of type 9 [Q] on [dbo].[t]"
+            ]
+        );
+        assert!(
+            ddl.text.ends_with("GO\n\nCREATE NONCLUSTERED INDEX [ok] ON [dbo].[t] ([id] ASC);\nGO\n"),
+            "{}",
+            ddl.text
+        );
         assert_eq!(index(&index_on("IX x", 3, &["x"]), "[dbo].[t]", &[]), None);
     }
 
@@ -1493,7 +1948,10 @@ GO
         let base = [("SCHEMA", "dbo"), ("TABLE", "t")];
         let t = Table {
             indexes: vec![index_on("IX x", 3, &["x"])],
-            triggers: vec![Trigger::Clr { schema: "dbo".into(), name: "clr".into() }, Trigger::Encrypted { schema: "dbo".into(), name: "enc]x".into() }],
+            triggers: vec![
+                Trigger::Clr { schema: "dbo".into(), name: "clr".into() },
+                Trigger::Encrypted { schema: "dbo".into(), name: "enc]x".into() },
+            ],
             properties: vec![
                 property("MS_Description", "kept", &base),
                 property("MS_Description", "xml", &[base[0], base[1], ("INDEX", "IX x")]),
@@ -1504,7 +1962,14 @@ GO
             ..table_named("t")
         };
         let ddl = table(&t);
-        assert_eq!(ddl.warnings, ["XML index [IX x] on [dbo].[t]", "CLR trigger [dbo].[clr] on [dbo].[t]", "trigger [dbo].[enc]]x] on [dbo].[t], whose text is encrypted or hidden from this login"]);
+        assert_eq!(
+            ddl.warnings,
+            [
+                "XML index [IX x] on [dbo].[t]",
+                "CLR trigger [dbo].[clr] on [dbo].[t]",
+                "trigger [dbo].[enc]]x] on [dbo].[t], whose text is encrypted or hidden from this login"
+            ]
+        );
         assert!(ddl.text.contains("@value = N'kept'") && ddl.text.contains("@value = N'column'"), "{}", ddl.text);
         for gone in ["@value = N'xml'", "@value = N'clr'", "@value = N'enc'"] {
             assert!(!ddl.text.contains(gone), "{gone} in {}", ddl.text);
@@ -1518,8 +1983,15 @@ GO
             properties: vec![
                 property("MS_Description", "table comment", &base),
                 property("MS_Description", "it's masked", &[base[0], base[1], ("COLUMN", "masked")]),
-                Property { base_type: Some("varchar".into()), ..property("note", "plain", &[base[0], base[1], ("INDEX", "UX ü")]) },
-                Property { value: None, base_type: None, ..property("empty", "", &[base[0], base[1], ("TRIGGER", "trg")]) },
+                Property {
+                    base_type: Some("varchar".into()),
+                    ..property("note", "plain", &[base[0], base[1], ("INDEX", "UX ü")])
+                },
+                Property {
+                    value: None,
+                    base_type: None,
+                    ..property("empty", "", &[base[0], base[1], ("TRIGGER", "trg")])
+                },
                 Property { base_type: Some("int".into()), ..property("Version", "3", &base) },
             ],
             ..Table { schema: "we]ird s".into(), ..table_named("Par ent") }
@@ -1543,12 +2015,23 @@ GO
     }
 
     fn procedure(definition: &str) -> Module {
-        Module { schema: "dbo".into(), name: "newname".into(), definition: definition.into(), ansi_nulls: true, quoted_identifier: true, ..Default::default() }
+        Module {
+            schema: "dbo".into(),
+            name: "newname".into(),
+            definition: definition.into(),
+            ansi_nulls: true,
+            quoted_identifier: true,
+            ..Default::default()
+        }
     }
 
     #[test]
     fn a_module_keeps_its_text_under_its_set_options_and_its_properties() {
-        let m = Module { ansi_nulls: false, properties: vec![property("MS_Description", "p", &[("SCHEMA", "dbo"), ("PROCEDURE", "newname")])], ..procedure("CREATE PROCEDURE dbo.newname AS SELECT 1;") };
+        let m = Module {
+            ansi_nulls: false,
+            properties: vec![property("MS_Description", "p", &[("SCHEMA", "dbo"), ("PROCEDURE", "newname")])],
+            ..procedure("CREATE PROCEDURE dbo.newname AS SELECT 1;")
+        };
         assert_eq!(
             module(&m),
             Ddl::complete(
@@ -1559,45 +2042,118 @@ GO
 
     #[test]
     fn privileges_warn_for_tables_views_and_modules() {
-        let grant = |privilege: &str, column: Option<&str>, change: Change| Privilege { name: privilege.into(), column: column.map(Into::into), grantee: "[app]".into(), change };
-        let t = Table { privileges: vec![grant("SELECT", None, Change::Granted), grant("UPDATE", Some("[qty]"), Change::Denied)], ..table_named("t") };
-        assert_eq!(table(&t).warnings, ["privileges on [dbo].[t] (SELECT granted to [app], UPDATE ([qty]) denied to [app])"]);
-        let v = View { module: procedure("CREATE VIEW dbo.newname AS SELECT 1"), privileges: vec![grant("SELECT", None, Change::Revoked)], ..View::default() };
+        let grant = |privilege: &str, column: Option<&str>, change: Change| Privilege {
+            name: privilege.into(),
+            column: column.map(Into::into),
+            grantee: "[app]".into(),
+            change,
+        };
+        let t = Table {
+            privileges: vec![grant("SELECT", None, Change::Granted), grant("UPDATE", Some("[qty]"), Change::Denied)],
+            ..table_named("t")
+        };
+        assert_eq!(
+            table(&t).warnings,
+            ["privileges on [dbo].[t] (SELECT granted to [app], UPDATE ([qty]) denied to [app])"]
+        );
+        let v = View {
+            module: procedure("CREATE VIEW dbo.newname AS SELECT 1"),
+            privileges: vec![grant("SELECT", None, Change::Revoked)],
+            ..View::default()
+        };
         assert_eq!(view(&v).warnings, ["privileges on [dbo].[newname] (SELECT revoked from [app])"]);
-        let m = Module { privileges: vec![grant("EXECUTE", None, Change::GrantedWithGrantOption)], ..procedure("CREATE PROCEDURE dbo.newname AS SELECT 1") };
+        let m = Module {
+            privileges: vec![grant("EXECUTE", None, Change::GrantedWithGrantOption)],
+            ..procedure("CREATE PROCEDURE dbo.newname AS SELECT 1")
+        };
         assert_eq!(module(&m).warnings, ["privileges on [dbo].[newname] (EXECUTE granted with grant option to [app])"]);
     }
 
     #[test]
     fn a_renamed_or_moved_module_replays_under_its_current_name() {
         let text = |definition: &str, schema: &str| module(&Module { schema: schema.into(), ..procedure(definition) });
-        assert_eq!(text("CREATE PROCEDURE oldname AS SELECT 1", "dbo"), Ddl::complete(format!("{HEAD}CREATE PROCEDURE [dbo].[newname] AS SELECT 1\nGO\n")));
-        assert_eq!(text("CREATE PROCEDURE [oldname] AS SELECT 1", "lab"), Ddl::complete(format!("{HEAD}CREATE PROCEDURE [lab].[newname] AS SELECT 1\nGO\n")));
-        assert_eq!(text("/* x */ CREATE   PROC dbo.oldname AS SELECT 'oldname'", "dbo"), Ddl::complete(format!("{HEAD}/* x */ CREATE   PROC [dbo].[newname] AS SELECT 'oldname'\nGO\n")));
-        assert_eq!(text("CREATE PROCEDURE dbo.newname AS SELECT 1", "we]ird s"), Ddl::complete(format!("{HEAD}CREATE PROCEDURE [we]]ird s].[newname] AS SELECT 1\nGO\n")));
-        assert_eq!(text("CREATE PROCEDURE newname AS SELECT 1", "lab"), Ddl::complete(format!("{HEAD}CREATE PROCEDURE [lab].[newname] AS SELECT 1\nGO\n")));
-        assert_eq!(text("create procedure [dbo].[newname] as select 1", "dbo"), Ddl::complete(format!("{HEAD}create procedure [dbo].[newname] as select 1\nGO\n")));
+        assert_eq!(
+            text("CREATE PROCEDURE oldname AS SELECT 1", "dbo"),
+            Ddl::complete(format!("{HEAD}CREATE PROCEDURE [dbo].[newname] AS SELECT 1\nGO\n"))
+        );
+        assert_eq!(
+            text("CREATE PROCEDURE [oldname] AS SELECT 1", "lab"),
+            Ddl::complete(format!("{HEAD}CREATE PROCEDURE [lab].[newname] AS SELECT 1\nGO\n"))
+        );
+        assert_eq!(
+            text("/* x */ CREATE   PROC dbo.oldname AS SELECT 'oldname'", "dbo"),
+            Ddl::complete(format!("{HEAD}/* x */ CREATE   PROC [dbo].[newname] AS SELECT 'oldname'\nGO\n"))
+        );
+        assert_eq!(
+            text("CREATE PROCEDURE dbo.newname AS SELECT 1", "we]ird s"),
+            Ddl::complete(format!("{HEAD}CREATE PROCEDURE [we]]ird s].[newname] AS SELECT 1\nGO\n"))
+        );
+        assert_eq!(
+            text("CREATE PROCEDURE newname AS SELECT 1", "lab"),
+            Ddl::complete(format!("{HEAD}CREATE PROCEDURE [lab].[newname] AS SELECT 1\nGO\n"))
+        );
+        assert_eq!(
+            text("create procedure [dbo].[newname] as select 1", "dbo"),
+            Ddl::complete(format!("{HEAD}create procedure [dbo].[newname] as select 1\nGO\n"))
+        );
         assert_eq!(
             text("CREATE PROCEDURE p AS SELECT 'unclosed", "dbo"),
-            Ddl { text: format!("{HEAD}CREATE PROCEDURE p AS SELECT 'unclosed\nGO\n"), warnings: vec!["current name in the CREATE header on [dbo].[newname]".into()] }
+            Ddl {
+                text: format!("{HEAD}CREATE PROCEDURE p AS SELECT 'unclosed\nGO\n"),
+                warnings: vec!["current name in the CREATE header on [dbo].[newname]".into()]
+            }
         );
     }
 
     #[test]
     fn a_trigger_on_a_renamed_or_moved_table_replays_on_its_current_table() {
-        let trigger = |definition: &str| module(&Module { schema: "dbo".into(), name: "trg".into(), definition: definition.into(), ansi_nulls: true, quoted_identifier: true, parent: Some(("dbo".into(), "new_t".into())), ..Default::default() });
-        assert_eq!(trigger("CREATE TRIGGER dbo.trg ON dbo.old_t AFTER INSERT AS SELECT 1").text, format!("{HEAD}CREATE TRIGGER dbo.trg ON [dbo].[new_t] AFTER INSERT AS SELECT 1\nGO\n"));
-        assert_eq!(trigger("CREATE TRIGGER old_name ON old_t AFTER INSERT AS SELECT 1").text, format!("{HEAD}CREATE TRIGGER [dbo].[trg] ON [dbo].[new_t] AFTER INSERT AS SELECT 1\nGO\n"));
-        assert_eq!(trigger("CREATE TRIGGER dbo.trg ON dbo.new_t AFTER INSERT AS SELECT 1").text, format!("{HEAD}CREATE TRIGGER dbo.trg ON dbo.new_t AFTER INSERT AS SELECT 1\nGO\n"));
+        let trigger = |definition: &str| {
+            module(&Module {
+                schema: "dbo".into(),
+                name: "trg".into(),
+                definition: definition.into(),
+                ansi_nulls: true,
+                quoted_identifier: true,
+                parent: Some(("dbo".into(), "new_t".into())),
+                ..Default::default()
+            })
+        };
+        assert_eq!(
+            trigger("CREATE TRIGGER dbo.trg ON dbo.old_t AFTER INSERT AS SELECT 1").text,
+            format!("{HEAD}CREATE TRIGGER dbo.trg ON [dbo].[new_t] AFTER INSERT AS SELECT 1\nGO\n")
+        );
+        assert_eq!(
+            trigger("CREATE TRIGGER old_name ON old_t AFTER INSERT AS SELECT 1").text,
+            format!("{HEAD}CREATE TRIGGER [dbo].[trg] ON [dbo].[new_t] AFTER INSERT AS SELECT 1\nGO\n")
+        );
+        assert_eq!(
+            trigger("CREATE TRIGGER dbo.trg ON dbo.new_t AFTER INSERT AS SELECT 1").text,
+            format!("{HEAD}CREATE TRIGGER dbo.trg ON dbo.new_t AFTER INSERT AS SELECT 1\nGO\n")
+        );
     }
 
     #[test]
     fn a_view_carries_its_indexes_under_the_index_set_options_its_triggers_and_properties() {
-        let module = |name: &str, definition: &str| Module { schema: "dbo".into(), name: name.into(), definition: definition.into(), ansi_nulls: true, quoted_identifier: true, ..Default::default() };
+        let module = |name: &str, definition: &str| Module {
+            schema: "dbo".into(),
+            name: name.into(),
+            definition: definition.into(),
+            ansi_nulls: true,
+            quoted_identifier: true,
+            ..Default::default()
+        };
         let v = View {
             module: module("v", "CREATE VIEW dbo.v WITH SCHEMABINDING AS SELECT id FROM dbo.t"),
-            indexes: vec![Index { unique: true, on_view: true, storage: Storage { fill_factor: 90, ..Storage::default() }, ..index_on("IX_v", 1, &["id"]) }],
-            triggers: vec![Trigger::Text(module("v_ins", "CREATE TRIGGER dbo.v_ins ON dbo.v INSTEAD OF INSERT AS SELECT 1"))],
+            indexes: vec![Index {
+                unique: true,
+                on_view: true,
+                storage: Storage { fill_factor: 90, ..Storage::default() },
+                ..index_on("IX_v", 1, &["id"])
+            }],
+            triggers: vec![Trigger::Text(module(
+                "v_ins",
+                "CREATE TRIGGER dbo.v_ins ON dbo.v INSTEAD OF INSERT AS SELECT 1",
+            ))],
             properties: vec![property("MS_Description", "bound", &[("SCHEMA", "dbo"), ("VIEW", "v")])],
             ..View::default()
         };
@@ -1664,24 +2220,12 @@ GO
             computed: false,
             defaulted: true,
         };
-        let table = table_type(
-            "dbo",
-            "items",
-            &[column],
-            &["primary key [PK_items] on [dbo].[items]".into()],
-            &[],
-            &[],
-        );
-        assert_eq!(
-            table.text,
-            "CREATE TYPE [dbo].[items] AS TABLE (\n    [value] int NULL\n);\n"
-        );
+        let table =
+            table_type("dbo", "items", &[column], &["primary key [PK_items] on [dbo].[items]".into()], &[], &[]);
+        assert_eq!(table.text, "CREATE TYPE [dbo].[items] AS TABLE (\n    [value] int NULL\n);\n");
         assert_eq!(
             table.warnings,
-            [
-                "column default on [dbo].[items].[value]",
-                "primary key [PK_items] on [dbo].[items]"
-            ]
+            ["column default on [dbo].[items].[value]", "primary key [PK_items] on [dbo].[items]"]
         );
         assert_eq!(
             synonym_script("dbo", "customers_all", "[dbo].[customers]", &[], &[]).text,

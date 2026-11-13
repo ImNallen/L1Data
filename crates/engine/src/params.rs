@@ -29,18 +29,11 @@ fn pg_occurrences(text: &str, strings: Strings) -> Result<Vec<Range<usize>>, Run
     let mut prefix = [""; 4];
     let mut prefix_len = 0;
     while let Some(token) = tokens.next() {
-        if matches!(
-            token.kind,
-            LexKind::Space | LexKind::LineComment | LexKind::BlockComment
-        ) {
+        if matches!(token.kind, LexKind::Space | LexKind::LineComment | LexKind::BlockComment) {
             continue;
         }
         if prefix_len < prefix.len() {
-            prefix[prefix_len] = if token.kind == LexKind::Word {
-                &text[token.span.clone()]
-            } else {
-                ""
-            };
+            prefix[prefix_len] = if token.kind == LexKind::Word { &text[token.span.clone()] } else { "" };
             prefix_len += 1;
         }
         match token.kind {
@@ -54,9 +47,7 @@ fn pg_occurrences(text: &str, strings: Strings) -> Result<Vec<Range<usize>>, Run
                 brackets.pop();
             }
             LexKind::Param => {
-                let declaration = if prefix[1].eq_ignore_ascii_case("OR")
-                    && prefix[2].eq_ignore_ascii_case("REPLACE")
-                {
+                let declaration = if prefix[1].eq_ignore_ascii_case("OR") && prefix[2].eq_ignore_ascii_case("REPLACE") {
                     prefix[3]
                 } else {
                     prefix[1]
@@ -75,13 +66,9 @@ fn pg_occurrences(text: &str, strings: Strings) -> Result<Vec<Range<usize>>, Run
                     out.push(token.span.clone());
                 }
             }
-            LexKind::Other
-                if &text[token.span.clone()] == ":"
-                    && brackets.iter().all(|constructor| *constructor) =>
-            {
-                if let Some(next) = tokens
-                    .peek()
-                    .filter(|next| next.kind == LexKind::Word && token.span.end == next.span.start)
+            LexKind::Other if &text[token.span.clone()] == ":" && brackets.iter().all(|constructor| *constructor) => {
+                if let Some(next) =
+                    tokens.peek().filter(|next| next.kind == LexKind::Word && token.span.end == next.span.start)
                 {
                     out.push(token.span.start..next.span.end);
                 }
@@ -100,10 +87,7 @@ fn occurrences(text: &str, kind: DatabaseKind) -> Result<Vec<Range<usize>>, RunE
         DatabaseKind::Postgres if !text.contains([':', '$']) => Ok(Vec::new()),
         DatabaseKind::Postgres => {
             let standard = pg_occurrences(text, Strings::Standard)?;
-            if !standard.is_empty()
-                && text.contains('\\')
-                && standard != pg_occurrences(text, Strings::Escaped)?
-            {
+            if !standard.is_empty() && text.contains('\\') && standard != pg_occurrences(text, Strings::Escaped)? {
                 return Err(unsupported(
                     "Parameter locations depend on standard_conforming_strings. Use E'...' strings with explicit backslash escaping.",
                 ));
@@ -113,22 +97,11 @@ fn occurrences(text: &str, kind: DatabaseKind) -> Result<Vec<Range<usize>>, RunE
     }
 }
 
-fn scan(
-    text: &str,
-    spans: &[StmtSpan],
-    kind: DatabaseKind,
-) -> Result<Vec<Vec<Range<usize>>>, RunError> {
-    spans
-        .iter()
-        .map(|span| occurrences(span.text(text), kind))
-        .collect()
+fn scan(text: &str, spans: &[StmtSpan], kind: DatabaseKind) -> Result<Vec<Vec<Range<usize>>>, RunError> {
+    spans.iter().map(|span| occurrences(span.text(text), kind)).collect()
 }
 
-pub(crate) fn discover(
-    text: &str,
-    target: RunTarget,
-    kind: DatabaseKind,
-) -> Result<Vec<Param>, RunError> {
+pub(crate) fn discover(text: &str, target: RunTarget, kind: DatabaseKind) -> Result<Vec<Param>, RunError> {
     let spans = selected(text, target, kind)?;
     let scanned = scan(text, &spans, kind)?;
     let mut seen = HashSet::new();
@@ -138,9 +111,7 @@ pub(crate) fn discover(
         for range in occurrences {
             let name = &unit[range];
             if seen.insert(name.to_owned()) {
-                params.push(Param {
-                    name: name.to_owned(),
-                });
+                params.push(Param { name: name.to_owned() });
             }
         }
     }
@@ -170,10 +141,7 @@ pub(crate) fn bind(
     let mut supplied = HashMap::new();
     for param in values {
         if param.value.as_ref().is_some_and(|v| v.contains('\0')) {
-            return Err(unsupported(format!(
-                "Parameter {} contains NUL.",
-                param.name
-            )));
+            return Err(unsupported(format!("Parameter {} contains NUL.", param.name)));
         }
         if supplied.insert(param.name.clone(), param.value).is_some() {
             return Err(unsupported(format!("Duplicate parameter {}.", param.name)));
@@ -196,12 +164,7 @@ pub(crate) fn bind(
     }
     if expected.is_empty() {
         let changed = vec![false; spans.len()];
-        return Ok(ExecutableScript {
-            text,
-            spans,
-            ranges,
-            changed,
-        });
+        return Ok(ExecutableScript { text, spans, ranges, changed });
     }
     let mut executable = String::with_capacity(text.len());
     let mut adjusted = Vec::with_capacity(spans.len());
@@ -218,29 +181,17 @@ pub(crate) fn bind(
             at = occurrence.end;
         }
         executable.push_str(&unit[at..]);
-        adjusted.push(StmtSpan {
-            start,
-            end: executable.len(),
-        });
+        adjusted.push(StmtSpan { start, end: executable.len() });
         executable.push('\n');
     }
-    Ok(ExecutableScript {
-        text: executable,
-        spans: adjusted,
-        ranges,
-        changed,
-    })
+    Ok(ExecutableScript { text: executable, spans: adjusted, ranges, changed })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     fn names(text: &str, kind: DatabaseKind) -> Vec<String> {
-        discover(text, RunTarget::All, kind)
-            .unwrap()
-            .into_iter()
-            .map(|p| p.name)
-            .collect()
+        discover(text, RunTarget::All, kind).unwrap().into_iter().map(|p| p.name).collect()
     }
     #[test]
     fn postgres_discovery_preserves_sql_syntax() {
@@ -254,34 +205,15 @@ mod tests {
         for sql in ["select $0", "select $1abc", "select $999999999999999999"] {
             assert!(discover(sql, RunTarget::All, DatabaseKind::Postgres).is_err());
         }
-        assert!(
-            discover(
-                r"select '\' :x ' :y",
-                RunTarget::All,
-                DatabaseKind::Postgres
-            )
-            .is_err()
-        );
+        assert!(discover(r"select '\' :x ' :y", RunTarget::All, DatabaseKind::Postgres).is_err());
     }
 
     #[test]
     fn parameter_free_strings_keep_their_original_sql() {
-        for source in [
-            r"SELECT '\' AS slash, '$0' AS txt",
-            r"SELECT '\' AS slash, '$1' AS txt",
-        ] {
+        for source in [r"SELECT '\' AS slash, '$0' AS txt", r"SELECT '\' AS slash, '$1' AS txt"] {
             let found = discover(source, RunTarget::All, DatabaseKind::Postgres);
-            assert!(
-                found.as_ref().is_ok_and(Vec::is_empty),
-                "parameter-free script was rejected: {found:?}"
-            );
-            let bound = bind(
-                source.into(),
-                RunTarget::All,
-                DatabaseKind::Postgres,
-                Vec::new(),
-            )
-            .unwrap();
+            assert!(found.as_ref().is_ok_and(Vec::is_empty), "parameter-free script was rejected: {found:?}");
+            let bound = bind(source.into(), RunTarget::All, DatabaseKind::Postgres, Vec::new()).unwrap();
             assert_eq!(bound.text, source);
             assert_eq!(bound.changed, [false]);
         }
@@ -296,13 +228,7 @@ mod tests {
             "CREATE PROCEDURE p(int) LANGUAGE SQL AS $$SELECT $1$$",
         ] {
             assert_eq!(names(source, DatabaseKind::Postgres), Vec::<String>::new());
-            let bound = bind(
-                source.into(),
-                RunTarget::All,
-                DatabaseKind::Postgres,
-                Vec::new(),
-            )
-            .unwrap();
+            let bound = bind(source.into(), RunTarget::All, DatabaseKind::Postgres, Vec::new()).unwrap();
             assert_eq!(bound.text, source);
         }
         let source = "PREPARE q(int) AS SELECT $1; SELECT $1::int";
@@ -311,24 +237,12 @@ mod tests {
             source.into(),
             RunTarget::All,
             DatabaseKind::Postgres,
-            vec![ParamValue {
-                name: "$1".into(),
-                value: Some("7".into()),
-            }],
+            vec![ParamValue { name: "$1".into(), value: Some("7".into()) }],
         )
         .unwrap();
-        assert_eq!(
-            bound.spans[0].text(&bound.text),
-            "PREPARE q(int) AS SELECT $1"
-        );
+        assert_eq!(bound.spans[0].text(&bound.text), "PREPARE q(int) AS SELECT $1");
         assert_eq!(bound.spans[1].text(&bound.text), "SELECT E'7'::int");
-        assert_eq!(
-            names(
-                "PREPARE q(int) AS SELECT $1 + :extra::int",
-                DatabaseKind::Postgres
-            ),
-            [":extra"]
-        );
+        assert_eq!(names("PREPARE q(int) AS SELECT $1 + :extra::int", DatabaseKind::Postgres), [":extra"]);
     }
 
     #[test]
@@ -348,21 +262,12 @@ mod tests {
             RunTarget::All,
             DatabaseKind::Postgres,
             vec![
-                ParamValue {
-                    name: ":x".into(),
-                    value: Some("a'\\b".into()),
-                },
-                ParamValue {
-                    name: "$1".into(),
-                    value: None,
-                },
+                ParamValue { name: ":x".into(), value: Some("a'\\b".into()) },
+                ParamValue { name: "$1".into(), value: None },
             ],
         )
         .unwrap();
-        assert_eq!(
-            result.spans[1].text(&result.text),
-            "select E'a''\\\\b', E'a''\\\\b', NULL"
-        );
+        assert_eq!(result.spans[1].text(&result.text), "select E'a''\\\\b', E'a''\\\\b', NULL");
         assert_eq!(result.ranges[1].from.0, 13);
         assert_eq!(result.changed, [false, true]);
     }
@@ -414,34 +319,11 @@ SELECT @a",
     fn exact_coverage_is_required() {
         for values in [
             vec![],
-            vec![ParamValue {
-                name: ":y".into(),
-                value: None,
-            }],
-            vec![
-                ParamValue {
-                    name: ":x".into(),
-                    value: None,
-                },
-                ParamValue {
-                    name: ":x".into(),
-                    value: None,
-                },
-            ],
-            vec![ParamValue {
-                name: ":x".into(),
-                value: Some("\0".into()),
-            }],
+            vec![ParamValue { name: ":y".into(), value: None }],
+            vec![ParamValue { name: ":x".into(), value: None }, ParamValue { name: ":x".into(), value: None }],
+            vec![ParamValue { name: ":x".into(), value: Some("\0".into()) }],
         ] {
-            assert!(
-                bind(
-                    "select :x".into(),
-                    RunTarget::All,
-                    DatabaseKind::Postgres,
-                    values
-                )
-                .is_err()
-            );
+            assert!(bind("select :x".into(), RunTarget::All, DatabaseKind::Postgres, values).is_err());
         }
     }
     #[test]
@@ -449,10 +331,7 @@ SELECT @a",
         assert_eq!(
             discover(
                 "select :a; select :b",
-                RunTarget::Selection {
-                    from: crate::model::DocOffset(11),
-                    to: crate::model::DocOffset(20)
-                },
+                RunTarget::Selection { from: crate::model::DocOffset(11), to: crate::model::DocOffset(20) },
                 DatabaseKind::Postgres
             )
             .unwrap(),

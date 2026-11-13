@@ -48,7 +48,9 @@ pub enum QueryEvent {
     Prepared,
     Columns(Vec<ColumnMeta>),
     Row(Vec<Option<String>>),
-    Complete { affected_rows: Option<u64> },
+    Complete {
+        affected_rows: Option<u64>,
+    },
     Notice(OutputBody),
     ServerError(QueryError),
     /// The server ran the statement to its end. The `Err` that follows is a failure to read the
@@ -58,7 +60,15 @@ pub enum QueryEvent {
 pub type QueryStream<'a> = Pin<Box<dyn Stream<Item = Result<QueryEvent, QueryError>> + Send + 'a>>;
 
 pub fn error(message: impl Into<String>) -> QueryError {
-    QueryError { severity: "ERROR".into(), sqlstate: None, message: message.into(), detail: None, hint: None, context: None, position: None }
+    QueryError {
+        severity: "ERROR".into(),
+        sqlstate: None,
+        message: message.into(),
+        detail: None,
+        hint: None,
+        context: None,
+        position: None,
+    }
 }
 
 pub fn parse_postgres_url(url: &str, name: &str) -> Result<ConnectionDraft, String> {
@@ -67,10 +77,23 @@ pub fn parse_postgres_url(url: &str, name: &str) -> Result<ConnectionDraft, Stri
 
 impl Session {
     pub async fn import_target(&mut self, target: &ImportTarget) -> Result<ImportTargetShape, QueryError> {
-        match &mut self.driver { Driver::SqlServer(s) => s.import_target(target).await, _ => unreachable!() }
+        match &mut self.driver {
+            Driver::SqlServer(s) => s.import_target(target).await,
+            _ => unreachable!(),
+        }
     }
-    pub async fn import_rows(&mut self, plan: &InsertPlan, chunks: tokio::sync::mpsc::Receiver<Result<ImportRows, ImportError>>, producer: tokio::task::JoinHandle<Result<(), ImportError>>, stop: &std::sync::Arc<std::sync::atomic::AtomicBool>, progress: watch::Sender<(u64, u64)>) -> Result<u64, ImportError> {
-        match &mut self.driver { Driver::SqlServer(s) => s.import_rows(plan, chunks, producer, stop, progress).await, _ => unreachable!() }
+    pub async fn import_rows(
+        &mut self,
+        plan: &InsertPlan,
+        chunks: tokio::sync::mpsc::Receiver<Result<ImportRows, ImportError>>,
+        producer: tokio::task::JoinHandle<Result<(), ImportError>>,
+        stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+        progress: watch::Sender<(u64, u64)>,
+    ) -> Result<u64, ImportError> {
+        match &mut self.driver {
+            Driver::SqlServer(s) => s.import_rows(plan, chunks, producer, stop, progress).await,
+            _ => unreachable!(),
+        }
     }
     pub fn database_kind(&self) -> DatabaseKind {
         match &self.driver {
@@ -83,11 +106,19 @@ impl Session {
         match p.database_kind {
             DatabaseKind::Postgres => {
                 let driver = postgres::PgSession::open(p, schema, timezone).await?;
-                Ok(Self { backend_pid: driver.backend_pid, server: driver.server.clone(), driver: Driver::Postgres(driver) })
+                Ok(Self {
+                    backend_pid: driver.backend_pid,
+                    server: driver.server.clone(),
+                    driver: Driver::Postgres(driver),
+                })
             }
             DatabaseKind::SqlServer => {
                 let driver = mssql::MsSession::open(p).await?;
-                Ok(Self { backend_pid: driver.backend_pid, server: driver.server.clone(), driver: Driver::SqlServer(driver) })
+                Ok(Self {
+                    backend_pid: driver.backend_pid,
+                    server: driver.server.clone(),
+                    driver: Driver::SqlServer(driver),
+                })
             }
         }
     }
@@ -97,17 +128,26 @@ impl Session {
             DatabaseKind::Postgres => Self::open(p, None, timezone).await,
             DatabaseKind::SqlServer => {
                 let driver = mssql::MsSession::open_metadata(p).await?;
-                Ok(Self { backend_pid: driver.backend_pid, server: driver.server.clone(), driver: Driver::SqlServer(driver) })
+                Ok(Self {
+                    backend_pid: driver.backend_pid,
+                    server: driver.server.clone(),
+                    driver: Driver::SqlServer(driver),
+                })
             }
         }
     }
 
     pub async fn open_assistant(p: &ConnectParams, timezone: &str) -> Result<Self, ConnectError> {
         if p.database_kind != DatabaseKind::Postgres {
-            return Err(ConnectError::Server(error("SQL Server model queries are disabled because server-enforced read-only transactions are unavailable.")));
+            return Err(ConnectError::Server(error(
+                "SQL Server model queries are disabled because server-enforced read-only transactions are unavailable.",
+            )));
         }
         let mut session = Self::open(p, None, timezone).await?;
-        session.batch("SET application_name = 'L1 Data assistant'; SET default_transaction_read_only = on").await.map_err(ConnectError::Server)?;
+        session
+            .batch("SET application_name = 'L1 Data assistant'; SET default_transaction_read_only = on")
+            .await
+            .map_err(ConnectError::Server)?;
         Ok(session)
     }
 
@@ -187,7 +227,14 @@ impl Session {
             Driver::SqlServer(s) => s.batch(sql).await,
         }
     }
-    pub async fn import_csv(&mut self, sql: &str, chunks: tokio::sync::mpsc::Receiver<Result<CopyChunk, ImportError>>, stop: &std::sync::atomic::AtomicBool, progress: watch::Sender<(u64, u64)>, notice: impl FnMut(OutputBody) + Send) -> Result<u64, ImportError> {
+    pub async fn import_csv(
+        &mut self,
+        sql: &str,
+        chunks: tokio::sync::mpsc::Receiver<Result<CopyChunk, ImportError>>,
+        stop: &std::sync::atomic::AtomicBool,
+        progress: watch::Sender<(u64, u64)>,
+        notice: impl FnMut(OutputBody) + Send,
+    ) -> Result<u64, ImportError> {
         match &mut self.driver {
             Driver::Postgres(p) => p.import_csv(sql, chunks, stop, progress, notice).await,
             Driver::SqlServer(_) => Err(ImportError::Unsupported),
@@ -211,7 +258,11 @@ impl Session {
             Driver::SqlServer(s) => {
                 let (databases, _) = s.list_databases().await?;
                 let rows = s.rows("SELECT DB_NAME()").await?;
-                let home = rows.first().and_then(|row| row.first()).and_then(Clone::clone).ok_or_else(|| error("SQL Server returned no database name"))?;
+                let home = rows
+                    .first()
+                    .and_then(|row| row.first())
+                    .and_then(Clone::clone)
+                    .ok_or_else(|| error("SQL Server returned no database name"))?;
                 Ok((databases, home))
             }
         }
@@ -228,13 +279,22 @@ impl Session {
             Driver::SqlServer(s) => s.catalog(db, version, extra).await,
         }
     }
-    pub async fn map_neighborhood(&mut self, oid: u32, after: u32) -> Result<Option<crate::database_map::Neighborhood>, QueryError> {
+    pub async fn map_neighborhood(
+        &mut self,
+        oid: u32,
+        after: u32,
+    ) -> Result<Option<crate::database_map::Neighborhood>, QueryError> {
         match &mut self.driver {
             Driver::Postgres(p) => p.map_neighborhood(oid, after).await,
             Driver::SqlServer(s) => s.map_neighborhood(oid, after).await,
         }
     }
-    pub async fn detail(&mut self, db: DatabaseRef, oid: u32, version: u64) -> Result<Option<RelationDetail>, QueryError> {
+    pub async fn detail(
+        &mut self,
+        db: DatabaseRef,
+        oid: u32,
+        version: u64,
+    ) -> Result<Option<RelationDetail>, QueryError> {
         match &mut self.driver {
             Driver::Postgres(p) => p.detail(db, oid, version).await,
             Driver::SqlServer(s) => s.detail(db, oid, version).await,
@@ -276,7 +336,10 @@ pub fn plan_edits(changes: &TableChanges, relation: &Relation) -> Result<Vec<Edi
         let mut names = std::collections::HashSet::new();
         for cell in cells {
             if !names.insert(&cell.column) || !relation.columns.iter().any(|c| c.name == cell.column && c.writable) {
-                return Err(ApplyError::Failed { change, error: error(format!("Column {} is unknown, repeated, or server-owned", cell.column)) });
+                return Err(ApplyError::Failed {
+                    change,
+                    error: error(format!("Column {} is unknown, repeated, or server-owned", cell.column)),
+                });
             }
         }
         Ok(())
@@ -328,7 +391,11 @@ mod tests {
                     let source = std::fs::read_to_string(&path).unwrap();
                     let production = source.split("#[cfg(test)]").next().unwrap();
                     for native in ["tokio_postgres::", "tiberius::"] {
-                        assert!(!production.contains(native), "{} names {native}; put native types in a private session driver", path.display());
+                        assert!(
+                            !production.contains(native),
+                            "{} names {native}; put native types in a private session driver",
+                            path.display()
+                        );
                     }
                 }
             }

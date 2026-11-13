@@ -30,35 +30,22 @@ impl Harness {
         })
         .await
         .unwrap();
-        let url = std::env::var("L1_DATA_TEST_PG")
-            .unwrap_or_else(|_| "postgres://l1data:l1data@localhost:5433/shop".into());
-        let editor = engine
-            .save_connection(draft_from_url(&url, "key identity editor").unwrap())
-            .await
-            .unwrap();
-        let other = engine
-            .save_connection(draft_from_url(&url, "key identity observer").unwrap())
-            .await
-            .unwrap();
+        let url =
+            std::env::var("L1_DATA_TEST_PG").unwrap_or_else(|_| "postgres://l1data:l1data@localhost:5433/shop".into());
+        let editor = engine.save_connection(draft_from_url(&url, "key identity editor").unwrap()).await.unwrap();
+        let other = engine.save_connection(draft_from_url(&url, "key identity observer").unwrap()).await.unwrap();
         engine.connect(editor.id).await.unwrap();
         engine.connect(other.id).await.unwrap();
         let h = Self {
             engine,
-            db: DatabaseRef {
-                connection_id: editor.id,
-                database: editor.database.clone(),
-            },
+            db: DatabaseRef { connection_id: editor.id, database: editor.database.clone() },
             editor: TabId(uuid::Uuid::new_v4()),
             ddl: TabId(uuid::Uuid::new_v4()),
             observer: TabId(uuid::Uuid::new_v4()),
             schema: format!("l1_key_identity_{}", uuid::Uuid::new_v4().simple()),
             _dir: dir,
         };
-        for (tab, connection_id) in [
-            (h.editor, editor.id),
-            (h.ddl, other.id),
-            (h.observer, other.id),
-        ] {
+        for (tab, connection_id) in [(h.editor, editor.id), (h.ddl, other.id), (h.observer, other.id)] {
             h.engine
                 .console_configure(
                     tab,
@@ -88,13 +75,13 @@ impl Harness {
                     return state;
                 }
             }
-        }).await.expect("PostgreSQL key identity run did not finish")
+        })
+        .await
+        .expect("PostgreSQL key identity run did not finish")
     }
 
     fn result(state: &ConsoleState) -> &ResultMeta {
-        let RunState::Finished { statements, .. } = &state.run else {
-            panic!("run not finished")
-        };
+        let RunState::Finished { statements, .. } = &state.run else { panic!("run not finished") };
         statements
             .iter()
             .flat_map(|s| &s.outputs)
@@ -110,7 +97,9 @@ impl Harness {
             tab,
             RunRequest::Script {
                 text: text.into(),
-                target: RunTarget::All, mode: RunMode::Run, params: Vec::new(),
+                target: RunTarget::All,
+                mode: RunMode::Run,
+                params: Vec::new(),
                 cells: Vec::new(),
             },
         )
@@ -118,10 +107,7 @@ impl Harness {
     }
 
     fn rows(&self, state: &ConsoleState) -> Vec<Vec<Option<String>>> {
-        self.engine
-            .result_page(Self::result(state).r#ref, 0, 10)
-            .unwrap()
-            .rows
+        self.engine.result_page(Self::result(state).r#ref, 0, 10).unwrap().rows
     }
 
     async fn cleanup(&self) {
@@ -151,11 +137,7 @@ impl Harness {
                 ),
             )
             .await;
-        assert_eq!(
-            self.rows(&state),
-            vec![vec![None]],
-            "disposable schema was removed"
-        );
+        assert_eq!(self.rows(&state), vec![vec![None]], "disposable schema was removed");
         self.engine.shutdown().await;
         eprintln!("key identity cleanup verified");
     }

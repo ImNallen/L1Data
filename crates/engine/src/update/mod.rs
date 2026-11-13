@@ -7,7 +7,10 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::console::now_ms;
-use crate::model::{AppEvent, ConsoleWork, InstallReply, RestartImpact, UpdateError, UpdateFailure, UpdateState, UpdateTrack, UpdatesOff};
+use crate::model::{
+    AppEvent, ConsoleWork, InstallReply, RestartImpact, UpdateError, UpdateFailure, UpdateState, UpdateTrack,
+    UpdatesOff,
+};
 use crate::store::Store;
 use crate::{BoxFuture, Shared};
 
@@ -112,8 +115,16 @@ impl Shared {
     fn run_check(self: &Arc<Self>, check: machine::Check) {
         let shared = self.clone();
         self.spawn(async move {
-            let fetched = tokio::time::timeout(CHECK_TIMEOUT, shared.updates.transport.fetch(check.feed)).await.unwrap_or(Err(UpdateFailure::Offline));
-            let fetched = fetched.map(|found| found.map(|release| machine::Found { version: release.version().to_owned(), changes: machine::feed_changes(release.feed()), release }));
+            let fetched = tokio::time::timeout(CHECK_TIMEOUT, shared.updates.transport.fetch(check.feed))
+                .await
+                .unwrap_or(Err(UpdateFailure::Offline));
+            let fetched = fetched.map(|found| {
+                found.map(|release| machine::Found {
+                    version: release.version().to_owned(),
+                    changes: machine::feed_changes(release.feed()),
+                    release,
+                })
+            });
             shared.edit_update(|m| m.finish_check(check.ticket, fetched, now_ms()));
         });
     }
@@ -121,16 +132,23 @@ impl Shared {
     pub(crate) fn update_download(self: &Arc<Self>, version: &str) -> Result<(), UpdateError> {
         let Some(release) = self.edit_update(|m| m.begin_download(version))? else { return Ok(()) };
         let shared = self.clone();
-        let progress: Progress = Box::new(move |received, total| shared.edit_update(|m| m.progress(machine::percent(received, total))));
+        let progress: Progress =
+            Box::new(move |received, total| shared.edit_update(|m| m.progress(machine::percent(received, total))));
         let shared = self.clone();
         self.spawn(async move {
-            let verified = tokio::time::timeout(DOWNLOAD_TIMEOUT, release.download(progress)).await.unwrap_or(Err(UpdateFailure::Offline));
+            let verified = tokio::time::timeout(DOWNLOAD_TIMEOUT, release.download(progress))
+                .await
+                .unwrap_or(Err(UpdateFailure::Offline));
             shared.edit_update(|m| m.finish_download(verified, now_ms()));
         });
         Ok(())
     }
 
-    pub(crate) async fn update_install(self: &Arc<Self>, version: &str, accepted: Option<RestartImpact>) -> Result<InstallReply, UpdateError> {
+    pub(crate) async fn update_install(
+        self: &Arc<Self>,
+        version: &str,
+        accepted: Option<RestartImpact>,
+    ) -> Result<InstallReply, UpdateError> {
         if self.updates.machine.lock().unwrap().installing(version)? {
             return Ok(InstallReply::Restarting);
         }
@@ -138,7 +156,9 @@ impl Shared {
         if !accepted.is_some_and(|a| machine::covers(&a, &impact)) {
             return Ok(InstallReply::Confirm { impact });
         }
-        let Some(verified) = self.edit_update(|m| m.begin_install(version))? else { return Ok(InstallReply::Restarting) };
+        let Some(verified) = self.edit_update(|m| m.begin_install(version))? else {
+            return Ok(InstallReply::Restarting);
+        };
         let shared = self.clone();
         self.spawn(async move {
             // Before install, because Windows exits inside it without running the shell's exit
@@ -181,7 +201,12 @@ impl Shared {
     async fn restart_impact(self: &Arc<Self>) -> RestartImpact {
         let mut transactions = self.open_transactions(&self.all_consoles()).await;
         transactions.sort_by_key(|t| t.tab_id.0);
-        let mut running: Vec<_> = self.all_consoles().iter().filter(|c| c.latest.lock().unwrap().work.is_some_and(|w| w != ConsoleWork::Probe)).map(|c| c.tab).collect();
+        let mut running: Vec<_> = self
+            .all_consoles()
+            .iter()
+            .filter(|c| c.latest.lock().unwrap().work.is_some_and(|w| w != ConsoleWork::Probe))
+            .map(|c| c.tab)
+            .collect();
         running.sort_by_key(|t| t.0);
         let mut chats = self.assistant.running_chats();
         chats.sort_by_key(|c| c.0);

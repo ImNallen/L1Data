@@ -71,8 +71,13 @@ fn kind_of(column: &str) -> Option<DatabaseKind> {
 fn readable(r: &Row<'_>) -> Option<SavedQuery> {
     let read = || -> rusqlite::Result<SavedQuery> {
         let kind: String = r.get(3)?;
-        let database_kind = kind_of(&kind)
-            .ok_or_else(|| rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, format!("unknown database kind {kind:?}").into()))?;
+        let database_kind = kind_of(&kind).ok_or_else(|| {
+            rusqlite::Error::FromSqlConversionFailure(
+                3,
+                rusqlite::types::Type::Text,
+                format!("unknown database kind {kind:?}").into(),
+            )
+        })?;
         let sql: String = r.get(2)?;
         Ok(SavedQuery {
             id: SavedQueryId(r.get(0)?),
@@ -84,11 +89,17 @@ fn readable(r: &Row<'_>) -> Option<SavedQuery> {
             used_at_ms: r.get(5)?,
         })
     };
-    read().map_err(|e| eprintln!("saved query {} unreadable, left out of the list: {e}", r.get::<_, i64>(0).unwrap_or_default())).ok()
+    read()
+        .map_err(|e| {
+            eprintln!("saved query {} unreadable, left out of the list: {e}", r.get::<_, i64>(0).unwrap_or_default())
+        })
+        .ok()
 }
 
 fn list(conn: &Connection, rev: u64) -> rusqlite::Result<SavedQueries> {
-    let mut stmt = conn.prepare("SELECT id, name, sql, database_kind, created_ms, used_ms FROM saved_queries ORDER BY used_ms DESC, id DESC")?;
+    let mut stmt = conn.prepare(
+        "SELECT id, name, sql, database_kind, created_ms, used_ms FROM saved_queries ORDER BY used_ms DESC, id DESC",
+    )?;
     let rows = stmt.query_map([], |r| Ok(readable(r)))?;
     let mut items = Vec::new();
     for item in rows {
@@ -101,7 +112,10 @@ pub(crate) fn snapshot(store: &Store) -> rusqlite::Result<SavedQueries> {
     store.with_saved(|conn, revision| list(conn, *revision))
 }
 
-fn write_and_announce<T>(shared: &Shared, f: impl FnOnce(&Connection) -> Result<T, SavedQueryError>) -> Result<(T, SavedQueries), SavedQueryError> {
+fn write_and_announce<T>(
+    shared: &Shared,
+    f: impl FnOnce(&Connection) -> Result<T, SavedQueryError>,
+) -> Result<(T, SavedQueries), SavedQueryError> {
     let (out, queries, changed) = shared.store.with_saved(|conn, revision| {
         let before = conn.total_changes();
         let tx = conn.unchecked_transaction()?;
@@ -119,11 +133,20 @@ fn write_and_announce<T>(shared: &Shared, f: impl FnOnce(&Connection) -> Result<
     Ok((out, queries))
 }
 
-pub(crate) fn save(shared: &Shared, text: &str, target: RunTarget, kind: DatabaseKind) -> Result<SaveQueryReply, SavedQueryError> {
+pub(crate) fn save(
+    shared: &Shared,
+    text: &str,
+    target: RunTarget,
+    kind: DatabaseKind,
+) -> Result<SaveQueryReply, SavedQueryError> {
     let sql = text_to_save(text, target, kind)?;
     let ((id, already_saved), queries) = write_and_announce(shared, |c| {
         let existing = c
-            .query_row("SELECT id FROM saved_queries WHERE database_kind = ?1 AND sql = ?2 ORDER BY id LIMIT 1", params![kind_column(kind), sql], |r| r.get(0))
+            .query_row(
+                "SELECT id FROM saved_queries WHERE database_kind = ?1 AND sql = ?2 ORDER BY id LIMIT 1",
+                params![kind_column(kind), sql],
+                |r| r.get(0),
+            )
             .optional()?;
         if let Some(id) = existing {
             return Ok((SavedQueryId(id), true));
@@ -140,7 +163,10 @@ pub(crate) fn save(shared: &Shared, text: &str, target: RunTarget, kind: Databas
 pub(crate) fn update(shared: &Shared, id: SavedQueryId, edit: SavedQueryEdit) -> Result<SavedQueries, SavedQueryError> {
     let sql = checked(edit.sql.trim())?;
     let ((), queries) = write_and_announce(shared, |c| {
-        let updated = c.execute("UPDATE saved_queries SET name = ?1, sql = ?2 WHERE id = ?3", params![name_for(&edit.name, sql), sql, id.0])?;
+        let updated = c.execute(
+            "UPDATE saved_queries SET name = ?1, sql = ?2 WHERE id = ?3",
+            params![name_for(&edit.name, sql), sql, id.0],
+        )?;
         if updated == 0 { Err(SavedQueryError::NotFound) } else { Ok(()) }
     })?;
     Ok(queries)
@@ -229,8 +255,14 @@ mod tests {
     #[test]
     fn a_selection_is_saved_as_selected_and_a_cursor_takes_the_statement_run_would() {
         let text = "select 1;\nselect 2 from t;\n";
-        assert_eq!(text_to_save(text, RunTarget::Selection { from: DocOffset(10), to: DocOffset(18) }, PG).unwrap(), "select 2");
-        assert_eq!(text_to_save(text, RunTarget::Selection { from: DocOffset(9), to: DocOffset(27) }, PG).unwrap(), "select 2 from t;");
+        assert_eq!(
+            text_to_save(text, RunTarget::Selection { from: DocOffset(10), to: DocOffset(18) }, PG).unwrap(),
+            "select 2"
+        );
+        assert_eq!(
+            text_to_save(text, RunTarget::Selection { from: DocOffset(9), to: DocOffset(27) }, PG).unwrap(),
+            "select 2 from t;"
+        );
         assert_eq!(text_to_save(text, cursor(12), PG).unwrap(), "select 2 from t;");
         assert_eq!(text_to_save("select 1 ;\nselect 2", cursor(2), PG).unwrap(), "select 1 ;");
         assert_eq!(text_to_save("  select 1;\n\nselect 2  \n", RunTarget::All, PG).unwrap(), "select 1;\n\nselect 2");
@@ -253,18 +285,30 @@ mod tests {
 
     #[test]
     fn blank_and_oversized_text_is_refused() {
-        assert_eq!(text_to_save("select 1;\n   \nselect 2;", RunTarget::Selection { from: DocOffset(10), to: DocOffset(13) }, PG), Err(SavedQueryError::NothingToSave));
+        assert_eq!(
+            text_to_save(
+                "select 1;\n   \nselect 2;",
+                RunTarget::Selection { from: DocOffset(10), to: DocOffset(13) },
+                PG
+            ),
+            Err(SavedQueryError::NothingToSave)
+        );
         assert_eq!(text_to_save("select 1;\n\n\nselect 2;", cursor(11), PG), Err(SavedQueryError::NothingToSave));
         assert_eq!(text_to_save(" \n ", RunTarget::All, PG), Err(SavedQueryError::NothingToSave));
         let at_limit = format!("select '{}'", "x".repeat(SQL_LIMIT_BYTES - 9));
         assert_eq!(text_to_save(&at_limit, RunTarget::All, PG).unwrap().len(), SQL_LIMIT_BYTES);
-        assert_eq!(text_to_save(&format!("{at_limit} x"), RunTarget::All, PG), Err(SavedQueryError::TooLong { limit_bytes: 65_536 }));
+        assert_eq!(
+            text_to_save(&format!("{at_limit} x"), RunTarget::All, PG),
+            Err(SavedQueryError::TooLong { limit_bytes: 65_536 })
+        );
     }
 
     #[tokio::test]
     async fn a_new_query_is_named_by_its_leading_comment_else_its_first_characters() {
         let (engine, _dir) = engine().await;
-        let commented = engine.saved_query_save("-- Active sessions\nselect pid from pg_stat_activity;\n\nselect 2;", cursor(25), PG).unwrap();
+        let commented = engine
+            .saved_query_save("-- Active sessions\nselect pid from pg_stat_activity;\n\nselect 2;", cursor(25), PG)
+            .unwrap();
         assert_eq!(commented.queries.items[0].name, "Active sessions");
         assert_eq!(commented.queries.items[0].excerpt, "select pid from pg_stat_activity;");
         let plain = save_all(&engine, &format!("select '{}'", "a".repeat(100)));
@@ -276,14 +320,31 @@ mod tests {
     async fn an_edit_renames_and_rewrites_and_a_blank_name_falls_back_to_the_sql() {
         let (engine, _dir) = engine().await;
         let id = save_all(&engine, "select 1").id;
-        let renamed = engine.saved_query_update(id, SavedQueryEdit { name: "  Top\n customers ".into(), sql: "  select * from customers  ".into() }).unwrap();
-        assert_eq!((renamed.items[0].name.as_str(), renamed.items[0].sql.as_str()), ("Top customers", "select * from customers"));
-        let fallback = engine.saved_query_update(id, SavedQueryEdit { name: " ".into(), sql: "-- Revenue\nselect 42".into() }).unwrap();
+        let renamed = engine
+            .saved_query_update(
+                id,
+                SavedQueryEdit { name: "  Top\n customers ".into(), sql: "  select * from customers  ".into() },
+            )
+            .unwrap();
+        assert_eq!(
+            (renamed.items[0].name.as_str(), renamed.items[0].sql.as_str()),
+            ("Top customers", "select * from customers")
+        );
+        let fallback = engine
+            .saved_query_update(id, SavedQueryEdit { name: " ".into(), sql: "-- Revenue\nselect 42".into() })
+            .unwrap();
         assert_eq!(fallback.items[0].name, "Revenue");
-        let capped = engine.saved_query_update(id, SavedQueryEdit { name: "n".repeat(300), sql: "select 1".into() }).unwrap();
+        let capped =
+            engine.saved_query_update(id, SavedQueryEdit { name: "n".repeat(300), sql: "select 1".into() }).unwrap();
         assert_eq!(capped.items[0].name.chars().count(), 200);
-        assert_eq!(engine.saved_query_update(id, SavedQueryEdit { name: "x".into(), sql: " \n".into() }), Err(SavedQueryError::NothingToSave));
-        assert_eq!(engine.saved_query_update(SavedQueryId(999), SavedQueryEdit { name: "x".into(), sql: "select 1".into() }), Err(SavedQueryError::NotFound));
+        assert_eq!(
+            engine.saved_query_update(id, SavedQueryEdit { name: "x".into(), sql: " \n".into() }),
+            Err(SavedQueryError::NothingToSave)
+        );
+        assert_eq!(
+            engine.saved_query_update(SavedQueryId(999), SavedQueryEdit { name: "x".into(), sql: "select 1".into() }),
+            Err(SavedQueryError::NotFound)
+        );
     }
 
     #[tokio::test]
@@ -294,7 +355,9 @@ mod tests {
         assert_eq!(names(&engine.boot().saved_queries), ["second", "first"]);
         std::thread::sleep(std::time::Duration::from_millis(2));
         assert_eq!(names(&engine.saved_query_used(first).unwrap()), ["first", "second"]);
-        let edited = engine.saved_query_update(second, SavedQueryEdit { name: "second, edited".into(), sql: "select 2".into() }).unwrap();
+        let edited = engine
+            .saved_query_update(second, SavedQueryEdit { name: "second, edited".into(), sql: "select 2".into() })
+            .unwrap();
         assert_eq!(names(&edited), ["first", "second, edited"]);
     }
 
@@ -308,12 +371,21 @@ mod tests {
         let saved = save_all(&engine, "select 1");
         let again = save_all(&engine, "select 1");
         let used = engine.saved_query_used(saved.id).unwrap();
-        let edited = engine.saved_query_update(saved.id, SavedQueryEdit { name: "one".into(), sql: "select 1".into() }).unwrap();
+        let edited =
+            engine.saved_query_update(saved.id, SavedQueryEdit { name: "one".into(), sql: "select 1".into() }).unwrap();
         let used_missing = engine.saved_query_used(SavedQueryId(999)).unwrap();
         let deleted = engine.saved_query_delete(saved.id).unwrap();
         let deleted_again = engine.saved_query_delete(saved.id).unwrap();
 
-        let revs = [saved.queries.rev, again.queries.rev, used.rev, edited.rev, used_missing.rev, deleted.rev, deleted_again.rev];
+        let revs = [
+            saved.queries.rev,
+            again.queries.rev,
+            used.rev,
+            edited.rev,
+            used_missing.rev,
+            deleted.rev,
+            deleted_again.rev,
+        ];
         assert_eq!(revs, [2, 2, 3, 4, 4, 5, 5]);
         assert_eq!(announced(&mut events), [2, 3, 4, 5]);
         assert!(deleted_again.items.is_empty());
@@ -342,7 +414,10 @@ mod tests {
     #[tokio::test]
     async fn a_row_with_a_kind_this_build_cannot_read_is_left_out_and_never_written() {
         let (engine, _dir) = engine().await;
-        raw(&engine, "INSERT INTO saved_queries (name, sql, database_kind, created_ms, used_ms) VALUES ('newer', 'select 1', 'MySql', 1, 9999999999999)");
+        raw(
+            &engine,
+            "INSERT INTO saved_queries (name, sql, database_kind, created_ms, used_ms) VALUES ('newer', 'select 1', 'MySql', 1, 9999999999999)",
+        );
         let saved = save_all(&engine, "select 1");
         assert_eq!(names(&saved.queries), ["select 1"]);
         engine.saved_query_update(saved.id, SavedQueryEdit { name: "mine".into(), sql: "select 2".into() }).unwrap();
@@ -351,7 +426,13 @@ mod tests {
         assert!(engine.boot().saved_queries.items.is_empty());
         let newer = engine.shared.store.with_saved(|c, _| {
             c.query_row("SELECT name, sql, database_kind, created_ms, used_ms FROM saved_queries", [], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, i64>(3)?, r.get::<_, i64>(4)?))
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, i64>(4)?,
+                ))
             })
         });
         assert_eq!(newer.unwrap(), ("newer".into(), "select 1".into(), "MySql".into(), 1, 9_999_999_999_999));
@@ -368,7 +449,9 @@ mod tests {
         engine.saved_query_used(first).unwrap();
         let left = engine.saved_query_delete(second).unwrap();
         assert_eq!(names(&left), ["renamed"]);
-        let folder = engine.shared.store.with_saved(|c, _| c.query_row("SELECT folder FROM saved_queries WHERE id = ?1", [first.0], |r| r.get::<_, String>(0)));
+        let folder = engine.shared.store.with_saved(|c, _| {
+            c.query_row("SELECT folder FROM saved_queries WHERE id = ?1", [first.0], |r| r.get::<_, String>(0))
+        });
         assert_eq!(folder.unwrap(), "work");
     }
 }

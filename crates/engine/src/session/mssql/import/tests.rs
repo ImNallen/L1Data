@@ -3,7 +3,12 @@ use super::*;
 async fn plan(session: &mut MsSession, table: &str) -> InsertPlan {
     session.batch(&format!("CREATE TABLE dbo.[{table}](n int)")).await.unwrap();
     let oid = session.count(&format!("SELECT CAST(OBJECT_ID(N'dbo.{table}') AS bigint)")).await.unwrap() as u32;
-    let target = ImportTarget { db: DatabaseRef { connection_id: ConnectionId(uuid::Uuid::new_v4()), database: "shop".into() }, schema: "dbo".into(), table: table.into(), oid };
+    let target = ImportTarget {
+        db: DatabaseRef { connection_id: ConnectionId(uuid::Uuid::new_v4()), database: "shop".into() },
+        schema: "dbo".into(),
+        table: table.into(),
+        oid,
+    };
     let shape = session.import_target(&target).await.unwrap();
     InsertPlan::new(target, shape, &["n"]).unwrap()
 }
@@ -11,7 +16,14 @@ async fn plan(session: &mut MsSession, table: &str) -> InsertPlan {
 async fn wait_for_waitfor(observer: &mut MsSession, pid: i32) {
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            if observer.count(&format!("SELECT COUNT_BIG(*) FROM sys.dm_exec_requests WHERE session_id={pid} AND wait_type='WAITFOR'")).await.unwrap() == 1 {
+            if observer
+                .count(&format!(
+                    "SELECT COUNT_BIG(*) FROM sys.dm_exec_requests WHERE session_id={pid} AND wait_type='WAITFOR'"
+                ))
+                .await
+                .unwrap()
+                == 1
+            {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -36,7 +48,9 @@ async fn commit_loss_is_unknown_but_restore_loss_keeps_the_acknowledged_commit()
         let pid = session.backend_pid;
         let (tx, rx) = mpsc::channel(4);
         let producer = tokio::spawn(async move {
-            tx.send(Ok(ImportRows { rows: vec![vec![Some("42".into())]], bytes: 2, records: 1, first_record: 1 })).await.unwrap();
+            tx.send(Ok(ImportRows { rows: vec![vec![Some("42".into())]], bytes: 2, records: 1, first_record: 1 }))
+                .await
+                .unwrap();
             Ok(())
         });
         let stop = Arc::new(AtomicBool::new(false));
@@ -69,7 +83,9 @@ async fn acknowledged_commit_wins_stop_after_commit_started() {
     let pid = session.backend_pid;
     let (tx, rx) = mpsc::channel(4);
     let producer = tokio::spawn(async move {
-        tx.send(Ok(ImportRows { rows: vec![vec![Some("42".into())]], bytes: 2, records: 1, first_record: 1 })).await.unwrap();
+        tx.send(Ok(ImportRows { rows: vec![vec![Some("42".into())]], bytes: 2, records: 1, first_record: 1 }))
+            .await
+            .unwrap();
         Ok(())
     });
     let stop = Arc::new(AtomicBool::new(false));
@@ -92,7 +108,9 @@ async fn ordinary_user_import_observes_transaction_identity_without_server_state
     session.batch(&format!("CREATE USER [{user}] WITHOUT LOGIN; GRANT SELECT, INSERT ON dbo.[{table}] TO [{user}]; GRANT VIEW DEFINITION, VIEW SECURITY DEFINITION TO [{user}]; GRANT SELECT ON sys.sql_expression_dependencies TO [{user}]; EXECUTE AS USER='{user}'")).await.unwrap();
     let (tx, rx) = mpsc::channel(4);
     let producer = tokio::spawn(async move {
-        tx.send(Ok(ImportRows { rows: vec![vec![Some("42".into())]], bytes: 2, records: 1, first_record: 1 })).await.unwrap();
+        tx.send(Ok(ImportRows { rows: vec![vec![Some("42".into())]], bytes: 2, records: 1, first_record: 1 }))
+            .await
+            .unwrap();
         Ok(())
     });
     let stop = Arc::new(AtomicBool::new(false));

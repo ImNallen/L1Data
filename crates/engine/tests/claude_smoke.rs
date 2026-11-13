@@ -20,7 +20,8 @@ impl Smoke {
     async fn wait_entry(&mut self, chat: ChatId, what: &str, pick: impl Fn(&Entry) -> bool) -> Entry {
         let started = Instant::now();
         loop {
-            let remaining = WAIT.checked_sub(started.elapsed()).unwrap_or_else(|| panic!("timed out waiting for {what}"));
+            let remaining =
+                WAIT.checked_sub(started.elapsed()).unwrap_or_else(|| panic!("timed out waiting for {what}"));
             match tokio::time::timeout(remaining, self.events.recv()).await {
                 Ok(Ok(AppEvent::ChatEntryChanged(s))) if s.chat_id == chat && pick(&s.entry) => return s.entry,
                 Ok(Ok(_)) | Ok(Err(broadcast::error::RecvError::Lagged(_))) => {}
@@ -86,7 +87,16 @@ async fn haiku_answers_resumes_and_waits_for_an_approval() {
     let dir = tempfile::Builder::new().prefix("l1-smoke-").tempdir().unwrap();
     let marker = dir.path().file_name().unwrap().to_string_lossy().into_owned();
     let _transcripts = TranscriptDirs(marker);
-    let engine = Engine::open(EngineConfig { data_dir: dir.path().join("data"), keys: Arc::new(MemoryKeyStore::default()), agent_path: AgentPath::LoginShell, az_binary: None, user_known_hosts: None, updates: Arc::new(engine::ScriptedTransport::named("off").unwrap()) }).await.unwrap();
+    let engine = Engine::open(EngineConfig {
+        data_dir: dir.path().join("data"),
+        keys: Arc::new(MemoryKeyStore::default()),
+        agent_path: AgentPath::LoginShell,
+        az_binary: None,
+        user_known_hosts: None,
+        updates: Arc::new(engine::ScriptedTransport::named("off").unwrap()),
+    })
+    .await
+    .unwrap();
     let mut smoke = Smoke { events: engine.subscribe(), engine };
 
     let started = Instant::now();
@@ -100,16 +110,33 @@ async fn haiku_answers_resumes_and_waits_for_an_approval() {
     };
     let outcome = provider.outcome.unwrap();
     match &outcome {
-        ProbeOutcome::Ready { version, plan, models } => println!("probe: Ready version={version} plan={plan:?} models={} recommended={:?} ({:.1} s)", models.len(), models.iter().find(|m| m.recommended).map(|m| m.id.0.as_str()), started.elapsed().as_secs_f32()),
+        ProbeOutcome::Ready { version, plan, models } => println!(
+            "probe: Ready version={version} plan={plan:?} models={} recommended={:?} ({:.1} s)",
+            models.len(),
+            models.iter().find(|m| m.recommended).map(|m| m.id.0.as_str()),
+            started.elapsed().as_secs_f32()
+        ),
         other => panic!("probe: {other:?}"),
     }
 
     let chat = ChatId(uuid::Uuid::new_v4());
-    let options = |permission| ChatOptions { provider: ProviderKind::Claude, model: ModelId("haiku".into()), effort: Some(EffortId("low".into())), permission };
+    let options = |permission| ChatOptions {
+        provider: ProviderKind::Claude,
+        model: ModelId("haiku".into()),
+        effort: Some(EffortId("low".into())),
+        permission,
+    };
     smoke.engine.assistant_configure(chat, options(Permission::Auto)).unwrap();
 
     let t = Instant::now();
-    let first = smoke.engine.assistant_send(chat, SendRequest { text: "What is 17 times 23? Reply with only the number.".into(), tab: None }).await.unwrap();
+    let first = smoke
+        .engine
+        .assistant_send(
+            chat,
+            SendRequest { text: "What is 17 times 23? Reply with only the number.".into(), tab: None },
+        )
+        .await
+        .unwrap();
     let outcome = smoke.end(chat).await;
     let text = smoke.reply_text(chat, first.turn).await;
     println!("turn 1: {outcome:?} in {:.1} s, reply={text:?}", t.elapsed().as_secs_f32());
@@ -117,7 +144,14 @@ async fn haiku_answers_resumes_and_waits_for_an_approval() {
     assert!(text.contains("391"), "{text}");
 
     let t = Instant::now();
-    let second = smoke.engine.assistant_send(chat, SendRequest { text: "What number did you just tell me? Reply with only the number.".into(), tab: None }).await.unwrap();
+    let second = smoke
+        .engine
+        .assistant_send(
+            chat,
+            SendRequest { text: "What number did you just tell me? Reply with only the number.".into(), tab: None },
+        )
+        .await
+        .unwrap();
     let outcome = smoke.end(chat).await;
     let text = smoke.reply_text(chat, second.turn).await;
     let view = smoke.engine.assistant_open(chat).await.unwrap();
@@ -141,19 +175,44 @@ async fn haiku_answers_resumes_and_waits_for_an_approval() {
     };
     let t = Instant::now();
     let third = smoke.engine.assistant_send(chat, SendRequest { text: "How many rows are in public.orders? Use the run_query tool to count them, then reply with only the number.".into(), tab: Some(tab) }).await.unwrap();
-    let asked = smoke.wait_entry(chat, "an approval or the End", |e| matches!(e, Entry::Tool { status: ToolStatus::AwaitingApproval { .. }, .. } | Entry::End { .. })).await;
-    let Entry::Tool { status: ToolStatus::AwaitingApproval { approval, reason }, tool, .. } = asked else { panic!("the turn ended before asking: {asked:?}") };
-    println!("turn 3: approval {approval:?} ({reason:?}) for {tool:?} after {:.1} s; waiting {} s before answering", t.elapsed().as_secs_f32(), APPROVAL_DELAY.as_secs());
+    let asked = smoke
+        .wait_entry(chat, "an approval or the End", |e| {
+            matches!(e, Entry::Tool { status: ToolStatus::AwaitingApproval { .. }, .. } | Entry::End { .. })
+        })
+        .await;
+    let Entry::Tool { status: ToolStatus::AwaitingApproval { approval, reason }, tool, .. } = asked else {
+        panic!("the turn ended before asking: {asked:?}")
+    };
+    println!(
+        "turn 3: approval {approval:?} ({reason:?}) for {tool:?} after {:.1} s; waiting {} s before answering",
+        t.elapsed().as_secs_f32(),
+        APPROVAL_DELAY.as_secs()
+    );
     tokio::time::sleep(APPROVAL_DELAY).await;
     let answered = smoke.engine.assistant_approve(chat, approval, Decision::Run);
     println!("turn 3: approve after {} s -> {answered:?}", APPROVAL_DELAY.as_secs());
     let outcome = smoke.end(chat).await;
     let view = smoke.engine.assistant_open(chat).await.unwrap();
-    let tools: Vec<&Entry> = view.entries.iter().filter(|s| s.turn == third.turn && matches!(s.entry, Entry::Tool { .. })).map(|s| &s.entry).collect();
+    let tools: Vec<&Entry> = view
+        .entries
+        .iter()
+        .filter(|s| s.turn == third.turn && matches!(s.entry, Entry::Tool { .. }))
+        .map(|s| &s.entry)
+        .collect();
     let text = smoke.reply_text(chat, third.turn).await;
     println!("turn 3: {outcome:?} in {:.1} s, tools={tools:?}, reply={text:?}", t.elapsed().as_secs_f32());
     smoke.engine.shutdown().await;
-    assert_eq!(answered, Ok(()), "the CLI did not wait {} s for the approval; see \"The CLI waits on `can_use_tool`\" in docs/architecture.md", APPROVAL_DELAY.as_secs());
+    assert_eq!(
+        answered,
+        Ok(()),
+        "the CLI did not wait {} s for the approval; see \"The CLI waits on `can_use_tool`\" in docs/architecture.md",
+        APPROVAL_DELAY.as_secs()
+    );
     assert_eq!(outcome, TurnOutcome::Completed);
-    assert!(tools.iter().any(|e| matches!(e, Entry::Tool { status: ToolStatus::Done { result: ToolResult::Rows { .. } }, .. })), "the approved query ran: {tools:?}");
+    assert!(
+        tools
+            .iter()
+            .any(|e| matches!(e, Entry::Tool { status: ToolStatus::Done { result: ToolResult::Rows { .. } }, .. })),
+        "the approved query ran: {tools:?}"
+    );
 }

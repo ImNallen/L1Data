@@ -1,11 +1,8 @@
-use tokio_postgres::types::{Kind, Type};
 use crate::model::{SqlTypeRef, TypeCategory};
+use tokio_postgres::types::{Kind, Type};
 
 pub fn type_ref(t: &Type) -> SqlTypeRef {
-    SqlTypeRef {
-        display: type_display(t),
-        category: type_category(t),
-    }
+    SqlTypeRef { display: type_display(t), category: type_category(t) }
 }
 
 fn type_display(t: &Type) -> String {
@@ -57,7 +54,9 @@ fn type_category(t: &Type) -> TypeCategory {
             Type::FLOAT4 | Type::FLOAT8 | Type::NUMERIC | Type::MONEY => TypeCategory::Numeric,
             Type::TEXT | Type::VARCHAR | Type::BPCHAR | Type::NAME | Type::CHAR | Type::XML => TypeCategory::Text,
             Type::BOOL => TypeCategory::Bool,
-            Type::DATE | Type::TIME | Type::TIMETZ | Type::TIMESTAMP | Type::TIMESTAMPTZ | Type::INTERVAL => TypeCategory::Temporal,
+            Type::DATE | Type::TIME | Type::TIMETZ | Type::TIMESTAMP | Type::TIMESTAMPTZ | Type::INTERVAL => {
+                TypeCategory::Temporal
+            }
             Type::JSON | Type::JSONB => TypeCategory::Json,
             Type::BYTEA => TypeCategory::Binary,
             Type::UUID => TypeCategory::Uuid,
@@ -68,10 +67,9 @@ fn type_category(t: &Type) -> TypeCategory {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-use super::*;
+    use super::*;
     #[test]
     fn builtin_and_array_names() {
         let r = type_ref(&Type::INT8);
@@ -119,5 +117,4 @@ use super::*;
         let domain = Type::new("posint".into(), 70003, Kind::Domain(Type::INT4), "public".into());
         assert_eq!(type_ref(&domain).category, TypeCategory::Integer);
     }
-
 }

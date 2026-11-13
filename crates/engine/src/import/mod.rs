@@ -36,8 +36,7 @@ enum DraftState {
 impl Drop for Draft {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
-        self.state
-            .send_replace(DraftState::Failed(ImportError::Gone));
+        self.state.send_replace(DraftState::Failed(ImportError::Gone));
     }
 }
 
@@ -62,22 +61,13 @@ struct Prepared {
 }
 
 fn signature(relation: &Relation) -> String {
-    serde_json::to_string(&(relation.oid, relation.kind, &relation.columns))
-        .expect("catalog serializes")
+    serde_json::to_string(&(relation.oid, relation.kind, &relation.columns)).expect("catalog serializes")
 }
 
 fn same_server(a: &ConnectionConfig, b: &ConnectionConfig) -> bool {
     let endpoint = |c: &ConnectionConfig| {
-        serde_json::to_string(&(
-            c.database_kind,
-            &c.host,
-            c.port,
-            &c.user,
-            c.ssl_mode,
-            &c.ca_cert_path,
-            &c.ssh,
-        ))
-        .expect("connection serializes")
+        serde_json::to_string(&(c.database_kind, &c.host, c.port, &c.user, c.ssl_mode, &c.ca_cert_path, &c.ssh))
+            .expect("connection serializes")
     };
     endpoint(a) == endpoint(b)
 }
@@ -135,9 +125,7 @@ fn snapshot(path: &str, stop: &AtomicBool) -> Result<Snapshot, ImportError> {
     }
     let mut source = options.open(path).map_err(csv::io)?;
     if !source.metadata().map_err(csv::io)?.is_file() {
-        return Err(ImportError::Io {
-            message: "Choose a regular CSV file".into(),
-        });
+        return Err(ImportError::Io { message: "Choose a regular CSV file".into() });
     }
     let mut file = tempfile::NamedTempFile::new().map_err(csv::io)?;
     let mut hash = Sha256::new();
@@ -175,14 +163,7 @@ fn snapshot(path: &str, stop: &AtomicBool) -> Result<Snapshot, ImportError> {
         }
         if sample.len() < 11 && remaining > 0 {
             sample.push(
-                record
-                    .fields
-                    .iter()
-                    .map(|v| {
-                        v.as_ref()
-                            .map(|v| bounded(v, &mut remaining, &mut truncated))
-                    })
-                    .collect(),
+                record.fields.iter().map(|v| v.as_ref().map(|v| bounded(v, &mut remaining, &mut truncated))).collect(),
             );
         } else {
             truncated = true;
@@ -192,15 +173,7 @@ fn snapshot(path: &str, stop: &AtomicBool) -> Result<Snapshot, ImportError> {
     if stop.load(Ordering::Relaxed) {
         return Err(ImportError::Cancelled);
     }
-    Ok(Snapshot {
-        path,
-        hash: format!("{:x}", hash.finalize()),
-        bytes,
-        records,
-        first,
-        sample,
-        truncated,
-    })
+    Ok(Snapshot { path, hash: format!("{:x}", hash.finalize()), bytes, records, first, sample, truncated })
 }
 
 pub async fn prepare(
@@ -218,49 +191,29 @@ pub async fn prepare(
         return Err(ImportError::Busy);
     }
     let config = inner.config.clone();
-    let saved = s
-        .config(config.connection_id)
-        .ok_or(ImportError::NotConfigured)?;
+    let saved = s.config(config.connection_id).ok_or(ImportError::NotConfigured)?;
     if config.db() != target.db {
         return Err(ImportError::TargetChanged);
     }
     let id = ImportSourceId(uuid::Uuid::new_v4());
     let stop = Arc::new(AtomicBool::new(false));
     let (state, _) = watch::channel(DraftState::Preparing);
-    inner.import = Some(Draft {
-        id,
-        config: config.clone(),
-        state: state.clone(),
-        stop: stop.clone(),
-    });
+    inner.import = Some(Draft { id, config: config.clone(), state: state.clone(), stop: stop.clone() });
     let shared = s.clone();
     s.spawn(async move {
         let stopping = stop.clone();
-        let scanned = shared
-            .runtime
-            .spawn_blocking(move || snapshot(&file, &stopping))
-            .await;
+        let scanned = shared.runtime.spawn_blocking(move || snapshot(&file, &stopping)).await;
         let result = async {
-            let snapshot = scanned.map_err(|e| ImportError::Io {
-                message: e.to_string(),
-            })??;
+            let snapshot = scanned.map_err(|e| ImportError::Io { message: e.to_string() })??;
             if stop.load(Ordering::Relaxed) {
                 return Err(ImportError::Cancelled);
             }
-            shared
-                .connect(config.connection_id)
-                .await
-                .map_err(|error| ImportError::Connect { error })?;
+            shared.connect(config.connection_id).await.map_err(|error| ImportError::Connect { error })?;
             if stop.load(Ordering::Relaxed) {
                 return Err(ImportError::Cancelled);
             }
-            let catalog = shared
-                .catalog(&target.db)
-                .await
-                .map_err(|_| ImportError::TargetChanged)?;
-            let relation = catalog
-                .relation(&target.schema, &target.table)
-                .ok_or(ImportError::TargetChanged)?;
+            let catalog = shared.catalog(&target.db).await.map_err(|_| ImportError::TargetChanged)?;
+            let relation = catalog.relation(&target.schema, &target.table).ok_or(ImportError::TargetChanged)?;
             if relation.oid != target.oid {
                 return Err(ImportError::TargetChanged);
             }
@@ -271,19 +224,19 @@ pub async fn prepare(
                 let instance = shared.instance(config.connection_id).ok_or(ImportError::TargetChanged)?;
                 let slot = instance.slot(&target.db.database).ok_or(ImportError::TargetChanged)?;
                 let mut meta = slot.meta.lock().await;
-                let session = shared.session_in(&instance, &slot, &mut meta).await.map_err(|error| ImportError::Connect { error })?;
+                let session = shared
+                    .session_in(&instance, &slot, &mut meta)
+                    .await
+                    .map_err(|error| ImportError::Connect { error })?;
                 Some(session.import_target(&target).await.map_err(|error| ImportError::Query { error })?)
-            } else { None };
+            } else {
+                None
+            };
             Ok(Prepared {
                 mssql,
                 snapshot,
                 target,
-                columns: relation
-                    .columns
-                    .iter()
-                    .filter(|c| c.writable)
-                    .cloned()
-                    .collect(),
+                columns: relation.columns.iter().filter(|c| c.writable).cloned().collect(),
                 relation: signature(relation),
                 config,
                 saved,
@@ -303,11 +256,7 @@ pub async fn prepare(
 async fn ready(console: &Console, source: ImportSourceId) -> Result<Arc<Prepared>, ImportError> {
     let mut state = {
         let inner = console.inner.lock().await;
-        let draft = inner
-            .import
-            .as_ref()
-            .filter(|d| d.id == source)
-            .ok_or(ImportError::Gone)?;
+        let draft = inner.import.as_ref().filter(|d| d.id == source).ok_or(ImportError::Gone)?;
         draft.state.subscribe()
     };
     loop {
@@ -329,11 +278,7 @@ pub async fn preview(
     let console = s.console(tab).ok_or(ImportError::Gone)?;
     let prepared = ready(&console, source).await?;
     let inner = console.inner.lock().await;
-    if !inner
-        .import
-        .as_ref()
-        .is_some_and(|d| d.id == source && d.config == inner.config)
-    {
+    if !inner.import.as_ref().is_some_and(|d| d.id == source && d.config == inner.config) {
         return Err(ImportError::Gone);
     }
     let snap = &prepared.snapshot;
@@ -359,13 +304,7 @@ pub async fn preview(
             if header {
                 value
                     .as_ref()
-                    .filter(|name| {
-                        snap.first
-                            .iter()
-                            .filter(|v| v.as_ref() == Some(name))
-                            .count()
-                            == 1
-                    })
+                    .filter(|name| snap.first.iter().filter(|v| v.as_ref() == Some(name)).count() == 1)
                     .and_then(|name| prepared.columns.iter().find(|c| &c.name == name))
                     .map(|c| c.name.clone())
             } else {
@@ -381,22 +320,12 @@ pub async fn preview(
         fields,
         columns: prepared.columns.clone(),
         mapping,
-        sample: snap
-            .sample
-            .iter()
-            .skip(usize::from(header))
-            .take(10)
-            .cloned()
-            .collect(),
+        sample: snap.sample.iter().skip(usize::from(header)).take(10).cloned().collect(),
         truncated,
     })
 }
 
-pub async fn discard(
-    s: &Arc<Shared>,
-    tab: TabId,
-    source: ImportSourceId,
-) -> Result<(), ImportError> {
+pub async fn discard(s: &Arc<Shared>, tab: TabId, source: ImportSourceId) -> Result<(), ImportError> {
     if let Some(console) = s.console(tab) {
         let mut inner = console.inner.lock().await;
         if inner.import.as_ref().is_some_and(|d| d.id == source) {
@@ -415,9 +344,7 @@ pub async fn import(
     let console = s.console(tab).ok_or(ImportError::NotConfigured)?;
     let prepared = ready(&console, request.source).await?;
     let mut columns = HashSet::new();
-    if request.mapping.len() != prepared.snapshot.first.len()
-        || !request.mapping.iter().any(Option::is_some)
-    {
+    if request.mapping.len() != prepared.snapshot.first.len() || !request.mapping.iter().any(Option::is_some) {
         return Err(ImportError::Mapping {
             message: "Map at least one source field, with one choice per field".into(),
         });
@@ -429,44 +356,26 @@ pub async fn import(
             });
         }
     }
-    let catalog = s
-        .catalog(&prepared.target.db)
-        .await
-        .map_err(|_| ImportError::TargetChanged)?;
-    let relation = catalog
-        .relation(&prepared.target.schema, &prepared.target.table)
-        .ok_or(ImportError::TargetChanged)?;
+    let catalog = s.catalog(&prepared.target.db).await.map_err(|_| ImportError::TargetChanged)?;
+    let relation =
+        catalog.relation(&prepared.target.schema, &prepared.target.table).ok_or(ImportError::TargetChanged)?;
     if signature(relation) != prepared.relation {
         return Err(ImportError::TargetChanged);
     }
-    let needs_session = matches!(
-        console.inner.lock().await.session,
-        SessionSlot::Empty | SessionSlot::Lost { .. }
-    );
+    let needs_session = matches!(console.inner.lock().await.session, SessionSlot::Empty | SessionSlot::Lost { .. });
     let fresh = if needs_session {
-        Some(
-            s.open_tab_session(&prepared.config)
-                .await
-                .map_err(|error| ImportError::Connect { error })?,
-        )
+        Some(s.open_tab_session(&prepared.config).await.map_err(|error| ImportError::Connect { error })?)
     } else {
         None
     };
     let mut inner = console.inner.lock().await;
-    if console.closed.load(Ordering::Relaxed)
-        || !inner
-            .import
-            .as_ref()
-            .is_some_and(|d| d.id == request.source)
-    {
+    if console.closed.load(Ordering::Relaxed) || !inner.import.as_ref().is_some_and(|d| d.id == request.source) {
         return Err(ImportError::Gone);
     }
     if inner.config != prepared.config {
         return Err(ImportError::TargetChanged);
     }
-    let current = s
-        .config(inner.config.connection_id)
-        .ok_or(ImportError::TargetChanged)?;
+    let current = s.config(inner.config.connection_id).ok_or(ImportError::TargetChanged)?;
     if serde_json::to_string(&current).unwrap() != serde_json::to_string(&prepared.saved).unwrap() {
         return Err(ImportError::TargetChanged);
     }
@@ -488,33 +397,31 @@ pub async fn import(
     if idle.database_kind() != current.database_kind || !same_server(idle.opened(), &current) {
         return Err(ImportError::TargetChanged);
     }
-    if current.database_kind == DatabaseKind::SqlServer && (inner.txn != TxnState::Idle || inner.config.mode != TxnMode::AutoCommit) {
-        return Err(ImportError::Query { error: crate::session::error("SQL Server CSV import requires Auto-commit and no open transaction") });
+    if current.database_kind == DatabaseKind::SqlServer
+        && (inner.txn != TxnState::Idle || inner.config.mode != TxnMode::AutoCommit)
+    {
+        return Err(ImportError::Query {
+            error: crate::session::error("SQL Server CSV import requires Auto-commit and no open transaction"),
+        });
     }
     if !matches!(inner.txn, TxnState::Idle | TxnState::Active) {
         return Err(ImportError::TransactionAborted);
     }
     let execution = if let Some(shape) = &prepared.mssql {
-        Execution::SqlServer(crate::session::InsertPlan::new(prepared.target.clone(), shape.clone(), &request.mapping.iter().flatten().map(String::as_str).collect::<Vec<_>>())?)
+        Execution::SqlServer(crate::session::InsertPlan::new(
+            prepared.target.clone(),
+            shape.clone(),
+            &request.mapping.iter().flatten().map(String::as_str).collect::<Vec<_>>(),
+        )?)
     } else {
         let fence = run::Fence::new(inner.txn, inner.config.mode);
-        let names = request
-            .mapping
-            .iter()
-            .flatten()
-            .map(|name| identifier(name))
-            .collect::<Vec<_>>()
-            .join(", ");
+        let names = request.mapping.iter().flatten().map(|name| identifier(name)).collect::<Vec<_>>().join(", ");
         let sql = format!(
             "COPY {}.{} ({names}) FROM STDIN WITH (FORMAT csv, ENCODING 'UTF8')",
             identifier(&prepared.target.schema),
             identifier(&prepared.target.table)
         );
-        let qualified = format!(
-            "{}.{}",
-            identifier(&prepared.target.schema),
-            identifier(&prepared.target.table)
-        );
+        let qualified = format!("{}.{}", identifier(&prepared.target.schema), identifier(&prepared.target.table));
         let lock = format!("LOCK TABLE {qualified} IN ROW EXCLUSIVE MODE");
         let relation_name = format!(
             "{}.{}",
@@ -561,18 +468,11 @@ pub async fn import(
         bytes: 0,
         total_bytes: prepared.snapshot.bytes,
         rows: 0,
-        total_rows: prepared
-            .snapshot
-            .records
-            .saturating_sub(u64::from(request.header)),
+        total_rows: prepared.snapshot.records.saturating_sub(u64::from(request.header)),
         finishing: false,
     };
     let (session, stop) = console
-        .take_session(
-            &mut inner,
-            run_id,
-            crate::console::Work::Import { checked, progress },
-        )
+        .take_session(&mut inner, run_id, crate::console::Work::Import { checked, progress })
         .ok_or(ImportError::Busy)?;
     inner.import = None;
     console.publish(&mut inner, s);
@@ -580,10 +480,7 @@ pub async fn import(
     let (tx, rx) = tokio::sync::oneshot::channel();
     let shared = s.clone();
     s.spawn_holding(console.clone(), run_id, async move {
-        let result = run::run(
-            &shared, console, run_id, session, stop, plan, unasked,
-        )
-        .await;
+        let result = run::run(&shared, console, run_id, session, stop, plan, unasked).await;
         let _ = tx.send(result);
     });
     rx.await.unwrap_or(Err(ImportError::Gone))
@@ -600,11 +497,16 @@ enum Execution {
 }
 impl ImportPlan {
     fn display(&self) -> &str {
-        match &self.execution { Execution::Postgres { sql, .. } => sql, Execution::SqlServer(plan) => plan.display() }
+        match &self.execution {
+            Execution::Postgres { sql, .. } => sql,
+            Execution::SqlServer(plan) => plan.display(),
+        }
     }
     fn descriptor(&self) -> Vec<String> {
         match &self.execution {
-            Execution::Postgres { sql, lock, identity, fence } => fence.statements(lock, identity, sql).into_iter().map(str::to_owned).collect(),
+            Execution::Postgres { sql, lock, identity, fence } => {
+                fence.statements(lock, identity, sql).into_iter().map(str::to_owned).collect()
+            }
             Execution::SqlServer(plan) => vec![plan.descriptor()],
         }
     }

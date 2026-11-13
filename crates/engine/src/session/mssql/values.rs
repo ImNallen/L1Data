@@ -72,22 +72,36 @@ pub(super) fn text(data: &ColumnData<'static>) -> Result<Option<String>, QueryEr
         Numeric(v) => v.map(|v| decimal(v.value(), v.scale())),
         Xml(v) => v.as_ref().map(|v| v.to_string()),
         Date(_) => NaiveDate::from_sql(data).map_err(super::query_error)?.map(|v| v.format("%Y-%m-%d").to_string()),
-        Time(_) => NaiveTime::from_sql(data).map_err(super::query_error)?.map(|v| format!("{}.{:07}", v.format("%H:%M:%S"), v.nanosecond() / 100)),
-        DateTime2(_) => NaiveDateTime::from_sql(data).map_err(super::query_error)?.map(|v| format!("{}.{:07}", v.format("%Y-%m-%d %H:%M:%S"), v.nanosecond() / 100)),
-        SmallDateTime(_) => NaiveDateTime::from_sql(data).map_err(super::query_error)?.map(|v| v.format("%Y-%m-%d %H:%M:%S").to_string()),
+        Time(_) => NaiveTime::from_sql(data)
+            .map_err(super::query_error)?
+            .map(|v| format!("{}.{:07}", v.format("%H:%M:%S"), v.nanosecond() / 100)),
+        DateTime2(_) => NaiveDateTime::from_sql(data)
+            .map_err(super::query_error)?
+            .map(|v| format!("{}.{:07}", v.format("%Y-%m-%d %H:%M:%S"), v.nanosecond() / 100)),
+        SmallDateTime(_) => NaiveDateTime::from_sql(data)
+            .map_err(super::query_error)?
+            .map(|v| v.format("%Y-%m-%d %H:%M:%S").to_string()),
         DateTime(v) => match v {
             None => None,
             Some(v) => {
-                let date =
-                    NaiveDate::from_ymd_opt(1900, 1, 1).unwrap().checked_add_signed(chrono::Duration::days(i64::from(v.days()))).ok_or_else(|| error("Invalid datetime day"))?;
+                let date = NaiveDate::from_ymd_opt(1900, 1, 1)
+                    .unwrap()
+                    .checked_add_signed(chrono::Duration::days(i64::from(v.days())))
+                    .ok_or_else(|| error("Invalid datetime day"))?;
                 let millis = (i64::from(v.seconds_fragments()) * 1000 + 150) / 300;
-                let dt = date.and_hms_opt(0, 0, 0).unwrap().checked_add_signed(chrono::Duration::milliseconds(millis)).ok_or_else(|| error("Invalid datetime"))?;
+                let dt = date
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap()
+                    .checked_add_signed(chrono::Duration::milliseconds(millis))
+                    .ok_or_else(|| error("Invalid datetime"))?;
                 Some(dt.format("%Y-%m-%d %H:%M:%S%.3f").to_string())
             }
         },
-        DateTimeOffset(_) => chrono::DateTime::<FixedOffset>::from_sql(data)
-            .map_err(super::query_error)?
-            .map(|v: chrono::DateTime<FixedOffset>| format!("{}.{:07}{}", v.format("%Y-%m-%d %H:%M:%S"), v.nanosecond() / 100, v.format("%:z"))),
+        DateTimeOffset(_) => chrono::DateTime::<FixedOffset>::from_sql(data).map_err(super::query_error)?.map(
+            |v: chrono::DateTime<FixedOffset>| {
+                format!("{}.{:07}{}", v.format("%Y-%m-%d %H:%M:%S"), v.nanosecond() / 100, v.format("%:z"))
+            },
+        ),
     };
     Ok(result)
 }

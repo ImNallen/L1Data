@@ -25,7 +25,9 @@ impl ConnectParams {
         let network = |message: String| ConnectError::Network { message };
         let tcp = tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect((self.host.as_str(), self.port)))
             .await
-            .map_err(|_| network(format!("{}:{} did not answer within {} s", self.host, self.port, CONNECT_TIMEOUT.as_secs())))?
+            .map_err(|_| {
+                network(format!("{}:{} did not answer within {} s", self.host, self.port, CONNECT_TIMEOUT.as_secs()))
+            })?
             .map_err(|e| network(e.to_string()))?;
         tcp.set_nodelay(true).map_err(|e| network(e.to_string()))?;
         Ok(DbStream::Tcp(tcp))

@@ -21,17 +21,94 @@ pub enum ByteTarget {
 
 /// Words that open a statement. A blank line before one of them ends the statement before it.
 const STARTERS: &[&str] = &[
-    "SELECT", "WITH", "INSERT", "UPDATE", "DELETE", "MERGE", "VALUES", "TABLE", "CREATE", "ALTER", "DROP", "TRUNCATE", "GRANT", "REVOKE",
-    "COMMENT", "BEGIN", "START", "COMMIT", "ROLLBACK", "ABORT", "SAVEPOINT", "RELEASE", "SET", "RESET", "SHOW", "EXPLAIN", "ANALYZE",
-    "VACUUM", "COPY", "CALL", "DO", "LOCK", "REFRESH", "REINDEX", "CLUSTER", "DECLARE", "FETCH", "MOVE", "CLOSE", "PREPARE", "EXECUTE",
-    "DEALLOCATE", "LISTEN", "NOTIFY", "UNLISTEN", "DISCARD", "CHECKPOINT", "LOAD", "SECURITY", "IMPORT", "REASSIGN",
+    "SELECT",
+    "WITH",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "MERGE",
+    "VALUES",
+    "TABLE",
+    "CREATE",
+    "ALTER",
+    "DROP",
+    "TRUNCATE",
+    "GRANT",
+    "REVOKE",
+    "COMMENT",
+    "BEGIN",
+    "START",
+    "COMMIT",
+    "ROLLBACK",
+    "ABORT",
+    "SAVEPOINT",
+    "RELEASE",
+    "SET",
+    "RESET",
+    "SHOW",
+    "EXPLAIN",
+    "ANALYZE",
+    "VACUUM",
+    "COPY",
+    "CALL",
+    "DO",
+    "LOCK",
+    "REFRESH",
+    "REINDEX",
+    "CLUSTER",
+    "DECLARE",
+    "FETCH",
+    "MOVE",
+    "CLOSE",
+    "PREPARE",
+    "EXECUTE",
+    "DEALLOCATE",
+    "LISTEN",
+    "NOTIFY",
+    "UNLISTEN",
+    "DISCARD",
+    "CHECKPOINT",
+    "LOAD",
+    "SECURITY",
+    "IMPORT",
+    "REASSIGN",
 ];
 
 /// Words after which a statement continues on the next non-blank line.
 const CONTINUATIONS: &[&str] = &[
-    "AS", "UNION", "INTERSECT", "EXCEPT", "ALL", "DISTINCT", "AND", "OR", "NOT", "ON", "FOR", "DO", "INSTEAD", "ALSO", "THEN", "ELSE",
-    "WHEN", "IN", "EXISTS", "FROM", "JOIN", "WHERE", "BY", "INTO", "SET", "USING", "TO", "RETURNING", "SELECT", "VALUES", "EXPLAIN",
-    "ANALYZE", "VERBOSE",
+    "AS",
+    "UNION",
+    "INTERSECT",
+    "EXCEPT",
+    "ALL",
+    "DISTINCT",
+    "AND",
+    "OR",
+    "NOT",
+    "ON",
+    "FOR",
+    "DO",
+    "INSTEAD",
+    "ALSO",
+    "THEN",
+    "ELSE",
+    "WHEN",
+    "IN",
+    "EXISTS",
+    "FROM",
+    "JOIN",
+    "WHERE",
+    "BY",
+    "INTO",
+    "SET",
+    "USING",
+    "TO",
+    "RETURNING",
+    "SELECT",
+    "VALUES",
+    "EXPLAIN",
+    "ANALYZE",
+    "VERBOSE",
 ];
 
 /// The keyword that completes a `WITH`, `INSERT`, or `EXPLAIN` prefix.
@@ -70,11 +147,16 @@ impl<'a> Stmt<'a> {
                 self.complete = !is_word(&["WITH", "INSERT", "EXPLAIN", "UPDATE"], word);
             }
             Some(first) if self.parens == 0 && !self.complete => {
-                self.complete = if first.eq_ignore_ascii_case("UPDATE") { word.eq_ignore_ascii_case("SET") } else { is_word(BODIES, word) };
+                self.complete = if first.eq_ignore_ascii_case("UPDATE") {
+                    word.eq_ignore_ascii_case("SET")
+                } else {
+                    is_word(BODIES, word)
+                };
             }
             Some(_) => {}
         }
-        if word.eq_ignore_ascii_case("ATOMIC") && matches!(self.last, Last::Word(w) if w.eq_ignore_ascii_case("BEGIN")) {
+        if word.eq_ignore_ascii_case("ATOMIC") && matches!(self.last, Last::Word(w) if w.eq_ignore_ascii_case("BEGIN"))
+        {
             self.body_depth += 1;
         } else if self.body_depth > 0 && word.eq_ignore_ascii_case("CASE") {
             self.body_depth += 1;
@@ -101,7 +183,27 @@ impl<'a> Stmt<'a> {
         let ended = match self.last {
             Last::Nothing => return true, // only whitespace or comments so far, which `push_trimmed` drops
             Last::Word(w) => !is_word(CONTINUATIONS, w),
-            Last::Punct(c) => !matches!(c, b',' | b'(' | b'.' | b'+' | b'-' | b'*' | b'/' | b'<' | b'>' | b'=' | b'~' | b'!' | b'@' | b'#' | b'%' | b'^' | b'&' | b'|' | b'?'),
+            Last::Punct(c) => !matches!(
+                c,
+                b',' | b'('
+                    | b'.'
+                    | b'+'
+                    | b'-'
+                    | b'*'
+                    | b'/'
+                    | b'<'
+                    | b'>'
+                    | b'='
+                    | b'~'
+                    | b'!'
+                    | b'@'
+                    | b'#'
+                    | b'%'
+                    | b'^'
+                    | b'&'
+                    | b'|'
+                    | b'?'
+            ),
         };
         ended && self.complete && self.parens == 0 && self.body_depth == 0
     }
@@ -202,10 +304,7 @@ pub fn pick(spans: &[StmtSpan], sql: &str, target: ByteTarget) -> Vec<StmtSpan> 
         ByteTarget::All => spans.to_vec(),
         ByteTarget::Selection { from, to } if from < to => split_statements(&sql[from..to])
             .into_iter()
-            .map(|s| StmtSpan {
-                start: s.start + from,
-                end: s.end + from,
-            })
+            .map(|s| StmtSpan { start: s.start + from, end: s.end + from })
             .collect(),
         ByteTarget::Selection { from, .. } => pick(spans, sql, ByteTarget::Cursor(from)),
         // A cursor between statements picks one only on a line that statement shares; a blank line picks nothing.
@@ -234,10 +333,7 @@ fn push_trimmed(spans: &mut Vec<StmtSpan>, sql: &str, start: usize, end: usize) 
     if trimmed.is_empty() || is_only_comments(trimmed) {
         return;
     }
-    spans.push(StmtSpan {
-        start: start + leading,
-        end: start + leading + trimmed.len(),
-    });
+    spans.push(StmtSpan { start: start + leading, end: start + leading + trimmed.len() });
 }
 
 fn is_only_comments(text: &str) -> bool {
@@ -380,10 +476,7 @@ mod tests {
     #[test]
     fn dollar_quotes_hide_semicolons_and_parameters_do_not() {
         let sql = "create function f() returns int language sql as $$ select 1; $$; select $1;";
-        assert_eq!(
-            texts(sql),
-            vec!["create function f() returns int language sql as $$ select 1; $$", "select $1"]
-        );
+        assert_eq!(texts(sql), vec!["create function f() returns int language sql as $$ select 1; $$", "select $1"]);
         let tagged = "do $body$ begin perform 1; end $body$; select 2";
         assert_eq!(texts(tagged), vec!["do $body$ begin perform 1; end $body$", "select 2"]);
     }
@@ -403,7 +496,10 @@ mod tests {
     #[test]
     fn comments_hide_semicolons_and_comment_only_chunks_vanish() {
         assert_eq!(texts("select 1 -- a;b\n; select 2"), vec!["select 1 -- a;b", "select 2"]);
-        assert_eq!(texts("select /* x; /* nested; */ y */ 1; select 2"), vec!["select /* x; /* nested; */ y */ 1", "select 2"]);
+        assert_eq!(
+            texts("select /* x; /* nested; */ y */ 1; select 2"),
+            vec!["select /* x; /* nested; */ y */ 1", "select 2"]
+        );
         assert_eq!(texts("-- only a comment\n/* and another */"), Vec::<&str>::new());
         assert_eq!(texts("select 1; -- trailing"), vec!["select 1"]);
     }
@@ -429,7 +525,10 @@ mod tests {
 
     #[test]
     fn plain_begin_still_splits() {
-        assert_eq!(texts("begin; insert into t values (1); commit"), vec!["begin", "insert into t values (1)", "commit"]);
+        assert_eq!(
+            texts("begin; insert into t values (1); commit"),
+            vec!["begin", "insert into t values (1)", "commit"]
+        );
     }
 
     const USER_DOC: &str = "SELECT * FROM public.addresses\nWHERE id > 5\nAND id < 10\nORDER BY id DESC\n\nselect * from public.categories";
@@ -438,7 +537,10 @@ mod tests {
     fn a_blank_line_before_a_statement_starter_splits() {
         assert_eq!(
             texts(USER_DOC),
-            vec!["SELECT * FROM public.addresses\nWHERE id > 5\nAND id < 10\nORDER BY id DESC", "select * from public.categories"]
+            vec![
+                "SELECT * FROM public.addresses\nWHERE id > 5\nAND id < 10\nORDER BY id DESC",
+                "select * from public.categories"
+            ]
         );
         assert_eq!(texts("select 1\n\nselect 2"), vec!["select 1", "select 2"]);
         assert_eq!(texts("select 1\n  \n\t\nselect 2"), vec!["select 1", "select 2"]);
@@ -484,16 +586,22 @@ mod tests {
     fn cursor_in_the_users_doc_picks_one_query() {
         let spans = split_statements(USER_DOC);
         let line6 = USER_DOC.rfind("select").unwrap() + 3;
-        let at = |off: usize| pick(&spans, USER_DOC, ByteTarget::Cursor(off)).iter().map(|s| s.text(USER_DOC)).collect::<Vec<_>>();
+        let at = |off: usize| {
+            pick(&spans, USER_DOC, ByteTarget::Cursor(off)).iter().map(|s| s.text(USER_DOC)).collect::<Vec<_>>()
+        };
         assert_eq!(at(line6), vec!["select * from public.categories"]);
-        assert_eq!(at(USER_DOC.find("WHERE").unwrap()), vec!["SELECT * FROM public.addresses\nWHERE id > 5\nAND id < 10\nORDER BY id DESC"]);
+        assert_eq!(
+            at(USER_DOC.find("WHERE").unwrap()),
+            vec!["SELECT * FROM public.addresses\nWHERE id > 5\nAND id < 10\nORDER BY id DESC"]
+        );
     }
 
     #[test]
     fn cursor_picks_the_statement_under_it_or_on_its_line() {
         let sql = "select 1;  \n\nselect 2; -- note\n-- alone\n";
         let spans = split_statements(sql);
-        let at = |off: usize| pick(&spans, sql, ByteTarget::Cursor(off)).iter().map(|s| s.text(sql)).collect::<Vec<_>>();
+        let at =
+            |off: usize| pick(&spans, sql, ByteTarget::Cursor(off)).iter().map(|s| s.text(sql)).collect::<Vec<_>>();
         assert_eq!(at(0), vec!["select 1"]);
         assert_eq!(at(8), vec!["select 1"]);
         assert_eq!(at(11), vec!["select 1"], "trailing spaces after the semicolon");
@@ -511,7 +619,11 @@ mod tests {
         assert_eq!(pick(&spans, sql, ByteTarget::Cursor(2)), vec![spans[0]], "the statement's own indentation");
         let with = "with x as (select 1)\n\nselect * from x";
         let spans = split_statements(with);
-        assert_eq!(texts_at(with, &spans, with.find('\n').unwrap() + 1), vec![with], "a blank line inside one statement");
+        assert_eq!(
+            texts_at(with, &spans, with.find('\n').unwrap() + 1),
+            vec![with],
+            "a blank line inside one statement"
+        );
         assert!(pick(&[], "", ByteTarget::Cursor(0)).is_empty());
     }
 

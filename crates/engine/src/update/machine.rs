@@ -3,7 +3,10 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::Installed;
-use crate::model::{ChangeItem, ReleaseChanges, RestartImpact, UpdateError, UpdateFailure, UpdateState, UpdateStatus, UpdateTrack, UpdatesOff};
+use crate::model::{
+    ChangeItem, ReleaseChanges, RestartImpact, UpdateError, UpdateFailure, UpdateState, UpdateStatus, UpdateTrack,
+    UpdatesOff,
+};
 
 const CHECK_EVERY_MS: i64 = 4 * 60 * 60 * 1000;
 const RETRY_AFTER_MS: i64 = 60 * 60 * 1000;
@@ -45,7 +48,10 @@ pub(crate) enum Direction {
 pub(crate) fn covers(accepted: &RestartImpact, now: &RestartImpact) -> bool {
     now.running.iter().all(|t| accepted.running.contains(t))
         && now.chats.iter().all(|c| accepted.chats.contains(c))
-        && now.transactions.iter().all(|t| accepted.transactions.iter().any(|a| a.tab_id == t.tab_id && a.has_writes >= t.has_writes))
+        && now
+            .transactions
+            .iter()
+            .all(|t| accepted.transactions.iter().any(|a| a.tab_id == t.tab_id && a.has_writes >= t.has_writes))
 }
 
 pub(crate) fn percent(received: u64, total: Option<u64>) -> Option<u8> {
@@ -74,14 +80,19 @@ pub(crate) fn feed_changes(feed: &Value) -> Vec<(Version, ReleaseChanges)> {
         .filter_map(|entry| {
             let release = FeedRelease::deserialize(entry).ok()?;
             let version = Version::parse(&release.version).ok()?;
-            let items = release.items.into_iter().map(|i| ChangeItem { title: i.title, author: i.author, pr: i.pr }).collect();
+            let items =
+                release.items.into_iter().map(|i| ChangeItem { title: i.title, author: i.author, pr: i.pr }).collect();
             Some((version.clone(), ReleaseChanges { version: version.to_string(), items }))
         })
         .collect()
 }
 
 /// The releases a user moving from `installed` to `offered` gets, newest first. A downgrade gets none.
-fn changes_between(installed: &Version, offered: &Version, mut changes: Vec<(Version, ReleaseChanges)>) -> Vec<ReleaseChanges> {
+fn changes_between(
+    installed: &Version,
+    offered: &Version,
+    mut changes: Vec<(Version, ReleaseChanges)>,
+) -> Vec<ReleaseChanges> {
     changes.retain(|(v, _)| installed < v && v <= offered);
     changes.sort_by(|(a, _), (b, _)| b.cmp(a));
     changes.into_iter().map(|(_, c)| c).collect()
@@ -150,7 +161,16 @@ impl<R, V> Machine<R, V> {
             Ok(_) => Phase::Idle,
             Err(reason) => Phase::Disabled(*reason),
         };
-        Self { installed: parsed, current_version: installed.version, track, phase, checked_at_ms: None, failed_at_ms: None, next_ticket: 0, rev: 0 }
+        Self {
+            installed: parsed,
+            current_version: installed.version,
+            track,
+            phase,
+            checked_at_ms: None,
+            failed_at_ms: None,
+            next_ticket: 0,
+            rev: 0,
+        }
     }
 
     pub(crate) fn track(&self) -> UpdateTrack {
@@ -158,7 +178,13 @@ impl<R, V> Machine<R, V> {
     }
 
     pub(crate) fn state(&self) -> UpdateState {
-        UpdateState { rev: self.rev, track: self.track, current_version: self.current_version.clone(), status: self.status(), checked_at_ms: self.checked_at_ms }
+        UpdateState {
+            rev: self.rev,
+            track: self.track,
+            current_version: self.current_version.clone(),
+            status: self.status(),
+            checked_at_ms: self.checked_at_ms,
+        }
     }
 
     fn status(&self) -> UpdateStatus {
@@ -167,11 +193,22 @@ impl<R, V> Machine<R, V> {
             Phase::Idle => UpdateStatus::Idle,
             Phase::Checking(_) => UpdateStatus::Checking,
             Phase::UpToDate => UpdateStatus::UpToDate,
-            Phase::Available(o) => UpdateStatus::Available { version: o.version.to_string(), downgrade: o.downgrade, changes: o.changes.clone() },
-            Phase::Downloading(o, percent) => {
-                UpdateStatus::Downloading { version: o.version.to_string(), downgrade: o.downgrade, percent: *percent, changes: o.changes.clone() }
-            }
-            Phase::Downloaded(o) => UpdateStatus::Downloaded { version: o.version.to_string(), downgrade: o.downgrade, changes: o.changes.clone() },
+            Phase::Available(o) => UpdateStatus::Available {
+                version: o.version.to_string(),
+                downgrade: o.downgrade,
+                changes: o.changes.clone(),
+            },
+            Phase::Downloading(o, percent) => UpdateStatus::Downloading {
+                version: o.version.to_string(),
+                downgrade: o.downgrade,
+                percent: *percent,
+                changes: o.changes.clone(),
+            },
+            Phase::Downloaded(o) => UpdateStatus::Downloaded {
+                version: o.version.to_string(),
+                downgrade: o.downgrade,
+                changes: o.changes.clone(),
+            },
             Phase::Installing(version) => UpdateStatus::Installing { version: version.to_string() },
             Phase::Failed(failure) => UpdateStatus::Failed { failure: failure.clone() },
         }
@@ -200,7 +237,12 @@ impl<R, V> Machine<R, V> {
         matches!(self.phase, Phase::Idle | Phase::UpToDate | Phase::Failed(_)).then(|| self.start_check())
     }
 
-    pub(crate) fn finish_check(&mut self, ticket: Ticket, fetched: Result<Option<Found<R>>, UpdateFailure>, now_ms: i64) {
+    pub(crate) fn finish_check(
+        &mut self,
+        ticket: Ticket,
+        fetched: Result<Option<Found<R>>, UpdateFailure>,
+        now_ms: i64,
+    ) {
         let (Phase::Checking(current), Ok(installed)) = (&self.phase, &self.installed) else { return };
         if *current != ticket {
             return;
@@ -458,7 +500,9 @@ mod tests {
 
     fn versions(status: &UpdateStatus) -> Vec<&str> {
         let changes = match status {
-            UpdateStatus::Available { changes, .. } | UpdateStatus::Downloading { changes, .. } | UpdateStatus::Downloaded { changes, .. } => changes,
+            UpdateStatus::Available { changes, .. }
+            | UpdateStatus::Downloading { changes, .. }
+            | UpdateStatus::Downloaded { changes, .. } => changes,
             other => panic!("no changes in {other:?}"),
         };
         changes.iter().map(|c| c.version.as_str()).collect()
@@ -467,7 +511,11 @@ mod tests {
     fn check(running: &str, track: UpdateTrack, offered: &str, feed: Value) -> Machine<(), ()> {
         let mut m = Machine::new(installed(running), track);
         let check = m.begin_check().unwrap();
-        m.finish_check(check.ticket, Ok(Some(Found { version: offered.into(), changes: feed_changes(&feed), release: () })), 5);
+        m.finish_check(
+            check.ticket,
+            Ok(Some(Found { version: offered.into(), changes: feed_changes(&feed), release: () })),
+            5,
+        );
         m
     }
 
@@ -477,7 +525,10 @@ mod tests {
         let mut m = check("0.1.0", UpdateTrack::Stable, "0.2.0", feed);
         assert_eq!(versions(&m.status()), ["0.2.0", "0.1.1"]);
         let UpdateStatus::Available { changes, .. } = m.status() else { panic!() };
-        assert_eq!(changes[0].items, [ChangeItem { title: "feat(app): ship 0.2.0".into(), author: Some("ImNallen".into()), pr: Some(50) }]);
+        assert_eq!(
+            changes[0].items,
+            [ChangeItem { title: "feat(app): ship 0.2.0".into(), author: Some("ImNallen".into()), pr: Some(50) }]
+        );
         m.begin_download("0.2.0").unwrap();
         m.progress(Some(40));
         assert_eq!(versions(&m.status()), ["0.2.0", "0.1.1"]);
@@ -510,7 +561,10 @@ mod tests {
         assert_eq!(
             shown,
             [
-                ReleaseChanges { version: "0.2.0".into(), items: vec![item("fix(ui): keep the caret"), item("docs: say why")] },
+                ReleaseChanges {
+                    version: "0.2.0".into(),
+                    items: vec![item("fix(ui): keep the caret"), item("docs: say why")]
+                },
                 ReleaseChanges { version: "0.1.6".into(), items: vec![] },
             ]
         );
@@ -529,7 +583,11 @@ mod tests {
     fn an_unparsable_offer_fails_and_is_not_offered() {
         let mut m = at(Phase::Checking(Ticket(1)));
         m.finish_check(Ticket(1), found("latest"), 5);
-        assert!(matches!(m.status(), UpdateStatus::Failed { failure: UpdateFailure::Other { .. } }), "{:?}", m.status());
+        assert!(
+            matches!(m.status(), UpdateStatus::Failed { failure: UpdateFailure::Other { .. } }),
+            "{:?}",
+            m.status()
+        );
         assert_eq!(m.state().checked_at_ms, None);
     }
 
@@ -537,7 +595,10 @@ mod tests {
     fn an_unparsable_or_unsupported_build_is_disabled() {
         let m = Machine::<(), ()>::new(installed("dev"), UpdateTrack::Stable);
         assert_eq!(m.status(), UpdateStatus::Disabled { reason: UpdatesOff::UnknownVersion });
-        let m = Machine::<(), ()>::new(Installed { version: "0.1.0".into(), support: Err(UpdatesOff::NotAppImage) }, UpdateTrack::Stable);
+        let m = Machine::<(), ()>::new(
+            Installed { version: "0.1.0".into(), support: Err(UpdatesOff::NotAppImage) },
+            UpdateTrack::Stable,
+        );
         assert_eq!(m.status(), UpdateStatus::Disabled { reason: UpdatesOff::NotAppImage });
     }
 
@@ -554,7 +615,9 @@ mod tests {
             let result = m.begin_download("0.2.0");
             match &before {
                 UpdateStatus::Available { .. } => assert_eq!(m.status(), downloading(None)),
-                UpdateStatus::Downloading { .. } | UpdateStatus::Downloaded { .. } | UpdateStatus::Installing { .. } => {
+                UpdateStatus::Downloading { .. }
+                | UpdateStatus::Downloaded { .. }
+                | UpdateStatus::Installing { .. } => {
                     assert_eq!(result.unwrap(), None, "{before:?}");
                     assert_eq!(m.status(), before);
                 }
@@ -607,7 +670,10 @@ mod tests {
             }
         }
         let failure = UpdateFailure::ReadOnlyLocation;
-        assert_eq!(changed(table(|m| m.install_failed(failure.clone(), 5))), [(installing(), failed(UpdateFailure::ReadOnlyLocation))]);
+        assert_eq!(
+            changed(table(|m| m.install_failed(failure.clone(), 5))),
+            [(installing(), failed(UpdateFailure::ReadOnlyLocation))]
+        );
     }
 
     #[test]
@@ -656,7 +722,9 @@ mod tests {
         m.failed_at_ms = Some(20 * HOUR);
         assert!(!m.due(20 * HOUR + HOUR - 1));
         assert!(m.due(21 * HOUR));
-        let never = every().into_iter().filter(|m| !matches!(m.status(), UpdateStatus::Idle | UpdateStatus::UpToDate | UpdateStatus::Failed { .. }));
+        let never = every().into_iter().filter(|m| {
+            !matches!(m.status(), UpdateStatus::Idle | UpdateStatus::UpToDate | UpdateStatus::Failed { .. })
+        });
         for m in never {
             assert!(!m.due(i64::MAX), "{:?}", m.status());
         }
@@ -671,7 +739,10 @@ mod tests {
         assert!(covers(&accepted, &RestartImpact::default()));
         assert!(!covers(&accepted, &RestartImpact { running: vec![b], ..accepted.clone() }));
         assert!(!covers(&accepted, &RestartImpact { transactions: vec![txn(b, true)], ..accepted.clone() }));
-        assert!(!covers(&accepted, &RestartImpact { chats: vec![crate::model::ChatId(uuid::Uuid::from_u128(3))], ..accepted.clone() }));
+        assert!(!covers(
+            &accepted,
+            &RestartImpact { chats: vec![crate::model::ChatId(uuid::Uuid::from_u128(3))], ..accepted.clone() }
+        ));
         let with_writes = RestartImpact { transactions: vec![txn(b, true)], ..accepted.clone() };
         assert!(covers(&with_writes, &accepted));
     }

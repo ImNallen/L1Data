@@ -25,7 +25,9 @@ impl Shared {
                 ProviderKind::Claude => claude::read_limits(self, &cfg, host).await,
             }
         };
-        let outcome = tokio::time::timeout(LIMITS_TIMEOUT, read).await.unwrap_or_else(|_| LimitsOutcome::Failed { message: format!("no answer within {} s", LIMITS_TIMEOUT.as_secs()) });
+        let outcome = tokio::time::timeout(LIMITS_TIMEOUT, read).await.unwrap_or_else(|_| LimitsOutcome::Failed {
+            message: format!("no answer within {} s", LIMITS_TIMEOUT.as_secs()),
+        });
         SourceLimits { source: kind, name: cfg.display_name, outcome }
     }
 }

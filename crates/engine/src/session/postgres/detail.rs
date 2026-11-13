@@ -1,12 +1,20 @@
 use tokio_postgres::Client;
 
-use crate::model::{ColumnDefault, DatabaseRef, DefaultValue, FkAction, IndexInfo, KeyInfo, KeyKind, RelationDetail, TriggerEvent, TriggerInfo, TriggerImplementation, TriggerTiming};
+use crate::model::{
+    ColumnDefault, DatabaseRef, DefaultValue, FkAction, IndexInfo, KeyInfo, KeyKind, RelationDetail, TriggerEvent,
+    TriggerImplementation, TriggerInfo, TriggerTiming,
+};
 use crate::script::postgres::{group_end, top_level};
 
 /// Reads one relation's defaults, keys, indexes, and triggers. Every query is an index lookup on
 /// the relation's OID, so the cost does not grow with the size of the database. `None` when the
 /// OID names no relation.
-pub async fn load(client: &Client, db: DatabaseRef, oid: u32, catalog_version: u64) -> Result<Option<RelationDetail>, tokio_postgres::Error> {
+pub async fn load(
+    client: &Client,
+    db: DatabaseRef,
+    oid: u32,
+    catalog_version: u64,
+) -> Result<Option<RelationDetail>, tokio_postgres::Error> {
     let params: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&oid];
     let (exists, defaults, keys, indexes, triggers) = tokio::try_join!(
         client.query_opt("SELECT 1 FROM pg_class WHERE oid = $1", params),
@@ -59,9 +67,7 @@ pub async fn load(client: &Client, db: DatabaseRef, oid: u32, catalog_version: u
 
     let defaults = defaults
         .iter()
-        .map(|r| {
-            ColumnDefault { column: r.get(0), value: default_value(r.get(1), r.get(2), r.get(3)) }
-        })
+        .map(|r| ColumnDefault { column: r.get(0), value: default_value(r.get(1), r.get(2), r.get(3)) })
         .collect();
 
     // `pg_get_constraintdef` and `pg_get_indexdef` return NULL for an object dropped after the query took its snapshot.
@@ -86,22 +92,31 @@ pub async fn load(client: &Client, db: DatabaseRef, oid: u32, catalog_version: u
 
     let indexes = indexes
         .iter()
-        .filter_map(|r| Some(IndexInfo {
-            name: r.get(0),
-            method: r.get(1),
-            unique: r.get(2),
-            primary: r.get(3),
-            valid: r.get(4),
-            keys: index_keys(r.get::<_, Option<&str>>(5)?).to_owned(),
-            predicate: r.get(6),
-        }))
+        .filter_map(|r| {
+            Some(IndexInfo {
+                name: r.get(0),
+                method: r.get(1),
+                unique: r.get(2),
+                primary: r.get(3),
+                valid: r.get(4),
+                keys: index_keys(r.get::<_, Option<&str>>(5)?).to_owned(),
+                predicate: r.get(6),
+            })
+        })
         .collect();
 
     let triggers = triggers
         .iter()
         .map(|r| {
             let (timing, events, per_row) = decode_tgtype(r.get(1));
-            TriggerInfo { name: r.get(0), timing, events, per_row, enabled: matches!(r.get::<_, &str>(2), "O" | "A"), implementation: TriggerImplementation::Function { name: r.get(3) } }
+            TriggerInfo {
+                name: r.get(0),
+                timing,
+                events,
+                per_row,
+                enabled: matches!(r.get::<_, &str>(2), "O" | "A"),
+                implementation: TriggerImplementation::Function { name: r.get(3) },
+            }
         })
         .collect();
 
@@ -138,17 +153,20 @@ fn decode_tgtype(tgtype: i16) -> (TriggerTiming, Vec<TriggerEvent>, bool) {
     } else {
         TriggerTiming::After
     };
-    let events = [(2, TriggerEvent::Insert), (4, TriggerEvent::Update), (3, TriggerEvent::Delete), (5, TriggerEvent::Truncate)]
-        .into_iter()
-        .filter_map(|(bit, event)| has(bit).then_some(event))
-        .collect();
+    let events =
+        [(2, TriggerEvent::Insert), (4, TriggerEvent::Update), (3, TriggerEvent::Delete), (5, TriggerEvent::Truncate)]
+            .into_iter()
+            .filter_map(|(bit, event)| has(bit).then_some(event))
+            .collect();
     (timing, events, has(0))
 }
 
 /// The key list of a `pg_get_indexdef`, with its `INCLUDE` list:
 /// `CREATE INDEX i ON public.t USING btree (a DESC) INCLUDE (b) WHERE (c)` gives `(a DESC) INCLUDE (b)`.
 pub fn index_keys(indexdef: &str) -> &str {
-    let Some(open) = top_level(indexdef, " USING ").and_then(|at| indexdef[at..].find('(').map(|i| at + i)) else { return indexdef };
+    let Some(open) = top_level(indexdef, " USING ").and_then(|at| indexdef[at..].find('(').map(|i| at + i)) else {
+        return indexdef;
+    };
     let Some(mut end) = group_end(indexdef, open) else { return indexdef };
     if indexdef[end..].starts_with(" INCLUDE (") {
         end = group_end(indexdef, end + " INCLUDE ".len()).unwrap_or(end);
@@ -186,10 +204,22 @@ mod tests {
     fn index_keys_are_the_key_list_and_include_list() {
         let cut = |def| index_keys(def);
         assert_eq!(cut("CREATE UNIQUE INDEX orders_pkey ON public.orders USING btree (id)"), "(id)");
-        assert_eq!(cut("CREATE INDEX orders_created_at_idx ON public.orders USING btree (created_at DESC)"), "(created_at DESC)");
-        assert_eq!(cut("CREATE INDEX orders_open_idx ON public.orders USING btree (status) WHERE (status <> 'paid'::text)"), "(status)");
-        assert_eq!(cut("CREATE INDEX i ON public.t USING btree (a, lower((b)::text)) INCLUDE (c, d) WHERE (a > 0)"), "(a, lower((b)::text)) INCLUDE (c, d)");
-        assert_eq!(cut(r#"CREATE INDEX "x USING y" ON public."t (" USING gin (doc jsonb_path_ops)"#), "(doc jsonb_path_ops)");
+        assert_eq!(
+            cut("CREATE INDEX orders_created_at_idx ON public.orders USING btree (created_at DESC)"),
+            "(created_at DESC)"
+        );
+        assert_eq!(
+            cut("CREATE INDEX orders_open_idx ON public.orders USING btree (status) WHERE (status <> 'paid'::text)"),
+            "(status)"
+        );
+        assert_eq!(
+            cut("CREATE INDEX i ON public.t USING btree (a, lower((b)::text)) INCLUDE (c, d) WHERE (a > 0)"),
+            "(a, lower((b)::text)) INCLUDE (c, d)"
+        );
+        assert_eq!(
+            cut(r#"CREATE INDEX "x USING y" ON public."t (" USING gin (doc jsonb_path_ops)"#),
+            "(doc jsonb_path_ops)"
+        );
         assert_eq!(cut("CREATE INDEX i ON public.t USING btree (((a || ')'::text)))"), "(((a || ')'::text)))");
     }
 
@@ -216,7 +246,10 @@ mod tests {
     #[test]
     fn tgtype_decodes_timing_events_and_level() {
         assert_eq!(decode_tgtype(0b1_0011), (TriggerTiming::Before, vec![TriggerEvent::Update], true));
-        assert_eq!(decode_tgtype(0b1_1101), (TriggerTiming::After, vec![TriggerEvent::Insert, TriggerEvent::Update, TriggerEvent::Delete], true));
+        assert_eq!(
+            decode_tgtype(0b1_1101),
+            (TriggerTiming::After, vec![TriggerEvent::Insert, TriggerEvent::Update, TriggerEvent::Delete], true)
+        );
         assert_eq!(decode_tgtype(0b10_0000), (TriggerTiming::After, vec![TriggerEvent::Truncate], false));
         assert_eq!(decode_tgtype(0b100_0101), (TriggerTiming::InsteadOf, vec![TriggerEvent::Insert], true));
     }

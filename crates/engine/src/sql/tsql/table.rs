@@ -29,7 +29,10 @@ pub(crate) fn parse_order_by(text: &str) -> Option<Vec<(String, bool)>> {
 }
 
 pub(crate) fn format_order_by(keys: &[(String, bool)]) -> String {
-    keys.iter().map(|(name, desc)| format!("{} {}", quote_ident(name), if *desc { "DESC" } else { "ASC" })).collect::<Vec<_>>().join(", ")
+    keys.iter()
+        .map(|(name, desc)| format!("{} {}", quote_ident(name), if *desc { "DESC" } else { "ASC" }))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn like_pattern(value: &str, prefix_only: bool) -> Result<String, String> {
@@ -51,7 +54,10 @@ fn like_pattern(value: &str, prefix_only: bool) -> Result<String, String> {
 }
 
 fn filter_sql(filter: &ColumnFilter, columns: &[ColumnInfo]) -> Result<String, String> {
-    let info = columns.iter().find(|c| c.name == filter.column).ok_or_else(|| format!("Unknown filter column {}", filter.column))?;
+    let info = columns
+        .iter()
+        .find(|c| c.name == filter.column)
+        .ok_or_else(|| format!("Unknown filter column {}", filter.column))?;
     let column = quote_ident(&filter.column);
     let op = match filter.op {
         FilterOp::IsNull => return Ok(format!("{column} IS NULL")),
@@ -119,14 +125,19 @@ pub(crate) fn browse_sql(
     Ok(sql)
 }
 
-pub(crate) fn count_sql(schema: &str, table: &str, columns: &[ColumnInfo], query: &TableQuery) -> Result<String, String> {
+pub(crate) fn count_sql(
+    schema: &str,
+    table: &str,
+    columns: &[ColumnInfo],
+    query: &TableQuery,
+) -> Result<String, String> {
     Ok(format!("SELECT COUNT_BIG(*) {}", from_sql(schema, table, columns, query)?))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::validate_expression;
+    use super::*;
     use crate::model::TypeCategory;
 
     #[test]
@@ -136,7 +147,16 @@ mod tests {
         assert_eq!(format_order_by(&keys), "[Name] DESC, [旅]]人] ASC, [id] ASC");
         assert_eq!(parse_order_by(&format_order_by(&keys)), Some(keys));
         assert_eq!(parse_order_by(""), Some(vec![]));
-        for advanced in ["LOWER(Name) DESC", "dbo.id", "id COLLATE x", "id -- comment", "id,", "id DESC SELECT 1", "[open", "1 DESC"] {
+        for advanced in [
+            "LOWER(Name) DESC",
+            "dbo.id",
+            "id COLLATE x",
+            "id -- comment",
+            "id,",
+            "id DESC SELECT 1",
+            "[open",
+            "1 DESC",
+        ] {
             assert_eq!(parse_order_by(advanced), None, "{advanced}");
         }
     }
@@ -149,7 +169,8 @@ mod tests {
             "SELECT * FROM [s]]].[旅] ORDER BY [Id], [Tenant] OFFSET 200 ROWS FETCH NEXT 50 ROWS ONLY"
         );
         assert_eq!(
-            browse_sql("s", "t", "CONVERT(decimal(19,4), [money]) AS [money]", &[], &[], &query, Some((1, u64::MAX))).unwrap(),
+            browse_sql("s", "t", "CONVERT(decimal(19,4), [money]) AS [money]", &[], &[], &query, Some((1, u64::MAX)))
+                .unwrap(),
             "SELECT CONVERT(decimal(19,4), [money]) AS [money] FROM [s].[t] ORDER BY (SELECT NULL) OFFSET 18446744073709551615 ROWS FETCH NEXT 1 ROWS ONLY"
         );
         let query = TableQuery { order_by: "[Id] DESC, LOWER([Name])".into(), ..Default::default() };
@@ -158,17 +179,29 @@ mod tests {
             "SELECT * FROM [s].[t] ORDER BY [Id] DESC, LOWER([Name])\n, (SELECT [Id]), (SELECT [Tenant]) OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
         );
         let query = TableQuery { order_by: "[t].[Id] DESC".into(), ..Default::default() };
-        assert!(browse_sql("s", "t", "*", &[], &["Id".into()], &query, Some((10, 0))).unwrap().contains(", (SELECT [Id])"));
+        assert!(
+            browse_sql("s", "t", "*", &[], &["Id".into()], &query, Some((10, 0))).unwrap().contains(", (SELECT [Id])")
+        );
         assert!(validate_expression("(SELECT [Id])", true).is_err());
-        assert_eq!(browse_sql("s", "t", "*", &[], &["Id".into()], &query, None).unwrap(), "SELECT * FROM [s].[t] ORDER BY [t].[Id] DESC\n, (SELECT [Id])");
+        assert_eq!(
+            browse_sql("s", "t", "*", &[], &["Id".into()], &query, None).unwrap(),
+            "SELECT * FROM [s].[t] ORDER BY [t].[Id] DESC\n, (SELECT [Id])"
+        );
         assert_eq!(browse_sql("s", "t", "*", &[], &[], &TableQuery::default(), None).unwrap(), "SELECT * FROM [s].[t]");
     }
 
     #[test]
     fn count_big_and_column_filters_escape_every_like_metacharacter() {
         let columns = ["na]me", "prefix", "空", "x"].map(|name| ColumnInfo {
-            name: name.into(), quoted: name.into(), type_display: "nvarchar(max)".into(), category: TypeCategory::Text,
-            attnum: 1, writable: true, not_null: false, pk: false, fk: false,
+            name: name.into(),
+            quoted: name.into(),
+            type_display: "nvarchar(max)".into(),
+            category: TypeCategory::Text,
+            attnum: 1,
+            writable: true,
+            not_null: false,
+            pk: false,
+            fk: false,
         });
         let query = TableQuery {
             r#where: "[active] = 1 OR [旅] = N'人'".into(),
@@ -198,5 +231,4 @@ mod tests {
         }
         assert_eq!(count_sql("s", "t", &[], &TableQuery::default()).unwrap(), "SELECT COUNT_BIG(*) FROM [s].[t]");
     }
-
 }

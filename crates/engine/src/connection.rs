@@ -5,7 +5,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
-
 use crate::entra::AzCli;
 use crate::model::*;
 use crate::session::Session;
@@ -35,7 +34,13 @@ pub fn uses_entra(kind: DatabaseKind, auth: Option<SqlServerAuth>) -> bool {
 
 impl ConnectParams {
     /// The one place that chooses which database a session targets.
-    pub fn for_database(c: &ConnectionConfig, database: &str, password: Option<String>, via: Option<SshRoute>, entra: Option<Arc<AzCli>>) -> Self {
+    pub fn for_database(
+        c: &ConnectionConfig,
+        database: &str,
+        password: Option<String>,
+        via: Option<SshRoute>,
+        entra: Option<Arc<AzCli>>,
+    ) -> Self {
         Self {
             database_kind: c.database_kind,
             host: c.host.clone(),
@@ -50,7 +55,12 @@ impl ConnectParams {
         }
     }
 
-    pub fn from_draft(d: &ConnectionDraft, password: Option<String>, via: Option<SshRoute>, entra: Option<Arc<AzCli>>) -> Self {
+    pub fn from_draft(
+        d: &ConnectionDraft,
+        password: Option<String>,
+        via: Option<SshRoute>,
+        entra: Option<Arc<AzCli>>,
+    ) -> Self {
         Self {
             database_kind: d.database_kind,
             host: d.host.clone(),
@@ -67,7 +77,11 @@ impl ConnectParams {
 }
 
 pub fn draft_from_url(url: &str, name: &str) -> Result<ConnectionDraft, String> {
-    if url.trim().split_once(':').is_some_and(|(scheme, _)| scheme.eq_ignore_ascii_case("mssql") || scheme.eq_ignore_ascii_case("sqlserver")) {
+    if url
+        .trim()
+        .split_once(':')
+        .is_some_and(|(scheme, _)| scheme.eq_ignore_ascii_case("mssql") || scheme.eq_ignore_ascii_case("sqlserver"))
+    {
         return sqlserver_url::parse(url.trim(), name);
     }
     crate::session::parse_postgres_url(url, name)
@@ -75,7 +89,10 @@ pub fn draft_from_url(url: &str, name: &str) -> Result<ConnectionDraft, String> 
 
 pub fn connect_error_text(e: &ConnectError) -> String {
     match e {
-        ConnectError::Network { message } | ConnectError::Tls { message } | ConnectError::Auth { message } | ConnectError::Keychain { message } => message.clone(),
+        ConnectError::Network { message }
+        | ConnectError::Tls { message }
+        | ConnectError::Auth { message }
+        | ConnectError::Keychain { message } => message.clone(),
         ConnectError::MissingPassword => "password missing".into(),
         ConnectError::Server(q) => q.message.clone(),
         ConnectError::Ssh { error } => ssh_error_text(error),
@@ -89,10 +106,17 @@ pub fn known_hosts_name(host: &str, port: u16) -> String {
 
 fn ssh_error_text(e: &SshError) -> String {
     match e {
-        SshError::Network { message } | SshError::KnownHosts { message } | SshError::Auth { message } | SshError::Key { message } | SshError::Agent { message } | SshError::Forward { message } => {
+        SshError::Network { message }
+        | SshError::KnownHosts { message }
+        | SshError::Auth { message }
+        | SshError::Key { message }
+        | SshError::Agent { message }
+        | SshError::Forward { message } => {
             format!("SSH: {message}")
         }
-        SshError::HostKeyUnknown { host, port, algorithm, fingerprint, .. } => format!("SSH: {host}:{port} offered an unknown {algorithm} host key {fingerprint}"),
+        SshError::HostKeyUnknown { host, port, algorithm, fingerprint, .. } => {
+            format!("SSH: {host}:{port} offered an unknown {algorithm} host key {fingerprint}")
+        }
         SshError::HostKeyChanged { host, port, algorithm, fingerprint, known_at } => {
             let (file, _) = known_at.rsplit_once(':').unwrap_or((known_at, ""));
             format!(
@@ -100,7 +124,9 @@ fn ssh_error_text(e: &SshError) -> String {
                 known_hosts_name(host, *port)
             )
         }
-        SshError::HostKeyRevoked { host, port, algorithm, fingerprint, revoked_at } => format!("SSH: the {algorithm} host key {fingerprint} of {host}:{port} is revoked at {revoked_at}"),
+        SshError::HostKeyRevoked { host, port, algorithm, fingerprint, revoked_at } => {
+            format!("SSH: the {algorithm} host key {fingerprint} of {host}:{port} is revoked at {revoked_at}")
+        }
         SshError::MissingSecret => "SSH: no password or key passphrase is saved for the tunnel".into(),
     }
 }
@@ -167,12 +193,20 @@ pub enum CatalogSlot {
     Opening,
     Ready(Arc<Catalog>),
     /// Keeps the last good catalog so a failed refresh does not blank the tree.
-    Failed { message: String, last: Option<Arc<Catalog>> },
+    Failed {
+        message: String,
+        last: Option<Arc<Catalog>>,
+    },
 }
 
 impl DbSlot {
     pub fn new(db: DatabaseRef) -> Self {
-        Self { db, meta: tokio::sync::Mutex::new(None), catalog: RwLock::new(CatalogSlot::Idle), refresh: RefreshGate::default() }
+        Self {
+            db,
+            meta: tokio::sync::Mutex::new(None),
+            catalog: RwLock::new(CatalogSlot::Idle),
+            refresh: RefreshGate::default(),
+        }
     }
 
     pub fn ready(&self) -> Option<Arc<Catalog>> {
@@ -194,7 +228,9 @@ impl DbSlot {
             CatalogSlot::Idle => CatalogStatus::Idle,
             CatalogSlot::Opening => CatalogStatus::Loading,
             CatalogSlot::Ready(c) => CatalogStatus::Ready { version: c.version },
-            CatalogSlot::Failed { message, last } => CatalogStatus::Failed { message: message.clone(), version: last.as_ref().map(|c| c.version) },
+            CatalogSlot::Failed { message, last } => {
+                CatalogStatus::Failed { message: message.clone(), version: last.as_ref().map(|c| c.version) }
+            }
         }
     }
 
@@ -244,7 +280,14 @@ impl RefreshGate {
 }
 
 impl Instance {
-    pub fn new(config: ConnectionConfig, server: ServerInfo, home: String, databases: Vec<DatabaseInfo>, view: ConnectionView, home_slot: DbSlot) -> Self {
+    pub fn new(
+        config: ConnectionConfig,
+        server: ServerInfo,
+        home: String,
+        databases: Vec<DatabaseInfo>,
+        view: ConnectionView,
+        home_slot: DbSlot,
+    ) -> Self {
         Self {
             config,
             server,
@@ -316,7 +359,10 @@ impl Instance {
         slots.retain(|name, _| wanted.keep.contains(name));
         for name in &wanted.open {
             if !slots.contains_key(name) && self.knows(name) {
-                slots.insert(name.clone(), Arc::new(DbSlot::new(DatabaseRef { connection_id: id, database: name.clone() })));
+                slots.insert(
+                    name.clone(),
+                    Arc::new(DbSlot::new(DatabaseRef { connection_id: id, database: name.clone() })),
+                );
             }
         }
         slots.values().filter(|s| matches!(*s.catalog.read().unwrap(), CatalogSlot::Idle)).cloned().collect()
@@ -352,7 +398,12 @@ impl Instance {
                 }
             })
             .collect();
-        InstanceState { configured_database: self.config.database.clone(), home: self.home.clone(), show_system_databases: view.show_system_databases, databases }
+        InstanceState {
+            configured_database: self.config.database.clone(),
+            home: self.home.clone(),
+            show_system_databases: view.show_system_databases,
+            databases,
+        }
     }
 }
 
@@ -378,7 +429,9 @@ impl ConnEntry {
         let status = match &self.slot {
             ConnSlot::Disconnected => ConnStatus::Disconnected,
             ConnSlot::Connecting => ConnStatus::Connecting,
-            ConnSlot::Connected(instance) => ConnStatus::Connected { server: instance.server.clone(), instance: instance.state() },
+            ConnSlot::Connected(instance) => {
+                ConnStatus::Connected { server: instance.server.clone(), instance: instance.state() }
+            }
             ConnSlot::Failed(error) => ConnStatus::Failed { error: error.clone() },
             ConnSlot::Lost(reason) => ConnStatus::Lost { reason: reason.clone() },
         };
@@ -416,10 +469,21 @@ mod tests {
             environment: None,
             sql_server_auth: None,
         };
-        let databases = ["Shop", "shop"].map(|name| DatabaseInfo { name: name.into(), system: false, access: DbAccess::Ok });
+        let databases =
+            ["Shop", "shop"].map(|name| DatabaseInfo { name: name.into(), system: false, access: DbAccess::Ok });
         let home = DbSlot::new(DatabaseRef { connection_id: id, database: "Shop".into() });
-        let instance = Instance::new(config, ServerInfo { version: String::new(), version_num: 0, encoding: "Unicode".into() }, "Shop".into(), databases.into(), ConnectionView::initial(), home);
-        instance.converge(id, || Wanted { keep: BTreeSet::from(["Shop".into(), "shop".into()]), open: BTreeSet::from(["Shop".into(), "shop".into()]) });
+        let instance = Instance::new(
+            config,
+            ServerInfo { version: String::new(), version_num: 0, encoding: "Unicode".into() },
+            "Shop".into(),
+            databases.into(),
+            ConnectionView::initial(),
+            home,
+        );
+        instance.converge(id, || Wanted {
+            keep: BTreeSet::from(["Shop".into(), "shop".into()]),
+            open: BTreeSet::from(["Shop".into(), "shop".into()]),
+        });
         for name in ["Shop", "shop"] {
             assert_eq!(instance.canonical_database(name), name);
             assert_eq!(instance.slot(name).unwrap().db.database, name);
@@ -455,15 +519,27 @@ mod tests {
     #[test]
     fn url_becomes_a_draft() {
         let d = draft_from_url("postgres://l1data:s%40cret@db.example:5433/shop?sslmode=require", "dev").unwrap();
-        assert_eq!((d.host.as_str(), d.port, d.database.as_str(), d.user.as_str()), ("db.example", 5433, "shop", "l1data"));
+        assert_eq!(
+            (d.host.as_str(), d.port, d.database.as_str(), d.user.as_str()),
+            ("db.example", 5433, "shop", "l1data")
+        );
         assert!(matches!(d.password, PasswordInput::Set(ref p) if p == "s@cret"));
         assert_eq!(d.ssl_mode, SslMode::Require);
         let bare = draft_from_url("postgres://localhost/shop", "x").unwrap();
         assert_eq!((bare.port, bare.ssl_mode), (5432, SslMode::Prefer));
         assert!(matches!(bare.password, PasswordInput::Clear));
         assert!(draft_from_url("not a url", "x").is_err());
-        assert_eq!(draft_from_url("postgres://db.example/shop?sslmode=verify-full", "").unwrap().ssl_mode, SslMode::VerifyFull);
-        assert_eq!(draft_from_url("host=db.example dbname=shop sslmode=verify-ca", "").unwrap().ssl_mode, SslMode::VerifyCa);
-        assert_eq!(draft_from_url("postgres://:::", "").unwrap_err(), "invalid connection string: invalid value for option `port`");
+        assert_eq!(
+            draft_from_url("postgres://db.example/shop?sslmode=verify-full", "").unwrap().ssl_mode,
+            SslMode::VerifyFull
+        );
+        assert_eq!(
+            draft_from_url("host=db.example dbname=shop sslmode=verify-ca", "").unwrap().ssl_mode,
+            SslMode::VerifyCa
+        );
+        assert_eq!(
+            draft_from_url("postgres://:::", "").unwrap_err(),
+            "invalid connection string: invalid value for option `port`"
+        );
     }
 }

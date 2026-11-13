@@ -27,42 +27,61 @@ impl Harness {
             az_binary: None,
             user_known_hosts: None,
             updates: Arc::new(engine::ScriptedTransport::named("off").unwrap()),
-        }).await.unwrap();
-        let connection = engine.save_connection(ConnectionDraft {
-            database_kind: DatabaseKind::SqlServer,
-            id: None,
-            name: "Native transaction regression".into(),
-            host: std::env::var("L1_DATA_TEST_MSSQL_HOST").unwrap_or_else(|_| "localhost".into()),
-            port: std::env::var("L1_DATA_TEST_MSSQL_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(1434),
-            database: "shop".into(),
-            user: "sa".into(),
-            password: PasswordInput::Set(std::env::var("L1_DATA_TEST_MSSQL_PASSWORD").unwrap_or_else(|_| "L1Data_dev_Str0ng".into())),
-            ssl_mode: SslMode::Require,
-            ca_cert_path: None,
-            color: None,
-            ssh: None,
-            environment: None,
-            sql_server_auth: None,
-        }).await.unwrap().id;
+        })
+        .await
+        .unwrap();
+        let connection = engine
+            .save_connection(ConnectionDraft {
+                database_kind: DatabaseKind::SqlServer,
+                id: None,
+                name: "Native transaction regression".into(),
+                host: std::env::var("L1_DATA_TEST_MSSQL_HOST").unwrap_or_else(|_| "localhost".into()),
+                port: std::env::var("L1_DATA_TEST_MSSQL_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(1434),
+                database: "shop".into(),
+                user: "sa".into(),
+                password: PasswordInput::Set(
+                    std::env::var("L1_DATA_TEST_MSSQL_PASSWORD").unwrap_or_else(|_| "L1Data_dev_Str0ng".into()),
+                ),
+                ssl_mode: SslMode::Require,
+                ca_cert_path: None,
+                color: None,
+                ssh: None,
+                environment: None,
+                sql_server_auth: None,
+            })
+            .await
+            .unwrap()
+            .id;
         engine.connect(connection).await.unwrap();
         let tab = TabId(uuid::Uuid::new_v4());
         let observer = TabId(uuid::Uuid::new_v4());
         let h = Self {
-            engine, connection, tab, observer,
+            engine,
+            connection,
+            tab,
+            observer,
             table: format!("l1_native_{}", uuid::Uuid::new_v4().simple()),
             objects: Vec::new(),
             _dir: dir,
         };
         h.configure(tab, TxnMode::AutoCommit).await;
         h.configure(observer, TxnMode::AutoCommit).await;
-        h.ok(observer, &format!("CREATE TABLE [{}] (id int PRIMARY KEY, n int); INSERT INTO [{}] VALUES(1,1)", h.table, h.table)).await;
+        h.ok(
+            observer,
+            &format!("CREATE TABLE [{}] (id int PRIMARY KEY, n int); INSERT INTO [{}] VALUES(1,1)", h.table, h.table),
+        )
+        .await;
         h
     }
 
     async fn configure(&self, tab: TabId, mode: TxnMode) {
-        self.engine.console_configure(tab, ConsoleConfig {
-            connection_id: self.connection, database: "shop".into(), schema: None, mode,
-        }).await.unwrap();
+        self.engine
+            .console_configure(
+                tab,
+                ConsoleConfig { connection_id: self.connection, database: "shop".into(), schema: None, mode },
+            )
+            .await
+            .unwrap();
     }
 
     fn state(&self, tab: TabId) -> ConsoleState {
@@ -70,7 +89,21 @@ impl Harness {
     }
 
     async fn run(&self, tab: TabId, sql: &str) -> ConsoleState {
-        let accepted = self.engine.console_run(tab, RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await.unwrap();
+        let accepted = self
+            .engine
+            .console_run(
+                tab,
+                RunRequest::Script {
+                    text: sql.into(),
+                    target: RunTarget::All,
+                    mode: RunMode::Run,
+                    params: Vec::new(),
+                    cells: Vec::new(),
+                },
+                None,
+            )
+            .await
+            .unwrap();
         self.finish(tab, accepted.run_id).await
     }
 
@@ -83,7 +116,9 @@ impl Harness {
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
-        }).await.expect("Native transaction regression did not finish")
+        })
+        .await
+        .expect("Native transaction regression did not finish")
     }
 
     async fn ok(&self, tab: TabId, sql: &str) -> ConsoleState {
@@ -95,10 +130,14 @@ impl Harness {
     async fn scalar(&self, tab: TabId, sql: &str) -> String {
         let state = self.ok(tab, sql).await;
         let RunState::Finished { statements, .. } = state.run else { unreachable!() };
-        let result = statements.iter().flat_map(|s| &s.outputs).find_map(|o| match o {
-            RunOutput::Rows { result, .. } => Some(result.r#ref),
-            _ => None,
-        }).unwrap();
+        let result = statements
+            .iter()
+            .flat_map(|s| &s.outputs)
+            .find_map(|o| match o {
+                RunOutput::Rows { result, .. } => Some(result.r#ref),
+                _ => None,
+            })
+            .unwrap();
         self.engine.result_page(result, 0, 1).unwrap().rows[0][0].clone().unwrap()
     }
 
@@ -120,10 +159,17 @@ impl Harness {
         self.configure(self.observer, TxnMode::AutoCommit).await;
         for (kind, name) in self.objects.iter().rev() {
             self.ok(self.observer, &format!("DROP {kind} IF EXISTS dbo.[{name}]")).await;
-            assert_eq!(self.scalar(self.observer, &format!("SELECT COUNT_BIG(*) FROM sys.objects WHERE name=N'{name}'")).await, "0");
+            assert_eq!(
+                self.scalar(self.observer, &format!("SELECT COUNT_BIG(*) FROM sys.objects WHERE name=N'{name}'")).await,
+                "0"
+            );
         }
         self.ok(self.observer, &format!("DROP TABLE IF EXISTS [{}]", self.table)).await;
-        assert_eq!(self.scalar(self.observer, &format!("SELECT COUNT_BIG(*) FROM sys.tables WHERE name=N'{}'", self.table)).await, "0");
+        assert_eq!(
+            self.scalar(self.observer, &format!("SELECT COUNT_BIG(*) FROM sys.tables WHERE name=N'{}'", self.table))
+                .await,
+            "0"
+        );
         self.engine.shutdown().await;
     }
 }
@@ -138,7 +184,10 @@ async fn check(test: impl for<'a> FnOnce(&'a mut Harness) -> BoxFuture<'a, ()>) 
 }
 
 fn transaction(state: &ConsoleState, depth: u32) {
-    assert_eq!((state.txn, state.txn_depth), if depth == 0 { (TxnState::Idle, Some(0)) } else { (TxnState::Open, None) });
+    assert_eq!(
+        (state.txn, state.txn_depth),
+        if depth == 0 { (TxnState::Idle, Some(0)) } else { (TxnState::Open, None) }
+    );
 }
 
 fn changes(table: &str) -> TableChanges {
@@ -186,53 +235,88 @@ async fn manual_configuration_and_staged_edits_refuse_before_trigger_execution()
 
 #[tokio::test]
 async fn staged_refusal_preserves_xact_abort_and_prior_native_transaction_work() {
-    check(|h| async move {
-        h.ok(h.tab, "SET XACT_ABORT ON").await;
-        transaction(&h.ok(h.tab, &format!("BEGIN TRANSACTION; BEGIN TRANSACTION; UPDATE dbo.[{}] SET n=3 WHERE id=1", h.table)).await, 2);
-        assert_eq!(h.scalar(h.tab, "SELECT XACT_STATE()").await, "1");
-        let before = serde_json::to_value(h.state(h.tab)).unwrap();
-        let mut edit = changes(&h.table);
-        edit.inserts.push(vec![cell("id", "1"), cell("n", "99")]);
-        for edit in [edit, changes(&h.table)] {
-            assert!(matches!(h.engine.table_apply(h.tab, edit, None).await, Err(ApplyError::Unsupported { .. })));
+    check(|h| {
+        async move {
+            h.ok(h.tab, "SET XACT_ABORT ON").await;
+            transaction(
+                &h.ok(
+                    h.tab,
+                    &format!("BEGIN TRANSACTION; BEGIN TRANSACTION; UPDATE dbo.[{}] SET n=3 WHERE id=1", h.table),
+                )
+                .await,
+                2,
+            );
+            assert_eq!(h.scalar(h.tab, "SELECT XACT_STATE()").await, "1");
+            let before = serde_json::to_value(h.state(h.tab)).unwrap();
+            let mut edit = changes(&h.table);
+            edit.inserts.push(vec![cell("id", "1"), cell("n", "99")]);
+            for edit in [edit, changes(&h.table)] {
+                assert!(matches!(h.engine.table_apply(h.tab, edit, None).await, Err(ApplyError::Unsupported { .. })));
+                assert_eq!(serde_json::to_value(h.state(h.tab)).unwrap(), before);
+            }
+            let refused = h
+                .engine
+                .console_configure(
+                    h.tab,
+                    ConsoleConfig {
+                        connection_id: h.connection,
+                        database: "shop".into(),
+                        schema: None,
+                        mode: TxnMode::Manual,
+                    },
+                )
+                .await;
+            assert!(matches!(refused, Err(ConfigureError::Unsupported { .. })));
             assert_eq!(serde_json::to_value(h.state(h.tab)).unwrap(), before);
+            assert_eq!(h.scalar(h.tab, &format!("SELECT n FROM dbo.[{}] WHERE id=1", h.table)).await, "3");
+            assert_eq!(h.scalar(h.tab, "SELECT @@TRANCOUNT").await, "2");
+            assert_eq!(h.scalar(h.tab, "SELECT XACT_STATE()").await, "1");
+            assert_eq!(h.scalar(h.tab, "SELECT CASE WHEN (@@OPTIONS & 16384)=16384 THEN 1 ELSE 0 END").await, "1");
+            assert_eq!(
+                h.scalar(h.observer, &format!("SELECT n FROM dbo.[{}] WITH (READUNCOMMITTED) WHERE id=1", h.table))
+                    .await,
+                "3"
+            );
+            h.engine.console_commit(h.tab, None).await.unwrap();
+            transaction(&h.state(h.tab), 0);
+            assert_eq!(h.scalar(h.observer, &format!("SELECT n FROM dbo.[{}] WHERE id=1", h.table)).await, "3");
+            h.ok(h.tab, &format!("BEGIN TRANSACTION; UPDATE dbo.[{}] SET n=4 WHERE id=1", h.table)).await;
+            h.engine.console_rollback(h.tab).await.unwrap();
+            transaction(&h.state(h.tab), 0);
+            assert_eq!(h.scalar(h.observer, &format!("SELECT n FROM dbo.[{}] WHERE id=1", h.table)).await, "3");
         }
-        let refused = h.engine.console_configure(h.tab, ConsoleConfig {
-            connection_id: h.connection, database: "shop".into(), schema: None, mode: TxnMode::Manual,
-        }).await;
-        assert!(matches!(refused, Err(ConfigureError::Unsupported { .. })));
-        assert_eq!(serde_json::to_value(h.state(h.tab)).unwrap(), before);
-        assert_eq!(h.scalar(h.tab, &format!("SELECT n FROM dbo.[{}] WHERE id=1", h.table)).await, "3");
-        assert_eq!(h.scalar(h.tab, "SELECT @@TRANCOUNT").await, "2");
-        assert_eq!(h.scalar(h.tab, "SELECT XACT_STATE()").await, "1");
-        assert_eq!(h.scalar(h.tab, "SELECT CASE WHEN (@@OPTIONS & 16384)=16384 THEN 1 ELSE 0 END").await, "1");
-        assert_eq!(h.scalar(h.observer, &format!("SELECT n FROM dbo.[{}] WITH (READUNCOMMITTED) WHERE id=1", h.table)).await, "3");
-        h.engine.console_commit(h.tab, None).await.unwrap();
-        transaction(&h.state(h.tab), 0);
-        assert_eq!(h.scalar(h.observer, &format!("SELECT n FROM dbo.[{}] WHERE id=1", h.table)).await, "3");
-        h.ok(h.tab, &format!("BEGIN TRANSACTION; UPDATE dbo.[{}] SET n=4 WHERE id=1", h.table)).await;
-        h.engine.console_rollback(h.tab).await.unwrap();
-        transaction(&h.state(h.tab), 0);
-        assert_eq!(h.scalar(h.observer, &format!("SELECT n FROM dbo.[{}] WHERE id=1", h.table)).await, "3");
-    }.boxed()).await;
+        .boxed()
+    })
+    .await;
 }
 
 #[tokio::test]
 async fn native_explicit_transactions_keep_module_definitions_rollbackable() {
-    check(|h| async move {
-        for finish in [false, true] {
-            let name = h.procedure();
-            transaction(&h.ok(h.tab, "BEGIN TRANSACTION").await, 1);
-            transaction(&h.ok(h.tab, &format!("CREATE PROCEDURE dbo.[{name}] AS BEGIN SELECT 1 AS n END")).await, 1);
-            if finish {
-                h.engine.console_commit(h.tab, None).await.unwrap();
-            } else {
-                h.engine.console_rollback(h.tab).await.unwrap();
+    check(|h| {
+        async move {
+            for finish in [false, true] {
+                let name = h.procedure();
+                transaction(&h.ok(h.tab, "BEGIN TRANSACTION").await, 1);
+                transaction(
+                    &h.ok(h.tab, &format!("CREATE PROCEDURE dbo.[{name}] AS BEGIN SELECT 1 AS n END")).await,
+                    1,
+                );
+                if finish {
+                    h.engine.console_commit(h.tab, None).await.unwrap();
+                } else {
+                    h.engine.console_rollback(h.tab).await.unwrap();
+                }
+                transaction(&h.state(h.tab), 0);
+                assert_eq!(
+                    h.scalar(h.observer, &format!("SELECT COUNT_BIG(*) FROM sys.procedures WHERE name=N'{name}'"))
+                        .await,
+                    if finish { "1" } else { "0" }
+                );
             }
-            transaction(&h.state(h.tab), 0);
-            assert_eq!(h.scalar(h.observer, &format!("SELECT COUNT_BIG(*) FROM sys.procedures WHERE name=N'{name}'")).await, if finish { "1" } else { "0" });
         }
-    }.boxed()).await;
+        .boxed()
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -263,29 +347,47 @@ async fn native_errors_and_cancellation_preserve_observable_transaction_state() 
 
 #[tokio::test]
 async fn autocommit_retains_native_conditionals_options_and_procedure_calls() {
-    check(|h| async move {
-        h.configure(h.tab, TxnMode::AutoCommit).await;
-        transaction(&h.ok(h.tab, &format!("IF 1=0 ROLLBACK TRANSACTION; UPDATE [{}] SET n=2", h.table)).await, 0);
-        assert_eq!(h.scalar(h.observer, &format!("SELECT n FROM [{}]", h.table)).await, "2");
-        transaction(&h.ok(h.tab, &format!("BEGIN TRANSACTION; BEGIN TRANSACTION; UPDATE [{}] SET n=3; COMMIT TRANSACTION", h.table)).await, 1);
-        h.engine.console_rollback(h.tab).await.unwrap();
-        assert_eq!(h.scalar(h.observer, &format!("SELECT n FROM [{}]", h.table)).await, "2");
-        transaction(&h.ok(h.tab, &format!("IF 1=1 BEGIN TRANSACTION; UPDATE [{}] SET n=4; IF 1=1 COMMIT TRANSACTION", h.table)).await, 0);
-        assert_eq!(h.scalar(h.observer, &format!("SELECT n FROM [{}]", h.table)).await, "4");
-        transaction(&h.ok(h.tab, &format!("SET IMPLICIT_TRANSACTIONS ON; UPDATE [{}] SET n=5", h.table)).await, 1);
-        h.engine.console_rollback(h.tab).await.unwrap();
-        transaction(&h.state(h.tab), 0);
-        assert_eq!(h.scalar(h.observer, &format!("SELECT n FROM [{}]", h.table)).await, "4");
-        transaction(&h.ok(h.tab, "SELECT @@TRANCOUNT, XACT_STATE(), DB_NAME()").await, 0);
-        transaction(&h.ok(h.tab, "SET IMPLICIT_TRANSACTIONS OFF").await, 0);
+    check(|h| {
+        async move {
+            h.configure(h.tab, TxnMode::AutoCommit).await;
+            transaction(&h.ok(h.tab, &format!("IF 1=0 ROLLBACK TRANSACTION; UPDATE [{}] SET n=2", h.table)).await, 0);
+            assert_eq!(h.scalar(h.observer, &format!("SELECT n FROM [{}]", h.table)).await, "2");
+            transaction(
+                &h.ok(
+                    h.tab,
+                    &format!("BEGIN TRANSACTION; BEGIN TRANSACTION; UPDATE [{}] SET n=3; COMMIT TRANSACTION", h.table),
+                )
+                .await,
+                1,
+            );
+            h.engine.console_rollback(h.tab).await.unwrap();
+            assert_eq!(h.scalar(h.observer, &format!("SELECT n FROM [{}]", h.table)).await, "2");
+            transaction(
+                &h.ok(
+                    h.tab,
+                    &format!("IF 1=1 BEGIN TRANSACTION; UPDATE [{}] SET n=4; IF 1=1 COMMIT TRANSACTION", h.table),
+                )
+                .await,
+                0,
+            );
+            assert_eq!(h.scalar(h.observer, &format!("SELECT n FROM [{}]", h.table)).await, "4");
+            transaction(&h.ok(h.tab, &format!("SET IMPLICIT_TRANSACTIONS ON; UPDATE [{}] SET n=5", h.table)).await, 1);
+            h.engine.console_rollback(h.tab).await.unwrap();
+            transaction(&h.state(h.tab), 0);
+            assert_eq!(h.scalar(h.observer, &format!("SELECT n FROM [{}]", h.table)).await, "4");
+            transaction(&h.ok(h.tab, "SELECT @@TRANCOUNT, XACT_STATE(), DB_NAME()").await, 0);
+            transaction(&h.ok(h.tab, "SET IMPLICIT_TRANSACTIONS OFF").await, 0);
 
-        let name = h.procedure();
-        h.ok(h.observer, &format!("CREATE PROCEDURE dbo.[{name}] @n int AS UPDATE [{}] SET n=@n", h.table)).await;
-        for call in [format!("EXEC dbo.[{name}] @n=6"), format!("dbo.[{name}] @n=6"), format!("{name} @n=6")] {
-            transaction(&h.ok(h.tab, &call).await, 0);
-            assert_eq!(h.scalar(h.observer, &format!("SELECT n FROM [{}]", h.table)).await, "6");
+            let name = h.procedure();
+            h.ok(h.observer, &format!("CREATE PROCEDURE dbo.[{name}] @n int AS UPDATE [{}] SET n=@n", h.table)).await;
+            for call in [format!("EXEC dbo.[{name}] @n=6"), format!("dbo.[{name}] @n=6"), format!("{name} @n=6")] {
+                transaction(&h.ok(h.tab, &call).await, 0);
+                assert_eq!(h.scalar(h.observer, &format!("SELECT n FROM [{}]", h.table)).await, "6");
+            }
         }
-    }.boxed()).await;
+        .boxed()
+    })
+    .await;
 }
 
 #[tokio::test]

@@ -52,10 +52,15 @@ struct Queries {
 
 impl Queries {
     fn for_version(version: i32) -> Queries {
-        let compression = |alias: &str| if version >= 140000 { format!("{alias}.attcompression::text") } else { "''".into() };
+        let compression =
+            |alias: &str| if version >= 140000 { format!("{alias}.attcompression::text") } else { "''".into() };
         let target = if version >= 130000 { "NULLIF(s.stxstattarget, -1)::int4" } else { "NULL::int4" };
         // PostgreSQL 15 added unlogged sequences, and a table's identity and serial sequences take its persistence.
-        let unlogged = if version >= 150000 { "CASE WHEN sc.relpersistence = 'u' OR t.relpersistence = 'u' THEN sc.relpersistence = 'u' END" } else { "NULL::bool" };
+        let unlogged = if version >= 150000 {
+            "CASE WHEN sc.relpersistence = 'u' OR t.relpersistence = 'u' THEN sc.relpersistence = 'u' END"
+        } else {
+            "NULL::bool"
+        };
         // PostgreSQL 15 added publications of every table in a schema.
         let schema_publications = if version >= 150000 {
             "ARRAY(SELECT p.pubname::text FROM pg_publication_namespace pn JOIN pg_publication p ON p.oid = pn.pnpubid WHERE pn.pnnspid = c.relnamespace AND c.relkind IN ('r', 'p') ORDER BY 1)"
@@ -223,9 +228,17 @@ const ROUTINE: &str = "SELECT p.prokind::text, p.proname, CASE WHEN p.prokind <>
 
 fn acl_changes(from: &str, acl: &str, default: &str, filter: &str, keys: &str) -> String {
     let side = |exploded: &str, granted: bool| {
-        format!("SELECT {keys}, a.grantee, a.privilege_type, a.is_grantable, {granted} FROM {from} CROSS JOIN LATERAL aclexplode({exploded}) a WHERE {filter} AND {acl} IS NOT NULL")
+        format!(
+            "SELECT {keys}, a.grantee, a.privilege_type, a.is_grantable, {granted} FROM {from} CROSS JOIN LATERAL aclexplode({exploded}) a WHERE {filter} AND {acl} IS NOT NULL"
+        )
     };
-    format!("({} EXCEPT {}) UNION ALL ({} EXCEPT {})", side(acl, true), side(default, true), side(default, false), side(acl, false))
+    format!(
+        "({} EXCEPT {}) UNION ALL ({} EXCEPT {})",
+        side(acl, true),
+        side(default, true),
+        side(default, false),
+        side(acl, false)
+    )
 }
 
 fn grants_query(changes: &[String]) -> String {
@@ -239,7 +252,13 @@ fn grants_query(changes: &[String]) -> String {
 
 fn relation_grants_query() -> String {
     grants_query(&[
-        acl_changes("pg_class c", "c.relacl", "acldefault('r', c.relowner)", "c.oid = ANY ($1)", "c.oid, NULL::text, NULL::text, NULL::text"),
+        acl_changes(
+            "pg_class c",
+            "c.relacl",
+            "acldefault('r', c.relowner)",
+            "c.oid = ANY ($1)",
+            "c.oid, NULL::text, NULL::text, NULL::text",
+        ),
         acl_changes(
             "pg_attribute at JOIN pg_class ac ON ac.oid = at.attrelid",
             "at.attacl",
@@ -258,7 +277,13 @@ fn relation_grants_query() -> String {
 }
 
 fn routine_grants_query() -> String {
-    grants_query(&[acl_changes("pg_proc p", "p.proacl", "acldefault('f', p.proowner)", "p.oid = $1", "p.oid, NULL::text, NULL::text, NULL::text")])
+    grants_query(&[acl_changes(
+        "pg_proc p",
+        "p.proacl",
+        "acldefault('f', p.proowner)",
+        "p.oid = $1",
+        "p.oid, NULL::text, NULL::text, NULL::text",
+    )])
 }
 
 fn grant_row(r: &Row) -> Privilege {
@@ -267,7 +292,12 @@ fn grant_row(r: &Row) -> Privilege {
         (true, true) => Change::GrantedWithGrantOption,
         (true, false) => Change::Granted,
     };
-    Privilege { name: r.get(3), column: r.get::<_, Option<&str>>(2).map(ident), grantee: r.get::<_, Option<&str>>(4).map_or("PUBLIC".into(), ident), change }
+    Privilege {
+        name: r.get(3),
+        column: r.get::<_, Option<&str>>(2).map(ident),
+        grantee: r.get::<_, Option<&str>>(4).map_or("PUBLIC".into(), ident),
+        change,
+    }
 }
 
 fn owner(name: String, role: &str) -> ddl::Owner {
@@ -284,12 +314,20 @@ fn labeled(r: &Row) -> Vec<String> {
 }
 
 fn unscripted(r: &Row, grants: &[Row], role: &str) -> ddl::Unscripted {
-    let mut u = ddl::Unscripted { security_labels: labeled(r), publications: r.get(22), schema_publications: r.get(28), owner: owner(r.get(23), role), ..Default::default() };
+    let mut u = ddl::Unscripted {
+        security_labels: labeled(r),
+        publications: r.get(22),
+        schema_publications: r.get(28),
+        owner: owner(r.get(23), role),
+        ..Default::default()
+    };
     for g in grants {
         match (g.get::<_, Option<String>>(0), g.get::<_, Option<String>>(1)) {
             (Some(schema), Some(name)) => match u.sequence_privileges.last_mut() {
                 Some(s) if s.schema == schema && s.name == name => s.privileges.push(grant_row(g)),
-                _ => u.sequence_privileges.push(ddl::SequencePrivileges { schema, name, privileges: vec![grant_row(g)] }),
+                _ => {
+                    u.sequence_privileges.push(ddl::SequencePrivileges { schema, name, privileges: vec![grant_row(g)] })
+                }
             },
             _ => u.privileges.push(grant_row(g)),
         }
@@ -374,31 +412,19 @@ fn privilege_rows(rows: &[Row]) -> Vec<Privilege> {
     rows.iter().map(grant_row).collect()
 }
 
-async fn sequence_script(
-    tx: &Transaction<'_>,
-    role: &str,
-    oid: u32,
-) -> Result<ObjectScript, DetailError> {
+async fn sequence_script(tx: &Transaction<'_>, role: &str, oid: u32) -> Result<ObjectScript, DetailError> {
     let params: &[&(dyn ToSql + Sync)] = &[&oid];
     let grants_sql = sequence_grants();
-    let (row, grants) = tokio::try_join!(
-        tx.query_opt(SEQUENCE_ROW, params),
-        tx.query(&grants_sql, params)
-    )
-    .map_err(failed)?;
+    let (row, grants) =
+        tokio::try_join!(tx.query_opt(SEQUENCE_ROW, params), tx.query(&grants_sql, params)).map_err(failed)?;
     let row = row.ok_or(DetailError::Gone)?;
     let name: String = row.get(1);
-    let type_name = row
-        .get::<_, Option<String>>(3)
-        .ok_or_else(|| refused("The sequence type could not be read."))?;
-    let (owned_schema, owned_table, owned_column) = match (
-        row.get::<_, Option<String>>(11),
-        row.get::<_, Option<String>>(12),
-        row.get::<_, Option<String>>(13),
-    ) {
-        (Some(schema), Some(table), Some(column)) => (schema, table, column),
-        _ => (String::new(), String::new(), String::new()),
-    };
+    let type_name = row.get::<_, Option<String>>(3).ok_or_else(|| refused("The sequence type could not be read."))?;
+    let (owned_schema, owned_table, owned_column) =
+        match (row.get::<_, Option<String>>(11), row.get::<_, Option<String>>(12), row.get::<_, Option<String>>(13)) {
+            (Some(schema), Some(table), Some(column)) => (schema, table, column),
+            _ => (String::new(), String::new(), String::new()),
+        };
     let ddl = ddl::standalone_sequence(&ddl::StandaloneSequence {
         sequence: ddl::Sequence {
             schema: row.get(0),
@@ -424,18 +450,11 @@ async fn sequence_script(
     Ok(script::object_script(&name, ddl))
 }
 
-async fn type_script(
-    tx: &Transaction<'_>,
-    role: &str,
-    oid: u32,
-) -> Result<ObjectScript, DetailError> {
+async fn type_script(tx: &Transaction<'_>, role: &str, oid: u32) -> Result<ObjectScript, DetailError> {
     let params: &[&(dyn ToSql + Sync)] = &[&oid];
     let grants_sql = type_grants();
-    let (head, grants) = tokio::try_join!(
-        tx.query_opt(TYPE_HEAD, params),
-        tx.query(&grants_sql, params)
-    )
-    .map_err(failed)?;
+    let (head, grants) =
+        tokio::try_join!(tx.query_opt(TYPE_HEAD, params), tx.query(&grants_sql, params)).map_err(failed)?;
     let head = head.ok_or(DetailError::Gone)?;
     let kind: String = head.get(0);
     if matches!(kind.as_str(), "b" | "p") {
@@ -452,11 +471,11 @@ async fn type_script(
     let name = object.name.clone();
     let ddl = match kind.as_str() {
         "e" => {
-            let labels = tx.query("SELECT e.enumlabel FROM pg_enum e WHERE e.enumtypid = $1 ORDER BY e.enumsortorder", params).await.map_err(failed)?;
-            ddl::enum_type(
-                &object,
-                &labels.iter().map(|r| r.get(0)).collect::<Vec<String>>(),
-            )
+            let labels = tx
+                .query("SELECT e.enumlabel FROM pg_enum e WHERE e.enumtypid = $1 ORDER BY e.enumsortorder", params)
+                .await
+                .map_err(failed)?;
+            ddl::enum_type(&object, &labels.iter().map(|r| r.get(0)).collect::<Vec<String>>())
         }
         "d" => {
             let row = tx
@@ -472,10 +491,11 @@ async fn type_script(
                 .map_err(failed)?
                 .ok_or(DetailError::Gone)?;
             let checks = tx.query("SELECT con.conname, pg_get_constraintdef(con.oid) FROM pg_constraint con WHERE con.contypid = $1 ORDER BY con.conname", params).await.map_err(failed)?;
-            let checks = checks
-                .iter()
-                .filter_map(|r| Some((r.get(0), r.get::<_, Option<String>>(1)?)))
-                .collect::<Vec<(String, String)>>();
+            let checks =
+                checks
+                    .iter()
+                    .filter_map(|r| Some((r.get(0), r.get::<_, Option<String>>(1)?)))
+                    .collect::<Vec<(String, String)>>();
             ddl::domain_type(
                 &object,
                 &row.get::<_, String>(0),
@@ -500,11 +520,7 @@ async fn type_script(
                 .map_err(failed)?;
             let fields = fields
                 .iter()
-                .map(|r| ddl::CompositeField {
-                    name: r.get(0),
-                    type_name: r.get(1),
-                    collation: r.get(2),
-                })
+                .map(|r| ddl::CompositeField { name: r.get(0), type_name: r.get(1), collation: r.get(2) })
                 .collect::<Vec<_>>();
             ddl::composite_type(&object, &fields)
         }
@@ -527,10 +543,7 @@ async fn type_script(
                 .await
                 .map_err(failed)?
                 .ok_or(DetailError::Gone)?;
-            let opclass = match (
-                row.get::<_, Option<String>>(1),
-                row.get::<_, Option<String>>(2),
-            ) {
+            let opclass = match (row.get::<_, Option<String>>(1), row.get::<_, Option<String>>(2)) {
                 (Some(schema), Some(name)) => Some(ddl::qualified(&schema, &name)),
                 _ => None,
             };
@@ -546,19 +559,13 @@ async fn type_script(
             )
         }
         _ => {
-            return Err(refused(
-                "Only enums, domains, composites, and ranges can be scripted.",
-            ));
+            return Err(refused("Only enums, domains, composites, and ranges can be scripted."));
         }
     };
     Ok(script::object_script(&name, ddl))
 }
 
-async fn extension_script(
-    tx: &Transaction<'_>,
-    role: &str,
-    oid: u32,
-) -> Result<ObjectScript, DetailError> {
+async fn extension_script(tx: &Transaction<'_>, role: &str, oid: u32) -> Result<ObjectScript, DetailError> {
     let row = tx
         .query_opt(
             "SELECT e.extname, n.nspname, e.extversion, obj_description(e.oid, 'pg_extension'), pg_get_userbyid(e.extowner)::text,
@@ -581,20 +588,9 @@ async fn extension_script(
     Ok(script::object_script(&name, ddl))
 }
 
-async fn relation(
-    tx: &Transaction<'_>,
-    queries: &Queries,
-    role: &str,
-    oid: u32,
-) -> Result<ObjectScript, DetailError> {
-    let relations = tx
-        .query(&queries.relations, &[&oid])
-        .await
-        .map_err(failed)?;
-    let r = relations
-        .iter()
-        .find(|r| relid(r) == oid)
-        .ok_or(DetailError::Gone)?;
+async fn relation(tx: &Transaction<'_>, queries: &Queries, role: &str, oid: u32) -> Result<ObjectScript, DetailError> {
+    let relations = tx.query(&queries.relations, &[&oid]).await.map_err(failed)?;
+    let r = relations.iter().find(|r| relid(r) == oid).ok_or(DetailError::Gone)?;
     let name: String = r.get(2);
     let ddl = match r.get::<_, &str>(0) {
         "r" | "p" | "f" => ddl::table(&table(oid, &Tree::load(tx, queries, role, &relations).await?)?),
@@ -673,11 +669,28 @@ impl Rows {
 }
 
 impl<'a> Tree<'a> {
-    async fn load(tx: &Transaction<'_>, queries: &Queries, role: &'a str, relations: &'a [Row]) -> Result<Tree<'a>, DetailError> {
+    async fn load(
+        tx: &Transaction<'_>,
+        queries: &Queries,
+        role: &'a str,
+        relations: &'a [Row],
+    ) -> Result<Tree<'a>, DetailError> {
         let oids: Vec<u32> = relations.iter().map(relid).collect();
         let params: &[&(dyn ToSql + Sync)] = &[&oids];
         let grants = relation_grants_query();
-        let (columns, sequences, sequence_states, constraints, indexes, attached, triggers, rules, policies, statistics, grants) = tokio::try_join!(
+        let (
+            columns,
+            sequences,
+            sequence_states,
+            constraints,
+            indexes,
+            attached,
+            triggers,
+            rules,
+            policies,
+            statistics,
+            grants,
+        ) = tokio::try_join!(
             tx.query(&queries.columns, params),
             tx.query(OWNED_SEQUENCES, params),
             tx.query(&queries.sequence_states, params),
@@ -710,7 +723,8 @@ impl<'a> Tree<'a> {
 
     /// The partitions directly under `oid`, the default partition last.
     fn partitions(&self, oid: u32) -> Vec<u32> {
-        let mut children: Vec<&Row> = self.relations.iter().filter(|r| r.get::<_, Option<u32>>(24) == Some(oid)).collect();
+        let mut children: Vec<&Row> =
+            self.relations.iter().filter(|r| r.get::<_, Option<u32>>(24) == Some(oid)).collect();
         children.sort_by_key(|r| (r.get::<_, Option<&str>>(7) == Some("DEFAULT"), r.get::<_, &str>(2)));
         children.into_iter().map(relid).collect()
     }
@@ -718,15 +732,31 @@ impl<'a> Tree<'a> {
 
 fn table(oid: u32, tree: &Tree) -> Result<ddl::Table, DetailError> {
     let r = tree.relations.iter().find(|r| relid(r) == oid).ok_or(DetailError::Gone)?;
-    let (columns, sequences, constraints, indexes, attached) = (tree.columns.of(oid), tree.sequences.of(oid), tree.constraints.of(oid), tree.indexes.of(oid), tree.attached.of(oid));
-    let (triggers, rules, policies, statistics, grants) = (tree.triggers.of(oid), tree.rules.of(oid), tree.policies.of(oid), tree.statistics.of(oid), tree.grants.of(oid));
+    let (columns, sequences, constraints, indexes, attached) = (
+        tree.columns.of(oid),
+        tree.sequences.of(oid),
+        tree.constraints.of(oid),
+        tree.indexes.of(oid),
+        tree.attached.of(oid),
+    );
+    let (triggers, rules, policies, statistics, grants) = (
+        tree.triggers.of(oid),
+        tree.rules.of(oid),
+        tree.policies.of(oid),
+        tree.statistics.of(oid),
+        tree.grants.of(oid),
+    );
     let schema: String = r.get(1);
     let serials: Vec<String> = columns.iter().filter_map(|c| c.get::<_, Option<String>>(30)).collect();
     let parent = match r.get::<_, Option<String>>(7) {
         Some(bound) => ddl::Parent::Partition { schema: r.get(8), name: r.get(9), bound },
         None => {
             let (schemas, names): (Vec<String>, Vec<String>) = (r.get(19), r.get(20));
-            if schemas.is_empty() { ddl::Parent::None } else { ddl::Parent::Inherits(schemas.into_iter().zip(names).collect()) }
+            if schemas.is_empty() {
+                ddl::Parent::None
+            } else {
+                ddl::Parent::Inherits(schemas.into_iter().zip(names).collect())
+            }
         }
     };
     let children = tree.partitions(oid).into_iter().map(|child| table(child, tree)).collect::<Result<Vec<_>, _>>()?;
@@ -782,10 +812,32 @@ fn table(oid: u32, tree: &Tree) -> Result<ddl::Table, DetailError> {
         force_row_security: r.get(12),
         policies: policies
             .iter()
-            .map(|p| ddl::Policy { name: p.get(0), permissive: p.get(1), command: first(p.get(2)), roles: p.get(3), using: p.get(4), check: p.get(5), comment: p.get(6) })
+            .map(|p| ddl::Policy {
+                name: p.get(0),
+                permissive: p.get(1),
+                command: first(p.get(2)),
+                roles: p.get(3),
+                using: p.get(4),
+                check: p.get(5),
+                comment: p.get(6),
+            })
             .collect(),
-        statistics: statistics.iter().filter_map(|s| Some(ddl::Statistics { schema: s.get(0), name: s.get(1), definition: s.get::<_, Option<String>>(2)?, target: s.get(3), comment: s.get(4) })).collect(),
-        unscripted: ddl::Unscripted { inherited_not_nulls: lost.iter().map(|k| k.get(0)).collect(), ..unscripted(r, grants, tree.role) },
+        statistics: statistics
+            .iter()
+            .filter_map(|s| {
+                Some(ddl::Statistics {
+                    schema: s.get(0),
+                    name: s.get(1),
+                    definition: s.get::<_, Option<String>>(2)?,
+                    target: s.get(3),
+                    comment: s.get(4),
+                })
+            })
+            .collect(),
+        unscripted: ddl::Unscripted {
+            inherited_not_nulls: lost.iter().map(|k| k.get(0)).collect(),
+            ..unscripted(r, grants, tree.role)
+        },
         schema,
     })
 }
@@ -835,7 +887,13 @@ fn column(r: &Row) -> ddl::Column {
         "v" => Some(ddl::Generated::Virtual),
         _ => None,
     };
-    let inherited = r.get::<_, Option<i64>>(25).map(|position| ddl::Inherited { replay_order: position, default: r.get(26), not_null: r.get(27), storage: r.get(28), compression: r.get(29) });
+    let inherited = r.get::<_, Option<i64>>(25).map(|position| ddl::Inherited {
+        replay_order: position,
+        default: r.get(26),
+        not_null: r.get(27),
+        storage: r.get(28),
+        compression: r.get(29),
+    });
     ddl::Column {
         name: r.get(0),
         type_name: r.get(1),
@@ -858,7 +916,17 @@ fn column(r: &Row) -> ddl::Column {
 
 /// `None` for a row whose `pg_get_*def` is NULL: the object was dropped after the query took its snapshot.
 fn constraint_row(r: &Row) -> Option<ddl::Constraint> {
-    Some(ddl::Constraint { name: r.get(0), definition: r.get::<_, Option<String>>(1)?, comment: r.get(2), after_indexes: r.get(3), index_options: r.get(4), index_tablespace: r.get(5), inherited: r.get(6), after_tree: r.get(7), not_null_column: r.get(8) })
+    Some(ddl::Constraint {
+        name: r.get(0),
+        definition: r.get::<_, Option<String>>(1)?,
+        comment: r.get(2),
+        after_indexes: r.get(3),
+        index_options: r.get(4),
+        index_tablespace: r.get(5),
+        inherited: r.get(6),
+        after_tree: r.get(7),
+        not_null_column: r.get(8),
+    })
 }
 
 fn index_row(r: &Row) -> ddl::Index {
@@ -870,14 +938,24 @@ fn index_row(r: &Row) -> ddl::Index {
         clustered: r.get(3),
         replica_identity: r.get(4),
         tablespace: r.get(5),
-        statistics: columns.into_iter().zip(targets).map(|(column, target)| ddl::ColumnStatistics { column, target }).collect(),
+        statistics: columns
+            .into_iter()
+            .zip(targets)
+            .map(|(column, target)| ddl::ColumnStatistics { column, target })
+            .collect(),
         invalid: r.get(8),
         partitioned: r.get(9),
     }
 }
 
 fn trigger_row(r: &Row) -> Option<ddl::Trigger> {
-    Some(ddl::Trigger { name: r.get(0), definition: r.get::<_, Option<String>>(1)?, enabled: first(r.get(2)), comment: r.get(3), cloned: false })
+    Some(ddl::Trigger {
+        name: r.get(0),
+        definition: r.get::<_, Option<String>>(1)?,
+        enabled: first(r.get(2)),
+        comment: r.get(3),
+        cloned: false,
+    })
 }
 
 fn cloned_trigger_row(r: &Row) -> Option<ddl::Trigger> {
@@ -938,11 +1016,25 @@ async fn index(tx: &Transaction<'_>, relation: u32, name: &str) -> Result<Object
                WHERE i.indrelid = $1 AND ic.relname = $2";
     let r = tx.query_opt(sql, &[&relation, &name]).await.map_err(failed)?.ok_or(DetailError::Gone)?;
     let constraint = match r.get::<_, Option<String>>(10) {
-        Some(name) => Some(ddl::Constraint { name, definition: r.get::<_, Option<String>>(11).ok_or(DetailError::Gone)?, comment: r.get(15), index_options: r.get(16), index_tablespace: r.get(5), ..Default::default() }),
+        Some(name) => Some(ddl::Constraint {
+            name,
+            definition: r.get::<_, Option<String>>(11).ok_or(DetailError::Gone)?,
+            comment: r.get(15),
+            index_options: r.get(16),
+            index_tablespace: r.get(5),
+            ..Default::default()
+        }),
         None => None,
     };
     let (schema, table): (&str, &str) = (r.get(12), r.get(13));
-    let ddl = ddl::index_script(&index_row(&r), constraint.as_ref(), r.get(17), keyword(r.get(14)), schema, &ddl::qualified(schema, table));
+    let ddl = ddl::index_script(
+        &index_row(&r),
+        constraint.as_ref(),
+        r.get(17),
+        keyword(r.get(14)),
+        schema,
+        &ddl::qualified(schema, table),
+    );
     Ok(script::object_script(name, ddl))
 }
 
@@ -952,7 +1044,14 @@ async fn trigger(tx: &Transaction<'_>, relation: u32, name: &str) -> Result<Obje
                WHERE t.tgrelid = $1 AND t.tgname = $2";
     let r = tx.query_opt(sql, &[&relation, &name]).await.map_err(failed)?.ok_or(DetailError::Gone)?;
     let table = ddl::qualified(r.get(4), r.get(5));
-    Ok(script::object_script(name, script::Ddl::complete(ddl::script(ddl::trigger(&trigger_row(&r).ok_or(DetailError::Gone)?, keyword(r.get(6)), &table)))))
+    Ok(script::object_script(
+        name,
+        script::Ddl::complete(ddl::script(ddl::trigger(
+            &trigger_row(&r).ok_or(DetailError::Gone)?,
+            keyword(r.get(6)),
+            &table,
+        ))),
+    ))
 }
 
 #[cfg(test)]
@@ -962,12 +1061,24 @@ mod tests {
     #[test]
     fn queries_read_only_the_columns_the_server_has() {
         let v12 = Queries::for_version(120000);
-        assert!(!v12.columns.contains("attcompression::text") && !v12.statistics.contains("stxstattarget"), "{}\n{}", v12.columns, v12.statistics);
+        assert!(
+            !v12.columns.contains("attcompression::text") && !v12.statistics.contains("stxstattarget"),
+            "{}\n{}",
+            v12.columns,
+            v12.statistics
+        );
         let v13 = Queries::for_version(130000);
         assert!(!v13.columns.contains("attcompression::text") && v13.statistics.contains("stxstattarget"));
         let v14 = Queries::for_version(140000);
         assert!(v14.columns.contains("a.attcompression::text") && v14.columns.contains("pa.attcompression::text"));
-        assert!(v14.columns.contains("unnest(a.attoptions) o WHERE split_part(o, '=', 1) <> 'pg_attver'"), "{}", v14.columns);
-        assert!(!v14.relations.contains("pg_publication_namespace") && Queries::for_version(150000).relations.contains("pg_publication_namespace"));
+        assert!(
+            v14.columns.contains("unnest(a.attoptions) o WHERE split_part(o, '=', 1) <> 'pg_attver'"),
+            "{}",
+            v14.columns
+        );
+        assert!(
+            !v14.relations.contains("pg_publication_namespace")
+                && Queries::for_version(150000).relations.contains("pg_publication_namespace")
+        );
     }
 }

@@ -88,17 +88,18 @@ fn parse_args(body: &[u8]) -> Result<Map<String, Value>, String> {
 }
 
 async fn events(State(engine): State<Arc<Engine>>) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let stream = BroadcastStream::new(engine.subscribe()).filter_map(|ev| match ev.map(|ev| Event::default().json_data(ev)) {
-        Ok(Ok(frame)) => Some(Ok(frame)),
-        Ok(Err(e)) => {
-            eprintln!("events: failed to encode AppEvent: {e}");
-            None
-        }
-        Err(lagged) => {
-            eprintln!("events: {lagged}");
-            None
-        }
-    });
+    let stream =
+        BroadcastStream::new(engine.subscribe()).filter_map(|ev| match ev.map(|ev| Event::default().json_data(ev)) {
+            Ok(Ok(frame)) => Some(Ok(frame)),
+            Ok(Err(e)) => {
+                eprintln!("events: failed to encode AppEvent: {e}");
+                None
+            }
+            Err(lagged) => {
+                eprintln!("events: {lagged}");
+                None
+            }
+        });
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
 

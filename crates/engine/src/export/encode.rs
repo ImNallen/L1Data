@@ -28,7 +28,11 @@ const INSERTS_PER_BATCH: u64 = 1_000;
 
 impl InsertTarget {
     pub fn placeholder(dialect: DatabaseKind, columns: &[ColumnMeta]) -> Self {
-        Self { table: PLACEHOLDER_TABLE.into(), columns: columns.iter().map(|c| Some(quote_ident_in(dialect, &c.name))).collect(), identity: false }
+        Self {
+            table: PLACEHOLDER_TABLE.into(),
+            columns: columns.iter().map(|c| Some(quote_ident_in(dialect, &c.name))).collect(),
+            identity: false,
+        }
     }
 }
 
@@ -53,20 +57,28 @@ pub(crate) struct Encoder {
 
 impl Encoder {
     pub fn new(format: Format, dialect: DatabaseKind, columns: &[ColumnMeta]) -> Self {
-        let cols = columns.iter().map(|c| Col { category: c.r#type.category, native: c.r#type.display.clone() }).collect();
+        let cols =
+            columns.iter().map(|c| Col { category: c.r#type.category, native: c.r#type.display.clone() }).collect();
         let names = || columns.iter().map(|c| c.name.clone()).collect::<Vec<_>>();
         let shape = match format {
             Format::Csv => Shape::Csv { header: names() },
             Format::Json => Shape::Json {
-                keys: unique_keys(&names()).iter().map(|k| format!("{}:", serde_json::to_string(k).expect("a string serializes"))).collect(),
+                keys: unique_keys(&names())
+                    .iter()
+                    .map(|k| format!("{}:", serde_json::to_string(k).expect("a string serializes")))
+                    .collect(),
             },
             Format::Markdown => Shape::Markdown {
                 header: names(),
-                right: columns.iter().map(|c| matches!(c.r#type.category, TypeCategory::Integer | TypeCategory::Numeric)).collect(),
+                right: columns
+                    .iter()
+                    .map(|c| matches!(c.r#type.category, TypeCategory::Integer | TypeCategory::Numeric))
+                    .collect(),
             },
             Format::Insert(target) => {
                 let names: Vec<&str> = target.columns.iter().flatten().map(String::as_str).collect();
-                let overriding = if target.identity && dialect == DatabaseKind::Postgres { " OVERRIDING SYSTEM VALUE" } else { "" };
+                let overriding =
+                    if target.identity && dialect == DatabaseKind::Postgres { " OVERRIDING SYSTEM VALUE" } else { "" };
                 Shape::Insert {
                     prefix: format!("INSERT INTO {} ({}){overriding} VALUES (", target.table, names.join(", ")),
                     keep: target.columns.iter().map(Option::is_some).collect(),
@@ -150,7 +162,9 @@ impl Encoder {
     pub fn finish(self, out: &mut Vec<u8>) {
         match self.shape {
             Shape::Json { .. } => out.extend_from_slice(if self.rows == 0 { b"]\n" } else { b"\n]\n" }),
-            Shape::Insert { identity_insert: Some(table), .. } => out.extend_from_slice(format!("SET IDENTITY_INSERT {table} OFF;\n").as_bytes()),
+            Shape::Insert { identity_insert: Some(table), .. } => {
+                out.extend_from_slice(format!("SET IDENTITY_INSERT {table} OFF;\n").as_bytes())
+            }
             _ => {}
         }
     }
@@ -270,7 +284,9 @@ fn sql_literal(out: &mut Vec<u8>, dialect: DatabaseKind, col: &Col, cell: Option
     let literal = match (dialect, col.category, t) {
         // T-SQL reads a bare number as decimal, capped at 38 digits, so a float as large as 1e300
         // goes through CONVERT instead.
-        (SqlServer, Numeric, t) if matches!(col.native.as_str(), "float" | "real") => mssql_value::input_sql(&col.native, t).unwrap_or_else(|_| quote_literal_in(SqlServer, t)),
+        (SqlServer, Numeric, t) if matches!(col.native.as_str(), "float" | "real") => {
+            mssql_value::input_sql(&col.native, t).unwrap_or_else(|_| quote_literal_in(SqlServer, t))
+        }
         (_, Integer | Numeric, t) if json_number(t) => t.to_owned(),
         (Postgres, Bool, "t") => "true".into(),
         (Postgres, Bool, "f") => "false".into(),
@@ -306,8 +322,17 @@ mod tests {
 
     #[test]
     fn csv_quotes_like_copy_csv() {
-        let cols = [col("c0", "text", TypeCategory::Text), col("c1", "text", TypeCategory::Text), col("c2", "text", TypeCategory::Text)];
-        let csv = encode(Format::Csv, DatabaseKind::Postgres, &cols, &[&[Some("plain"), None, Some("")], &[Some("a,b"), Some("say \"hi\""), Some("line\nbreak")]]);
+        let cols = [
+            col("c0", "text", TypeCategory::Text),
+            col("c1", "text", TypeCategory::Text),
+            col("c2", "text", TypeCategory::Text),
+        ];
+        let csv = encode(
+            Format::Csv,
+            DatabaseKind::Postgres,
+            &cols,
+            &[&[Some("plain"), None, Some("")], &[Some("a,b"), Some("say \"hi\""), Some("line\nbreak")]],
+        );
         assert_eq!(csv, "c0,c1,c2\r\nplain,,\"\"\r\n\"a,b\",\"say \"\"hi\"\"\",\"line\nbreak\"\r\n");
     }
 
@@ -325,7 +350,10 @@ mod tests {
             Format::Json,
             DatabaseKind::Postgres,
             &cols,
-            &[&[Some("9007199254740993"), Some("NaN"), Some("t"), Some(r#"{"a": [1, 2]}"#), None, Some("$1.00")], &[Some("-0.5"), Some("1e+20"), Some("f"), Some("not json"), Some("tab\there"), None]],
+            &[
+                &[Some("9007199254740993"), Some("NaN"), Some("t"), Some(r#"{"a": [1, 2]}"#), None, Some("$1.00")],
+                &[Some("-0.5"), Some("1e+20"), Some("f"), Some("not json"), Some("tab\there"), None],
+            ],
         );
         assert_eq!(
             json,
@@ -339,7 +367,10 @@ mod tests {
     #[test]
     fn json_reads_sql_server_bits_as_booleans() {
         let cols = [col("flag", "bit", TypeCategory::Bool), col("n", "int", TypeCategory::Integer)];
-        assert_eq!(encode(Format::Json, DatabaseKind::SqlServer, &cols, &[&[Some("1"), Some("7")], &[Some("0"), None]]), "[\n  {\"flag\":true,\"n\":7},\n  {\"flag\":false,\"n\":null}\n]\n");
+        assert_eq!(
+            encode(Format::Json, DatabaseKind::SqlServer, &cols, &[&[Some("1"), Some("7")], &[Some("0"), None]]),
+            "[\n  {\"flag\":true,\"n\":7},\n  {\"flag\":false,\"n\":null}\n]\n"
+        );
     }
 
     #[test]
@@ -364,8 +395,23 @@ mod tests {
             col("raw", "bytea", TypeCategory::Binary),
             col("note", "text", TypeCategory::Text),
         ];
-        let target = InsertTarget { table: "\"public\".\"t\"".into(), columns: ["id", "n", "ok", "raw", "note"].iter().map(|c| Some(quote_ident_in(DatabaseKind::Postgres, c))).collect(), identity: false };
-        let sql = encode(Format::Insert(target), DatabaseKind::Postgres, &cols, &[&[Some("1"), Some("NaN"), Some("f"), Some("\\x00ff"), Some("O'Brien")], &[None, Some("2.50"), Some("t"), None, None]]);
+        let target = InsertTarget {
+            table: "\"public\".\"t\"".into(),
+            columns: ["id", "n", "ok", "raw", "note"]
+                .iter()
+                .map(|c| Some(quote_ident_in(DatabaseKind::Postgres, c)))
+                .collect(),
+            identity: false,
+        };
+        let sql = encode(
+            Format::Insert(target),
+            DatabaseKind::Postgres,
+            &cols,
+            &[
+                &[Some("1"), Some("NaN"), Some("f"), Some("\\x00ff"), Some("O'Brien")],
+                &[None, Some("2.50"), Some("t"), None, None],
+            ],
+        );
         assert_eq!(
             sql,
             "INSERT INTO \"public\".\"t\" (\"id\", \"n\", \"ok\", \"raw\", \"note\") VALUES (1, 'NaN', false, '\\x00ff', 'O''Brien');\n\
@@ -384,12 +430,24 @@ mod tests {
             col("odd", "sql_variant", TypeCategory::Other),
             col("big", "float", TypeCategory::Numeric),
         ];
-        let target = InsertTarget { table: "[dbo].[t]".into(), columns: ["[b]", "[f]", "[s]", "[at]", "[d]", "[odd]", "[big]"].map(|c| Some(c.into())).to_vec(), identity: false };
+        let target = InsertTarget {
+            table: "[dbo].[t]".into(),
+            columns: ["[b]", "[f]", "[s]", "[at]", "[d]", "[odd]", "[big]"].map(|c| Some(c.into())).to_vec(),
+            identity: false,
+        };
         let sql = encode(
             Format::Insert(target),
             DatabaseKind::SqlServer,
             &cols,
-            &[&[Some("0x00FF"), Some("1"), Some("O'Brien"), Some("2024-01-02 03:04:05.123"), Some("-12.50"), Some("x"), Some("1.5")]],
+            &[&[
+                Some("0x00FF"),
+                Some("1"),
+                Some("O'Brien"),
+                Some("2024-01-02 03:04:05.123"),
+                Some("-12.50"),
+                Some("x"),
+                Some("1.5"),
+            ]],
         );
         assert_eq!(
             sql,
@@ -398,21 +456,42 @@ mod tests {
     }
 
     fn target(table: &str, columns: &[Option<&str>], identity: bool) -> Format {
-        Format::Insert(InsertTarget { table: table.into(), columns: columns.iter().map(|c| c.map(String::from)).collect(), identity })
+        Format::Insert(InsertTarget {
+            table: table.into(),
+            columns: columns.iter().map(|c| c.map(String::from)).collect(),
+            identity,
+        })
     }
 
     #[test]
     fn postgres_inserts_override_an_always_identity() {
         let cols = [col("id", "bigint", TypeCategory::Integer), col("label", "text", TypeCategory::Text)];
-        let sql = encode(target("\"t\"", &[Some("\"id\""), Some("\"label\"")], true), DatabaseKind::Postgres, &cols, &[&[Some("7"), Some("a")]]);
+        let sql = encode(
+            target("\"t\"", &[Some("\"id\""), Some("\"label\"")], true),
+            DatabaseKind::Postgres,
+            &cols,
+            &[&[Some("7"), Some("a")]],
+        );
         assert_eq!(sql, "INSERT INTO \"t\" (\"id\", \"label\") OVERRIDING SYSTEM VALUE VALUES (7, 'a');\n");
     }
 
     #[test]
     fn postgres_inserts_leave_out_a_generated_column_and_its_cells() {
-        let cols = [col("label", "text", TypeCategory::Text), col("width", "integer", TypeCategory::Integer), col("note", "text", TypeCategory::Text)];
-        let sql = encode(target("\"t\"", &[Some("\"label\""), None, Some("\"note\"")], false), DatabaseKind::Postgres, &cols, &[&[Some("ab"), Some("2"), None], &[Some("c"), Some("1"), Some("x")]]);
-        assert_eq!(sql, "INSERT INTO \"t\" (\"label\", \"note\") VALUES ('ab', NULL);\nINSERT INTO \"t\" (\"label\", \"note\") VALUES ('c', 'x');\n");
+        let cols = [
+            col("label", "text", TypeCategory::Text),
+            col("width", "integer", TypeCategory::Integer),
+            col("note", "text", TypeCategory::Text),
+        ];
+        let sql = encode(
+            target("\"t\"", &[Some("\"label\""), None, Some("\"note\"")], false),
+            DatabaseKind::Postgres,
+            &cols,
+            &[&[Some("ab"), Some("2"), None], &[Some("c"), Some("1"), Some("x")]],
+        );
+        assert_eq!(
+            sql,
+            "INSERT INTO \"t\" (\"label\", \"note\") VALUES ('ab', NULL);\nINSERT INTO \"t\" (\"label\", \"note\") VALUES ('c', 'x');\n"
+        );
     }
 
     #[test]
@@ -422,14 +501,30 @@ mod tests {
         let rows: Vec<&[Option<&str>]> = rows.iter().map(|r| r.as_slice()).collect();
         let script = encode(target("[dbo].[t]", &[Some("[id]")], true), DatabaseKind::SqlServer, &cols, &rows);
         let lines: Vec<&str> = script.lines().collect();
-        assert_eq!((lines[0], lines[1]), ("SET IDENTITY_INSERT [dbo].[t] ON;", "INSERT INTO [dbo].[t] ([id]) VALUES (1);"));
-        assert_eq!(&lines[1_000..], ["INSERT INTO [dbo].[t] ([id]) VALUES (1);", "GO", "SET IDENTITY_INSERT [dbo].[t] OFF;"]);
+        assert_eq!(
+            (lines[0], lines[1]),
+            ("SET IDENTITY_INSERT [dbo].[t] ON;", "INSERT INTO [dbo].[t] ([id]) VALUES (1);")
+        );
+        assert_eq!(
+            &lines[1_000..],
+            ["INSERT INTO [dbo].[t] ([id]) VALUES (1);", "GO", "SET IDENTITY_INSERT [dbo].[t] OFF;"]
+        );
     }
 
     #[test]
     fn sql_server_inserts_leave_out_computed_and_rowversion_columns() {
-        let cols = [col("total", "int", TypeCategory::Integer), col("doubled", "int", TypeCategory::Integer), col("ver", "timestamp", TypeCategory::Binary), col("s", "nvarchar", TypeCategory::Text)];
-        let sql = encode(target("[t]", &[Some("[total]"), None, None, Some("[s]")], false), DatabaseKind::SqlServer, &cols, &[&[Some("3"), Some("6"), Some("0x00000000000007D1"), Some("x")]]);
+        let cols = [
+            col("total", "int", TypeCategory::Integer),
+            col("doubled", "int", TypeCategory::Integer),
+            col("ver", "timestamp", TypeCategory::Binary),
+            col("s", "nvarchar", TypeCategory::Text),
+        ];
+        let sql = encode(
+            target("[t]", &[Some("[total]"), None, None, Some("[s]")], false),
+            DatabaseKind::SqlServer,
+            &cols,
+            &[&[Some("3"), Some("6"), Some("0x00000000000007D1"), Some("x")]],
+        );
         assert_eq!(sql, "INSERT INTO [t] ([total], [s]) VALUES (3, N'x');\n");
     }
 
@@ -438,13 +533,23 @@ mod tests {
         let cols = [col("n", "int", TypeCategory::Integer)];
         let rows: Vec<[Option<&str>; 1]> = (0..2_001).map(|_| [Some("1")]).collect();
         let rows: Vec<&[Option<&str>]> = rows.iter().map(|r| r.as_slice()).collect();
-        let script = encode(Format::Insert(InsertTarget::placeholder(DatabaseKind::SqlServer, &cols)), DatabaseKind::SqlServer, &cols, &rows);
+        let script = encode(
+            Format::Insert(InsertTarget::placeholder(DatabaseKind::SqlServer, &cols)),
+            DatabaseKind::SqlServer,
+            &cols,
+            &rows,
+        );
         let lines: Vec<&str> = script.lines().collect();
         assert_eq!(lines.iter().filter(|l| **l == "GO").count(), 2);
         assert_eq!((lines[1_000], lines[2_001]), ("GO", "GO"));
         assert_eq!(lines[0], "INSERT INTO target_table ([n]) VALUES (1);");
         assert_eq!(lines.len(), 2_003);
-        let pg = encode(Format::Insert(InsertTarget::placeholder(DatabaseKind::Postgres, &cols)), DatabaseKind::Postgres, &cols, &rows);
+        let pg = encode(
+            Format::Insert(InsertTarget::placeholder(DatabaseKind::Postgres, &cols)),
+            DatabaseKind::Postgres,
+            &cols,
+            &rows,
+        );
         assert!(!pg.contains("GO"));
         assert!(pg.starts_with("INSERT INTO target_table (\"n\") VALUES (1);\n"));
     }
@@ -454,7 +559,9 @@ mod tests {
         for ok in ["0", "-0", "12", "1.50", "1e+20", "-0.00000000000000000000000000000000000001", "6.02E23"] {
             assert!(json_number(ok), "{ok}");
         }
-        for bad in ["", "-", "01", "1.", ".5", "+1", "1e", "NaN", "Infinity", "-Infinity", "$1.00", "1,000", "0x1F", "inf"] {
+        for bad in
+            ["", "-", "01", "1.", ".5", "+1", "1e", "NaN", "Infinity", "-Infinity", "$1.00", "1,000", "0x1F", "inf"]
+        {
             assert!(!json_number(bad), "{bad}");
         }
     }

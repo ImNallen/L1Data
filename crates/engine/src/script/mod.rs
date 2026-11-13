@@ -64,16 +64,30 @@ mod tests {
 
     #[test]
     fn warnings_head_the_text_one_comment_line_each() {
-        let s = object_script("t", Ddl { text: "CREATE TABLE t ();\n".into(), warnings: vec!["privileges on public.t".into(), "rules on public.\"a\nb\"".into()] });
+        let s = object_script(
+            "t",
+            Ddl {
+                text: "CREATE TABLE t ();\n".into(),
+                warnings: vec!["privileges on public.t".into(), "rules on public.\"a\nb\"".into()],
+            },
+        );
         assert_eq!(s.title, "t.sql");
-        assert_eq!(s.text, "-- L1 Data could not script: privileges on public.t\n-- L1 Data could not script: rules on public.\"a b\"\n\nCREATE TABLE t ();\n");
+        assert_eq!(
+            s.text,
+            "-- L1 Data could not script: privileges on public.t\n-- L1 Data could not script: rules on public.\"a b\"\n\nCREATE TABLE t ();\n"
+        );
         assert_eq!(s.warnings, ["privileges on public.t", "rules on public.\"a b\""]);
         assert_eq!(object_script("t", Ddl::complete("SELECT 1;\n".into())).text, "SELECT 1;\n");
     }
 
     #[test]
     fn privileges_list_each_change_with_its_column_and_grantee() {
-        let grant = |privilege: &str, column: Option<&str>, grantee: &str, change: Change| Privilege { name: privilege.into(), column: column.map(Into::into), grantee: grantee.into(), change };
+        let grant = |privilege: &str, column: Option<&str>, grantee: &str, change: Change| Privilege {
+            name: privilege.into(),
+            column: column.map(Into::into),
+            grantee: grantee.into(),
+            change,
+        };
         assert_eq!(
             privileges(
                 "[dbo].[t]",
@@ -85,7 +99,9 @@ mod tests {
                 ]
             )
             .as_deref(),
-            Some("privileges on [dbo].[t] (SELECT granted to [app], UPDATE ([qty]) granted with grant option to [app], EXECUTE revoked from PUBLIC, DELETE denied to [app])")
+            Some(
+                "privileges on [dbo].[t] (SELECT granted to [app], UPDATE ([qty]) granted with grant option to [app], EXECUTE revoked from PUBLIC, DELETE denied to [app])"
+            )
         );
         assert_eq!(privileges("[dbo].[t]", &[]), None);
     }

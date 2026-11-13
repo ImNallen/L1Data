@@ -50,22 +50,9 @@ impl PgSession {
                     enabled: true,
                     validated: r.get(10),
                 },
-                MapRelation {
-                    oid: r.get(2),
-                    schema: r.get(3),
-                    name: r.get(4),
-                    columns: vec![],
-                },
-                MapRelation {
-                    oid: r.get(5),
-                    schema: r.get(6),
-                    name: r.get(7),
-                    columns: vec![],
-                },
-                MapColumnPair {
-                    source: r.get(8),
-                    target: r.get(9),
-                },
+                MapRelation { oid: r.get(2), schema: r.get(3), name: r.get(4), columns: vec![] },
+                MapRelation { oid: r.get(5), schema: r.get(6), name: r.get(7), columns: vec![] },
+                MapColumnPair { source: r.get(8), target: r.get(9) },
             );
         }
         Ok(Some(page))

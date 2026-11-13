@@ -45,20 +45,42 @@ const STABLE_HISTORY: &[(&str, &[Item])] = &[
     (
         "0.2.0",
         &[
-            ("feat(app): name the run target, mark Production, and fix tree keyboard access", Some("ImNallen"), Some(50)),
+            (
+                "feat(app): name the run target, mark Production, and fix tree keyboard access",
+                Some("ImNallen"),
+                Some(50),
+            ),
             ("feat(app): save queries and reopen them from the sidebar", Some("ImNallen"), Some(49)),
             ("fix(ui): cancel a grid cell edit on Escape", Some("ImNallen"), Some(51)),
         ],
     ),
-    ("0.1.1", &[("fix(engine): keep a numeric's exact digits in the grid", Some("ImNallen"), Some(44)), ("chore(ui): tighten the sidebar spacing", None, None)]),
+    (
+        "0.1.1",
+        &[
+            ("fix(engine): keep a numeric's exact digits in the grid", Some("ImNallen"), Some(44)),
+            ("chore(ui): tighten the sidebar spacing", None, None),
+        ],
+    ),
     ("0.1.0", &[("feat(app): the first release", Some("ImNallen"), Some(1))]),
 ];
 
 const NIGHTLY_HISTORY: &[(&str, &[Item])] = &[
     ("0.2.1-nightly.20261023.7", &[("feat(app): ask before applying edits on Production", Some("ImNallen"), Some(53))]),
-    ("0.1.1-nightly.20261024.6", &[("chore(ui): lint and format the frontend with oxlint and oxfmt", Some("ImNallen"), Some(52))]),
-    ("0.1.1-nightly.20261023.7", &[("fix(ui): cancel a grid cell edit on Escape", Some("ImNallen"), Some(51)), ("docs(readme): list the shortcuts", None, None)]),
-    ("0.1.1-nightly.20261023.5", &[("feat(app): save queries and reopen them from the sidebar", Some("ImNallen"), Some(49))]),
+    (
+        "0.1.1-nightly.20261024.6",
+        &[("chore(ui): lint and format the frontend with oxlint and oxfmt", Some("ImNallen"), Some(52))],
+    ),
+    (
+        "0.1.1-nightly.20261023.7",
+        &[
+            ("fix(ui): cancel a grid cell edit on Escape", Some("ImNallen"), Some(51)),
+            ("docs(readme): list the shortcuts", None, None),
+        ],
+    ),
+    (
+        "0.1.1-nightly.20261023.5",
+        &[("feat(app): save queries and reopen them from the sidebar", Some("ImNallen"), Some(49))],
+    ),
 ];
 
 fn feed_json(version: &str, history: &[(&str, &[Item])]) -> Value {
@@ -71,18 +93,29 @@ fn feed_json(version: &str, history: &[(&str, &[Item])]) -> Value {
 }
 
 impl ScriptedTransport {
-    pub const SCENARIOS: [&str; 7] = ["current", "available", "nightly-build", "offline", "bad-signature", "install-fails", "off"];
+    pub const SCENARIOS: [&str; 7] =
+        ["current", "available", "nightly-build", "offline", "bad-signature", "install-fails", "off"];
 
     pub fn named(name: &str) -> Result<Self, String> {
         let script = match name {
             "current" => Script { stable: Some("0.1.0"), nightly: Some("0.1.1-nightly.20261023.7"), ..AVAILABLE },
             "available" => AVAILABLE,
-            "nightly-build" => Script { installed: "0.1.1-nightly.20261023.5", stable: Some("0.1.0"), nightly: Some("0.1.1-nightly.20261024.6"), ..AVAILABLE },
+            "nightly-build" => Script {
+                installed: "0.1.1-nightly.20261023.5",
+                stable: Some("0.1.0"),
+                nightly: Some("0.1.1-nightly.20261024.6"),
+                ..AVAILABLE
+            },
             "offline" => Script { stable: None, nightly: None, ..AVAILABLE },
             "bad-signature" => Script { signature: Err(UpdateFailure::BadSignature), ..AVAILABLE },
             "install-fails" => Script { install: Err(UpdateFailure::ReadOnlyLocation), ..AVAILABLE },
             "off" => Script { support: Err(UpdatesOff::DevBuild), ..AVAILABLE },
-            _ => return Err(format!("unknown update scenario {name:?}; expected one of {}", Self::SCENARIOS.join(", "))),
+            _ => {
+                return Err(format!(
+                    "unknown update scenario {name:?}; expected one of {}",
+                    Self::SCENARIOS.join(", ")
+                ));
+            }
         };
         Ok(Self { script, relaunched: AtomicBool::new(false) })
     }
@@ -100,10 +133,19 @@ impl UpdateTransport for ScriptedTransport {
     fn fetch<'a>(&'a self, url: &'a str) -> BoxFuture<'a, Result<Option<Box<dyn Release>>, UpdateFailure>> {
         Box::pin(async move {
             tokio::time::sleep(CHECK_DELAY).await;
-            let (offered, history) = if url == feed(UpdateTrack::Stable) { (self.script.stable, STABLE_HISTORY) } else { (self.script.nightly, NIGHTLY_HISTORY) };
+            let (offered, history) = if url == feed(UpdateTrack::Stable) {
+                (self.script.stable, STABLE_HISTORY)
+            } else {
+                (self.script.nightly, NIGHTLY_HISTORY)
+            };
             let version = offered.ok_or(UpdateFailure::Offline)?;
             let feed = feed_json(version, history);
-            let release = ScriptedRelease { version, feed, signature: self.script.signature.clone(), install: self.script.install.clone() };
+            let release = ScriptedRelease {
+                version,
+                feed,
+                signature: self.script.signature.clone(),
+                install: self.script.install.clone(),
+            };
             Ok(Some(Box::new(release) as Box<dyn Release>))
         })
     }
@@ -131,7 +173,10 @@ impl Release for ScriptedRelease {
     }
 
     /// Like the plugin, it verifies the signature after the last chunk.
-    fn download(self: Box<Self>, mut progress: Progress) -> BoxFuture<'static, Result<Box<dyn Verified>, UpdateFailure>> {
+    fn download(
+        self: Box<Self>,
+        mut progress: Progress,
+    ) -> BoxFuture<'static, Result<Box<dyn Verified>, UpdateFailure>> {
         Box::pin(async move {
             for step in 1..=DOWNLOAD_STEPS {
                 tokio::time::sleep(DOWNLOAD_STEP).await;

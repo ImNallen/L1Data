@@ -9,7 +9,10 @@ use tokio::task::{AbortHandle, JoinHandle};
 use super::Assistant;
 use super::tools::Ask;
 use crate::Shared;
-use crate::model::{AppEvent, ApprovalId, ApproveError, ChatId, ChatState, ChatStatus, DatabaseRef, Decision, Entry, EntrySnapshot, Permission, ToolCallId};
+use crate::model::{
+    AppEvent, ApprovalId, ApproveError, ChatId, ChatState, ChatStatus, DatabaseRef, Decision, Entry, EntrySnapshot,
+    Permission, ToolCallId,
+};
 use crate::provider::agent::{Agent, CLOSE_GRACE};
 use crate::store::ChatRecord;
 
@@ -146,7 +149,19 @@ pub(crate) enum Gated {
 
 impl Chat {
     pub(crate) fn new(id: ChatId, record: ChatRecord, status: ChatStatus) -> Self {
-        Self { id, inner: Mutex::new(ChatInner { record, status, rev: 0, turn: None, closing: None, live: BTreeMap::new(), ledger: Ledger::default(), last_context: None }) }
+        Self {
+            id,
+            inner: Mutex::new(ChatInner {
+                record,
+                status,
+                rev: 0,
+                turn: None,
+                closing: None,
+                live: BTreeMap::new(),
+                ledger: Ledger::default(),
+                last_context: None,
+            }),
+        }
     }
 
     /// The lock, or `None` once the chat is deleted. Every store and publish path takes it
@@ -174,10 +189,16 @@ impl Chat {
             return Gated::Deny(Refusal::Policy(message.clone()));
         }
         match inner.ledger.calls.get(call) {
-            Some(Gate::Run { input: approved }) => return if approved == input { Gated::Run } else { Gated::Deny(Refusal::Mismatch) },
+            Some(Gate::Run { input: approved }) => {
+                return if approved == input { Gated::Run } else { Gated::Deny(Refusal::Mismatch) };
+            }
             Some(Gate::Denied { why }) => return Gated::Deny(why.clone()),
             Some(Gate::Pending { approval, input: asked, answer }) => {
-                return if asked == input { Gated::Wait { approval: *approval, answer: answer.subscribe(), created_here: false } } else { Gated::Deny(Refusal::Mismatch) };
+                return if asked == input {
+                    Gated::Wait { approval: *approval, answer: answer.subscribe(), created_here: false }
+                } else {
+                    Gated::Deny(Refusal::Mismatch)
+                };
             }
             None => {}
         }
@@ -202,7 +223,13 @@ impl Chat {
 
     pub(crate) fn answer(&self, approval: ApprovalId, decision: Decision) -> Result<(), ApproveError> {
         let mut inner = self.inner.lock().unwrap();
-        let call = inner.ledger.calls.iter().find(|(_, g)| matches!(g, Gate::Pending { approval: a, .. } if *a == approval)).map(|(c, _)| c.clone()).ok_or(ApproveError::NotPending)?;
+        let call = inner
+            .ledger
+            .calls
+            .iter()
+            .find(|(_, g)| matches!(g, Gate::Pending { approval: a, .. } if *a == approval))
+            .map(|(c, _)| c.clone())
+            .ok_or(ApproveError::NotPending)?;
         let verdict = match decision {
             Decision::Run => Ok(()),
             Decision::Deny => Err(Refusal::Declined),
@@ -282,7 +309,15 @@ impl Chat {
     }
 
     pub(crate) fn state_of(id: ChatId, inner: &ChatInner) -> ChatState {
-        ChatState { id, rev: inner.rev, title: inner.record.title.clone(), updated_at_ms: inner.record.updated_at_ms, options: inner.record.options.clone(), status: inner.status.clone(), entry_count: inner.record.entry_count }
+        ChatState {
+            id,
+            rev: inner.rev,
+            title: inner.record.title.clone(),
+            updated_at_ms: inner.record.updated_at_ms,
+            options: inner.record.options.clone(),
+            status: inner.status.clone(),
+            entry_count: inner.record.entry_count,
+        }
     }
 }
 
@@ -299,12 +334,29 @@ mod tests {
 
     #[test]
     fn policy_refusal_precedes_a_cached_approval() {
-        let record = ChatRecord { title: String::new(), created_at_ms: 0, updated_at_ms: 0, options: crate::model::ChatOptions { provider: crate::model::ProviderKind::ALL[0], model: crate::model::ModelId("test".into()), effort: None, permission: Permission::Auto }, session: None, entry_count: 0, access: None, recap_floor: 0 };
+        let record = ChatRecord {
+            title: String::new(),
+            created_at_ms: 0,
+            updated_at_ms: 0,
+            options: crate::model::ChatOptions {
+                provider: crate::model::ProviderKind::ALL[0],
+                model: crate::model::ModelId("test".into()),
+                effort: None,
+                permission: Permission::Auto,
+            },
+            session: None,
+            entry_count: 0,
+            access: None,
+            recap_floor: 0,
+        };
         let chat = Chat::new(ChatId(uuid::Uuid::new_v4()), record, ChatStatus::Idle);
         let assistant = Assistant::new();
         let call = ToolCallId("approved".into());
         let input = serde_json::json!({ "sql": "select 1" });
         assert!(matches!(chat.gate(&assistant, &call, &input, &Ask::Allow), Gated::Run));
-        assert!(matches!(chat.gate(&assistant, &call, &input, &Ask::Refuse("schema only".into())), Gated::Deny(Refusal::Policy(_))));
+        assert!(matches!(
+            chat.gate(&assistant, &call, &input, &Ask::Refuse("schema only".into())),
+            Gated::Deny(Refusal::Policy(_))
+        ));
     }
 }

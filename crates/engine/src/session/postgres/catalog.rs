@@ -5,8 +5,8 @@ use tokio_postgres::Client;
 use super::types;
 use crate::connection::DatabaseInfo;
 use crate::model::{
-    Catalog, ColumnInfo, DatabaseKind, DatabaseRef, DbAccess, ExtensionInfo, FnKind, FunctionInfo,
-    RelKind, Relation, SchemaInfo, SequenceInfo, TypeField, TypeInfo, TypeKind,
+    Catalog, ColumnInfo, DatabaseKind, DatabaseRef, DbAccess, ExtensionInfo, FnKind, FunctionInfo, RelKind, Relation,
+    SchemaInfo, SequenceInfo, TypeField, TypeInfo, TypeKind,
 };
 use crate::text::{quote_function_if_needed, quote_if_needed};
 
@@ -14,9 +14,11 @@ use crate::text::{quote_function_if_needed, quote_if_needed};
 /// rule in Rust.
 const SYSTEM_SCHEMA: &str = "(n.nspname = 'information_schema' OR n.nspname LIKE 'pg\\_%')";
 /// Toast and temp schemas are listed nowhere.
-const UNLISTED_SCHEMA: &str = "(n.nspname = 'pg_toast' OR n.nspname LIKE 'pg\\_temp\\_%' OR n.nspname LIKE 'pg\\_toast\\_temp\\_%')";
+const UNLISTED_SCHEMA: &str =
+    "(n.nspname = 'pg_toast' OR n.nspname LIKE 'pg\\_temp\\_%' OR n.nspname LIKE 'pg\\_toast\\_temp\\_%')";
 /// Relations and columns: every user schema, plus the system schemas named in `$1`.
-const RELATION_SCHEMA_FILTER: &str = "NOT (n.nspname = 'pg_toast' OR n.nspname LIKE 'pg\\_temp\\_%' OR n.nspname LIKE 'pg\\_toast\\_temp\\_%')
+const RELATION_SCHEMA_FILTER: &str =
+    "NOT (n.nspname = 'pg_toast' OR n.nspname LIKE 'pg\\_temp\\_%' OR n.nspname LIKE 'pg\\_toast\\_temp\\_%')
     AND (NOT (n.nspname = 'information_schema' OR n.nspname LIKE 'pg\\_%') OR n.nspname = ANY($1))";
 /// Functions: user schemas only. `pg_catalog` alone has about 3,000.
 const FUNCTION_SCHEMA_FILTER: &str = "NOT (n.nspname = 'information_schema' OR n.nspname LIKE 'pg\\_%')";
@@ -148,7 +150,9 @@ pub async fn load(
         });
     }
     for schema in schemas.iter_mut().filter(|s| !s.system || extra_schemas.contains(&s.name)) {
-        schema.table_count = schema.relations.iter().filter(|r| !matches!(r.kind, RelKind::View | RelKind::MaterializedView)).count() as u32;
+        schema.table_count =
+            schema.relations.iter().filter(|r| !matches!(r.kind, RelKind::View | RelKind::MaterializedView)).count()
+                as u32;
     }
 
     let column_rows = client
@@ -238,9 +242,7 @@ pub async fn load(
             oid: r.get(0),
             quoted: quote_if_needed(DatabaseKind::Postgres, &name),
             name,
-            type_name: r
-                .get::<_, Option<String>>(3)
-                .unwrap_or_else(|| "unknown".into()),
+            type_name: r.get::<_, Option<String>>(3).unwrap_or_else(|| "unknown".into()),
         });
     }
 
@@ -307,41 +309,22 @@ pub async fn load(
         })
         .collect();
 
-    Ok(Catalog {
-        database_kind: DatabaseKind::Postgres,
-        db,
-        version,
-        default_schema,
-        schemas,
-        extensions,
-    })
+    Ok(Catalog { database_kind: DatabaseKind::Postgres, db, version, default_schema, schemas, extensions })
 }
 
 fn type_kind(typtype: &str, payload: &str) -> Option<TypeKind> {
     match typtype {
-        "e" => Some(TypeKind::Enum {
-            labels: split_packed(payload, '\u{1f}'),
-        }),
-        "d" => Some(TypeKind::Domain {
-            base: payload.to_owned(),
-        }),
-        "c" => Some(TypeKind::Composite {
-            fields: composite_fields(payload),
-        }),
-        "r" => Some(TypeKind::Range {
-            subtype: payload.to_owned(),
-        }),
+        "e" => Some(TypeKind::Enum { labels: split_packed(payload, '\u{1f}') }),
+        "d" => Some(TypeKind::Domain { base: payload.to_owned() }),
+        "c" => Some(TypeKind::Composite { fields: composite_fields(payload) }),
+        "r" => Some(TypeKind::Range { subtype: payload.to_owned() }),
         "b" | "p" => Some(TypeKind::Builtin),
         _ => None,
     }
 }
 
 fn split_packed(payload: &str, sep: char) -> Vec<String> {
-    if payload.is_empty() {
-        Vec::new()
-    } else {
-        payload.split(sep).map(str::to_owned).collect()
-    }
+    if payload.is_empty() { Vec::new() } else { payload.split(sep).map(str::to_owned).collect() }
 }
 
 fn composite_fields(payload: &str) -> Vec<TypeField> {
@@ -349,10 +332,7 @@ fn composite_fields(payload: &str) -> Vec<TypeField> {
         .into_iter()
         .filter_map(|field| {
             let (name, type_name) = field.split_once('\u{1f}')?;
-            Some(TypeField {
-                name: name.to_owned(),
-                type_name: type_name.to_owned(),
-            })
+            Some(TypeField { name: name.to_owned(), type_name: type_name.to_owned() })
         })
         .collect()
 }
@@ -381,58 +361,51 @@ mod tests {
 
     #[test]
     fn the_default_schema_is_never_a_system_schema() {
-        let schemas = [schema("audit", false), schema("information_schema", true), schema("pg_catalog", true), schema("public", false)];
+        let schemas = [
+            schema("audit", false),
+            schema("information_schema", true),
+            schema("pg_catalog", true),
+            schema("public", false),
+        ];
         assert_eq!(default_schema(&path(&["pg_catalog", "public"]), &schemas).as_deref(), Some("public"));
         assert_eq!(default_schema(&path(&["pg_catalog", "audit"]), &schemas).as_deref(), Some("audit"));
-        assert_eq!(default_schema(&path(&["missing"]), &schemas).as_deref(), Some("public"), "a search path with nothing to show falls back to public");
+        assert_eq!(
+            default_schema(&path(&["missing"]), &schemas).as_deref(),
+            Some("public"),
+            "a search path with nothing to show falls back to public"
+        );
         let no_public = [schema("audit", false), schema("pg_catalog", true)];
-        assert_eq!(default_schema(&path(&["pg_catalog"]), &no_public).as_deref(), Some("audit"), "then the first user schema");
-        assert_eq!(default_schema(&path(&["pg_catalog"]), &[schema("pg_catalog", true)]), None, "a database with only system schemas has no default");
+        assert_eq!(
+            default_schema(&path(&["pg_catalog"]), &no_public).as_deref(),
+            Some("audit"),
+            "then the first user schema"
+        );
+        assert_eq!(
+            default_schema(&path(&["pg_catalog"]), &[schema("pg_catalog", true)]),
+            None,
+            "a database with only system schemas has no default"
+        );
     }
 
     #[test]
     fn type_payloads_become_the_kind_the_row_draws() {
         assert_eq!(
             type_kind("e", "sad\u{1f}ok\u{1f}happy"),
-            Some(TypeKind::Enum {
-                labels: vec!["sad".into(), "ok".into(), "happy".into()]
-            })
+            Some(TypeKind::Enum { labels: vec!["sad".into(), "ok".into(), "happy".into()] })
         );
-        assert_eq!(
-            type_kind("e", ""),
-            Some(TypeKind::Enum { labels: Vec::new() })
-        );
-        assert_eq!(
-            type_kind("d", "text"),
-            Some(TypeKind::Domain {
-                base: "text".into()
-            })
-        );
+        assert_eq!(type_kind("e", ""), Some(TypeKind::Enum { labels: Vec::new() }));
+        assert_eq!(type_kind("d", "text"), Some(TypeKind::Domain { base: "text".into() }));
         assert_eq!(
             type_kind("c", "id\u{1f}integer\u{1e}kind\u{1f}text"),
             Some(TypeKind::Composite {
                 fields: vec![
-                    TypeField {
-                        name: "id".into(),
-                        type_name: "integer".into()
-                    },
-                    TypeField {
-                        name: "kind".into(),
-                        type_name: "text".into()
-                    }
+                    TypeField { name: "id".into(), type_name: "integer".into() },
+                    TypeField { name: "kind".into(), type_name: "text".into() }
                 ]
             })
         );
-        assert_eq!(
-            type_kind("c", ""),
-            Some(TypeKind::Composite { fields: Vec::new() })
-        );
-        assert_eq!(
-            type_kind("r", "integer"),
-            Some(TypeKind::Range {
-                subtype: "integer".into()
-            })
-        );
+        assert_eq!(type_kind("c", ""), Some(TypeKind::Composite { fields: Vec::new() }));
+        assert_eq!(type_kind("r", "integer"), Some(TypeKind::Range { subtype: "integer".into() }));
         assert_eq!(type_kind("b", ""), Some(TypeKind::Builtin));
         assert_eq!(type_kind("p", ""), Some(TypeKind::Builtin));
         assert_eq!(type_kind("m", "int4multirange"), None);

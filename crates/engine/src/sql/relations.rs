@@ -21,7 +21,25 @@ struct Level {
     in_from: bool,
 }
 
-const CLAUSES: [&str; 17] = ["WHERE", "GROUP", "ORDER", "HAVING", "LIMIT", "OFFSET", "UNION", "INTERSECT", "EXCEPT", "WINDOW", "FETCH", "FOR", "RETURNING", "SET", "VALUES", "SELECT", "ON"];
+const CLAUSES: [&str; 17] = [
+    "WHERE",
+    "GROUP",
+    "ORDER",
+    "HAVING",
+    "LIMIT",
+    "OFFSET",
+    "UNION",
+    "INTERSECT",
+    "EXCEPT",
+    "WINDOW",
+    "FETCH",
+    "FOR",
+    "RETURNING",
+    "SET",
+    "VALUES",
+    "SELECT",
+    "ON",
+];
 
 const RUN_QUERY_VERBS: [&str; 6] = ["SELECT", "WITH", "VALUES", "TABLE", "SHOW", "EXPLAIN"];
 
@@ -36,50 +54,364 @@ pub enum Vet {
 }
 
 pub(crate) const VETTED: &[&str] = &[
-    "abbrev", "abs", "acos", "acosh", "age", "any_value", "array_agg", "array_append", "array_cat", "array_dims",
-    "array_fill", "array_length", "array_lower", "array_ndims", "array_position", "array_positions", "array_prepend", "array_remove", "array_replace", "array_to_json",
-    "array_to_string", "array_upper", "ascii", "asin", "asinh", "atan", "atan2", "atanh", "avg", "bit_and",
-    "bit_length", "bit_or", "bit_xor", "bool", "bool_and", "bool_or", "bpchar", "broadcast", "btrim", "cardinality",
-    "cbrt", "ceil", "ceiling", "char_length", "character_length", "chr", "col_description", "concat", "concat_ws", "convert_from",
-    "convert_to", "corr", "cos", "cosh", "count", "covar_pop", "covar_samp", "cume_dist", "current_database", "current_schema",
-    "current_schemas", "current_setting", "date", "date_bin", "date_part", "date_trunc", "daterange", "decode", "degrees", "dense_rank",
-    "div", "encode", "every", "exp", "factorial", "family", "first_value", "float4", "float8", "floor",
-    "format", "format_type", "gcd", "generate_series", "generate_subscripts", "get_bit", "get_byte", "has_any_column_privilege", "has_column_privilege", "has_database_privilege",
-    "has_function_privilege", "has_schema_privilege", "has_sequence_privilege", "has_table_privilege", "host", "hostmask", "inet_client_addr", "inet_merge", "inet_same_family", "initcap",
-    "int2", "int4", "int4range", "int8", "int8range", "interval", "isempty", "isfinite", "json_agg", "json_array_elements",
-    "json_array_elements_text", "json_array_length", "json_build_array", "json_build_object", "json_each", "json_each_text", "json_extract_path", "json_extract_path_text", "json_object", "json_object_agg",
-    "json_object_keys", "json_populate_record", "json_populate_recordset", "json_strip_nulls", "json_to_record", "json_to_recordset", "json_typeof", "jsonb_agg", "jsonb_array_elements", "jsonb_array_elements_text",
-    "jsonb_array_length", "jsonb_build_array", "jsonb_build_object", "jsonb_each", "jsonb_each_text", "jsonb_extract_path", "jsonb_extract_path_text", "jsonb_insert", "jsonb_object", "jsonb_object_agg",
-    "jsonb_object_keys", "jsonb_path_exists", "jsonb_path_exists_tz", "jsonb_path_match", "jsonb_path_match_tz", "jsonb_path_query", "jsonb_path_query_array", "jsonb_path_query_array_tz", "jsonb_path_query_first", "jsonb_path_query_first_tz",
-    "jsonb_path_query_tz", "jsonb_populate_record", "jsonb_populate_recordset", "jsonb_pretty", "jsonb_set", "jsonb_set_lax", "jsonb_strip_nulls", "jsonb_to_record", "jsonb_to_recordset", "jsonb_typeof",
-    "justify_days", "justify_hours", "justify_interval", "lag", "last_value", "lcm", "lead", "left", "length", "like",
-    "ln", "log", "log10", "lower", "lower_inc", "lower_inf", "lpad", "ltrim", "make_date", "make_interval",
-    "make_time", "make_timestamp", "make_timestamptz", "masklen", "max", "md5", "min", "min_scale", "mod", "mode",
-    "name", "netmask", "network", "now", "nth_value", "ntile", "num_nonnulls", "num_nulls", "numeric", "numrange",
-    "obj_description", "octet_length", "oid", "parse_ident", "percent_rank", "percentile_cont", "percentile_disc", "pg_backend_pid", "pg_char_to_encoding", "pg_client_encoding",
-    "pg_column_size", "pg_conf_load_time", "pg_describe_object", "pg_encoding_to_char", "pg_function_is_visible", "pg_get_constraintdef", "pg_get_expr", "pg_get_function_arguments", "pg_get_function_result", "pg_get_functiondef",
-    "pg_get_indexdef", "pg_get_serial_sequence", "pg_get_triggerdef", "pg_get_userbyid", "pg_get_viewdef", "pg_has_role", "pg_identify_object", "pg_postmaster_start_time", "pg_size_bytes", "pg_size_pretty",
-    "pg_table_is_visible", "pg_type_is_visible", "pg_typeof", "phraseto_tsquery", "pi", "plainto_tsquery", "power", "quote_ident", "quote_literal", "quote_nullable",
-    "radians", "range_agg", "range_intersect_agg", "range_merge", "rank", "regclass", "regexp_count", "regexp_instr", "regexp_like", "regexp_match",
-    "regexp_matches", "regexp_replace", "regexp_split_to_array", "regexp_split_to_table", "regexp_substr", "regr_avgx", "regr_avgy", "regr_count", "regr_intercept", "regr_r2",
-    "regr_slope", "regr_sxx", "regr_sxy", "regr_syy", "repeat", "replace", "reverse", "right", "round", "row_number",
-    "row_to_json", "rpad", "rtrim", "scale", "set_masklen", "sha224", "sha256", "sha384", "sha512", "shobj_description",
-    "sign", "sin", "sinh", "split_part", "sqrt", "starts_with", "statement_timestamp", "stddev", "stddev_pop", "stddev_samp",
-    "string_agg", "string_to_array", "string_to_table", "strpos", "substr", "sum", "tan", "tanh", "text", "time",
-    "timestamp", "timestamptz", "timetz", "timezone", "to_ascii", "to_char", "to_date", "to_hex", "to_json", "to_jsonb",
-    "to_number", "to_regclass", "to_regnamespace", "to_regproc", "to_regrole", "to_regtype", "to_timestamp", "to_tsquery", "to_tsvector", "transaction_timestamp",
-    "translate", "trim_array", "trim_scale", "trunc", "ts_headline", "ts_rank", "ts_rank_cd", "tsrange", "tstzrange", "unistr",
-    "unnest", "upper", "upper_inc", "upper_inf", "var_pop", "var_samp", "varchar", "variance", "version", "websearch_to_tsquery",
+    "abbrev",
+    "abs",
+    "acos",
+    "acosh",
+    "age",
+    "any_value",
+    "array_agg",
+    "array_append",
+    "array_cat",
+    "array_dims",
+    "array_fill",
+    "array_length",
+    "array_lower",
+    "array_ndims",
+    "array_position",
+    "array_positions",
+    "array_prepend",
+    "array_remove",
+    "array_replace",
+    "array_to_json",
+    "array_to_string",
+    "array_upper",
+    "ascii",
+    "asin",
+    "asinh",
+    "atan",
+    "atan2",
+    "atanh",
+    "avg",
+    "bit_and",
+    "bit_length",
+    "bit_or",
+    "bit_xor",
+    "bool",
+    "bool_and",
+    "bool_or",
+    "bpchar",
+    "broadcast",
+    "btrim",
+    "cardinality",
+    "cbrt",
+    "ceil",
+    "ceiling",
+    "char_length",
+    "character_length",
+    "chr",
+    "col_description",
+    "concat",
+    "concat_ws",
+    "convert_from",
+    "convert_to",
+    "corr",
+    "cos",
+    "cosh",
+    "count",
+    "covar_pop",
+    "covar_samp",
+    "cume_dist",
+    "current_database",
+    "current_schema",
+    "current_schemas",
+    "current_setting",
+    "date",
+    "date_bin",
+    "date_part",
+    "date_trunc",
+    "daterange",
+    "decode",
+    "degrees",
+    "dense_rank",
+    "div",
+    "encode",
+    "every",
+    "exp",
+    "factorial",
+    "family",
+    "first_value",
+    "float4",
+    "float8",
+    "floor",
+    "format",
+    "format_type",
+    "gcd",
+    "generate_series",
+    "generate_subscripts",
+    "get_bit",
+    "get_byte",
+    "has_any_column_privilege",
+    "has_column_privilege",
+    "has_database_privilege",
+    "has_function_privilege",
+    "has_schema_privilege",
+    "has_sequence_privilege",
+    "has_table_privilege",
+    "host",
+    "hostmask",
+    "inet_client_addr",
+    "inet_merge",
+    "inet_same_family",
+    "initcap",
+    "int2",
+    "int4",
+    "int4range",
+    "int8",
+    "int8range",
+    "interval",
+    "isempty",
+    "isfinite",
+    "json_agg",
+    "json_array_elements",
+    "json_array_elements_text",
+    "json_array_length",
+    "json_build_array",
+    "json_build_object",
+    "json_each",
+    "json_each_text",
+    "json_extract_path",
+    "json_extract_path_text",
+    "json_object",
+    "json_object_agg",
+    "json_object_keys",
+    "json_populate_record",
+    "json_populate_recordset",
+    "json_strip_nulls",
+    "json_to_record",
+    "json_to_recordset",
+    "json_typeof",
+    "jsonb_agg",
+    "jsonb_array_elements",
+    "jsonb_array_elements_text",
+    "jsonb_array_length",
+    "jsonb_build_array",
+    "jsonb_build_object",
+    "jsonb_each",
+    "jsonb_each_text",
+    "jsonb_extract_path",
+    "jsonb_extract_path_text",
+    "jsonb_insert",
+    "jsonb_object",
+    "jsonb_object_agg",
+    "jsonb_object_keys",
+    "jsonb_path_exists",
+    "jsonb_path_exists_tz",
+    "jsonb_path_match",
+    "jsonb_path_match_tz",
+    "jsonb_path_query",
+    "jsonb_path_query_array",
+    "jsonb_path_query_array_tz",
+    "jsonb_path_query_first",
+    "jsonb_path_query_first_tz",
+    "jsonb_path_query_tz",
+    "jsonb_populate_record",
+    "jsonb_populate_recordset",
+    "jsonb_pretty",
+    "jsonb_set",
+    "jsonb_set_lax",
+    "jsonb_strip_nulls",
+    "jsonb_to_record",
+    "jsonb_to_recordset",
+    "jsonb_typeof",
+    "justify_days",
+    "justify_hours",
+    "justify_interval",
+    "lag",
+    "last_value",
+    "lcm",
+    "lead",
+    "left",
+    "length",
+    "like",
+    "ln",
+    "log",
+    "log10",
+    "lower",
+    "lower_inc",
+    "lower_inf",
+    "lpad",
+    "ltrim",
+    "make_date",
+    "make_interval",
+    "make_time",
+    "make_timestamp",
+    "make_timestamptz",
+    "masklen",
+    "max",
+    "md5",
+    "min",
+    "min_scale",
+    "mod",
+    "mode",
+    "name",
+    "netmask",
+    "network",
+    "now",
+    "nth_value",
+    "ntile",
+    "num_nonnulls",
+    "num_nulls",
+    "numeric",
+    "numrange",
+    "obj_description",
+    "octet_length",
+    "oid",
+    "parse_ident",
+    "percent_rank",
+    "percentile_cont",
+    "percentile_disc",
+    "pg_backend_pid",
+    "pg_char_to_encoding",
+    "pg_client_encoding",
+    "pg_column_size",
+    "pg_conf_load_time",
+    "pg_describe_object",
+    "pg_encoding_to_char",
+    "pg_function_is_visible",
+    "pg_get_constraintdef",
+    "pg_get_expr",
+    "pg_get_function_arguments",
+    "pg_get_function_result",
+    "pg_get_functiondef",
+    "pg_get_indexdef",
+    "pg_get_serial_sequence",
+    "pg_get_triggerdef",
+    "pg_get_userbyid",
+    "pg_get_viewdef",
+    "pg_has_role",
+    "pg_identify_object",
+    "pg_postmaster_start_time",
+    "pg_size_bytes",
+    "pg_size_pretty",
+    "pg_table_is_visible",
+    "pg_type_is_visible",
+    "pg_typeof",
+    "phraseto_tsquery",
+    "pi",
+    "plainto_tsquery",
+    "power",
+    "quote_ident",
+    "quote_literal",
+    "quote_nullable",
+    "radians",
+    "range_agg",
+    "range_intersect_agg",
+    "range_merge",
+    "rank",
+    "regclass",
+    "regexp_count",
+    "regexp_instr",
+    "regexp_like",
+    "regexp_match",
+    "regexp_matches",
+    "regexp_replace",
+    "regexp_split_to_array",
+    "regexp_split_to_table",
+    "regexp_substr",
+    "regr_avgx",
+    "regr_avgy",
+    "regr_count",
+    "regr_intercept",
+    "regr_r2",
+    "regr_slope",
+    "regr_sxx",
+    "regr_sxy",
+    "regr_syy",
+    "repeat",
+    "replace",
+    "reverse",
+    "right",
+    "round",
+    "row_number",
+    "row_to_json",
+    "rpad",
+    "rtrim",
+    "scale",
+    "set_masklen",
+    "sha224",
+    "sha256",
+    "sha384",
+    "sha512",
+    "shobj_description",
+    "sign",
+    "sin",
+    "sinh",
+    "split_part",
+    "sqrt",
+    "starts_with",
+    "statement_timestamp",
+    "stddev",
+    "stddev_pop",
+    "stddev_samp",
+    "string_agg",
+    "string_to_array",
+    "string_to_table",
+    "strpos",
+    "substr",
+    "sum",
+    "tan",
+    "tanh",
+    "text",
+    "time",
+    "timestamp",
+    "timestamptz",
+    "timetz",
+    "timezone",
+    "to_ascii",
+    "to_char",
+    "to_date",
+    "to_hex",
+    "to_json",
+    "to_jsonb",
+    "to_number",
+    "to_regclass",
+    "to_regnamespace",
+    "to_regproc",
+    "to_regrole",
+    "to_regtype",
+    "to_timestamp",
+    "to_tsquery",
+    "to_tsvector",
+    "transaction_timestamp",
+    "translate",
+    "trim_array",
+    "trim_scale",
+    "trunc",
+    "ts_headline",
+    "ts_rank",
+    "ts_rank_cd",
+    "tsrange",
+    "tstzrange",
+    "unistr",
+    "unnest",
+    "upper",
+    "upper_inc",
+    "upper_inf",
+    "var_pop",
+    "var_samp",
+    "varchar",
+    "variance",
+    "version",
+    "websearch_to_tsquery",
     "width_bucket",
 ];
 
 /// Size helpers, vetted although volatile: they read file sizes and change nothing.
-pub(crate) const VETTED_SIZES: &[&str] = &["pg_database_size", "pg_indexes_size", "pg_relation_size", "pg_table_size", "pg_tablespace_size", "pg_total_relation_size"];
+pub(crate) const VETTED_SIZES: &[&str] = &[
+    "pg_database_size",
+    "pg_indexes_size",
+    "pg_relation_size",
+    "pg_table_size",
+    "pg_tablespace_size",
+    "pg_total_relation_size",
+];
 
 /// The built-in operator symbols an analytics query uses. An operator is a function, so one off
 /// this list asks like an unlisted call.
 pub(crate) const VETTED_OPERATORS: &[&str] = &[
-    "!~", "!~*", "!~~", "!~~*", "#>", "#>>", "%", "&&", "*", "+", "-", "->", "->>", "/", "<", "<=", "<>", "<@", "=", ">", ">=", "?", "?&", "?|", "@>", "@@", "^", "||", "~", "~*", "~~", "~~*",
+    "!~", "!~*", "!~~", "!~~*", "#>", "#>>", "%", "&&", "*", "+", "-", "->", "->>", "/", "<", "<=", "<>", "<@", "=",
+    ">", ">=", "?", "?&", "?|", "@>", "@@", "^", "||", "~", "~*", "~~", "~~*",
 ];
 
 /// Unreserved words that are syntax before `(` only after these words, nearest first. Anywhere
@@ -102,7 +434,8 @@ const SYNTAX_AFTER: &[(&str, &[&str])] = &[
     ("bernoulli", &["tablesample"]),
 ];
 
-const GROUP_BY_ENDS: [&str; 10] = ["having", "window", "order", "limit", "offset", "fetch", "for", "union", "intersect", "except"];
+const GROUP_BY_ENDS: [&str; 10] =
+    ["having", "window", "order", "limit", "offset", "fetch", "for", "union", "intersect", "except"];
 
 #[derive(Clone, Copy, Default)]
 struct Clause {
@@ -192,7 +525,11 @@ pub fn relation_names(sql: &str) -> Vec<NameRef> {
                             && let Some(close) = close_of(&toks, j)
                         {
                             let before = i.saturating_sub(1);
-                            let name_at = if toks[before] == Token::Close { toks[..before].iter().rposition(|t| *t == Token::Open).and_then(|o| o.checked_sub(1)) } else { Some(before) };
+                            let name_at = if toks[before] == Token::Close {
+                                toks[..before].iter().rposition(|t| *t == Token::Open).and_then(|o| o.checked_sub(1))
+                            } else {
+                                Some(before)
+                            };
                             if let Some(name) = name_at.and_then(|n| part(toks.get(n))) {
                                 ctes.push((name, close));
                             }
@@ -333,7 +670,11 @@ fn call_at(toks: &[Token<'_>], i: usize, clause: Clause) -> Option<Call> {
     let unquoted = matches!(toks[i], Token::Word(_));
     let grouping = clause.group_by && matches!(name.as_str(), "rollup" | "cube");
     let operator_syntax = name == "operator" && operator_in(toks, i + 1);
-    if parts.len() == 1 && (clause.cte_list || (unquoted && (grouping || operator_syntax || NEVER_A_FUNCTION.binary_search(&name.as_str()).is_ok())) || syntax_before(toks, i, &name)) {
+    if parts.len() == 1
+        && (clause.cte_list
+            || (unquoted && (grouping || operator_syntax || NEVER_A_FUNCTION.binary_search(&name.as_str()).is_ok()))
+            || syntax_before(toks, i, &name))
+    {
         return None;
     }
     let vetted = VETTED.binary_search(&name.as_str()).is_ok() || VETTED_SIZES.contains(&name.as_str());
@@ -344,7 +685,9 @@ fn call_at(toks: &[Token<'_>], i: usize, clause: Clause) -> Option<Call> {
 fn operator_in(toks: &[Token<'_>], open: usize) -> bool {
     match toks.get(open + 1) {
         Some(Token::Operator(_)) => true,
-        Some(Token::Word(_) | Token::Quoted(_)) => toks.get(open + 2) == Some(&Token::Dot) && matches!(toks.get(open + 3), Some(Token::Operator(_))),
+        Some(Token::Word(_) | Token::Quoted(_)) => {
+            toks.get(open + 2) == Some(&Token::Dot) && matches!(toks.get(open + 3), Some(Token::Operator(_)))
+        }
         _ => false,
     }
 }
@@ -370,7 +713,13 @@ fn syntax_before(toks: &[Token<'_>], i: usize, name: &str) -> bool {
         Token::Close | Token::Quoted(_) => true,
         Token::Word(w) if w.eq_ignore_ascii_case("as") => true,
         Token::Word(w) => {
-            let listed = SYNTAX_AFTER.iter().any(|(n, words)| *n == name && words.iter().enumerate().all(|(k, word)| is_word(i.checked_sub(k + 1).and_then(|j| toks.get(j)), word)));
+            let listed = SYNTAX_AFTER.iter().any(|(n, words)| {
+                *n == name
+                    && words
+                        .iter()
+                        .enumerate()
+                        .all(|(k, word)| is_word(i.checked_sub(k + 1).and_then(|j| toks.get(j)), word))
+            });
             listed || !is_keyword(&w.to_ascii_lowercase())
         }
         _ => false,
@@ -412,7 +761,10 @@ mod tests {
 
     #[test]
     fn schema_qualified_quoted_and_comma_lists() {
-        assert_eq!(names(r#"select * from public.orders o, "Order Items" i, shop."Odd""Name" n"#), ["public.orders", "Order Items", "shop.Odd\"Name"]);
+        assert_eq!(
+            names(r#"select * from public.orders o, "Order Items" i, shop."Odd""Name" n"#),
+            ["public.orders", "Order Items", "shop.Odd\"Name"]
+        );
         assert_eq!(names("select 1 from ONLY orders"), ["orders"]);
         assert_eq!(names("table lab.type_zoo"), ["lab.type_zoo"]);
     }
@@ -421,15 +773,27 @@ mod tests {
     fn functions_subselects_and_cte_names_are_not_relations() {
         assert_eq!(names("select * from generate_series(1, 3) g, orders"), ["orders"]);
         assert_eq!(names("select * from (select * from orders) q join customers using (id)"), ["orders", "customers"]);
-        assert_eq!(names("with orders as (select * from orders where total > 1) select * from orders join customers on true"), ["orders", "customers"], "the inner FROM is the table, the outer one is the CTE");
+        assert_eq!(
+            names("with orders as (select * from orders where total > 1) select * from orders join customers on true"),
+            ["orders", "customers"],
+            "the inner FROM is the table, the outer one is the CTE"
+        );
         assert_eq!(names("with recent as (select * from orders) select * from recent"), ["orders"]);
-        assert_eq!(names("with recent(id) as materialized (select id from orders) select * from recent r join customers c on c.id = r.id"), ["orders", "customers"]);
+        assert_eq!(
+            names(
+                "with recent(id) as materialized (select id from orders) select * from recent r join customers c on c.id = r.id"
+            ),
+            ["orders", "customers"]
+        );
     }
 
     #[test]
     fn writes_and_distinct_from() {
         assert_eq!(names("insert into orders (id) values (1)"), ["orders"]);
-        assert_eq!(names("update orders set total = 1 from customers c where c.id = orders.customer_id"), ["orders", "customers"]);
+        assert_eq!(
+            names("update orders set total = 1 from customers c where c.id = orders.customer_id"),
+            ["orders", "customers"]
+        );
         assert_eq!(names("delete from orders using customers c where true"), ["orders", "customers"]);
         assert_eq!(names("select a is distinct from b from orders"), ["orders"]);
         assert_eq!(names("select * from a left outer join lateral (select 1) x on true cross join b"), ["a", "b"]);
@@ -455,24 +819,61 @@ mod tests {
         assert_eq!(vet("select pg_file_write('/tmp/x', 'y', false)"), unvetted(&["pg_file_write"]));
         assert_eq!(vet("select pg_terminate_backend(1)"), unvetted(&["pg_terminate_backend"]));
         assert_eq!(vet("select * into backup from orders"), unvetted(&["SELECT INTO"]));
-        assert_eq!(vet("select set_config('a', 'b', false), pg_sleep(1), nextval('s'), dblink_exec('x', 'y'), pg_advisory_lock(1)"), unvetted(&["set_config", "pg_sleep", "nextval", "dblink_exec", "pg_advisory_lock"]));
-        assert_eq!(vet("select count(*), pg_sleep(1), pg_sleep(2) from orders"), unvetted(&["pg_sleep"]), "each name once");
+        assert_eq!(
+            vet(
+                "select set_config('a', 'b', false), pg_sleep(1), nextval('s'), dblink_exec('x', 'y'), pg_advisory_lock(1)"
+            ),
+            unvetted(&["set_config", "pg_sleep", "nextval", "dblink_exec", "pg_advisory_lock"])
+        );
+        assert_eq!(
+            vet("select count(*), pg_sleep(1), pg_sleep(2) from orders"),
+            unvetted(&["pg_sleep"]),
+            "each name once"
+        );
     }
 
     #[test]
     fn user_schemas_quoted_names_and_unknown_names_are_unvetted_but_pg_catalog_is_judged_by_name() {
-        assert_eq!(vet("select public.total(1), lab.\"Score\"(2), a.b.c(3)"), unvetted(&["public.total", "lab.Score", "a.b.c"]));
-        assert_eq!(vet(r#"select "COUNT"(*), "my func"(1) from orders"#), unvetted(&["COUNT", "my func"]), "a quoted name is matched verbatim");
-        assert_eq!(vet("select pg_catalog.count(*), PG_CATALOG.date_trunc('day', now()), \"pg_catalog\".\"sum\"(total) from orders"), Vet::Clear);
+        assert_eq!(
+            vet("select public.total(1), lab.\"Score\"(2), a.b.c(3)"),
+            unvetted(&["public.total", "lab.Score", "a.b.c"])
+        );
+        assert_eq!(
+            vet(r#"select "COUNT"(*), "my func"(1) from orders"#),
+            unvetted(&["COUNT", "my func"]),
+            "a quoted name is matched verbatim"
+        );
+        assert_eq!(
+            vet(
+                "select pg_catalog.count(*), PG_CATALOG.date_trunc('day', now()), \"pg_catalog\".\"sum\"(total) from orders"
+            ),
+            Vet::Clear
+        );
         assert_eq!(vet("select pg_catalog.pg_terminate_backend(1)"), unvetted(&["pg_catalog.pg_terminate_backend"]));
         assert_eq!(vet("select my_func(1) from t"), unvetted(&["my_func"]));
-        assert_eq!(vet("select * from t cross join pg_sleep(1)"), unvetted(&["pg_sleep"]), "a function after JOIN is a call");
+        assert_eq!(
+            vet("select * from t cross join pg_sleep(1)"),
+            unvetted(&["pg_sleep"]),
+            "a function after JOIN is a call"
+        );
         assert_eq!(vet("select * from t where x like pg_sleep(1)::text"), unvetted(&["pg_sleep"]));
         assert_eq!(vet("select * from t order by pg_sleep(1)"), unvetted(&["pg_sleep"]));
-        assert_eq!(vet("select rollup(1) from t group by 1 order by cube(2)"), unvetted(&["rollup", "cube"]), "outside GROUP BY, rollup and cube may be the user's functions");
-        assert_eq!(vet("select 1 from t group by a, rollup (b), (select cube(1))"), unvetted(&["cube"]), "a subquery inside GROUP BY is its own level");
+        assert_eq!(
+            vet("select rollup(1) from t group by 1 order by cube(2)"),
+            unvetted(&["rollup", "cube"]),
+            "outside GROUP BY, rollup and cube may be the user's functions"
+        );
+        assert_eq!(
+            vet("select 1 from t group by a, rollup (b), (select cube(1))"),
+            unvetted(&["cube"]),
+            "a subquery inside GROUP BY is its own level"
+        );
         assert_eq!(vet("select data.join(1) from t data"), unvetted(&["data.join"]));
-        assert_eq!(vet("select 1 from t where name ilike ('%y%')"), unvetted(&["ilike"]), "a keyword used as a column hides the operator before it, so this asks");
+        assert_eq!(
+            vet("select 1 from t where name ilike ('%y%')"),
+            unvetted(&["ilike"]),
+            "a keyword used as a column hides the operator before it, so this asks"
+        );
     }
 
     #[test]
@@ -502,9 +903,17 @@ mod tests {
 
     #[test]
     fn operators_are_judged_like_calls() {
-        assert_eq!(vet("select 1 ## 2"), unvetted(&["operator ##"]), "an operator is a function the user may have defined");
+        assert_eq!(
+            vet("select 1 ## 2"),
+            unvetted(&["operator ##"]),
+            "an operator is a function the user may have defined"
+        );
         assert_eq!(vet("select a operator(public.##) b from t"), unvetted(&["operator public.##"]));
-        assert_eq!(vet("select a operator(pg_catalog.##) b, c operator(pg_catalog.+) d, e operator(+) f from t"), unvetted(&["operator pg_catalog.##"]), "OPERATOR() is judged by its symbol like a pg_catalog call");
+        assert_eq!(
+            vet("select a operator(pg_catalog.##) b, c operator(pg_catalog.+) d, e operator(+) f from t"),
+            unvetted(&["operator pg_catalog.##"]),
+            "OPERATOR() is judged by its symbol like a pg_catalog call"
+        );
         assert_eq!(vet("select x |> y, 1 +-- a comment ends the operator\n 2 from t"), unvetted(&["operator |>"]));
         assert_eq!(vet("select a <-> b, a <-> c from t"), unvetted(&["operator <->"]), "each symbol once");
         for sql in [
@@ -532,18 +941,57 @@ mod tests {
 
     #[test]
     fn the_lists_are_sorted_for_the_binary_search() {
-        for (name, list) in [("VETTED", VETTED), ("VETTED_SIZES", VETTED_SIZES), ("VETTED_OPERATORS", VETTED_OPERATORS), ("NEVER_A_FUNCTION", NEVER_A_FUNCTION), ("OTHER_KEYWORDS", OTHER_KEYWORDS), ("RESERVED", super::super::keywords::RESERVED), ("TYPE_OR_FUNCTION_NAME", super::super::keywords::TYPE_OR_FUNCTION_NAME)] {
+        for (name, list) in [
+            ("VETTED", VETTED),
+            ("VETTED_SIZES", VETTED_SIZES),
+            ("VETTED_OPERATORS", VETTED_OPERATORS),
+            ("NEVER_A_FUNCTION", NEVER_A_FUNCTION),
+            ("OTHER_KEYWORDS", OTHER_KEYWORDS),
+            ("RESERVED", super::super::keywords::RESERVED),
+            ("TYPE_OR_FUNCTION_NAME", super::super::keywords::TYPE_OR_FUNCTION_NAME),
+        ] {
             assert!(list.windows(2).all(|w| w[0] < w[1]), "{name} is not sorted and unique");
         }
-        assert!(SYNTAX_AFTER.iter().all(|(name, _)| !NEVER_A_FUNCTION.contains(name)), "SYNTAX_AFTER is for words that may also be function names");
+        assert!(
+            SYNTAX_AFTER.iter().all(|(name, _)| !NEVER_A_FUNCTION.contains(name)),
+            "SYNTAX_AFTER is for words that may also be function names"
+        );
     }
 
     #[test]
     fn read_statements_are_single_select_like_statements_without_a_write() {
-        for sql in ["select 1", "  -- note\n select * from orders;", "WITH x AS (select 1) select * from x", "(select 1) union (select 2)", "table orders", "values (1), (2)", "show search_path", "explain select 1", "explain (analyze false) delete from t", "explain analyze select pg_sleep(1)"] {
+        for sql in [
+            "select 1",
+            "  -- note\n select * from orders;",
+            "WITH x AS (select 1) select * from x",
+            "(select 1) union (select 2)",
+            "table orders",
+            "values (1), (2)",
+            "show search_path",
+            "explain select 1",
+            "explain (analyze false) delete from t",
+            "explain analyze select pg_sleep(1)",
+        ] {
             assert!(is_read_statement(sql), "{sql}");
         }
-        for sql in ["delete from t", "insert into t values (1)", "update t set a = 1", "with x as (delete from t returning *) select * from x", "explain analyze delete from t", "select 1; select 2", "select 1\n\nselect 2", "commit", "set transaction_read_only = off", "copy orders to stdout", "fetch 1 from c", "", "-- only a comment", "create table t (id int)", "truncate t", "do $$ begin end $$"] {
+        for sql in [
+            "delete from t",
+            "insert into t values (1)",
+            "update t set a = 1",
+            "with x as (delete from t returning *) select * from x",
+            "explain analyze delete from t",
+            "select 1; select 2",
+            "select 1\n\nselect 2",
+            "commit",
+            "set transaction_read_only = off",
+            "copy orders to stdout",
+            "fetch 1 from c",
+            "",
+            "-- only a comment",
+            "create table t (id int)",
+            "truncate t",
+            "do $$ begin end $$",
+        ] {
             assert!(!is_read_statement(sql), "{sql}");
         }
     }

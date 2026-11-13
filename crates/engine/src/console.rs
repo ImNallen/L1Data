@@ -7,8 +7,8 @@ use tokio::sync::{Mutex, watch};
 
 use crate::Shared;
 use crate::model::*;
-use crate::results::{Caps, Origin, ResultSet, Rerun};
-use crate::session::{CancelHandle, Session, QueryEvent};
+use crate::results::{Caps, Origin, Rerun, ResultSet};
+use crate::session::{CancelHandle, QueryEvent, Session};
 use crate::sql::{Invalidates, StmtKind, StmtSpan};
 use crate::store::HistoryInsert;
 use crate::text::synthesize_tag;
@@ -109,7 +109,9 @@ enum RefreshPolicy {
 
 impl ConsoleInner {
     pub(crate) fn invalidate(&mut self, database_kind: DatabaseKind, invalidates: Invalidates) {
-        if invalidates == Invalidates::Nothing { return; }
+        if invalidates == Invalidates::Nothing {
+            return;
+        }
         let db = self.config.db();
         let pending = self.refreshes.get_or_insert_with(|| PendingRefreshes {
             db,
@@ -148,7 +150,9 @@ impl ConsoleInner {
             if matches!(s.status, StmtStatus::Pending | StmtStatus::Preparing | StmtStatus::Running) {
                 for output in &mut s.outputs {
                     if let RunOutput::Rows { state, .. } = output {
-                        if *state == RowsState::Streaming { *state = rows; }
+                        if *state == RowsState::Streaming {
+                            *state = rows;
+                        }
                     }
                 }
                 s.status = if stopped.is_none() { in_flight.clone() } else { StmtStatus::Skipped };
@@ -165,7 +169,9 @@ impl ConsoleInner {
     }
 
     pub fn finish_refreshes(&mut self, committed: bool) -> Option<(DatabaseRef, Owed)> {
-        if self.txn != TxnState::Idle { return None; }
+        if self.txn != TxnState::Idle {
+            return None;
+        }
         self.end_refreshes(committed)
     }
 
@@ -294,7 +300,9 @@ impl Console {
                 SessionSlot::Empty => SessionState::None,
                 SessionSlot::Idle(idle) => SessionState::Open { backend_pid: idle.session.backend_pid },
                 SessionSlot::Busy { backend_pid, .. } => SessionState::Open { backend_pid: *backend_pid },
-                SessionSlot::Lost { reason, transaction } => SessionState::Lost { reason: reason.clone(), transaction: *transaction },
+                SessionSlot::Lost { reason, transaction } => {
+                    SessionState::Lost { reason: reason.clone(), transaction: *transaction }
+                }
             },
             txn: inner.txn,
             work: match &inner.session {
@@ -339,14 +347,24 @@ impl Console {
         });
     }
 
-    pub fn take_session(&self, inner: &mut ConsoleInner, run_id: RunId, work: Work) -> Option<(Session, Arc<AtomicBool>)> {
+    pub fn take_session(
+        &self,
+        inner: &mut ConsoleInner,
+        run_id: RunId,
+        work: Work,
+    ) -> Option<(Session, Arc<AtomicBool>)> {
         let SessionSlot::Idle(_) = inner.session else { return None };
-        let SessionSlot::Idle(IdleSession { session, opened }) = std::mem::replace(&mut inner.session, SessionSlot::Empty) else { unreachable!() };
+        let SessionSlot::Idle(IdleSession { session, opened }) =
+            std::mem::replace(&mut inner.session, SessionSlot::Empty)
+        else {
+            unreachable!()
+        };
         if let Work::Run(checked) | Work::Commit(checked) | Work::Edit(checked) | Work::Import { checked, .. } = &work {
             checked.mark_held_writes_asked(&mut inner.unasked);
         }
         let stop = Arc::new(AtomicBool::new(false));
-        let cancel = (!(matches!(work, Work::Import { .. }) && session.database_kind() == DatabaseKind::SqlServer)).then(|| session.cancel_handle());
+        let cancel = (!(matches!(work, Work::Import { .. }) && session.database_kind() == DatabaseKind::SqlServer))
+            .then(|| session.cancel_handle());
         inner.session = SessionSlot::Busy {
             opened,
             run_id,
@@ -361,7 +379,12 @@ impl Console {
 
     /// The one way a task that took the session edits console state. The edit applies and is
     /// published only while `run_id` still owns the slot; otherwise the task is `Orphaned`.
-    pub async fn edit<T>(&self, shared: &Shared, run_id: RunId, edit: impl FnOnce(&mut ConsoleInner) -> T) -> Result<T, Orphaned> {
+    pub async fn edit<T>(
+        &self,
+        shared: &Shared,
+        run_id: RunId,
+        edit: impl FnOnce(&mut ConsoleInner) -> T,
+    ) -> Result<T, Orphaned> {
         let mut inner = self.inner.lock().await;
         if !matches!(inner.session, SessionSlot::Busy { run_id: r, .. } if r == run_id) {
             return Err(Orphaned);
@@ -372,8 +395,15 @@ impl Console {
     }
 
     /// Puts the session back after a run or a transaction command and applies its final `txn`.
-    pub fn return_session(inner: &mut ConsoleInner, session: Session, txn: TxnState, lost: Option<String>) -> Option<(DatabaseRef, Owed)> {
-        let SessionSlot::Busy { opened, .. } = std::mem::replace(&mut inner.session, SessionSlot::Empty) else { unreachable!("Console::edit holds the slot") };
+    pub fn return_session(
+        inner: &mut ConsoleInner,
+        session: Session,
+        txn: TxnState,
+        lost: Option<String>,
+    ) -> Option<(DatabaseRef, Owed)> {
+        let SessionSlot::Busy { opened, .. } = std::mem::replace(&mut inner.session, SessionSlot::Empty) else {
+            unreachable!("Console::edit holds the slot")
+        };
         inner.txn = txn;
         inner.txn_depth = session.txn_depth();
         match lost {
@@ -406,7 +436,9 @@ impl Console {
             SessionSlot::Busy { cancel, mut session_release, .. } => {
                 let worker = shared.clone();
                 shared.spawn(async move {
-                    if let Some(cancel) = cancel { cancel.cancel().await; }
+                    if let Some(cancel) = cancel {
+                        cancel.cancel().await;
+                    }
                     if let Some((db, owed)) = due {
                         while session_release.changed().await.is_ok() {}
                         worker.schedule_refreshes(db, owed);
@@ -415,7 +447,9 @@ impl Console {
             }
             session => {
                 drop(session);
-                if let Some((db, owed)) = due { shared.schedule_refreshes(db, owed); }
+                if let Some((db, owed)) = due {
+                    shared.schedule_refreshes(db, owed);
+                }
             }
         }
     }
@@ -424,14 +458,20 @@ impl Console {
     /// task, so the slot is `Lost` and the next run opens a new one.
     pub async fn fail_task(&self, shared: &Arc<Shared>, run_id: RunId, message: String) {
         let error = crate::session::error(message.clone());
-        let edited = self.edit(shared, run_id, |inner| {
-            let statement = inner.end_run(StmtStatus::Failed { error: error.clone() }, RowsState::Failed, RunOutcome::Failed);
-            let held = inner.end_session(SessionSlot::Lost { reason: message, transaction: TransactionLoss::Unknown });
-            (statement, held, inner.finish_refreshes(false))
-        }).await;
+        let edited = self
+            .edit(shared, run_id, |inner| {
+                let statement =
+                    inner.end_run(StmtStatus::Failed { error: error.clone() }, RowsState::Failed, RunOutcome::Failed);
+                let held =
+                    inner.end_session(SessionSlot::Lost { reason: message, transaction: TransactionLoss::Unknown });
+                (statement, held, inner.finish_refreshes(false))
+            })
+            .await;
         let Ok((statement, held, due)) = edited else { return };
         self.output(shared, run_id, OutputBody::Error { statement, error });
-        if let Some((db, owed)) = due && let SessionSlot::Busy { mut session_release, .. } = held {
+        if let Some((db, owed)) = due
+            && let SessionSlot::Busy { mut session_release, .. } = held
+        {
             while session_release.changed().await.is_ok() {}
             shared.schedule_refreshes(db, owed);
         }
@@ -473,9 +513,7 @@ pub struct PlannedStmt {
 }
 
 pub fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
 fn elapsed_ms(since: Instant) -> u32 {
@@ -498,7 +536,13 @@ pub(crate) struct PlanFinish {
     pub end: PlanEnd,
 }
 
-pub(crate) async fn finish_plan(console: &Console, shared: &Arc<Shared>, connection: &ConnectionConfig, database: &str, finish: PlanFinish) -> Result<(), Orphaned> {
+pub(crate) async fn finish_plan(
+    console: &Console,
+    shared: &Arc<Shared>,
+    connection: &ConnectionConfig,
+    database: &str,
+    finish: PlanFinish,
+) -> Result<(), Orphaned> {
     let PlanFinish { session, run_id, sql, started, txn, lost, end } = finish;
     if let Some(reason) = &lost {
         console.output(shared, run_id, loss_line(&session, txn, reason));
@@ -511,7 +555,9 @@ pub(crate) async fn finish_plan(console: &Console, shared: &Arc<Shared>, connect
             HistoryOutcome::Error { message: error.message.clone() },
             Some(error),
         ),
-        PlanEnd::Cancelled => (StmtStatus::Cancelled, RunOutcome::Cancelled, Vec::new(), HistoryOutcome::Cancelled, None),
+        PlanEnd::Cancelled => {
+            (StmtStatus::Cancelled, RunOutcome::Cancelled, Vec::new(), HistoryOutcome::Cancelled, None)
+        }
         PlanEnd::Ready(output) => {
             let rows = match &output {
                 RunOutput::Plan { result, .. } => result.row_count,
@@ -532,7 +578,8 @@ pub(crate) async fn finish_plan(console: &Console, shared: &Arc<Shared>, connect
                 statement.outputs = outputs;
             }
             let due = Console::return_session(inner, session, txn, lost);
-            let due = if matches!(outcome, RunOutcome::Ok) { due.or_else(|| inner.finish_refreshes(true)) } else { due };
+            let due =
+                if matches!(outcome, RunOutcome::Ok) { due.or_else(|| inner.finish_refreshes(true)) } else { due };
             let statements = Console::statements_mut(inner).clone();
             inner.run = RunState::Finished { run_id, elapsed_ms: elapsed, statements, outcome };
             due
@@ -556,7 +603,13 @@ pub(crate) async fn finish_plan(console: &Console, shared: &Arc<Shared>, connect
 
 /// Every console write goes through `Console::edit`, so an orphaned task returns at its next
 /// write and drops the session with it.
-pub async fn run_task(console: Arc<Console>, shared: Arc<Shared>, mut session: Session, plan: RunPlan, stop: Arc<AtomicBool>) -> Result<(), Orphaned> {
+pub async fn run_task(
+    console: Arc<Console>,
+    shared: Arc<Shared>,
+    mut session: Session,
+    plan: RunPlan,
+    stop: Arc<AtomicBool>,
+) -> Result<(), Orphaned> {
     let started = Instant::now();
     let run_id = plan.run_id;
     let settings = shared.settings();
@@ -581,7 +634,12 @@ pub async fn run_task(console: Arc<Console>, shared: Arc<Shared>, mut session: S
             match session.batch("BEGIN").await {
                 Ok(()) => {
                     txn = TxnState::Active;
-                    console.edit(&shared, run_id, |inner| { inner.txn = txn; inner.txn_depth = session.txn_depth(); }).await?;
+                    console
+                        .edit(&shared, run_id, |inner| {
+                            inner.txn = txn;
+                            inner.txn_depth = session.txn_depth();
+                        })
+                        .await?;
                     console.output(&shared, run_id, OutputBody::Info { message: "BEGIN (implicit)".into() });
                 }
                 Err(error) => {
@@ -594,12 +652,14 @@ pub async fn run_task(console: Arc<Console>, shared: Arc<Shared>, mut session: S
         }
         let fence = if plan.read_only.covers(index) { ReadFence::of(txn) } else { None };
         console.output(&shared, run_id, statement_line(i, sql));
-        console.edit(&shared, run_id, |inner| {
-            if plan.connection.database_kind == DatabaseKind::SqlServer {
-                inner.invalidate(DatabaseKind::SqlServer, crate::sql::tsql::invalidates(sql));
-            }
-            Console::statements_mut(inner)[index].status = StmtStatus::Preparing;
-        }).await?;
+        console
+            .edit(&shared, run_id, |inner| {
+                if plan.connection.database_kind == DatabaseKind::SqlServer {
+                    inner.invalidate(DatabaseKind::SqlServer, crate::sql::tsql::invalidates(sql));
+                }
+                Console::statements_mut(inner)[index].status = StmtStatus::Preparing;
+            })
+            .await?;
         let unit_started = Instant::now();
         let opened = match fence {
             Some(fence) => session.batch(fence.open()).await.map(|()| Some(fence)),
@@ -614,80 +674,130 @@ pub async fn run_task(console: Arc<Console>, shared: Arc<Shared>, mut session: S
         let result = ran.map_err(|failed| failed.error);
         let cancelled = stop.load(Ordering::Relaxed) && result.is_err();
         let result = result.map_err(|mut e| {
-            e.position = if stmt.changed { None } else { e.position.map(|p| DocOffset(stmt.origin.0.saturating_add(p.0))) };
+            e.position =
+                if stmt.changed { None } else { e.position.map(|p| DocOffset(stmt.origin.0.saturating_add(p.0))) };
             e
         });
-        if let Err(e) = &result { if e.severity == "FATAL" { fatal = Some(e.message.clone()); } }
+        if let Err(e) = &result {
+            if e.severity == "FATAL" {
+                fatal = Some(e.message.clone());
+            }
+        }
         let finished = if result.is_ok() { StmtOutcome::Ok } else { StmtOutcome::Err };
         // A cancel still closes the fence, or the session would stay inside it.
-        if let Some(fence) = fence && fatal.is_none() && session.closed_reason().is_none()
+        if let Some(fence) = fence
+            && fatal.is_none()
+            && session.closed_reason().is_none()
             && let Err(error) = session.batch(fence.close(result.is_ok())).await
         {
             session.retire(format!("The run could not end its read-only transaction: {}", error.message));
         }
-        let refused = fence.is_some() && matches!(&result, Err(error) if error.sqlstate.as_deref() == Some(READ_ONLY_VIOLATION));
+        let refused =
+            fence.is_some() && matches!(&result, Err(error) if error.sqlstate.as_deref() == Some(READ_ONLY_VIOLATION));
         if fence.is_none() {
             // A result this side could not read did not fail on the server, so it aborted nothing there.
             let on_server = if unread { StmtOutcome::Ok } else { finished };
             txn = session.observed_txn().unwrap_or_else(|| txn_after(txn, &stmt.kind, on_server));
         }
         let (status, history) = match &result {
-            Ok((rows, tags)) => (StmtStatus::Finished, if let Some(rows) = rows { HistoryOutcome::Rows { rows: *rows } } else { HistoryOutcome::Command { tag: tags.join("; ") } }),
+            Ok((rows, tags)) => (
+                StmtStatus::Finished,
+                if let Some(rows) = rows {
+                    HistoryOutcome::Rows { rows: *rows }
+                } else {
+                    HistoryOutcome::Command { tag: tags.join("; ") }
+                },
+            ),
             Err(_) if cancelled => (StmtStatus::Cancelled, HistoryOutcome::Cancelled),
-            Err(error) => (StmtStatus::Failed { error: error.clone() }, HistoryOutcome::Error { message: error.message.clone() }),
+            Err(error) => {
+                (StmtStatus::Failed { error: error.clone() }, HistoryOutcome::Error { message: error.message.clone() })
+            }
         };
         let unasked_write = plan.writes_stay_unasked && crate::text::is_write(sql, plan.connection.database_kind);
         let chained = result.is_ok() && matches!(stmt.kind, StmtKind::CommitAndChain | StmtKind::RollbackAndChain);
         let ended = crate::txn::ended(&stmt.kind, finished, session.observed_txn());
-        let due = console.edit(&shared, run_id, |inner| {
-            let committed = result.is_ok() && inner.txn != TxnState::Aborted && !matches!(stmt.kind, StmtKind::Rollback | StmtKind::RollbackAndChain);
-            inner.txn = txn;
-            inner.txn_depth = session.txn_depth();
-            if unasked_write {
-                inner.unasked.add(sql);
-            }
-            if refused {
-                inner.proven.add(sql);
-            }
-            if ended {
-                inner.unasked = WriteList::default();
-            }
-            Console::statements_mut(inner)[index].status = status;
-            if plan.connection.database_kind == DatabaseKind::Postgres && result.is_ok() {
-                inner.invalidate(DatabaseKind::Postgres, stmt.kind.invalidates());
-            }
-            if chained { inner.end_refreshes(committed) } else { inner.finish_refreshes(committed) }
-        }).await?;
-        if let Some((db, owed)) = due { shared.schedule_refreshes(db, owed); }
+        let due = console
+            .edit(&shared, run_id, |inner| {
+                let committed = result.is_ok()
+                    && inner.txn != TxnState::Aborted
+                    && !matches!(stmt.kind, StmtKind::Rollback | StmtKind::RollbackAndChain);
+                inner.txn = txn;
+                inner.txn_depth = session.txn_depth();
+                if unasked_write {
+                    inner.unasked.add(sql);
+                }
+                if refused {
+                    inner.proven.add(sql);
+                }
+                if ended {
+                    inner.unasked = WriteList::default();
+                }
+                Console::statements_mut(inner)[index].status = status;
+                if plan.connection.database_kind == DatabaseKind::Postgres && result.is_ok() {
+                    inner.invalidate(DatabaseKind::Postgres, stmt.kind.invalidates());
+                }
+                if chained { inner.end_refreshes(committed) } else { inner.finish_refreshes(committed) }
+            })
+            .await?;
+        if let Some((db, owed)) = due {
+            shared.schedule_refreshes(db, owed);
+        }
         let mut lines = notice_lines(&mut session);
-        if let Err(error) = &result && !logged { lines.push(OutputBody::Error { statement: Some(i), error: error.clone() }); }
+        if let Err(error) = &result
+            && !logged
+        {
+            lines.push(OutputBody::Error { statement: Some(i), error: error.clone() });
+        }
         if refused {
             lines.push(OutputBody::Info { message: "Production: this statement tried to write, so it ran read-only and nothing changed. Run it again to confirm the write.".into() });
         }
         console.output_all(&shared, run_id, lines);
         shared.record_history(HistoryInsert {
             database_kind: plan.connection.database_kind,
-            at_ms: now_ms(), connection_id: plan.connection.id, connection_name: plan.connection.name.clone(), database: plan.database.clone(),
-            sql: sql.to_owned(), elapsed_ms: elapsed_ms(unit_started), outcome: history,
+            at_ms: now_ms(),
+            connection_id: plan.connection.id,
+            connection_name: plan.connection.name.clone(),
+            database: plan.database.clone(),
+            sql: sql.to_owned(),
+            elapsed_ms: elapsed_ms(unit_started),
+            outcome: history,
         });
         index += 1;
-        if cancelled { outcome = RunOutcome::Cancelled; break; }
-        if result.is_err() { outcome = RunOutcome::Failed; if settings.stop_on_error { break; } }
-        if fatal.is_some() || session.closed_reason().is_some() { break; }
+        if cancelled {
+            outcome = RunOutcome::Cancelled;
+            break;
+        }
+        if result.is_err() {
+            outcome = RunOutcome::Failed;
+            if settings.stop_on_error {
+                break;
+            }
+        }
+        if fatal.is_some() || session.closed_reason().is_some() {
+            break;
+        }
     }
     let lost = session.closed_reason_settled(fatal).await;
-    let due = console.edit(&shared, run_id, |inner| {
-        let statements = Console::statements_mut(inner);
-        for s in statements.iter_mut().skip(index) { if matches!(s.status, StmtStatus::Pending) { s.status = StmtStatus::Skipped; } }
-        let statements = statements.clone();
-        if let Some(reason) = &lost {
-            console.output(&shared, run_id, loss_line(&session, txn, reason));
-        }
-        let due = Console::return_session(inner, session, txn, lost);
-        inner.run = RunState::Finished { run_id, elapsed_ms: elapsed_ms(started), statements, outcome };
-        due
-    }).await?;
-    if let Some((db, owed)) = due { shared.schedule_refreshes(db, owed); }
+    let due = console
+        .edit(&shared, run_id, |inner| {
+            let statements = Console::statements_mut(inner);
+            for s in statements.iter_mut().skip(index) {
+                if matches!(s.status, StmtStatus::Pending) {
+                    s.status = StmtStatus::Skipped;
+                }
+            }
+            let statements = statements.clone();
+            if let Some(reason) = &lost {
+                console.output(&shared, run_id, loss_line(&session, txn, reason));
+            }
+            let due = Console::return_session(inner, session, txn, lost);
+            inner.run = RunState::Finished { run_id, elapsed_ms: elapsed_ms(started), statements, outcome };
+            due
+        })
+        .await?;
+    if let Some((db, owed)) = due {
+        shared.schedule_refreshes(db, owed);
+    }
     Ok(())
 }
 
@@ -729,7 +839,15 @@ impl ReadFence {
     }
 }
 
-pub async fn count_task(console: Arc<Console>, shared: Arc<Shared>, mut session: Session, run_id: RunId, sql: String, stop: Arc<AtomicBool>, mut reply: tokio::sync::oneshot::Sender<Result<u64, CountError>>) {
+pub async fn count_task(
+    console: Arc<Console>,
+    shared: Arc<Shared>,
+    mut session: Session,
+    run_id: RunId,
+    sql: String,
+    stop: Arc<AtomicBool>,
+    mut reply: tokio::sync::oneshot::Sender<Result<u64, CountError>>,
+) {
     let result = if stop.load(Ordering::Relaxed) {
         Err(crate::session::error("Count cancelled."))
     } else {
@@ -744,15 +862,19 @@ pub async fn count_task(console: Arc<Console>, shared: Arc<Shared>, mut session:
     let retired = lost.is_some();
     let mut released = session.closed_watch();
     let txn = session.observed_txn().expect("SQL Server observes native transaction presence");
-    let edited = console.edit(&shared, run_id, |inner| {
-        let due = Console::return_session(inner, session, txn, lost);
-        due.or_else(|| inner.finish_refreshes(false))
-    }).await;
+    let edited = console
+        .edit(&shared, run_id, |inner| {
+            let due = Console::return_session(inner, session, txn, lost);
+            due.or_else(|| inner.finish_refreshes(false))
+        })
+        .await;
     let result = match edited {
         Err(_) => Err(CountError::Failed { message: "The count tab's session was discarded.".into() }),
         Ok(due) => {
             if let Some((db, owed)) = due {
-                if retired { while released.changed().await.is_ok() {} }
+                if retired {
+                    while released.changed().await.is_ok() {}
+                }
                 shared.schedule_refreshes(db, owed);
             }
             if stop.load(Ordering::Relaxed) {
@@ -769,18 +891,36 @@ pub fn loss_line(session: &Session, txn: TxnState, reason: &str) -> OutputBody {
     let message = match session.transaction_loss(txn) {
         TransactionLoss::RolledBack => format!("Transaction rolled back: connection lost ({reason})"),
         TransactionLoss::None => format!("Session reset: connection lost ({reason})"),
-        TransactionLoss::Unknown => format!("Session reset: earlier commits remain committed; the last transaction outcome may be unknown ({reason})"),
+        TransactionLoss::Unknown => format!(
+            "Session reset: earlier commits remain committed; the last transaction outcome may be unknown ({reason})"
+        ),
     };
     OutputBody::Info { message }
 }
 
-async fn set_status(console: &Console, shared: &Shared, run_id: RunId, index: u16, status: StmtStatus) -> Result<(), Orphaned> {
+async fn set_status(
+    console: &Console,
+    shared: &Shared,
+    run_id: RunId,
+    index: u16,
+    status: StmtStatus,
+) -> Result<(), Orphaned> {
     console.edit(shared, run_id, |inner| Console::statements_mut(inner)[index as usize].status = status).await
 }
 
-pub fn notice_lines(session: &mut Session) -> Vec<OutputBody> { session.drain_notices() }
+pub fn notice_lines(session: &mut Session) -> Vec<OutputBody> {
+    session.drain_notices()
+}
 
-async fn run_outputs(console: &Console, shared: &Shared, session: &mut Session, plan: &RunPlan, index: usize, caps: &Caps, stop: &AtomicBool) -> Result<Result<(Option<u64>, Vec<String>), Failed>, Orphaned> {
+async fn run_outputs(
+    console: &Console,
+    shared: &Shared,
+    session: &mut Session,
+    plan: &RunPlan,
+    index: usize,
+    caps: &Caps,
+    stop: &AtomicBool,
+) -> Result<Result<(Option<u64>, Vec<String>), Failed>, Orphaned> {
     let sql = plan.statements[index].span.text(&plan.text);
     let run_id = plan.run_id;
     let started = Instant::now();
@@ -800,14 +940,30 @@ async fn run_outputs(console: &Console, shared: &Shared, session: &mut Session, 
         let next = if log.is_empty() { stream.next().await } else { log.wait(&mut stream).await };
         let Some(event) = next else { break };
         match event {
-            Err(error) => { failure = Some(error); break; }
-            Ok(QueryEvent::Prepared) if stop.load(Ordering::Relaxed) => { failure = Some(crate::session::error("Cancelled")); break; }
+            Err(error) => {
+                failure = Some(error);
+                break;
+            }
+            Ok(QueryEvent::Prepared) if stop.load(Ordering::Relaxed) => {
+                failure = Some(crate::session::error("Cancelled"));
+                break;
+            }
             Ok(QueryEvent::Prepared) => {}
             Ok(QueryEvent::Columns(mut columns)) => {
-                if let Some((set, out)) = active.take() { finish_rows(&mut log, index, &set, &mut outputs[out], started, &mut rows); }
-                if let Some(table) = plan.page.as_ref().and_then(|p| p.relation.as_ref()) && plan.connection.database_kind == DatabaseKind::SqlServer {
-                    if columns.len() != table.columns.len() || columns.iter().zip(&table.columns).any(|(actual, known)| actual.name != known.name || actual.r#type.category != known.category) {
-                        failure = Some(crate::session::error("Table shape changed. Refresh the catalog before browsing again."));
+                if let Some((set, out)) = active.take() {
+                    finish_rows(&mut log, index, &set, &mut outputs[out], started, &mut rows);
+                }
+                if let Some(table) = plan.page.as_ref().and_then(|p| p.relation.as_ref())
+                    && plan.connection.database_kind == DatabaseKind::SqlServer
+                {
+                    if columns.len() != table.columns.len()
+                        || columns.iter().zip(&table.columns).any(|(actual, known)| {
+                            actual.name != known.name || actual.r#type.category != known.category
+                        })
+                    {
+                        failure = Some(crate::session::error(
+                            "Table shape changed. Refresh the catalog before browsing again.",
+                        ));
                         break;
                     }
                     for (actual, known) in columns.iter_mut().zip(&table.columns) {
@@ -815,7 +971,13 @@ async fn run_outputs(console: &Console, shared: &Shared, session: &mut Session, 
                         actual.r#type = SqlTypeRef { display: known.type_display.clone(), category: known.category };
                     }
                 }
-                let ordinal = match u16::try_from(console.results.lock().unwrap().len()) { Ok(n) => n, Err(_) => { failure = Some(crate::session::error("Too many result sets")); break; } };
+                let ordinal = match u16::try_from(console.results.lock().unwrap().len()) {
+                    Ok(n) => n,
+                    Err(_) => {
+                        failure = Some(crate::session::error("Too many result sets"));
+                        break;
+                    }
+                };
                 let db = DatabaseRef { connection_id: plan.connection.id, database: plan.database.clone() };
                 let rerun = rerun
                     .get_or_insert_with(|| match &plan.page {
@@ -825,19 +987,36 @@ async fn run_outputs(console: &Console, shared: &Shared, session: &mut Session, 
                     .clone();
                 let origin = Origin { rerun, nth, schema: plan.schema.clone(), page: plan.page.is_some() };
                 nth = nth.saturating_add(1);
-                let set = Arc::new(ResultSet::new(ResultRef { tab_id: console.tab, run_id, index: ordinal }, db, plan.connection.database_kind, columns, origin));
+                let set = Arc::new(ResultSet::new(
+                    ResultRef { tab_id: console.tab, run_id, index: ordinal },
+                    db,
+                    plan.connection.database_kind,
+                    columns,
+                    origin,
+                ));
                 console.results.lock().unwrap().push(set.clone());
                 active = Some((set.clone(), outputs.len()));
                 outputs.push(RunOutput::Rows { result: set.meta(), state: RowsState::Streaming });
-                console.edit(shared, run_id, |inner| { let stmt = &mut Console::statements_mut(inner)[index]; stmt.status = StmtStatus::Running; stmt.outputs = outputs.clone(); }).await?;
+                console
+                    .edit(shared, run_id, |inner| {
+                        let stmt = &mut Console::statements_mut(inner)[index];
+                        stmt.status = StmtStatus::Running;
+                        stmt.outputs = outputs.clone();
+                    })
+                    .await?;
             }
             Ok(QueryEvent::Row(cells)) => {
-                if let Some((set, _)) = &active { set.push_row(cells.iter().map(|v| v.as_deref()), caps); }
-                else { failure = Some(crate::session::error("Driver returned a row without result metadata")); break; }
+                if let Some((set, _)) = &active {
+                    set.push_row(cells.iter().map(|v| v.as_deref()), caps);
+                } else {
+                    failure = Some(crate::session::error("Driver returned a row without result metadata"));
+                    break;
+                }
             }
             Ok(QueryEvent::Complete { affected_rows }) => {
-                if let Some((set, out)) = active.take() { finish_rows(&mut log, index, &set, &mut outputs[out], started, &mut rows); }
-                else {
+                if let Some((set, out)) = active.take() {
+                    finish_rows(&mut log, index, &set, &mut outputs[out], started, &mut rows);
+                } else {
                     let tag = match (plan.connection.database_kind, affected_rows) {
                         (_, None) => "Commands completed successfully".into(),
                         (DatabaseKind::Postgres, Some(n)) => synthesize_tag(&plan.statements[index].kind, n),
@@ -857,10 +1036,16 @@ async fn run_outputs(console: &Console, shared: &Shared, session: &mut Session, 
             Ok(QueryEvent::Notice(body)) => log.push(body),
             Ok(QueryEvent::ServerDone) => server_done = true,
             Ok(QueryEvent::ServerError(error)) => {
-                if let Some((set, out)) = active.take() { end_rows(&set, &mut outputs[out], started, RowsState::Failed); }
+                if let Some((set, out)) = active.take() {
+                    end_rows(&set, &mut outputs[out], started, RowsState::Failed);
+                }
                 let stmt = &plan.statements[index];
                 let mut shown = error.clone();
-                shown.position = if stmt.changed { None } else { shown.position.map(|p| DocOffset(stmt.origin.0.saturating_add(p.0))) };
+                shown.position = if stmt.changed {
+                    None
+                } else {
+                    shown.position.map(|p| DocOffset(stmt.origin.0.saturating_add(p.0)))
+                };
                 log.push(OutputBody::Error { statement: Some(index as u16), error: shown });
                 reported.get_or_insert(error);
             }
@@ -868,14 +1053,27 @@ async fn run_outputs(console: &Console, shared: &Shared, session: &mut Session, 
         if last_emit.elapsed() >= STREAM_EMIT_INTERVAL {
             last_emit = Instant::now();
             log.send();
-            if let Some((set, out)) = &active { set.set_elapsed(elapsed_ms(started)); outputs[*out] = RunOutput::Rows { result: set.meta(), state: RowsState::Streaming }; }
-            console.edit(shared, run_id, |inner| Console::statements_mut(inner)[index].outputs = outputs.clone()).await?;
+            if let Some((set, out)) = &active {
+                set.set_elapsed(elapsed_ms(started));
+                outputs[*out] = RunOutput::Rows { result: set.meta(), state: RowsState::Streaming };
+            }
+            console
+                .edit(shared, run_id, |inner| Console::statements_mut(inner)[index].outputs = outputs.clone())
+                .await?;
         }
     }
     drop(stream);
     if let Some((set, out)) = active {
-        if failure.is_none() { finish_rows(&mut log, index, &set, &mut outputs[out], started, &mut rows); }
-        else { end_rows(&set, &mut outputs[out], started, if stop.load(Ordering::Relaxed) { RowsState::Cancelled } else { RowsState::Failed }); }
+        if failure.is_none() {
+            finish_rows(&mut log, index, &set, &mut outputs[out], started, &mut rows);
+        } else {
+            end_rows(
+                &set,
+                &mut outputs[out],
+                started,
+                if stop.load(Ordering::Relaxed) { RowsState::Cancelled } else { RowsState::Failed },
+            );
+        }
     }
     log.send();
     console.edit(shared, run_id, |inner| Console::statements_mut(inner)[index].outputs = outputs).await?;
@@ -897,11 +1095,23 @@ fn end_rows(set: &ResultSet, output: &mut RunOutput, started: Instant, state: Ro
     *output = RunOutput::Rows { result: set.meta(), state };
 }
 
-fn finish_rows(log: &mut OutputBatch, index: usize, set: &ResultSet, output: &mut RunOutput, started: Instant, rows: &mut Option<u64>) {
+fn finish_rows(
+    log: &mut OutputBatch,
+    index: usize,
+    set: &ResultSet,
+    output: &mut RunOutput,
+    started: Instant,
+    rows: &mut Option<u64>,
+) {
     set.set_elapsed(elapsed_ms(started));
     let meta = set.meta();
     *rows = Some(rows.unwrap_or(0) + meta.rows_seen);
-    log.push(OutputBody::Rows { statement: index as u16, rows: meta.rows_seen, elapsed_ms: meta.elapsed_ms, truncated: meta.truncated.is_some() });
+    log.push(OutputBody::Rows {
+        statement: index as u16,
+        rows: meta.rows_seen,
+        elapsed_ms: meta.elapsed_ms,
+        truncated: meta.truncated.is_some(),
+    });
     *output = RunOutput::Rows { result: meta, state: RowsState::Complete };
 }
 

@@ -52,7 +52,9 @@ pub(crate) fn open(path: &str) -> Result<FileOpened, FileReadError> {
 
 pub(crate) fn save(target: SaveTarget, text: &str) -> Result<FileSaved, FileWriteError> {
     let (path, format, expected, taken) = match target {
-        SaveTarget::Bound { binding, overwrite } => (binding.path, binding.format, Some((binding.stamp, overwrite)), Vec::new()),
+        SaveTarget::Bound { binding, overwrite } => {
+            (binding.path, binding.format, Some((binding.stamp, overwrite)), Vec::new())
+        }
         SaveTarget::New { path, format, taken } => (path, format.unwrap_or_default(), None, taken),
     };
     let path = canonical(&path)?;
@@ -90,7 +92,8 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<(String, FileFormat), FileReadError
         Some(body) => (true, body),
         None => (false, bytes),
     };
-    let text = std::str::from_utf8(body).map_err(|e| FileReadError::NotUtf8 { offset: (bytes.len() - body.len() + e.valid_up_to()) as u64 })?;
+    let text = std::str::from_utf8(body)
+        .map_err(|e| FileReadError::NotUtf8 { offset: (bytes.len() - body.len() + e.valid_up_to()) as u64 })?;
     let crlf = text.find(['\r', '\n']).is_some_and(|i| text[i..].starts_with("\r\n"));
     Ok((to_lf(text), FileFormat { bom, crlf }))
 }
@@ -145,8 +148,8 @@ pub(crate) fn home_dir() -> Option<String> {
 }
 
 const WINDOWS_DEVICES: [&str; 22] = [
-    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3",
-    "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2",
+    "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
 
 /// Windows' `canonicalize` answers in verbatim form, `\\?\C:\…` or `\\?\UNC\server\share\…`, which dialogs and
@@ -209,7 +212,8 @@ fn resolve_links(path: &Path) -> io::Result<PathBuf> {
 #[cfg(unix)]
 fn writable(target: &Path, _meta: &Metadata) -> bool {
     use std::os::unix::ffi::OsStrExt;
-    std::ffi::CString::new(target.as_os_str().as_bytes()).is_ok_and(|c| unsafe { libc::access(c.as_ptr(), libc::W_OK) } == 0)
+    std::ffi::CString::new(target.as_os_str().as_bytes())
+        .is_ok_and(|c| unsafe { libc::access(c.as_ptr(), libc::W_OK) } == 0)
 }
 
 #[cfg(not(unix))]
@@ -370,13 +374,19 @@ mod tests {
 
     #[test]
     fn decode_strips_a_bom_and_flags_it() {
-        assert_eq!(decode(b"\xEF\xBB\xBFselect 1;").unwrap(), ("select 1;".to_owned(), FileFormat { bom: true, crlf: false }));
+        assert_eq!(
+            decode(b"\xEF\xBB\xBFselect 1;").unwrap(),
+            ("select 1;".to_owned(), FileFormat { bom: true, crlf: false })
+        );
         assert_eq!(decode(b"select 1;").unwrap(), ("select 1;".to_owned(), PLAIN));
     }
 
     #[test]
     fn decode_takes_crlf_from_the_first_break_and_normalizes_every_break() {
-        assert_eq!(decode(b"a;\r\nb;\nc;\rd;").unwrap(), ("a;\nb;\nc;\nd;".to_owned(), FileFormat { bom: false, crlf: true }));
+        assert_eq!(
+            decode(b"a;\r\nb;\nc;\rd;").unwrap(),
+            ("a;\nb;\nc;\nd;".to_owned(), FileFormat { bom: false, crlf: true })
+        );
         assert_eq!(decode(b"a;\nb;\r\n").unwrap(), ("a;\nb;\n".to_owned(), PLAIN));
         assert_eq!(decode(b"a;\rb;\r\n").unwrap(), ("a;\nb;\n".to_owned(), PLAIN), "a lone CR first is not CRLF");
     }
@@ -404,7 +414,11 @@ mod tests {
             for (bom, crlf) in [(false, false), (false, true), (true, false), (true, true)] {
                 let format = FileFormat { bom, crlf };
                 let decoded = FileFormat { bom, crlf: crlf && text.contains('\n') };
-                assert_eq!(decode(&encode(text, format)).unwrap(), (text.to_owned(), decoded), "{text:?} as {format:?}");
+                assert_eq!(
+                    decode(&encode(text, format)).unwrap(),
+                    (text.to_owned(), decoded),
+                    "{text:?} as {format:?}"
+                );
             }
         }
         assert_eq!(encode("a\nb\n", FileFormat { bom: true, crlf: true }), b"\xEF\xBB\xBFa\r\nb\r\n");
@@ -418,14 +432,19 @@ mod tests {
 
     #[test]
     fn stamp_is_the_length_and_the_sha256_hex() {
-        assert_eq!(stamp(b"abc"), FileStamp("3:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad".into()));
+        assert_eq!(
+            stamp(b"abc"),
+            FileStamp("3:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad".into())
+        );
         assert_eq!(stamp(b"abc"), stamp(b"abc"));
         assert_ne!(stamp(b"abc"), stamp(b"abd"));
     }
 
     #[test]
     fn a_binding_under_the_home_folder_starts_with_home_dir() {
-        let (Some(home), Some(raw)) = (home_dir(), std::env::home_dir()) else { return eprintln!("skipped: no home folder") };
+        let (Some(home), Some(raw)) = (home_dir(), std::env::home_dir()) else {
+            return eprintln!("skipped: no home folder");
+        };
         let path = canonical(&s(&raw.join("report.sql"))).unwrap();
         assert!(path.starts_with(&home) && path.len() > home.len(), "{path} under {home}");
     }
@@ -463,7 +482,10 @@ mod tests {
         let path = dir.path().join("dump.sql");
         File::create(&path).unwrap().set_len(MAX_FILE_BYTES + 1).unwrap();
         let result = open(&s(&path));
-        assert!(matches!(result, Err(FileReadError::TooLarge { bytes, limit: MAX_FILE_BYTES }) if bytes == MAX_FILE_BYTES + 1), "{result:?}");
+        assert!(
+            matches!(result, Err(FileReadError::TooLarge { bytes, limit: MAX_FILE_BYTES }) if bytes == MAX_FILE_BYTES + 1),
+            "{result:?}"
+        );
         File::create(&path).unwrap().set_len(MAX_FILE_BYTES).unwrap();
         assert_eq!(open(&s(&path)).unwrap().text.len() as u64, MAX_FILE_BYTES, "a file at the cap opens");
     }
@@ -537,10 +559,14 @@ mod tests {
         let path = dir.path().join("a.sql");
         let binding = binding_for(&path, b"v1\n");
         fs::write(&path, "v2\n").unwrap();
-        let Err(FileWriteError::Changed { disk: v2 }) = save(bound(binding.clone()), "mine\n") else { panic!("v2 is an outside change") };
+        let Err(FileWriteError::Changed { disk: v2 }) = save(bound(binding.clone()), "mine\n") else {
+            panic!("v2 is an outside change")
+        };
         fs::write(&path, "v3\n").unwrap();
         let stale = save(SaveTarget::Bound { binding: binding.clone(), overwrite: Some(v2) }, "mine\n");
-        let Err(FileWriteError::Changed { disk: v3 }) = stale else { panic!("a consent to v2 does not cover v3: {stale:?}") };
+        let Err(FileWriteError::Changed { disk: v3 }) = stale else {
+            panic!("a consent to v2 does not cover v3: {stale:?}")
+        };
         assert_eq!(v3, stamp(b"v3\n"));
         assert_eq!(fs::read(&path).unwrap(), b"v3\n");
         let saved = save(SaveTarget::Bound { binding, overwrite: Some(v3) }, "mine\n").unwrap();
@@ -651,11 +677,18 @@ mod tests {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
         let tmp = temp_beside(dir.path(), &path, Some(&fs::metadata(&path).unwrap())).unwrap();
         let meta = fs::metadata(tmp.path()).unwrap();
-        assert_eq!((meta.len(), meta.permissions().mode() & 0o777 & !0o600), (0, 0), "created empty, with no bit beyond 0o600");
+        assert_eq!(
+            (meta.len(), meta.permissions().mode() & 0o777 & !0o600),
+            (0, 0),
+            "created empty, with no bit beyond 0o600"
+        );
     }
 
     fn save_as(path: &Path, taken: &[&str]) -> Result<FileSaved, FileWriteError> {
-        save(SaveTarget::New { path: s(path), format: None, taken: taken.iter().map(|&t| t.to_owned()).collect() }, "mine\n")
+        save(
+            SaveTarget::New { path: s(path), format: None, taken: taken.iter().map(|&t| t.to_owned()).collect() },
+            "mine\n",
+        )
     }
 
     #[test]
@@ -669,7 +702,10 @@ mod tests {
         fs::hard_link(dir.path().join("real/a.sql"), dir.path().join("hard.sql")).unwrap();
         for name in ["real/a.sql", "alias/a.sql", "real/../alias/a.sql", "link.sql", "hard.sql"] {
             let result = save_as(&dir.path().join(name), &["/elsewhere/b.sql", &held]);
-            assert!(matches!(&result, Err(FileWriteError::OpenInAnotherNotebook { path }) if *path == held), "{name}: {result:?}");
+            assert!(
+                matches!(&result, Err(FileWriteError::OpenInAnotherNotebook { path }) if *path == held),
+                "{name}: {result:?}"
+            );
         }
         assert_eq!(fs::read(dir.path().join("real/a.sql")).unwrap(), b"select 1;\n");
         assert_eq!(temps(&dir.path().join("real")), Vec::<String>::new());
@@ -694,7 +730,9 @@ mod tests {
         let plain = |path: &str| plain_windows_path(path.to_owned());
         assert_eq!(plain(r"\\?\C:\Users\a\q.sql"), r"C:\Users\a\q.sql");
         assert_eq!(plain(r"\\?\UNC\server\share\q.sql"), r"\\server\share\q.sql");
-        for kept in [r"\\?\C:\a\con.sql", r"\\?\C:\a\Com1", r"\\?\C:\a\q.sql.", r"\\?\C:\a \q.sql", r"\\?\Volume{4c1b}\q.sql"] {
+        for kept in
+            [r"\\?\C:\a\con.sql", r"\\?\C:\a\Com1", r"\\?\C:\a\q.sql.", r"\\?\C:\a \q.sql", r"\\?\Volume{4c1b}\q.sql"]
+        {
             assert_eq!(plain(kept), kept);
         }
         for untouched in ["/Users/a/q.sql", r"C:\a\q.sql", r"\\server\share\q.sql"] {
@@ -810,7 +848,8 @@ mod tests {
         symlink("b.sql", dir.path().join("a.sql")).unwrap();
         symlink("a.sql", dir.path().join("b.sql")).unwrap();
         let path = s(&dir.path().join("a.sql"));
-        let result = within_two_seconds(move || save(SaveTarget::New { path, format: None, taken: vec![] }, "select 1;\n"));
+        let result =
+            within_two_seconds(move || save(SaveTarget::New { path, format: None, taken: vec![] }, "select 1;\n"));
         assert!(matches!(result, Err(FileWriteError::Io { .. })), "{result:?}");
         assert_eq!(temps(dir.path()), Vec::<String>::new());
     }

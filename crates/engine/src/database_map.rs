@@ -13,22 +13,11 @@ pub(crate) struct Neighborhood {
 
 impl Neighborhood {
     pub fn new(root: MapRelation) -> Self {
-        Self {
-            root,
-            relations: vec![],
-            foreign_keys: vec![],
-        }
+        Self { root, relations: vec![], foreign_keys: vec![] }
     }
 
-    pub fn pair(
-        &mut self,
-        key: MapForeignKey,
-        source: MapRelation,
-        target: MapRelation,
-        pair: MapColumnPair,
-    ) {
-        for (mut relation, column) in [(source, pair.source.clone()), (target, pair.target.clone())]
-        {
+    pub fn pair(&mut self, key: MapForeignKey, source: MapRelation, target: MapRelation, pair: MapColumnPair) {
+        for (mut relation, column) in [(source, pair.source.clone()), (target, pair.target.clone())] {
             if let Some(held) = self.relations.iter_mut().find(|r| r.oid == relation.oid) {
                 if !held.columns.contains(&column) {
                     held.columns.push(column);
@@ -41,10 +30,7 @@ impl Neighborhood {
         if let Some(held) = self.foreign_keys.iter_mut().find(|k| k.id == key.id) {
             held.columns.push(pair);
         } else {
-            self.foreign_keys.push(MapForeignKey {
-                columns: vec![pair],
-                ..key
-            });
+            self.foreign_keys.push(MapForeignKey { columns: vec![pair], ..key });
         }
     }
 
@@ -61,11 +47,7 @@ impl Neighborhood {
                 })
             });
         }
-        self.relations.retain(|r| {
-            self.foreign_keys
-                .iter()
-                .any(|k| k.source == r.oid || k.target == r.oid)
-        });
+        self.relations.retain(|r| self.foreign_keys.iter().any(|k| k.source == r.oid || k.target == r.oid));
         if let Some(root) = self.relations.iter().find(|r| r.oid == self.root.oid) {
             self.root = root.clone();
         }
@@ -94,12 +76,8 @@ impl Shared {
         version: u64,
     ) -> bool {
         !instance.is_closed()
-            && self
-                .instance(slot.db.connection_id)
-                .is_some_and(|i| Arc::ptr_eq(&i, instance))
-            && instance
-                .slot(&slot.db.database)
-                .is_some_and(|s| Arc::ptr_eq(&s, slot))
+            && self.instance(slot.db.connection_id).is_some_and(|i| Arc::ptr_eq(&i, instance))
+            && instance.slot(&slot.db.database).is_some_and(|s| Arc::ptr_eq(&s, slot))
             && slot.last().is_some_and(|c| c.version == version)
     }
 }
@@ -113,30 +91,21 @@ impl Engine {
         after: Option<MapCursor>,
     ) -> Result<MapNeighborhood, MapError> {
         let shared = &self.shared;
-        let (instance, slot) = shared
-            .slot(&db)
-            .map_err(|error| MapError::Catalog { error })?;
+        let (instance, slot) = shared.slot(&db).map_err(|error| MapError::Catalog { error })?;
         if slot.last().is_none() {
-            shared
-                .ensure_catalog(&instance, &slot)
-                .await
-                .map_err(|error| MapError::Catalog { error })?;
+            shared.ensure_catalog(&instance, &slot).await.map_err(|error| MapError::Catalog { error })?;
         }
         let mut meta = slot.meta.lock().await;
         if !shared.map_current(&instance, &slot, catalog_version) {
             return Err(MapError::Stale);
         }
-        if after.as_ref().is_some_and(|c| {
-            c.db != slot.db || c.root != oid || c.catalog_version != catalog_version
-        }) {
+        if after.as_ref().is_some_and(|c| c.db != slot.db || c.root != oid || c.catalog_version != catalog_version) {
             return Err(MapError::Stale);
         }
         let session = shared
             .session_in(&instance, &slot, &mut meta)
             .await
-            .map_err(|e| MapError::Failed {
-                message: crate::connection::connect_error_text(&e),
-            })?;
+            .map_err(|e| MapError::Failed { message: crate::connection::connect_error_text(&e) })?;
         let neighborhood = session
             .map_neighborhood(oid, after.map_or(0, |c| c.last_constraint))
             .await
@@ -144,9 +113,7 @@ impl Engine {
         if !shared.map_current(&instance, &slot, catalog_version) {
             return Err(MapError::Stale);
         }
-        Ok(neighborhood
-            .ok_or(MapError::Gone)?
-            .page(slot.db.clone(), catalog_version))
+        Ok(neighborhood.ok_or(MapError::Gone)?.page(slot.db.clone(), catalog_version))
     }
 }
 
@@ -159,14 +126,9 @@ impl Engine {
         catalog_version: u64,
     ) -> Result<MapQuery, MapError> {
         let shared = &self.shared;
-        let (instance, slot) = shared
-            .slot(&db)
-            .map_err(|error| MapError::Catalog { error })?;
+        let (instance, slot) = shared.slot(&db).map_err(|error| MapError::Catalog { error })?;
         if slot.last().is_none() {
-            shared
-                .ensure_catalog(&instance, &slot)
-                .await
-                .map_err(|error| MapError::Catalog { error })?;
+            shared.ensure_catalog(&instance, &slot).await.map_err(|error| MapError::Catalog { error })?;
         }
         let _meta = slot.meta.lock().await;
         if !shared.map_current(&instance, &slot, catalog_version) {
@@ -199,17 +161,11 @@ mod tests {
         })
         .await
         .unwrap();
-        let url = std::env::var("L1_DATA_TEST_PG")
-            .unwrap_or_else(|_| "postgres://l1data:l1data@localhost:5433/shop".into());
-        let config = engine
-            .save_connection(crate::draft_from_url(&url, "map boundary").unwrap())
-            .await
-            .unwrap();
+        let url =
+            std::env::var("L1_DATA_TEST_PG").unwrap_or_else(|_| "postgres://l1data:l1data@localhost:5433/shop".into());
+        let config = engine.save_connection(crate::draft_from_url(&url, "map boundary").unwrap()).await.unwrap();
         engine.connect(config.id).await.unwrap();
-        let db = DatabaseRef {
-            connection_id: config.id,
-            database: config.database,
-        };
+        let db = DatabaseRef { connection_id: config.id, database: config.database };
         engine.catalog(db.clone()).await.unwrap();
         (engine, dir, db)
     }
@@ -221,27 +177,15 @@ mod tests {
         let guard = slot.meta.lock().await;
         let catalog = slot.last().unwrap();
         let version = catalog.version;
-        slot.set(crate::connection::CatalogSlot::Failed {
-            message: "refresh unavailable".into(),
-            last: Some(catalog),
-        });
+        slot.set(crate::connection::CatalogSlot::Failed { message: "refresh unavailable".into(), last: Some(catalog) });
         let query = engine.database_map_query(db.clone(), "SELECT 1".into(), DocOffset(2), version);
         tokio::pin!(query);
         assert!(matches!(futures_util::poll!(&mut query), Poll::Pending));
         drop(guard);
         query.await.unwrap();
-        assert!(
-            slot.ready().is_none(),
-            "cursor analysis must not retry a failed catalog refresh"
-        );
-        assert!(matches!(
-            engine.database_map_neighborhood(db, 0, version, None).await,
-            Err(MapError::Gone)
-        ));
-        assert!(
-            slot.ready().is_none(),
-            "map expansion must not retry a failed catalog refresh"
-        );
+        assert!(slot.ready().is_none(), "cursor analysis must not retry a failed catalog refresh");
+        assert!(matches!(engine.database_map_neighborhood(db, 0, version, None).await, Err(MapError::Gone)));
+        assert!(slot.ready().is_none(), "map expansion must not retry a failed catalog refresh");
     }
 
     #[tokio::test]
@@ -252,13 +196,9 @@ mod tests {
             let version = slot.last().unwrap().version;
             let lock = slot.meta.lock().await;
             let neighborhood = engine.database_map_neighborhood(db.clone(), 0, version, None);
-            let query =
-                engine.database_map_query(db.clone(), "SELECT 1".into(), DocOffset(2), version);
+            let query = engine.database_map_query(db.clone(), "SELECT 1".into(), DocOffset(2), version);
             tokio::pin!(neighborhood, query);
-            assert!(matches!(
-                futures_util::poll!(&mut neighborhood),
-                Poll::Pending
-            ));
+            assert!(matches!(futures_util::poll!(&mut neighborhood), Poll::Pending));
             assert!(matches!(futures_util::poll!(&mut query), Poll::Pending));
             match retirement {
                 "version" => {
@@ -272,10 +212,7 @@ mod tests {
                 _ => instance.close(),
             }
             drop(lock);
-            assert!(
-                matches!(neighborhood.await, Err(MapError::Stale)),
-                "{retirement}"
-            );
+            assert!(matches!(neighborhood.await, Err(MapError::Stale)), "{retirement}");
             assert!(matches!(query.await, Err(MapError::Stale)), "{retirement}");
         }
     }

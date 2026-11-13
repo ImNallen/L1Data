@@ -55,7 +55,23 @@ impl Statement {
         };
         let set_option = self.first == Some("SET");
         let continues = prev == Prev::Comma
-            || ["UNION", "ALL", "EXCEPT", "INTERSECT", "FOR", "AFTER", "OF", "THEN", "INSTEAD", "OR", "NOT", "GRANT", "DENY", "REVOKE"].contains(&prev_word)
+            || [
+                "UNION",
+                "ALL",
+                "EXCEPT",
+                "INTERSECT",
+                "FOR",
+                "AFTER",
+                "OF",
+                "THEN",
+                "INSTEAD",
+                "OR",
+                "NOT",
+                "GRANT",
+                "DENY",
+                "REVOKE",
+            ]
+            .contains(&prev_word)
             || prev_word == "ON" && !set_option;
         let cte_body = self.first == Some("WITH") && self.verb.is_none();
         let insert_source = self.verb == Some("INSERT") && !self.source_begun;
@@ -67,9 +83,12 @@ impl Statement {
                 "SET" => !self.update || self.update_set,
                 "EXEC" | "EXECUTE" => !insert_source,
                 "IF" => !matches!(self.first, Some("DROP" | "ALTER" | "CREATE")),
-                "WITH" => matches!(prev_word, "BEGIN" | "TRY" | "CATCH" | "ELSE") || prev_word == "AS" && matches!(self.first, Some("CREATE" | "ALTER")),
-                "DECLARE" | "PRINT" | "WHILE" | "RETURN" | "BEGIN" | "CREATE" | "ALTER" | "DROP" | "TRUNCATE" | "THROW" | "RAISERROR" | "USE" | "GRANT" | "DENY"
-                | "REVOKE" => true,
+                "WITH" => {
+                    matches!(prev_word, "BEGIN" | "TRY" | "CATCH" | "ELSE")
+                        || prev_word == "AS" && matches!(self.first, Some("CREATE" | "ALTER"))
+                }
+                "DECLARE" | "PRINT" | "WHILE" | "RETURN" | "BEGIN" | "CREATE" | "ALTER" | "DROP" | "TRUNCATE"
+                | "THROW" | "RAISERROR" | "USE" | "GRANT" | "DENY" | "REVOKE" => true,
                 _ => false,
             }
     }
@@ -83,7 +102,10 @@ impl Statement {
             if w != "WITH" {
                 self.verb = Some(w);
             }
-        } else if self.first == Some("WITH") && self.verb.is_none() && matches!(w, "SELECT" | "INSERT" | "UPDATE" | "DELETE" | "MERGE") {
+        } else if self.first == Some("WITH")
+            && self.verb.is_none()
+            && matches!(w, "SELECT" | "INSERT" | "UPDATE" | "DELETE" | "MERGE")
+        {
             self.verb = Some(w);
         }
         self.source_begun |= matches!(w, "VALUES" | "SELECT" | "EXEC" | "EXECUTE");
@@ -98,7 +120,8 @@ fn go_line(b: &[u8], line: usize) -> Option<usize> {
     while i < b.len() && matches!(b[i], b' ' | b'\t') {
         i += 1;
     }
-    if !(b.get(i..i + 2).is_some_and(|w| w.eq_ignore_ascii_case(b"GO")) && b.get(i + 2).is_none_or(|c| !c.is_ascii_alphanumeric() && !matches!(c, b'_' | b'@' | b'#' | b'$')))
+    if !(b.get(i..i + 2).is_some_and(|w| w.eq_ignore_ascii_case(b"GO"))
+        && b.get(i + 2).is_none_or(|c| !c.is_ascii_alphanumeric() && !matches!(c, b'_' | b'@' | b'#' | b'$')))
     {
         return None;
     }
@@ -219,7 +242,11 @@ pub(in crate::sql) fn statement_around(text: &str, at: usize) -> Range<usize> {
                 (start, statement, prev) = (i, Statement::default(), Prev::None);
             }
             _ => {
-                let word = if c.is_ascii() { c.is_ascii_alphabetic() || matches!(c, b'_' | b'@' | b'#') } else { text[i..].chars().next().is_some_and(word_start) };
+                let word = if c.is_ascii() {
+                    c.is_ascii_alphabetic() || matches!(c, b'_' | b'@' | b'#')
+                } else {
+                    text[i..].chars().next().is_some_and(word_start)
+                };
                 if !word {
                     prev = Prev::Other;
                     i += text[i..].chars().next().map_or(1, char::len_utf8);
@@ -229,7 +256,12 @@ pub(in crate::sql) fn statement_around(text: &str, at: usize) -> Range<usize> {
                 while word_end < b.len() {
                     match b[word_end] {
                         b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'@' | b'#' | b'$' => word_end += 1,
-                        0x80.. if !text.is_char_boundary(word_end) || text[word_end..].chars().next().is_some_and(word_cont) => word_end += 1,
+                        0x80..
+                            if !text.is_char_boundary(word_end)
+                                || text[word_end..].chars().next().is_some_and(word_cont) =>
+                        {
+                            word_end += 1
+                        }
                         _ => break,
                     }
                 }
@@ -273,7 +305,10 @@ mod tests {
         assert_eq!(around("SELECT 1\nGO\nSELECT * FROM orders o WHERE o.|"), "SELECT * FROM orders o WHERE o.");
         assert_eq!(around("SELECT * FROM orders o\nGO -- next\nWHERE o.|"), "WHERE o.");
         assert_eq!(around("SELECT * FROM orders o\nGO 5\nWHERE o.|"), "SELECT * FROM orders o\nGO 5\nWHERE o.");
-        assert_eq!(around("SELECT * FROM orders o WHERE o.id = 1\n|GO\nSELECT 2"), "SELECT * FROM orders o WHERE o.id = 1");
+        assert_eq!(
+            around("SELECT * FROM orders o WHERE o.id = 1\n|GO\nSELECT 2"),
+            "SELECT * FROM orders o WHERE o.id = 1"
+        );
     }
 
     #[test]

@@ -1,8 +1,8 @@
 #![cfg(feature = "mssql-tests")]
 use engine::model::*;
+use engine::{AgentPath, Engine, EngineConfig, MemoryKeyStore};
 use futures_util::FutureExt;
 use std::panic::AssertUnwindSafe;
-use engine::{AgentPath, Engine, EngineConfig, MemoryKeyStore};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
@@ -17,7 +17,16 @@ struct Harness {
 impl Harness {
     async fn open(mode: TxnMode) -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let engine = Engine::open(EngineConfig { data_dir: dir.path().into(), keys: Arc::new(MemoryKeyStore::default()), agent_path: AgentPath::Fixed("".into()), az_binary: None, user_known_hosts: None, updates: Arc::new(engine::ScriptedTransport::named("off").unwrap()) }).await.unwrap();
+        let engine = Engine::open(EngineConfig {
+            data_dir: dir.path().into(),
+            keys: Arc::new(MemoryKeyStore::default()),
+            agent_path: AgentPath::Fixed("".into()),
+            az_binary: None,
+            user_known_hosts: None,
+            updates: Arc::new(engine::ScriptedTransport::named("off").unwrap()),
+        })
+        .await
+        .unwrap();
         let events = engine.subscribe();
         let config = engine
             .save_connection(ConnectionDraft {
@@ -28,7 +37,9 @@ impl Harness {
                 port: std::env::var("L1_DATA_TEST_MSSQL_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(1434),
                 database: "shop".into(),
                 user: "sa".into(),
-                password: PasswordInput::Set(std::env::var("L1_DATA_TEST_MSSQL_PASSWORD").unwrap_or_else(|_| "L1Data_dev_Str0ng".into())),
+                password: PasswordInput::Set(
+                    std::env::var("L1_DATA_TEST_MSSQL_PASSWORD").unwrap_or_else(|_| "L1Data_dev_Str0ng".into()),
+                ),
                 ssl_mode: SslMode::Require,
                 ca_cert_path: None,
                 color: None,
@@ -40,20 +51,40 @@ impl Harness {
             .unwrap();
         engine.connect(config.id).await.unwrap();
         let tab = TabId(uuid::Uuid::new_v4());
-        engine.console_configure(tab, ConsoleConfig { connection_id: config.id, database: "shop".into(), schema: Some("lab".into()), mode }).await.unwrap();
+        engine
+            .console_configure(
+                tab,
+                ConsoleConfig { connection_id: config.id, database: "shop".into(), schema: Some("lab".into()), mode },
+            )
+            .await
+            .unwrap();
         Self { engine, events, connection: config.id, tab, _dir: dir }
     }
     fn db(&self) -> DatabaseRef {
         DatabaseRef { connection_id: self.connection, database: "shop".into() }
     }
     async fn start(&self, sql: &str) -> RunAccepted {
-        self.engine.console_run(self.tab, RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await.unwrap()
+        self.engine
+            .console_run(
+                self.tab,
+                RunRequest::Script {
+                    text: sql.into(),
+                    target: RunTarget::All,
+                    mode: RunMode::Run,
+                    params: Vec::new(),
+                    cells: Vec::new(),
+                },
+                None,
+            )
+            .await
+            .unwrap()
     }
     async fn finish(&mut self, id: RunId) -> ConsoleState {
         tokio::time::timeout(Duration::from_secs(30), async {
             loop {
                 if let AppEvent::ConsoleChanged(state) = self.events.recv().await.unwrap() {
-                    if state.tab_id == self.tab && matches!(state.run, RunState::Finished { run_id, .. } if run_id==id) {
+                    if state.tab_id == self.tab && matches!(state.run, RunState::Finished { run_id, .. } if run_id==id)
+                    {
                         return state;
                     }
                 }
@@ -78,8 +109,15 @@ impl Harness {
         let state = tokio::time::timeout(Duration::from_secs(30), async {
             loop {
                 match events.recv().await.unwrap() {
-                    AppEvent::ConsoleOutput { tab_id, entries } if tab_id == tab => log.extend(entries.into_iter().filter(|e| e.run_id == id).map(|e| e.body)),
-                    AppEvent::ConsoleChanged(state) if state.tab_id == tab && matches!(state.run, RunState::Finished { run_id, .. } if run_id == id) => return state,
+                    AppEvent::ConsoleOutput { tab_id, entries } if tab_id == tab => {
+                        log.extend(entries.into_iter().filter(|e| e.run_id == id).map(|e| e.body))
+                    }
+                    AppEvent::ConsoleChanged(state)
+                        if state.tab_id == tab
+                            && matches!(state.run, RunState::Finished { run_id, .. } if run_id == id) =>
+                    {
+                        return state;
+                    }
                     _ => {}
                 }
             }
@@ -159,13 +197,20 @@ async fn print_and_low_severity_raiserror_reach_the_output_log_in_server_order()
     assert_eq!(Harness::rowsets(&state).len(), 1);
 
     let (_, log) = h.logged("RAISERROR('informational', 10, 1); RAISERROR('careful', 5, 1); PRINT 'after'").await;
-    assert_eq!(lines(&log), ["NOTICE: informational", "WARNING: careful", "NOTICE: after", "Commands completed successfully"]);
+    assert_eq!(
+        lines(&log),
+        ["NOTICE: informational", "WARNING: careful", "NOTICE: after", "Commands completed successfully"]
+    );
 
     let (state, log) = h.logged("PRINT 'a'; RAISERROR('boom', 16, 1); PRINT 'b'").await;
     assert_eq!(lines(&log), ["NOTICE: a", "ERROR: boom", "NOTICE: b"]);
     assert!(matches!(state.run, RunState::Finished { outcome: RunOutcome::Failed, .. }), "{:?}", state.run);
     let RunState::Finished { statements, .. } = &state.run else { unreachable!() };
-    assert!(matches!(&statements[0].status, StmtStatus::Failed { error } if error.message == "boom"), "{:?}", statements[0].status);
+    assert!(
+        matches!(&statements[0].status, StmtStatus::Failed { error } if error.message == "boom"),
+        "{:?}",
+        statements[0].status
+    );
 
     let (_, log) = h.logged("RAISERROR('e1', 16, 1); RAISERROR('e2', 16, 1)").await;
     assert_eq!(lines(&log), ["ERROR: e1", "ERROR: e2"]);
@@ -184,9 +229,16 @@ async fn a_fatal_error_in_the_batch_retires_the_session() {
     let (state, log) = h.logged("PRINT 'before'; RAISERROR('fatal', 20, 1) WITH LOG; PRINT 'never'").await;
     assert_eq!(lines(&log)[..2], ["NOTICE: before", "FATAL: fatal"]);
     assert!(!lines(&log).contains(&"NOTICE: never".into()), "{log:?}");
-    assert!(log.iter().any(|body| matches!(body, OutputBody::Info { message } if message.starts_with("Session reset"))), "{log:?}");
+    assert!(
+        log.iter().any(|body| matches!(body, OutputBody::Info { message } if message.starts_with("Session reset"))),
+        "{log:?}"
+    );
     let RunState::Finished { statements, .. } = &state.run else { unreachable!() };
-    assert!(matches!(&statements[0].status, StmtStatus::Failed { error } if error.severity == "FATAL" && error.message == "fatal"), "{:?}", statements[0].status);
+    assert!(
+        matches!(&statements[0].status, StmtStatus::Failed { error } if error.severity == "FATAL" && error.message == "fatal"),
+        "{:?}",
+        statements[0].status
+    );
     h.ok("SELECT 1 AS one").await;
 }
 
@@ -224,7 +276,8 @@ async fn a_nowait_message_streams_while_the_batch_waits_and_survives_cancel() {
         loop {
             if let AppEvent::ConsoleOutput { tab_id, entries } = events.recv().await.unwrap()
                 && tab_id == tab
-                && let Some(entry) = entries.into_iter().find(|e| e.run_id == id && matches!(&e.body, OutputBody::Notice { .. }))
+                && let Some(entry) =
+                    entries.into_iter().find(|e| e.run_id == id && matches!(&e.body, OutputBody::Notice { .. }))
             {
                 return entry.body;
             }
@@ -238,7 +291,10 @@ async fn a_nowait_message_streams_while_the_batch_waits_and_survives_cancel() {
     assert!(matches!(state.run, RunState::Finished { outcome: RunOutcome::Cancelled, .. }), "{:?}", state.run);
 }
 
-async fn notices_read_slowly(events: &mut broadcast::Receiver<AppEvent>, until: impl Fn(&AppEvent) -> bool) -> (Vec<String>, u64) {
+async fn notices_read_slowly(
+    events: &mut broadcast::Receiver<AppEvent>,
+    until: impl Fn(&AppEvent) -> bool,
+) -> (Vec<String>, u64) {
     let (mut notices, mut lagged) = (Vec::new(), 0);
     loop {
         match events.recv().await {
@@ -260,7 +316,10 @@ async fn notices_read_slowly(events: &mut broadcast::Receiver<AppEvent>, until: 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_nowait_flood_reaches_a_slow_reader_whole() {
     let mut h = Harness::open(TxnMode::AutoCommit).await;
-    let id = h.start("DECLARE @i int = 0; WHILE @i < 20000 BEGIN RAISERROR('%d', 0, 1, @i) WITH NOWAIT; SET @i += 1; END").await.run_id;
+    let id = h
+        .start("DECLARE @i int = 0; WHILE @i < 20000 BEGIN RAISERROR('%d', 0, 1, @i) WITH NOWAIT; SET @i += 1; END")
+        .await
+        .run_id;
     let tab = h.tab;
     let (notices, lagged) = notices_read_slowly(&mut h.events, |event| matches!(event, AppEvent::ConsoleChanged(s) if s.tab_id == tab && matches!(s.run, RunState::Finished { run_id, .. } if run_id == id))).await;
     assert_eq!(lagged, 0);
@@ -280,7 +339,9 @@ async fn an_export_sends_the_notices_of_its_rerun_in_batches() {
     let (mut notices, mut lagged) = (0, 0);
     loop {
         match events.try_recv() {
-            Ok(AppEvent::ConsoleOutput { entries, .. }) => notices += entries.iter().filter(|e| matches!(e.body, OutputBody::Notice { .. })).count(),
+            Ok(AppEvent::ConsoleOutput { entries, .. }) => {
+                notices += entries.iter().filter(|e| matches!(e.body, OutputBody::Notice { .. })).count()
+            }
             Ok(_) => {}
             Err(broadcast::error::TryRecvError::Lagged(n)) => lagged += n,
             Err(broadcast::error::TryRecvError::Empty) => break,
@@ -317,7 +378,15 @@ async fn catalogs_details_browse_counts_and_exact_text_use_sql_server() {
     let catalog = h.engine.catalog(h.db()).await.unwrap();
     assert_eq!(catalog.database_kind, DatabaseKind::SqlServer);
     assert_eq!(catalog.default_schema.as_deref(), Some("dbo"));
-    let relation = catalog.schemas.iter().find(|s| s.name == "dbo").unwrap().relations.iter().find(|r| r.name == "orders").unwrap();
+    let relation = catalog
+        .schemas
+        .iter()
+        .find(|s| s.name == "dbo")
+        .unwrap()
+        .relations
+        .iter()
+        .find(|r| r.name == "orders")
+        .unwrap();
     assert_eq!(relation.qualified_name, "[dbo].[orders]");
     assert!(!relation.columns.iter().find(|c| c.name == "id").unwrap().writable);
     let detail = h.engine.relation_detail(h.db(), relation.oid).await.unwrap();
@@ -326,7 +395,8 @@ async fn catalogs_details_browse_counts_and_exact_text_use_sql_server() {
     assert!(detail.keys.iter().any(|k| matches!(k.kind, KeyKind::Check { .. })));
     assert!(detail.defaults.iter().any(|d| d.column == "status"));
     assert!(detail.indexes.iter().any(|i| i.name == "IX_orders_customer"));
-    let request = RunRequest::TablePage { schema: "lab".into(), table: "type_zoo".into(), page: 0, query: TableQuery::default() };
+    let request =
+        RunRequest::TablePage { schema: "lab".into(), table: "type_zoo".into(), page: 0, query: TableQuery::default() };
     let accepted = h.engine.console_run(h.tab, request, None).await.unwrap();
     let state = h.finish(accepted.run_id).await;
     assert!(matches!(state.run, RunState::Finished { outcome: RunOutcome::Ok, .. }), "{:?}", state.run);
@@ -350,15 +420,24 @@ async fn catalogs_details_browse_counts_and_exact_text_use_sql_server() {
     let text_index = result.columns.iter().position(|c| c.name == "text_value").unwrap();
     assert!(rows[0][text_index].as_ref().unwrap().chars().count() < 3000);
     let path = h._dir.path().join("exact.csv");
-    h.engine.result_export(result.r#ref, ExportFormat::Csv, ExportScope::Loaded, path.display().to_string()).await.unwrap();
+    h.engine
+        .result_export(result.r#ref, ExportFormat::Csv, ExportScope::Loaded, path.display().to_string())
+        .await
+        .unwrap();
     let csv = std::fs::read_to_string(path).unwrap();
     assert!(csv.contains("12345678901234567890.123456789012"));
     assert!(csv.contains(&"😀".repeat(3000)));
-    let query = TableQuery { filters: vec![ColumnFilter { column: "a]b".into(), op: FilterOp::Contains, value: "%_[".into() }], ..Default::default() };
+    let query = TableQuery {
+        filters: vec![ColumnFilter { column: "a]b".into(), op: FilterOp::Contains, value: "%_[".into() }],
+        ..Default::default()
+    };
     assert_eq!(h.engine.exact_row_count(h.tab, h.db(), "lab".into(), "awkward names".into(), query).await.unwrap(), 1);
     for injection in ["1=1 DELETE FROM dbo.orders", "1=1; SELECT 2", "1=1 -- ignored"] {
         let query = TableQuery { r#where: injection.into(), ..Default::default() };
-        assert!(h.engine.exact_row_count(h.tab, h.db(), "dbo".into(), "orders".into(), query).await.is_err(), "{injection}");
+        assert!(
+            h.engine.exact_row_count(h.tab, h.db(), "dbo".into(), "orders".into(), query).await.is_err(),
+            "{injection}"
+        );
     }
 }
 
@@ -381,16 +460,40 @@ async fn raw_money_sql_variant_and_clr_values_show_exactly() {
         ("CAST(CAST(1.5 AS real) AS sql_variant)", "sql_variant", Some("1.5")),
         ("CAST(CAST(1.5 AS float) AS sql_variant)", "sql_variant", Some("1.5")),
         ("CAST(CAST(-12.50 AS decimal(10,2)) AS sql_variant)", "sql_variant", Some("-12.50")),
-        ("CAST(CAST(12345678901234567890.123456789012 AS numeric(38,12)) AS sql_variant)", "sql_variant", Some("12345678901234567890.123456789012")),
+        (
+            "CAST(CAST(12345678901234567890.123456789012 AS numeric(38,12)) AS sql_variant)",
+            "sql_variant",
+            Some("12345678901234567890.123456789012"),
+        ),
         ("CAST(CAST(922337203685477.5807 AS money) AS sql_variant)", "sql_variant", Some("922337203685477.5807")),
         ("CAST(CAST(-1.5 AS smallmoney) AS sql_variant)", "sql_variant", Some("-1.5000")),
         ("CAST(CAST('2024-01-02' AS date) AS sql_variant)", "sql_variant", Some("2024-01-02")),
         ("CAST(CAST('03:04:05.123' AS time(3)) AS sql_variant)", "sql_variant", Some("03:04:05.1230000")),
-        ("CAST(CAST('2024-01-02T03:04:05.123' AS datetime) AS sql_variant)", "sql_variant", Some("2024-01-02 03:04:05.123")),
-        ("CAST(CAST('2024-01-02T03:04:00' AS smalldatetime) AS sql_variant)", "sql_variant", Some("2024-01-02 03:04:00")),
-        ("CAST(CAST('2024-01-02T03:04:05.1234567' AS datetime2(7)) AS sql_variant)", "sql_variant", Some("2024-01-02 03:04:05.1234567")),
-        ("CAST(CAST('2024-01-02T03:04:05.123+02:00' AS datetimeoffset(3)) AS sql_variant)", "sql_variant", Some("2024-01-02 03:04:05.1230000+02:00")),
-        ("CAST(CAST('abcd1234-5678-90ab-cdef-1234567890ab' AS uniqueidentifier) AS sql_variant)", "sql_variant", Some("abcd1234-5678-90ab-cdef-1234567890ab")),
+        (
+            "CAST(CAST('2024-01-02T03:04:05.123' AS datetime) AS sql_variant)",
+            "sql_variant",
+            Some("2024-01-02 03:04:05.123"),
+        ),
+        (
+            "CAST(CAST('2024-01-02T03:04:00' AS smalldatetime) AS sql_variant)",
+            "sql_variant",
+            Some("2024-01-02 03:04:00"),
+        ),
+        (
+            "CAST(CAST('2024-01-02T03:04:05.1234567' AS datetime2(7)) AS sql_variant)",
+            "sql_variant",
+            Some("2024-01-02 03:04:05.1234567"),
+        ),
+        (
+            "CAST(CAST('2024-01-02T03:04:05.123+02:00' AS datetimeoffset(3)) AS sql_variant)",
+            "sql_variant",
+            Some("2024-01-02 03:04:05.1230000+02:00"),
+        ),
+        (
+            "CAST(CAST('abcd1234-5678-90ab-cdef-1234567890ab' AS uniqueidentifier) AS sql_variant)",
+            "sql_variant",
+            Some("abcd1234-5678-90ab-cdef-1234567890ab"),
+        ),
         ("CAST(CAST('abc' AS char(3)) AS sql_variant)", "sql_variant", Some("abc")),
         ("CAST(CAST('abc' AS varchar(3)) AS sql_variant)", "sql_variant", Some("abc")),
         ("CAST(CAST(N'世' AS nchar(1)) AS sql_variant)", "sql_variant", Some("世")),
@@ -419,7 +522,10 @@ async fn raw_money_sql_variant_and_clr_values_show_exactly() {
     assert!(h.rows(Harness::rowsets(&state)[0])[0][0].as_deref().is_some_and(|v| v.starts_with("16.")));
 
     let table = format!("l1_exact_{}", uuid::Uuid::new_v4().simple());
-    h.ok(&format!("CREATE TABLE dbo.[{table}] (id int PRIMARY KEY, v sql_variant, h hierarchyid, g geography, m money)")).await;
+    h.ok(&format!(
+        "CREATE TABLE dbo.[{table}] (id int PRIMARY KEY, v sql_variant, h hierarchyid, g geography, m money)"
+    ))
+    .await;
     let outcome = AssertUnwindSafe(async {
         h.ok(&format!("INSERT INTO dbo.[{table}] VALUES (1, 5, hierarchyid::Parse('/1/'), geography::Point(1, 1, 4326), 922337203685477.5807)")).await;
         h.engine.refresh_catalog(h.db()).await.unwrap();
@@ -452,7 +558,9 @@ async fn results_before_a_server_error_survive() {
     let state = h.run("SELECT 5 AS partial; RAISERROR('expected failure',16,1)").await;
     assert_eq!(h.rows(Harness::rowsets(&state)[0])[0][0].as_deref(), Some("5"));
     let RunState::Finished { statements, .. } = &state.run else { unreachable!() };
-    assert!(matches!(&statements[0].status,StmtStatus::Failed{error} if error.sqlstate.is_none() && error.detail.as_ref().is_some_and(|s|s.contains("50000"))));
+    assert!(
+        matches!(&statements[0].status,StmtStatus::Failed{error} if error.sqlstate.is_none() && error.detail.as_ref().is_some_and(|s|s.contains("50000")))
+    );
 }
 
 #[tokio::test]
@@ -487,7 +595,20 @@ async fn transactions_are_observed_and_commit_button_finishes_all_nesting() {
 #[tokio::test]
 async fn every_batch_is_validated_before_any_execution_and_dynamic_use_stays_scoped() {
     let mut h = Harness::open(TxnMode::AutoCommit).await;
-    let rejected = h.engine.console_run(h.tab, RunRequest::Script { text: "CREATE TABLE #must_not_exist(id int)\nGO\nUSE reporting".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await;
+    let rejected = h
+        .engine
+        .console_run(
+            h.tab,
+            RunRequest::Script {
+                text: "CREATE TABLE #must_not_exist(id int)\nGO\nUSE reporting".into(),
+                target: RunTarget::All,
+                mode: RunMode::Run,
+                params: Vec::new(),
+                cells: Vec::new(),
+            },
+            None,
+        )
+        .await;
     assert!(matches!(rejected, Err(RunError::Unsupported { .. })));
     let state = h.ok("SELECT OBJECT_ID('tempdb..#must_not_exist')").await;
     assert_eq!(h.rows(Harness::rowsets(&state)[0])[0][0], None);
@@ -503,15 +624,22 @@ async fn cancelling_waitfor_retires_the_session_and_stops_the_server_request() {
     for sql in ["WAITFOR DELAY '00:00:30'; SELECT 99", "SELECT 1 AS first; WAITFOR DELAY '00:00:30'; SELECT 99"] {
         let mut h = Harness::open(TxnMode::AutoCommit).await;
         // SQL Server gives a closed session's session_id to later logins; connection_id is never reused.
-        let warm = h.ok("BEGIN TRANSACTION; SELECT connection_id FROM sys.dm_exec_connections WHERE session_id = @@SPID").await;
+        let warm = h
+            .ok("BEGIN TRANSACTION; SELECT connection_id FROM sys.dm_exec_connections WHERE session_id = @@SPID")
+            .await;
         let connection = h.rows(Harness::rowsets(&warm)[0])[0][0].clone().unwrap();
         let id = h.start(sql).await.run_id;
         tokio::time::sleep(Duration::from_millis(150)).await;
         tokio::time::timeout(Duration::from_secs(1), h.engine.console_cancel(h.tab)).await.unwrap();
         let state = h.finish(id).await;
         assert!(matches!(state.run, RunState::Finished { outcome: RunOutcome::Cancelled, .. }), "{:?}", state.run);
-        assert!(matches!(state.session, SessionState::Lost { transaction: TransactionLoss::Unknown, .. }), "{:?}", state.session);
-        let state = h.ok(&format!("SELECT COUNT_BIG(*) FROM sys.dm_exec_requests WHERE connection_id = '{connection}'")).await;
+        assert!(
+            matches!(state.session, SessionState::Lost { transaction: TransactionLoss::Unknown, .. }),
+            "{:?}",
+            state.session
+        );
+        let state =
+            h.ok(&format!("SELECT COUNT_BIG(*) FROM sys.dm_exec_requests WHERE connection_id = '{connection}'")).await;
         assert_eq!(h.rows(Harness::rowsets(&state)[0])[0][0].as_deref(), Some("0"));
     }
     let mut h = Harness::open(TxnMode::AutoCommit).await;
@@ -568,8 +696,9 @@ async fn native_writes_keep_precision_defaults_trigger_results_and_metadata() {
     h.ok(&format!("DROP TABLE dbo.[{table}]")).await;
     let state = h.ok(&format!("SELECT COUNT_BIG(*) FROM sys.objects WHERE name IN (N'{table}',N'{trigger}')")).await;
     assert_eq!(h.rows(Harness::rowsets(&state)[0]), vec![vec![Some("0".into())]]);
-    if let Err(panic) = outcome { std::panic::resume_unwind(panic); }
-
+    if let Err(panic) = outcome {
+        std::panic::resume_unwind(panic);
+    }
 }
 
 #[tokio::test]
@@ -595,12 +724,28 @@ async fn connection_kind_is_immutable_and_history_records_sql_server() {
     assert!(matches!(h.engine.save_connection(changed).await, Err(SaveError::Invalid { .. })));
     assert!(h.engine.boot().connections.iter().find(|c| c.id == h.connection).unwrap().has_password);
     h.ok("SELECT 1 AS history_example").await;
-    let history = h.engine.history(HistoryQuery { text: Some("history_example".into()), connection_id: None, before_id: None, limit: 10 });
+    let history = h.engine.history(HistoryQuery {
+        text: Some("history_example".into()),
+        connection_id: None,
+        before_id: None,
+        limit: 10,
+    });
     assert_eq!(history.entries[0].database_kind, DatabaseKind::SqlServer);
-    let page =
-        h.engine.history_browse(HistoryBrowseQuery { text: Some("history_example".into()), filter: HistoryFilter::All, before_id: None, limit: 10, revision: None }).unwrap();
+    let page = h
+        .engine
+        .history_browse(HistoryBrowseQuery {
+            text: Some("history_example".into()),
+            filter: HistoryFilter::All,
+            before_id: None,
+            limit: 10,
+            revision: None,
+        })
+        .unwrap();
     assert_eq!(page.groups[0].database_kind, DatabaseKind::SqlServer);
-    let group = h.engine.history_group(HistoryGroupQuery { id: page.groups[0].id, before_id: None, limit: 10, revision: page.revision }).unwrap();
+    let group = h
+        .engine
+        .history_group(HistoryGroupQuery { id: page.groups[0].id, before_id: None, limit: 10, revision: page.revision })
+        .unwrap();
     assert_eq!(group.database_kind, DatabaseKind::SqlServer);
 }
 
@@ -618,13 +763,36 @@ async fn clr_columns_stay_in_the_catalog_and_browse_as_hexadecimal() {
     }
     assert_eq!(relation.columns[1].type_display, "hierarchyid");
     assert_eq!(relation.columns[2].type_display, "geography");
-    let run = h.engine.console_run(h.tab, RunRequest::TablePage { schema: "dbo".into(), table: table.clone(), page: 0, query: TableQuery::default() }, None).await.unwrap();
+    let run = h
+        .engine
+        .console_run(
+            h.tab,
+            RunRequest::TablePage { schema: "dbo".into(), table: table.clone(), page: 0, query: TableQuery::default() },
+            None,
+        )
+        .await
+        .unwrap();
     let state = h.finish(run.run_id).await;
     let meta = Harness::rowsets(&state)[0];
     assert_eq!(meta.columns[1].r#type.display, "hierarchyid");
-    assert_eq!(h.rows(meta)[0], [Some("1".to_owned()), Some("0x".into()), Some("0xE6100000010C000000000000F03F000000000000F03F".into())]);
+    assert_eq!(
+        h.rows(meta)[0],
+        [Some("1".to_owned()), Some("0x".into()), Some("0xE6100000010C000000000000F03F000000000000F03F".into())]
+    );
     let filters = vec![ColumnFilter { column: "location".into(), op: FilterOp::Contains, value: "E6".into() }];
-    let refused = h.engine.console_run(h.tab, RunRequest::TablePage { schema: "dbo".into(), table: table.clone(), page: 0, query: TableQuery { filters, ..Default::default() } }, None).await;
+    let refused = h
+        .engine
+        .console_run(
+            h.tab,
+            RunRequest::TablePage {
+                schema: "dbo".into(),
+                table: table.clone(),
+                page: 0,
+                query: TableQuery { filters, ..Default::default() },
+            },
+            None,
+        )
+        .await;
     assert!(matches!(refused, Err(RunError::BadFilter)), "{refused:?}");
     h.ok(&format!("DROP TABLE dbo.[{table}]")).await;
 }
@@ -636,8 +804,18 @@ async fn database_catalogs_stay_scoped_and_header_sort_sql_runs_with_bracket_nam
     let reporting_db = DatabaseRef { connection_id: h.connection, database: "reporting".into() };
     h.engine.edit_view(h.connection, ViewEdit::Database { name: "reporting".into(), shown: true }).await.unwrap();
     let reporting = h.engine.catalog(reporting_db.clone()).await.unwrap();
-    let customers =
-        |catalog: &Catalog| catalog.schemas.iter().flat_map(|s| &s.relations).find(|r| r.name == "customers").unwrap().columns.iter().map(|c| c.name.clone()).collect::<Vec<_>>();
+    let customers = |catalog: &Catalog| {
+        catalog
+            .schemas
+            .iter()
+            .flat_map(|s| &s.relations)
+            .find(|r| r.name == "customers")
+            .unwrap()
+            .columns
+            .iter()
+            .map(|c| c.name.clone())
+            .collect::<Vec<_>>()
+    };
     assert_eq!(customers(&shop), ["id", "name", "region"]);
     assert_eq!(customers(&reporting), ["id", "label"]);
     let oid = reporting.schemas.iter().flat_map(|s| &s.relations).find(|r| r.name == "customers").unwrap().oid;
@@ -645,19 +823,52 @@ async fn database_catalogs_stay_scoped_and_header_sort_sql_runs_with_bracket_nam
     let script = h.engine.table_script(h.db(), "lab", "awkward names").unwrap();
     assert_eq!(script.text, "SELECT * FROM [lab].[awkward names]");
     assert_eq!(script.accepted_texts, ["SELECT * FROM [lab].[awkward names]"]);
-    let sorted = h.engine.table_order(h.db(), "lab", "awkward names", "", TableOrderEdit::Cycle { column: "a]b".into(), additive: false }).unwrap();
+    let sorted = h
+        .engine
+        .table_order(
+            h.db(),
+            "lab",
+            "awkward names",
+            "",
+            TableOrderEdit::Cycle { column: "a]b".into(), additive: false },
+        )
+        .unwrap();
     assert_eq!(sorted.sql, "[a]]b] ASC");
-    let descending = h.engine.table_order(h.db(), "lab", "awkward names", &sorted.sql, TableOrderEdit::Cycle { column: "a]b".into(), additive: false }).unwrap();
+    let descending = h
+        .engine
+        .table_order(
+            h.db(),
+            "lab",
+            "awkward names",
+            &sorted.sql,
+            TableOrderEdit::Cycle { column: "a]b".into(), additive: false },
+        )
+        .unwrap();
     assert_eq!(descending.sql, "[a]]b] DESC");
     let advanced = "COALESCE([a]]b], N'') DESC";
-    let inspected = h.engine.table_order(h.db(), "lab", "awkward names", advanced, TableOrderEdit::Cycle { column: "a]b".into(), additive: false }).unwrap();
+    let inspected = h
+        .engine
+        .table_order(
+            h.db(),
+            "lab",
+            "awkward names",
+            advanced,
+            TableOrderEdit::Cycle { column: "a]b".into(), additive: false },
+        )
+        .unwrap();
     assert_eq!(inspected.sql, advanced);
     assert!(inspected.keys.is_none());
     let accepted = h
         .engine
         .console_run(
             h.tab,
-            RunRequest::TablePage { schema: "lab".into(), table: "awkward names".into(), page: 0, query: TableQuery { order_by: descending.sql, ..TableQuery::default() } }, None,
+            RunRequest::TablePage {
+                schema: "lab".into(),
+                table: "awkward names".into(),
+                page: 0,
+                query: TableQuery { order_by: descending.sql, ..TableQuery::default() },
+            },
+            None,
         )
         .await
         .unwrap();
@@ -671,15 +882,25 @@ async fn database_catalogs_stay_scoped_and_header_sort_sql_runs_with_bracket_nam
 #[tokio::test]
 async fn system_schema_views_keep_lossless_opaque_ids_in_catalog_and_detail() {
     let h = Harness::open(TxnMode::AutoCommit).await;
-    h.engine.edit_view(h.connection, ViewEdit::ShowSystemSchemas { database: "shop".into(), show: true }).await.unwrap();
+    h.engine
+        .edit_view(h.connection, ViewEdit::ShowSystemSchemas { database: "shop".into(), show: true })
+        .await
+        .unwrap();
     for name in ["sys", "INFORMATION_SCHEMA"] {
-        h.engine.edit_view(h.connection, ViewEdit::Schema { database: "shop".into(), name: name.into(), shown: true }).await.unwrap();
+        h.engine
+            .edit_view(h.connection, ViewEdit::Schema { database: "shop".into(), name: name.into(), shown: true })
+            .await
+            .unwrap();
     }
     h.engine.refresh_catalog(h.db()).await.unwrap();
     let catalog = h.engine.catalog(h.db()).await.unwrap();
     for name in ["sys", "INFORMATION_SCHEMA"] {
         let schema = catalog.schemas.iter().find(|s| s.name == name).unwrap();
-        let view = schema.relations.iter().find(|r| r.oid > i32::MAX as u32 && !r.columns.is_empty()).expect("System views with negative native IDs must load");
+        let view = schema
+            .relations
+            .iter()
+            .find(|r| r.oid > i32::MAX as u32 && !r.columns.is_empty())
+            .expect("System views with negative native IDs must load");
         assert_eq!(view.kind, RelKind::View);
         let detail = h.engine.relation_detail(h.db(), view.oid).await.unwrap();
         assert_eq!(detail.oid, view.oid);
@@ -714,7 +935,13 @@ impl Harness {
         self.engine.boot().consoles.into_iter().find(|c| c.tab_id == self.tab).expect("console")
     }
 
-    async fn export(&self, meta: &ResultMeta, format: ExportFormat, scope: ExportScope, name: &str) -> (ExportSummary, String) {
+    async fn export(
+        &self,
+        meta: &ResultMeta,
+        format: ExportFormat,
+        scope: ExportScope,
+        name: &str,
+    ) -> (ExportSummary, String) {
         let path = self._dir.path().join(name);
         let summary = self.engine.result_export(meta.r#ref, format, scope, path.display().to_string()).await.unwrap();
         (summary, std::fs::read_to_string(path).unwrap())
@@ -731,16 +958,23 @@ async fn all_rows_exports_the_chosen_result_set_of_a_batch_and_keeps_the_session
     let sets = Harness::rowsets(&state);
     assert_eq!(sets.len(), 3);
     assert_eq!((sets[1].row_count, sets[1].rows_seen, &sets[1].all_rows), (5, 40, &AllRows::Statement));
-    let pid = match state.session { SessionState::Open { backend_pid } => backend_pid, other => panic!("{other:?}") };
+    let pid = match state.session {
+        SessionState::Open { backend_pid } => backend_pid,
+        other => panic!("{other:?}"),
+    };
 
     let (summary, csv) = h.export(sets[1], ExportFormat::Csv, ExportScope::All, "middle.csv").await;
-    let expected: String = std::iter::once("n".to_owned()).chain((1..=40).map(|n| n.to_string())).map(|l| l + "\r\n").collect();
+    let expected: String =
+        std::iter::once("n".to_owned()).chain((1..=40).map(|n| n.to_string())).map(|l| l + "\r\n").collect();
     assert_eq!((summary.rows, csv), (40, expected), "only the second result set, every row");
     let (_, tail) = h.export(sets[2], ExportFormat::Json, ExportScope::All, "tail.json").await;
     assert_eq!(tail, "[\n  {\"tail\":\"last\"}\n]\n");
     let after = h.console();
     assert_eq!((after.work, after.export, after.txn), (None, None, TxnState::Idle));
-    assert!(matches!(after.session, SessionState::Open { backend_pid } if backend_pid == pid), "the export ran on the tab's own session and kept it");
+    assert!(
+        matches!(after.session, SessionState::Open { backend_pid } if backend_pid == pid),
+        "the export ran on the tab's own session and kept it"
+    );
 }
 
 #[tokio::test]
@@ -748,9 +982,16 @@ async fn all_rows_refuses_a_batch_that_controls_a_transaction() {
     let mut h = Harness::open(TxnMode::AutoCommit).await;
     let state = h.ok("BEGIN TRANSACTION; SELECT 1 AS x; COMMIT").await;
     let meta = Harness::rowsets(&state)[0].clone();
-    assert!(matches!(&meta.all_rows, AllRows::Refused { reason } if reason.contains("transaction")), "{:?}", meta.all_rows);
+    assert!(
+        matches!(&meta.all_rows, AllRows::Refused { reason } if reason.contains("transaction")),
+        "{:?}",
+        meta.all_rows
+    );
     let path = h._dir.path().join("never.csv");
-    assert!(matches!(h.engine.result_export(meta.r#ref, ExportFormat::Csv, ExportScope::All, path.display().to_string()).await, Err(ExportError::NotRerunnable)));
+    assert!(matches!(
+        h.engine.result_export(meta.r#ref, ExportFormat::Csv, ExportScope::All, path.display().to_string()).await,
+        Err(ExportError::NotRerunnable)
+    ));
     assert!(!path.exists());
 }
 
@@ -819,7 +1060,11 @@ async fn esc_during_a_sql_server_all_rows_export_resets_the_session_and_leaves_t
     assert_eq!(std::fs::read_dir(&out).unwrap().count(), 1, "no temp file left beside it");
     let after = h.console();
     assert_eq!((after.work, after.export), (None, None));
-    assert!(matches!(&after.session, SessionState::Lost { reason, .. } if reason.contains("Cancelled")), "{:?}", after.session);
+    assert!(
+        matches!(&after.session, SessionState::Lost { reason, .. } if reason.contains("Cancelled")),
+        "{:?}",
+        after.session
+    );
     h.ok("SELECT 1").await;
 }
 
@@ -828,7 +1073,8 @@ async fn insert_exports_replay_identity_and_leave_out_computed_and_rowversion_co
     let mut h = Harness::open(TxnMode::AutoCommit).await;
     let source = format!("l1_export_ident_{}", uuid::Uuid::new_v4().simple());
     let copy = format!("l1_export_ident_copy_{}", uuid::Uuid::new_v4().simple());
-    let columns = "id int IDENTITY PRIMARY KEY, label nvarchar(20) NOT NULL, doubled AS (LEN(label) * 2), ver rowversion";
+    let columns =
+        "id int IDENTITY PRIMARY KEY, label nvarchar(20) NOT NULL, doubled AS (LEN(label) * 2), ver rowversion";
     h.ok(&format!("CREATE TABLE dbo.[{source}] ({columns}); CREATE TABLE dbo.[{copy}] ({columns})")).await;
     let outcome = AssertUnwindSafe(async {
         h.ok(&format!("INSERT INTO dbo.[{source}] (label) VALUES (N'a'), (N'bb'), (N'ccc'); DELETE FROM dbo.[{source}] WHERE id = 2")).await;
@@ -879,7 +1125,21 @@ async fn set_environment(h: &Harness, environment: Option<Environment>) {
 }
 
 async fn asked_to_run(h: &Harness, text: &str, confirmed: Option<WriteDigest>) -> WriteConfirmation {
-    match h.engine.console_run(h.tab, RunRequest::Script { text: text.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, confirmed).await {
+    match h
+        .engine
+        .console_run(
+            h.tab,
+            RunRequest::Script {
+                text: text.into(),
+                target: RunTarget::All,
+                mode: RunMode::Run,
+                params: Vec::new(),
+                cells: Vec::new(),
+            },
+            confirmed,
+        )
+        .await
+    {
         Err(RunError::ConfirmWrites { confirmation }) => confirmation,
         other => panic!("{text}: expected ConfirmWrites, got {other:?}"),
     }
@@ -890,7 +1150,13 @@ async fn a_batch_that_runs_exec_on_production_waits_for_the_digest() {
     let mut h = Harness::open(TxnMode::AutoCommit).await;
     set_environment(&h, Some(Environment::Production)).await;
     let text = "CREATE TABLE #p1_guard(id int)\nGO\nSELECT 1\nGO\nEXEC sp_who";
-    let request = || RunRequest::Script { text: text.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() };
+    let request = || RunRequest::Script {
+        text: text.into(),
+        target: RunTarget::All,
+        mode: RunMode::Run,
+        params: Vec::new(),
+        cells: Vec::new(),
+    };
     let asked = asked_to_run(&h, text, None).await;
     assert_eq!((asked.connection.as_str(), asked.database.as_str(), asked.sends.count), ("SQL Server test", "shop", 2));
     assert_eq!(asked.sends.statements, ["CREATE TABLE #p1_guard(id int)", "EXEC sp_who"]);
@@ -910,16 +1176,45 @@ async fn every_batch_on_production_asks_while_the_transaction_holds_writes_that_
     h.ok("CREATE TABLE #held (id int)").await;
     assert_eq!(h.ok("BEGIN TRAN; INSERT INTO #held VALUES (1)").await.txn, TxnState::Open);
     set_environment(&h, Some(Environment::Production)).await;
-    for text in ["IF @@TRANCOUNT > 0 COMMIT TRANSACTION", "SELECT 1\nCOMMIT", "PRINT 'x'; COMMIT TRAN", "SELECT @@TRANCOUNT"] {
+    for text in
+        ["IF @@TRANCOUNT > 0 COMMIT TRANSACTION", "SELECT 1\nCOMMIT", "PRINT 'x'; COMMIT TRAN", "SELECT @@TRANCOUNT"]
+    {
         asked_to_run(&h, text, None).await;
-        assert_eq!(h.engine.boot().consoles.into_iter().find(|c| c.tab_id == h.tab).unwrap().txn, TxnState::Open, "{text}: a refused batch sends nothing");
+        assert_eq!(
+            h.engine.boot().consoles.into_iter().find(|c| c.tab_id == h.tab).unwrap().txn,
+            TxnState::Open,
+            "{text}: a refused batch sends nothing"
+        );
     }
     let asked = asked_to_run(&h, "IF @@TRANCOUNT > 0 COMMIT TRANSACTION", None).await;
-    assert_eq!(asked.holds.statements, ["BEGIN TRAN; INSERT INTO #held VALUES (1)"], "the server reported the CREATE TABLE committed");
-    let id = h.engine.console_run(h.tab, RunRequest::Script { text: "IF @@TRANCOUNT > 0 COMMIT TRANSACTION".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, Some(asked.digest)).await.unwrap().run_id;
+    assert_eq!(
+        asked.holds.statements,
+        ["BEGIN TRAN; INSERT INTO #held VALUES (1)"],
+        "the server reported the CREATE TABLE committed"
+    );
+    let id = h
+        .engine
+        .console_run(
+            h.tab,
+            RunRequest::Script {
+                text: "IF @@TRANCOUNT > 0 COMMIT TRANSACTION".into(),
+                target: RunTarget::All,
+                mode: RunMode::Run,
+                params: Vec::new(),
+                cells: Vec::new(),
+            },
+            Some(asked.digest),
+        )
+        .await
+        .unwrap()
+        .run_id;
     assert_eq!(h.finish(id).await.txn, TxnState::Idle);
     let state = h.ok("SELECT @@TRANCOUNT, COUNT_BIG(*) FROM #held").await;
-    assert_eq!(h.rows(Harness::rowsets(&state)[0])[0], vec![Some("0".into()), Some("1".into())], "the confirmed batch committed the held write");
+    assert_eq!(
+        h.rows(Harness::rowsets(&state)[0])[0],
+        vec![Some("0".into()), Some("1".into())],
+        "the confirmed batch committed the held write"
+    );
 }
 
 impl Harness {
@@ -1048,7 +1343,18 @@ async fn object_scripts_replay_into_an_empty_database_with_the_same_catalog() {
 
 impl Harness {
     async fn target(&mut self, database: &str) -> DatabaseRef {
-        self.engine.console_configure(self.tab, ConsoleConfig { connection_id: self.connection, database: database.into(), schema: Some("dbo".into()), mode: TxnMode::AutoCommit }).await.unwrap();
+        self.engine
+            .console_configure(
+                self.tab,
+                ConsoleConfig {
+                    connection_id: self.connection,
+                    database: database.into(),
+                    schema: Some("dbo".into()),
+                    mode: TxnMode::AutoCommit,
+                },
+            )
+            .await
+            .unwrap();
         DatabaseRef { connection_id: self.connection, database: database.into() }
     }
 
@@ -1320,24 +1626,30 @@ async fn sequences_types_and_synonyms_load_and_script() {
     })
     .catch_unwind()
     .await;
-    let _ = h
-        .run(&format!("DROP SYNONYM IF EXISTS dbo.[{synonym}]"))
-        .await;
-    let _ = h
-        .run(&format!("DROP SEQUENCE IF EXISTS dbo.[{sequence}]"))
-        .await;
-    let _ = h
-        .run(&format!(
-            "IF TYPE_ID(N'dbo.{alias}') IS NOT NULL DROP TYPE dbo.[{alias}]"
-        ))
-        .await;
+    let _ = h.run(&format!("DROP SYNONYM IF EXISTS dbo.[{synonym}]")).await;
+    let _ = h.run(&format!("DROP SEQUENCE IF EXISTS dbo.[{sequence}]")).await;
+    let _ = h.run(&format!("IF TYPE_ID(N'dbo.{alias}') IS NOT NULL DROP TYPE dbo.[{alias}]")).await;
     if let Err(panic) = outcome {
         std::panic::resume_unwind(panic);
     }
 }
 
 async fn run_mode(h: &mut Harness, sql: &str, mode: RunMode) -> Result<ConsoleState, RunError> {
-    match h.engine.console_run(h.tab, RunRequest::Script { text: sql.into(), target: RunTarget::All, mode, params: Vec::new(), cells: Vec::new() }, None).await {
+    match h
+        .engine
+        .console_run(
+            h.tab,
+            RunRequest::Script {
+                text: sql.into(),
+                target: RunTarget::All,
+                mode,
+                params: Vec::new(),
+                cells: Vec::new(),
+            },
+            None,
+        )
+        .await
+    {
         Ok(accepted) => Ok(h.finish(accepted.run_id).await),
         Err(error) => Err(error),
     }
@@ -1346,7 +1658,10 @@ async fn run_mode(h: &mut Harness, sql: &str, mode: RunMode) -> Result<ConsoleSt
 fn assert_plan(h: &Harness, state: &ConsoleState) -> Plan {
     let RunState::Finished { statements, outcome, .. } = &state.run else { panic!("not finished: {:?}", state.run) };
     assert!(matches!(outcome, RunOutcome::Ok), "{outcome:?} {statements:?}");
-    let Some(RunOutput::Plan { result, format }) = statements.first().and_then(|statement| statement.outputs.first()) else { panic!("no plan: {statements:?}") };
+    let Some(RunOutput::Plan { result, format }) = statements.first().and_then(|statement| statement.outputs.first())
+    else {
+        panic!("no plan: {statements:?}")
+    };
     assert_eq!(*format, PlanFormat::Xml);
     assert_eq!(result.database_kind, DatabaseKind::SqlServer);
     let cell = h.engine.result_cell(result.r#ref, 0, 0).unwrap().expect("plan cell");
@@ -1377,7 +1692,10 @@ async fn explain_of_two_statements_returns_two_roots() {
     let state = run_mode(&mut h, "select 1; select 2", RunMode::Explain).await.unwrap();
     let plan = assert_plan(&h, &state);
     assert_eq!(plan.statements.len(), 2);
-    eprintln!("statement texts: {:?}", plan.statements.iter().map(|statement| &statement.statement_text).collect::<Vec<_>>());
+    eprintln!(
+        "statement texts: {:?}",
+        plan.statements.iter().map(|statement| &statement.statement_text).collect::<Vec<_>>()
+    );
     assert!(plan.statements.iter().all(|statement| !statement.statement_text.is_empty()));
 }
 
@@ -1398,13 +1716,37 @@ async fn explain_of_an_update_does_not_ask_and_analyze_does() {
     let state = run_mode(&mut h, update, RunMode::Explain).await.expect("plain explain does not ask");
     let plan = assert_plan(&h, &state);
     assert!(!plan.statements.is_empty());
-    let err = h.engine.console_run(h.tab, RunRequest::Script { text: update.into(), target: RunTarget::All, mode: RunMode::ExplainAnalyze, params: Vec::new(), cells: Vec::new() }, None).await.unwrap_err();
+    let err = h
+        .engine
+        .console_run(
+            h.tab,
+            RunRequest::Script {
+                text: update.into(),
+                target: RunTarget::All,
+                mode: RunMode::ExplainAnalyze,
+                params: Vec::new(),
+                cells: Vec::new(),
+            },
+            None,
+        )
+        .await
+        .unwrap_err();
     let RunError::ConfirmWrites { confirmation } = err else { panic!("{err:?}") };
     assert!(!confirmation.on_production);
     assert_eq!(confirmation.sends.statements, [update]);
     let id = h
         .engine
-        .console_run(h.tab, RunRequest::Script { text: update.into(), target: RunTarget::All, mode: RunMode::ExplainAnalyze, params: Vec::new(), cells: Vec::new() }, Some(confirmation.digest))
+        .console_run(
+            h.tab,
+            RunRequest::Script {
+                text: update.into(),
+                target: RunTarget::All,
+                mode: RunMode::ExplainAnalyze,
+                params: Vec::new(),
+                cells: Vec::new(),
+            },
+            Some(confirmation.digest),
+        )
         .await
         .unwrap()
         .run_id;
@@ -1454,7 +1796,25 @@ async fn parameters_preserve_declarations_and_quote_unicode_across_go() {
     let params = h.engine.script_params(text, RunTarget::All, DatabaseKind::SqlServer).unwrap();
     assert_eq!(params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["@input", "@x", "@nil"]);
     let value = "世界'; SELECT 99; -- \\";
-    let accepted = h.engine.console_run(h.tab, RunRequest::Script { text: text.into(), target: RunTarget::All, mode: RunMode::Run, params: vec![ParamValue { name: "@input".into(), value: Some(value.into()) }, ParamValue { name: "@x".into(), value: Some("outside".into()) }, ParamValue { name: "@nil".into(), value: None }], cells: Vec::new() }, None).await.unwrap();
+    let accepted = h
+        .engine
+        .console_run(
+            h.tab,
+            RunRequest::Script {
+                text: text.into(),
+                target: RunTarget::All,
+                mode: RunMode::Run,
+                params: vec![
+                    ParamValue { name: "@input".into(), value: Some(value.into()) },
+                    ParamValue { name: "@x".into(), value: Some("outside".into()) },
+                    ParamValue { name: "@nil".into(), value: None },
+                ],
+                cells: Vec::new(),
+            },
+            None,
+        )
+        .await
+        .unwrap();
     let state = h.finish(accepted.run_id).await;
     assert!(matches!(state.run, RunState::Finished { outcome: RunOutcome::Ok, .. }), "{:?}", state.run);
     let sets = Harness::rowsets(&state);
@@ -1469,8 +1829,8 @@ mod database_map_cases;
 async fn database_map_pages_declared_neighborhoods() {
     let mut h = Harness::open(TxnMode::AutoCommit).await;
     let stem = format!("map_{}", uuid::Uuid::new_v4().simple());
-    h.ok(&database_map_cases::fixture("dbo",&stem,DatabaseKind::SqlServer)).await;
-    database_map_cases::verify(&h.engine,h.db(),"dbo",&stem,DatabaseKind::SqlServer).await;
+    h.ok(&database_map_cases::fixture("dbo", &stem, DatabaseKind::SqlServer)).await;
+    database_map_cases::verify(&h.engine, h.db(), "dbo", &stem, DatabaseKind::SqlServer).await;
     h.ok(&format!("DROP TABLE dbo.{stem}_fan,dbo.{stem}_child; ALTER TABLE dbo.{stem}_root DROP CONSTRAINT {stem}_self_pair; DROP TABLE dbo.{stem}_root,dbo.{stem}_anchor,dbo.{stem}_alone")).await;
 }
 
@@ -1484,7 +1844,13 @@ async fn a_reference_chain_runs_inside_a_batch_with_hoisted_ctes() {
         CellSource { name: "paid".into(), text: "WITH p AS (SELECT customer_id, total FROM dbo.orders WHERE status = N'paid')\nSELECT customer_id, total FROM p ORDER BY total DESC;".into() },
         CellSource { name: "paid regions".into(), text: "SELECT c.region, SUM(p.total) AS revenue FROM {{paid}} p JOIN dbo.customers c ON c.id = p.customer_id GROUP BY c.region".into() },
     ];
-    let request = |text: &str| RunRequest::Script { text: text.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: cells.clone() };
+    let request = |text: &str| RunRequest::Script {
+        text: text.into(),
+        target: RunTarget::All,
+        mode: RunMode::Run,
+        params: Vec::new(),
+        cells: cells.clone(),
+    };
     let text = "DECLARE @min decimal(10, 2) = 10\nSELECT region, revenue FROM {{paid regions}} WHERE revenue > @min";
     let accepted = h.engine.console_run(h.tab, request(text), None).await.unwrap();
     assert_eq!(accepted.sources, cells, "both cells, the one read first first");
@@ -1493,13 +1859,25 @@ async fn a_reference_chain_runs_inside_a_batch_with_hoisted_ctes() {
     let sets = Harness::rowsets(&state);
     assert_eq!(sets.len(), 1);
     assert_eq!(h.rows(sets[0]), vec![vec![Some("Europe".into()), Some("125.50".into())]]);
-    let history = h.engine.history(HistoryQuery { text: Some("{{paid regions}}".into()), connection_id: Some(h.connection), before_id: None, limit: 10 });
+    let history = h.engine.history(HistoryQuery {
+        text: Some("{{paid regions}}".into()),
+        connection_id: Some(h.connection),
+        before_id: None,
+        limit: 10,
+    });
     let ran = &history.entries.first().expect("the batch is in history").sql;
     assert!(ran.starts_with("DECLARE @min decimal(10, 2) = 10\n;WITH p AS (SELECT customer_id, total FROM dbo.orders WHERE status = N'paid'),\n[{{paid}}] AS (\nSELECT customer_id, total FROM p\n),"), "{ran}");
 
     let refused = h.engine.console_run(h.tab, request("IF 1 = 1 SELECT * FROM {{paid}}"), None).await.unwrap_err();
-    assert!(matches!(refused, RunError::Reference { ref message } if message.starts_with("Put BEGIN and END")), "{refused:?}");
-    let wrapped = h.engine.console_run(h.tab, request("IF 1 = 1\nBEGIN\n  SELECT customer_id FROM {{paid}}\nEND"), None).await.unwrap();
+    assert!(
+        matches!(refused, RunError::Reference { ref message } if message.starts_with("Put BEGIN and END")),
+        "{refused:?}"
+    );
+    let wrapped = h
+        .engine
+        .console_run(h.tab, request("IF 1 = 1\nBEGIN\n  SELECT customer_id FROM {{paid}}\nEND"), None)
+        .await
+        .unwrap();
     let state = h.finish(wrapped.run_id).await;
     assert!(matches!(state.run, RunState::Finished { outcome: RunOutcome::Ok, .. }), "{:?}", state.run);
     assert_eq!(h.rows(Harness::rowsets(&state)[0]), vec![vec![Some("1".into())]]);

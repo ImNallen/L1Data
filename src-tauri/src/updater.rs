@@ -51,7 +51,14 @@ impl UpdateTransport for TauriTransport {
             // The engine decides which version counts as an update, so this accepts every one. That is
             // safe only because `requireSignedVersion` binds the announced version to the signed
             // artifact, so a crafted feed cannot pair a new version number with an old signed build.
-            let updater = self.app.updater_builder().endpoints(vec![url]).map_err(classify)?.version_comparator(|_, _| true).build().map_err(classify)?;
+            let updater = self
+                .app
+                .updater_builder()
+                .endpoints(vec![url])
+                .map_err(classify)?
+                .version_comparator(|_, _| true)
+                .build()
+                .map_err(classify)?;
             match updater.check().await {
                 Ok(found) => Ok(found.map(|update| Box::new(TauriRelease(update)) as Box<dyn Release>)),
                 Err(Error::ReleaseNotFound | Error::TargetNotFound(_) | Error::TargetsNotFound(_)) => Ok(None),
@@ -76,7 +83,10 @@ impl Release for TauriRelease {
         &self.0.raw_json
     }
 
-    fn download(self: Box<Self>, mut progress: Progress) -> BoxFuture<'static, Result<Box<dyn Verified>, UpdateFailure>> {
+    fn download(
+        self: Box<Self>,
+        mut progress: Progress,
+    ) -> BoxFuture<'static, Result<Box<dyn Verified>, UpdateFailure>> {
         Box::pin(async move {
             let mut received = 0;
             let on_chunk = |chunk: usize, total| {
@@ -104,8 +114,14 @@ fn classify(error: Error) -> UpdateFailure {
     eprintln!("updater: {error}");
     match error {
         Error::Reqwest(_) | Error::Network(_) => UpdateFailure::Offline,
-        Error::Minisign(_) | Error::Base64(_) | Error::SignatureUtf8(_) | Error::SignedVersionMismatch { .. } | Error::MissingSignedVersion => UpdateFailure::BadSignature,
-        Error::Io(e) if matches!(e.kind(), ErrorKind::ReadOnlyFilesystem | ErrorKind::CrossesDevices) => UpdateFailure::ReadOnlyLocation,
+        Error::Minisign(_)
+        | Error::Base64(_)
+        | Error::SignatureUtf8(_)
+        | Error::SignedVersionMismatch { .. }
+        | Error::MissingSignedVersion => UpdateFailure::BadSignature,
+        Error::Io(e) if matches!(e.kind(), ErrorKind::ReadOnlyFilesystem | ErrorKind::CrossesDevices) => {
+            UpdateFailure::ReadOnlyLocation
+        }
         Error::TempDirNotOnSameMountPoint => UpdateFailure::ReadOnlyLocation,
         Error::Io(e) if e.kind() == ErrorKind::PermissionDenied => UpdateFailure::PermissionDenied,
         other => UpdateFailure::Other { message: other.to_string() },
@@ -123,11 +139,21 @@ mod tests {
             let path = entry.unwrap().path();
             let text = std::fs::read_to_string(&path).unwrap();
             let name = path.file_name().unwrap().to_string_lossy();
-            assert_eq!(text.contains("tauri_plugin_updater"), name == "updater.rs", "{name}: only updater.rs may name the updater plugin");
+            assert_eq!(
+                text.contains("tauri_plugin_updater"),
+                name == "updater.rs",
+                "{name}: only updater.rs may name the updater plugin"
+            );
         }
-        let config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tauri.conf.json")).unwrap()).unwrap();
+        let config: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tauri.conf.json")).unwrap(),
+        )
+        .unwrap();
         let updater = &config["plugins"]["updater"];
-        assert_eq!(updater["requireSignedVersion"], true, "the accept-all comparator is safe only when the signature binds the version");
+        assert_eq!(
+            updater["requireSignedVersion"], true,
+            "the accept-all comparator is safe only when the signature binds the version"
+        );
         assert!(updater["pubkey"].as_str().is_some_and(|key| !key.is_empty()));
     }
 
@@ -137,12 +163,18 @@ mod tests {
             (Error::Network("connection reset".into()), UpdateFailure::Offline),
             (Error::SignatureUtf8("not base64".into()), UpdateFailure::BadSignature),
             (Error::MissingSignedVersion, UpdateFailure::BadSignature),
-            (Error::SignedVersionMismatch { signed: "0.1.0".into(), announced: "0.9.0".into() }, UpdateFailure::BadSignature),
+            (
+                Error::SignedVersionMismatch { signed: "0.1.0".into(), announced: "0.9.0".into() },
+                UpdateFailure::BadSignature,
+            ),
             (Error::Io(ErrorKind::ReadOnlyFilesystem.into()), UpdateFailure::ReadOnlyLocation),
             (Error::Io(ErrorKind::CrossesDevices.into()), UpdateFailure::ReadOnlyLocation),
             (Error::TempDirNotOnSameMountPoint, UpdateFailure::ReadOnlyLocation),
             (Error::Io(ErrorKind::PermissionDenied.into()), UpdateFailure::PermissionDenied),
-            (Error::BinaryNotFoundInArchive, UpdateFailure::Other { message: "binary for the current target not found in the archive".into() }),
+            (
+                Error::BinaryNotFoundInArchive,
+                UpdateFailure::Other { message: "binary for the current target not found in the archive".into() },
+            ),
         ];
         for (error, failure) in rows {
             let shown = error.to_string();

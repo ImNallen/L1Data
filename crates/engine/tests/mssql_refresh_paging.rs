@@ -17,10 +17,16 @@ struct Harness {
 impl Harness {
     async fn open(database: &str) -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let engine =
-            Engine::open(EngineConfig { data_dir: dir.path().into(), keys: Arc::new(MemoryKeyStore::default()), agent_path: AgentPath::Fixed("".into()), az_binary: None, user_known_hosts: None, updates: Arc::new(engine::ScriptedTransport::named("off").unwrap()) })
-                .await
-                .unwrap();
+        let engine = Engine::open(EngineConfig {
+            data_dir: dir.path().into(),
+            keys: Arc::new(MemoryKeyStore::default()),
+            agent_path: AgentPath::Fixed("".into()),
+            az_binary: None,
+            user_known_hosts: None,
+            updates: Arc::new(engine::ScriptedTransport::named("off").unwrap()),
+        })
+        .await
+        .unwrap();
         let events = engine.subscribe();
         let connection = engine
             .save_connection(ConnectionDraft {
@@ -31,7 +37,9 @@ impl Harness {
                 port: std::env::var("L1_DATA_TEST_MSSQL_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(1434),
                 database: database.into(),
                 user: "sa".into(),
-                password: PasswordInput::Set(std::env::var("L1_DATA_TEST_MSSQL_PASSWORD").unwrap_or_else(|_| "L1Data_dev_Str0ng".into())),
+                password: PasswordInput::Set(
+                    std::env::var("L1_DATA_TEST_MSSQL_PASSWORD").unwrap_or_else(|_| "L1Data_dev_Str0ng".into()),
+                ),
                 ssl_mode: SslMode::Require,
                 ca_cert_path: None,
                 color: None,
@@ -45,7 +53,15 @@ impl Harness {
         engine.connect(connection).await.unwrap();
         let tab = TabId(uuid::Uuid::new_v4());
         engine
-            .console_configure(tab, ConsoleConfig { connection_id: connection, database: database.into(), schema: None, mode: TxnMode::AutoCommit })
+            .console_configure(
+                tab,
+                ConsoleConfig {
+                    connection_id: connection,
+                    database: database.into(),
+                    schema: None,
+                    mode: TxnMode::AutoCommit,
+                },
+            )
             .await
             .unwrap();
         let mut settings = engine.settings();
@@ -75,7 +91,14 @@ impl Harness {
     }
 
     async fn run(&mut self, sql: &str) -> ConsoleState {
-        self.request(RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }).await
+        self.request(RunRequest::Script {
+            text: sql.into(),
+            target: RunTarget::All,
+            mode: RunMode::Run,
+            params: Vec::new(),
+            cells: Vec::new(),
+        })
+        .await
     }
 
     fn assert_ok(state: &ConsoleState) {
@@ -133,7 +156,8 @@ async fn mixed_batch_refreshes_its_table_catalog_without_manual_refresh() {
     let table = format!("l1_refresh_{}", uuid::Uuid::new_v4().simple());
     Harness::assert_ok(&h.run(&format!("CREATE TABLE dbo.[{table}] (id int PRIMARY KEY)")).await);
     let before = h.engine.refresh_catalog(h.db("shop")).await.unwrap();
-    let state = h.run(&format!("ALTER TABLE dbo.[{table}] ADD refreshed int; DROP DATABASE IF EXISTS [missing_{table}]")).await;
+    let state =
+        h.run(&format!("ALTER TABLE dbo.[{table}] ADD refreshed int; DROP DATABASE IF EXISTS [missing_{table}]")).await;
     let catalog = h.catalog_after("shop", before).await;
     Harness::assert_ok(&h.run(&format!("DROP TABLE dbo.[{table}]")).await);
     Harness::assert_ok(&state);
@@ -146,7 +170,9 @@ async fn procedure_body_database_ddl_does_not_hide_the_new_routine() {
     let mut h = Harness::open("shop").await;
     let routine = format!("l1_refresh_proc_{}", uuid::Uuid::new_v4().simple());
     let before = h.engine.catalog(h.db("shop")).await.unwrap().version;
-    let state = h.run(&format!("CREATE PROCEDURE dbo.[{routine}] AS BEGIN DROP DATABASE IF EXISTS [missing_{routine}]; END")).await;
+    let state = h
+        .run(&format!("CREATE PROCEDURE dbo.[{routine}] AS BEGIN DROP DATABASE IF EXISTS [missing_{routine}]; END"))
+        .await;
     let catalog = h.catalog_after("shop", before).await;
     Harness::assert_ok(&h.run(&format!("DROP PROCEDURE dbo.[{routine}]")).await);
     Harness::assert_ok(&state);

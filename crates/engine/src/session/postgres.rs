@@ -5,11 +5,11 @@ mod source;
 mod types;
 
 use std::error::Error as _;
+use std::future::poll_fn;
 use std::str::FromStr;
+use std::time::Duration;
 use tokio_postgres::config::Host;
 use tokio_postgres::error::ErrorPosition;
-use std::future::poll_fn;
-use std::time::Duration;
 
 use postgres_native_tls::MakeTlsConnector;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -19,7 +19,7 @@ use tokio_postgres::tls::MakeTlsConnect;
 use tokio_postgres::{AsyncMessage, CancelToken, Client, Connection, SimpleQueryMessage};
 
 use super::stream::DbStream;
-use crate::connection::{ConnectParams, CONNECT_TIMEOUT, KEEPALIVE_IDLE};
+use crate::connection::{CONNECT_TIMEOUT, ConnectParams, KEEPALIVE_IDLE};
 use crate::model::*;
 use crate::text::quote_ident;
 
@@ -64,7 +64,8 @@ impl PgCancel {
 
     async fn cancel_through(&self, p: &ConnectParams) -> Result<(), String> {
         let stream = p.dial().await.map_err(|e| crate::connection::connect_error_text(&e))?;
-        let tls = MakeTlsConnect::<DbStream>::make_tls_connect(&mut self.tls.clone(), &p.host).map_err(|e| e.to_string())?;
+        let tls =
+            MakeTlsConnect::<DbStream>::make_tls_connect(&mut self.tls.clone(), &p.host).map_err(|e| e.to_string())?;
         self.token.cancel_query_raw(stream, tls).await.map_err(|e| error_text(&e))
     }
 }
@@ -100,11 +101,19 @@ impl PgSession {
             (client, drive(connection))
         } else {
             let stream = p.dial().await?;
-            let connector = MakeTlsConnect::<DbStream>::make_tls_connect(&mut tls.clone(), &p.host).map_err(|e| ConnectError::Tls { message: e.to_string() })?;
+            let connector = MakeTlsConnect::<DbStream>::make_tls_connect(&mut tls.clone(), &p.host)
+                .map_err(|e| ConnectError::Tls { message: e.to_string() })?;
             // `connect_raw` ignores the config's connect_timeout.
-            let login = tokio::time::timeout(CONNECT_TIMEOUT, p.pg_config().connect_raw(stream, connector)).await.map_err(|_| ConnectError::Network {
-                message: format!("{}:{} did not finish the PostgreSQL login within {} s", p.host, p.port, CONNECT_TIMEOUT.as_secs()),
-            })?;
+            let login = tokio::time::timeout(CONNECT_TIMEOUT, p.pg_config().connect_raw(stream, connector))
+                .await
+                .map_err(|_| ConnectError::Network {
+                    message: format!(
+                        "{}:{} did not finish the PostgreSQL login within {} s",
+                        p.host,
+                        p.port,
+                        CONNECT_TIMEOUT.as_secs()
+                    ),
+                })?;
             let (client, connection) = login.map_err(connect_error)?;
             (client, drive(connection))
         };
@@ -116,7 +125,11 @@ impl PgSession {
             backend_pid: server.1,
             server: server.0,
             search_path: SearchPath::Unsettled,
-            cancel: PgCancel { token: client.cancel_token(), tls, tunnel: p.via.is_some().then(|| ConnectParams { password: None, ..p.clone() }) },
+            cancel: PgCancel {
+                token: client.cancel_token(),
+                tls,
+                tunnel: p.via.is_some().then(|| ConnectParams { password: None, ..p.clone() }),
+            },
             notices,
             closed,
             retired: None,
@@ -140,7 +153,8 @@ impl PgSession {
         } else {
             self.client.batch_execute("RESET search_path").await?;
         }
-        self.search_path = if txn == TxnState::Idle { SearchPath::Settled(schema.map(str::to_owned)) } else { SearchPath::Unsettled };
+        self.search_path =
+            if txn == TxnState::Idle { SearchPath::Settled(schema.map(str::to_owned)) } else { SearchPath::Unsettled };
         Ok(())
     }
 
@@ -159,7 +173,10 @@ impl PgSession {
     /// `Some(reason)` once the connection is dead. The client learns of a dead socket before the
     /// driver task records why, so a closed client without a reason yet gets a generic one.
     pub fn closed_reason(&self) -> Option<String> {
-        self.retired.clone().or_else(|| self.closed.borrow().clone()).or_else(|| self.client.is_closed().then(|| "connection closed".to_owned()))
+        self.retired
+            .clone()
+            .or_else(|| self.closed.borrow().clone())
+            .or_else(|| self.client.is_closed().then(|| "connection closed".to_owned()))
     }
 
     /// Like `closed_reason`, but gives the driver task a moment to deliver the server's reason.
@@ -236,14 +253,15 @@ impl ConnectParams {
             SslMode::VerifyFull => {}
         }
         if let Some(path) = &self.ca_cert_path {
-            let pem = std::fs::read(path).map_err(|e| ConnectError::Tls { message: format!("CA certificate {path}: {e}") })?;
-            let cert = native_tls::Certificate::from_pem(&pem).map_err(|e| ConnectError::Tls { message: e.to_string() })?;
+            let pem = std::fs::read(path)
+                .map_err(|e| ConnectError::Tls { message: format!("CA certificate {path}: {e}") })?;
+            let cert =
+                native_tls::Certificate::from_pem(&pem).map_err(|e| ConnectError::Tls { message: e.to_string() })?;
             builder.add_root_certificate(cert);
         }
         let connector = builder.build().map_err(|e| ConnectError::Tls { message: e.to_string() })?;
         Ok(MakeTlsConnector::new(connector))
     }
-
 }
 
 pub fn draft_from_url(url: &str, name: &str) -> Result<ConnectionDraft, String> {
@@ -259,11 +277,9 @@ pub fn draft_from_url(url: &str, name: &str) -> Result<ConnectionDraft, String> 
         Some(Host::Unix(p)) => p.display().to_string(),
         None => "localhost".to_owned(),
     };
-    let password = cfg
-        .get_password()
-        .map(|b| String::from_utf8(b.to_vec()).map_err(|e| e.to_string()))
-        .transpose()?;
-    Ok(ConnectionDraft { database_kind: crate::model::DatabaseKind::Postgres,
+    let password = cfg.get_password().map(|b| String::from_utf8(b.to_vec()).map_err(|e| e.to_string())).transpose()?;
+    Ok(ConnectionDraft {
+        database_kind: crate::model::DatabaseKind::Postgres,
         id: None,
         name: name.to_owned(),
         host,
@@ -344,7 +360,6 @@ pub fn transport_error(e: &tokio_postgres::Error) -> QueryError {
     }
 }
 
-
 pub(super) fn query_failure(e: tokio_postgres::Error, sql: Option<&str>) -> QueryError {
     match e.as_db_error() {
         Some(db) => {
@@ -367,26 +382,45 @@ fn not_utf8(column: &str) -> QueryError {
 }
 
 pub(super) fn notice(n: &DbError) -> OutputBody {
-    OutputBody::Notice { severity: n.severity().to_owned(), message: n.message().to_owned(), detail: n.detail().map(str::to_owned) }
+    OutputBody::Notice {
+        severity: n.severity().to_owned(),
+        message: n.message().to_owned(),
+        detail: n.detail().map(str::to_owned),
+    }
 }
 
 impl PgSession {
-    pub(super) async fn batch(&self, sql: &str) -> Result<(), QueryError> { self.client.batch_execute(sql).await.map_err(|e| query_failure(e, Some(sql))) }
-    pub(super) async fn import_csv(&mut self, sql: &str, mut chunks: mpsc::Receiver<Result<super::CopyChunk, ImportError>>, stop: &std::sync::atomic::AtomicBool, progress: watch::Sender<(u64, u64)>, mut emit: impl FnMut(OutputBody) + Send) -> Result<u64, ImportError> {
+    pub(super) async fn batch(&self, sql: &str) -> Result<(), QueryError> {
+        self.client.batch_execute(sql).await.map_err(|e| query_failure(e, Some(sql)))
+    }
+    pub(super) async fn import_csv(
+        &mut self,
+        sql: &str,
+        mut chunks: mpsc::Receiver<Result<super::CopyChunk, ImportError>>,
+        stop: &std::sync::atomic::AtomicBool,
+        progress: watch::Sender<(u64, u64)>,
+        mut emit: impl FnMut(OutputBody) + Send,
+    ) -> Result<u64, ImportError> {
         use futures_util::SinkExt;
         use std::sync::atomic::Ordering;
         let query = |e| ImportError::Query { error: query_failure(e, Some(sql)) };
         let copying = async {
-            if stop.load(Ordering::Relaxed) { return Err(ImportError::Cancelled); }
+            if stop.load(Ordering::Relaxed) {
+                return Err(ImportError::Cancelled);
+            }
             let sink = self.client.copy_in::<_, bytes::Bytes>(sql).await.map_err(query)?;
             tokio::pin!(sink);
             while let Some(chunk) = chunks.recv().await {
                 let chunk = chunk?;
-                if stop.load(Ordering::Relaxed) { return Err(ImportError::Cancelled); }
+                if stop.load(Ordering::Relaxed) {
+                    return Err(ImportError::Cancelled);
+                }
                 sink.as_mut().send(bytes::Bytes::from(chunk.data)).await.map_err(query)?;
                 progress.send_replace((chunk.bytes, chunk.rows));
             }
-            if stop.load(Ordering::Relaxed) { return Err(ImportError::Cancelled); }
+            if stop.load(Ordering::Relaxed) {
+                return Err(ImportError::Cancelled);
+            }
             sink.as_mut().finish().await.map_err(query)
         };
         tokio::pin!(copying);
@@ -400,10 +434,12 @@ impl PgSession {
             }
         }
     }
-    pub(super) async fn execute_edit(&self, sql: &str) -> Result<u64, QueryError> { self.client.execute(sql, &[]).await.map_err(|e| query_failure(e, Some(sql))) }
+    pub(super) async fn execute_edit(&self, sql: &str) -> Result<u64, QueryError> {
+        self.client.execute(sql, &[]).await.map_err(|e| query_failure(e, Some(sql)))
+    }
     pub(super) fn query<'a>(&'a mut self, sql: &'a str) -> super::QueryStream<'a> {
-        use futures_util::StreamExt;
         use super::QueryEvent;
+        use futures_util::StreamExt;
         Box::pin(async_stream::try_stream! {
             let prepared = self.client.prepare(sql).await.map_err(|e| query_failure(e, Some(sql)))?;
             let columns = prepared.columns().iter().map(|c| ColumnMeta {
@@ -448,11 +484,26 @@ impl PgSession {
             }
         })
     }
-    pub(super) async fn list_databases(&self) -> Result<(Vec<crate::connection::DatabaseInfo>, String), QueryError> { catalog::list_databases(&self.client).await.map_err(|e| query_failure(e, None)) }
-    pub(super) async fn count_schemas(&self) -> Result<u32, QueryError> { catalog::count_schemas(&self.client).await.map_err(|e| query_failure(e, None)) }
-    pub(super) async fn catalog(&self, db: DatabaseRef, version: u64, extra: &[String]) -> Result<Catalog, QueryError> { catalog::load(&self.client, db, version, extra).await.map_err(|e| query_failure(e, None)) }
-    pub(super) async fn detail(&self, db: DatabaseRef, oid: u32, version: u64) -> Result<Option<RelationDetail>, QueryError> { detail::load(&self.client, db, oid, version).await.map_err(|e| query_failure(e, None)) }
-    pub(super) async fn script(&mut self, target: &ScriptTarget) -> Result<ObjectScript, DetailError> { source::load(&mut self.client, target).await }
+    pub(super) async fn list_databases(&self) -> Result<(Vec<crate::connection::DatabaseInfo>, String), QueryError> {
+        catalog::list_databases(&self.client).await.map_err(|e| query_failure(e, None))
+    }
+    pub(super) async fn count_schemas(&self) -> Result<u32, QueryError> {
+        catalog::count_schemas(&self.client).await.map_err(|e| query_failure(e, None))
+    }
+    pub(super) async fn catalog(&self, db: DatabaseRef, version: u64, extra: &[String]) -> Result<Catalog, QueryError> {
+        catalog::load(&self.client, db, version, extra).await.map_err(|e| query_failure(e, None))
+    }
+    pub(super) async fn detail(
+        &self,
+        db: DatabaseRef,
+        oid: u32,
+        version: u64,
+    ) -> Result<Option<RelationDetail>, QueryError> {
+        detail::load(&self.client, db, oid, version).await.map_err(|e| query_failure(e, None))
+    }
+    pub(super) async fn script(&mut self, target: &ScriptTarget) -> Result<ObjectScript, DetailError> {
+        source::load(&mut self.client, target).await
+    }
     pub(super) async fn count(&self, sql: &str) -> Result<u64, QueryError> {
         let row = self.client.query_one(sql, &[]).await.map_err(|e| query_failure(e, Some(sql)))?;
         u64::try_from(row.get::<_, i64>(0)).map_err(|_| super::error("Negative row count"))
@@ -465,4 +516,8 @@ impl PgSession {
     }
 }
 
-impl PgSession { pub(super) fn retire(&mut self, reason: String) { self.retired = Some(reason); } }
+impl PgSession {
+    pub(super) fn retire(&mut self, reason: String) {
+        self.retired = Some(reason);
+    }
+}

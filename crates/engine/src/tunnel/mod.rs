@@ -63,7 +63,13 @@ impl Hash for Secret {
 
 impl TunnelSpec {
     pub fn new(host: &str, port: u16, user: &str, auth: &SshAuth, secret: Option<String>) -> Self {
-        Self { host: host.to_owned(), port, user: user.to_owned(), auth: auth.clone(), secret: secret.map(|s| Secret(Zeroizing::new(s))) }
+        Self {
+            host: host.to_owned(),
+            port,
+            user: user.to_owned(),
+            auth: auth.clone(),
+            secret: secret.map(|s| Secret(Zeroizing::new(s))),
+        }
     }
 
     fn secret(&self) -> Option<&str> {
@@ -193,7 +199,9 @@ impl SshRoute {
         let mut retried = false;
         loop {
             let tunnel = self.0.tunnel().await?;
-            let opened = timeout(CHANNEL_TIMEOUT, tunnel.handle.channel_open_direct_tcpip(host, port.into(), "127.0.0.1", 0)).await;
+            let opened =
+                timeout(CHANNEL_TIMEOUT, tunnel.handle.channel_open_direct_tcpip(host, port.into(), "127.0.0.1", 0))
+                    .await;
             let message = match opened {
                 Ok(Ok(channel)) => return Ok(TunnelStream { inner: channel.into_stream(), _tunnel: tunnel }),
                 Ok(Err(_)) if tunnel.handle.is_closed() && !retried => {
@@ -201,13 +209,17 @@ impl SshRoute {
                     continue;
                 }
                 Ok(Err(_)) if tunnel.handle.is_closed() => {
-                    return Err(ssh(SshError::Network { message: format!("the connection to {}:{} closed", spec.host, spec.port) }));
+                    return Err(ssh(SshError::Network {
+                        message: format!("the connection to {}:{} closed", spec.host, spec.port),
+                    }));
                 }
                 Ok(Err(russh::Error::ChannelOpenFailure(reason))) => format!("{reason:?}"),
                 Ok(Err(e)) => e.to_string(),
                 Err(_) => format!("no answer within {} s", CHANNEL_TIMEOUT.as_secs()),
             };
-            return Err(ssh(SshError::Forward { message: format!("{}:{} could not open {host}:{port}: {message}", spec.host, spec.port) }));
+            return Err(ssh(SshError::Forward {
+                message: format!("{}:{} could not open {host}:{port}: {message}", spec.host, spec.port),
+            }));
         }
     }
 }
@@ -281,15 +293,26 @@ async fn dial(spec: &TunnelSpec, hosts: &Arc<HostKeys>) -> Result<Handle<Client>
         ..Default::default()
     });
     let client = Client { host: spec.host.clone(), port: spec.port, hosts: hosts.clone() };
-    let mut handle = match timeout(DIAL_TIMEOUT, client::connect(config, (spec.host.as_str(), spec.port), client)).await {
+    let mut handle = match timeout(DIAL_TIMEOUT, client::connect(config, (spec.host.as_str(), spec.port), client)).await
+    {
         Ok(Ok(handle)) => handle,
         Ok(Err(Failure::Refused(error))) => return Err(ssh(error)),
         Ok(Err(Failure::Ssh(e))) => return Err(ssh(SshError::Network { message: format!("{server}: {e}") })),
-        Err(_) => return Err(ssh(SshError::Network { message: format!("{server} did not finish the SSH handshake within {} s", DIAL_TIMEOUT.as_secs()) })),
+        Err(_) => {
+            return Err(ssh(SshError::Network {
+                message: format!("{server} did not finish the SSH handshake within {} s", DIAL_TIMEOUT.as_secs()),
+            }));
+        }
     };
     match timeout(AUTH_TIMEOUT, auth::authenticate(&mut handle, spec)).await {
         Ok(Ok(())) => Ok(handle),
         Ok(Err(error)) => Err(ssh(error)),
-        Err(_) => Err(ssh(SshError::Auth { message: format!("{server} did not finish authenticating {} within {} s", spec.user, AUTH_TIMEOUT.as_secs()) })),
+        Err(_) => Err(ssh(SshError::Auth {
+            message: format!(
+                "{server} did not finish authenticating {} within {} s",
+                spec.user,
+                AUTH_TIMEOUT.as_secs()
+            ),
+        })),
     }
 }

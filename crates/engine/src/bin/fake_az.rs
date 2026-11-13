@@ -17,14 +17,22 @@ use serde_json::json;
 
 fn main() {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
-    let scenario = take(&mut args, "--fake-scenario").or_else(|| std::env::var("L1_FAKE_AZ_SCENARIO").ok()).unwrap_or_else(|| "ok".into());
+    let scenario = take(&mut args, "--fake-scenario")
+        .or_else(|| std::env::var("L1_FAKE_AZ_SCENARIO").ok())
+        .unwrap_or_else(|| "ok".into());
     let log = take(&mut args, "--fake-log").or_else(|| std::env::var("L1_FAKE_AZ_LOG").ok());
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
     if let Some(path) = log {
         let line = format!("{}\t{}\t{scenario}\t{}\n", now.as_millis(), std::process::id(), json!(args));
-        let _ = std::fs::OpenOptions::new().create(true).append(true).open(path).and_then(|mut f| f.write_all(line.as_bytes()));
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .and_then(|mut f| f.write_all(line.as_bytes()));
     }
-    if args.first().map(String::as_str) != Some("account") || args.get(1).map(String::as_str) != Some("get-access-token") {
+    if args.first().map(String::as_str) != Some("account")
+        || args.get(1).map(String::as_str) != Some("get-access-token")
+    {
         eprintln!("fake-az: only `account get-access-token` is faked, got {args:?}");
         std::process::exit(2);
     }

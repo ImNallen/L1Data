@@ -88,7 +88,10 @@ impl<'de> Deserialize<'de> for DatabaseView {
             show_system_schemas: Option<bool>,
         }
         let s = Saved::deserialize(d)?;
-        Ok(Self { schemas: s.schemas.unwrap_or(Selection::DefaultOnly), show_system_schemas: s.show_system_schemas.unwrap_or(false) })
+        Ok(Self {
+            schemas: s.schemas.unwrap_or(Selection::DefaultOnly),
+            show_system_schemas: s.show_system_schemas.unwrap_or(false),
+        })
     }
 }
 
@@ -111,7 +114,10 @@ impl ConnectionView {
     pub fn database(&self, name: &str, home: &str) -> DatabaseView {
         match self.schemas.get(name) {
             Some(entry) => entry.clone(),
-            None => DatabaseView { schemas: if name == home { Selection::All } else { Selection::DefaultOnly }, show_system_schemas: false },
+            None => DatabaseView {
+                schemas: if name == home { Selection::All } else { Selection::DefaultOnly },
+                show_system_schemas: false,
+            },
         }
     }
 
@@ -126,7 +132,8 @@ impl ConnectionView {
                 }
                 next.databases.set(name, *shown);
                 let entry = self.database(name, known.home);
-                let empty = matches!(entry.schemas, Selection::Only { .. }) && known.catalogs.get(name).is_some_and(|c| resolve_schemas(&entry, c).is_empty());
+                let empty = matches!(entry.schemas, Selection::Only { .. })
+                    && known.catalogs.get(name).is_some_and(|c| resolve_schemas(&entry, c).is_empty());
                 if *shown && empty {
                     next.schemas.insert(name.clone(), DatabaseView { schemas: Selection::DefaultOnly, ..entry });
                 }
@@ -191,18 +198,30 @@ pub fn resolve_schemas(view: &DatabaseView, catalog: &Catalog) -> Vec<String> {
 pub fn is_system_schema(name: &str, kind: crate::model::DatabaseKind) -> bool {
     match kind {
         crate::model::DatabaseKind::Postgres => name == "information_schema" || name.starts_with("pg_"),
-        crate::model::DatabaseKind::SqlServer => matches!(name,"sys"|"INFORMATION_SCHEMA"|"db_owner"|"db_accessadmin"|"db_securityadmin"|"db_ddladmin"|"db_backupoperator"|"db_datareader"|"db_datawriter"|"db_denydatareader"|"db_denydatawriter"),
+        crate::model::DatabaseKind::SqlServer => matches!(
+            name,
+            "sys"
+                | "INFORMATION_SCHEMA"
+                | "db_owner"
+                | "db_accessadmin"
+                | "db_securityadmin"
+                | "db_ddladmin"
+                | "db_backupoperator"
+                | "db_datareader"
+                | "db_datawriter"
+                | "db_denydatareader"
+                | "db_denydatawriter"
+        ),
     }
 }
 
 /// The system schemas whose relations the catalog must load: the ones in `Only`, while
 /// `show_system_schemas` is on. Types load for them too. Functions, sequences, and synonyms do not.
-pub fn system_schemas_to_load(
-    view: &DatabaseView,
-    kind: crate::model::DatabaseKind,
-) -> Vec<String> {
+pub fn system_schemas_to_load(view: &DatabaseView, kind: crate::model::DatabaseKind) -> Vec<String> {
     match &view.schemas {
-        Selection::Only { names } if view.show_system_schemas => names.iter().filter(|n| is_system_schema(n,kind)).cloned().collect(),
+        Selection::Only { names } if view.show_system_schemas => {
+            names.iter().filter(|n| is_system_schema(n, kind)).cloned().collect()
+        }
         _ => Vec::new(),
     }
 }
@@ -225,7 +244,8 @@ mod tests {
     }
 
     fn catalog(database: &str, default: Option<&str>, schemas: &[(&str, bool)]) -> Arc<Catalog> {
-        Arc::new(Catalog { database_kind: crate::model::DatabaseKind::Postgres,
+        Arc::new(Catalog {
+            database_kind: crate::model::DatabaseKind::Postgres,
             db: DatabaseRef { connection_id: ConnectionId(uuid::Uuid::nil()), database: database.into() },
             version: 1,
             default_schema: default.map(str::to_owned),
@@ -264,8 +284,22 @@ mod tests {
                     db("template1", true, DbAccess::Ok),
                 ],
                 catalogs: HashMap::from([
-                    ("shop".to_owned(), catalog("shop", Some("public"), &[("information_schema", true), ("lab", false), ("pg_catalog", true), ("public", false)])),
-                    ("reporting".to_owned(), catalog("reporting", Some("public"), &[("audit", false), ("pg_catalog", true), ("public", false)])),
+                    (
+                        "shop".to_owned(),
+                        catalog(
+                            "shop",
+                            Some("public"),
+                            &[("information_schema", true), ("lab", false), ("pg_catalog", true), ("public", false)],
+                        ),
+                    ),
+                    (
+                        "reporting".to_owned(),
+                        catalog(
+                            "reporting",
+                            Some("public"),
+                            &[("audit", false), ("pg_catalog", true), ("public", false)],
+                        ),
+                    ),
                 ]),
             }
         }
@@ -293,7 +327,11 @@ mod tests {
         let view = ConnectionView::initial();
         assert_eq!(resolve_databases(&view, &server.known()), names(&["shop"]));
         assert_eq!(shown_schemas(&view, &server, "shop"), ["lab", "public"]);
-        assert_eq!(shown_schemas(&view, &server, "reporting"), ["public"], "a database with no entry shows its default schema");
+        assert_eq!(
+            shown_schemas(&view, &server, "reporting"),
+            ["public"],
+            "a database with no entry shows its default schema"
+        );
     }
 
     #[test]
@@ -327,10 +365,21 @@ mod tests {
         let view = ConnectionView::initial()
             .apply(&ViewEdit::Databases { preset: Preset::All }, &known)
             .apply(&ViewEdit::Schemas { database: "shop".into(), preset: Preset::All }, &known);
-        assert_eq!(resolve_databases(&view, &known), names(&["postgres", "reporting", "shop"]), "no-access and system databases stay out");
+        assert_eq!(
+            resolve_databases(&view, &known),
+            names(&["postgres", "reporting", "shop"]),
+            "no-access and system databases stay out"
+        );
 
         server.databases.push(db("analytics", false, DbAccess::Ok));
-        server.catalogs.insert("shop".into(), catalog("shop", Some("public"), &[("archive", false), ("lab", false), ("pg_catalog", true), ("public", false)]));
+        server.catalogs.insert(
+            "shop".into(),
+            catalog(
+                "shop",
+                Some("public"),
+                &[("archive", false), ("lab", false), ("pg_catalog", true), ("public", false)],
+            ),
+        );
         assert_eq!(resolve_databases(&view, &server.known()), names(&["analytics", "postgres", "reporting", "shop"]));
         assert_eq!(shown_schemas(&view, &server, "shop"), ["archive", "lab", "public"]);
     }
@@ -339,19 +388,27 @@ mod tests {
     fn the_first_checkbox_materializes_the_resolved_set() {
         let server = Server::seed();
         let known = server.known();
-        let from_default = ConnectionView::initial().apply(&ViewEdit::Database { name: "reporting".into(), shown: true }, &known);
+        let from_default =
+            ConnectionView::initial().apply(&ViewEdit::Database { name: "reporting".into(), shown: true }, &known);
         assert_eq!(from_default.databases, only(&["reporting", "shop"]));
 
         let all = ConnectionView::initial().apply(&ViewEdit::Databases { preset: Preset::All }, &known);
         let from_all = all.apply(&ViewEdit::Database { name: "postgres".into(), shown: false }, &known);
         assert_eq!(from_all.databases, only(&["reporting", "shop"]));
 
-        let schema_from_all = from_all.apply(&ViewEdit::Schema { database: "shop".into(), name: "lab".into(), shown: false }, &known);
+        let schema_from_all =
+            from_all.apply(&ViewEdit::Schema { database: "shop".into(), name: "lab".into(), shown: false }, &known);
         assert_eq!(schema_from_all.schemas["shop"].schemas, only(&["public"]));
-        let schema_from_default = from_all.apply(&ViewEdit::Schema { database: "reporting".into(), name: "audit".into(), shown: true }, &known);
+        let schema_from_default = from_all
+            .apply(&ViewEdit::Schema { database: "reporting".into(), name: "audit".into(), shown: true }, &known);
         assert_eq!(schema_from_default.schemas["reporting"].schemas, only(&["audit", "public"]));
-        let unknown_catalog = from_all.apply(&ViewEdit::Schema { database: "postgres".into(), name: "public".into(), shown: true }, &known);
-        assert_eq!(unknown_catalog.schemas["postgres"].schemas, only(&["public"]), "an unknown catalog materializes as empty, then takes the name");
+        let unknown_catalog = from_all
+            .apply(&ViewEdit::Schema { database: "postgres".into(), name: "public".into(), shown: true }, &known);
+        assert_eq!(
+            unknown_catalog.schemas["postgres"].schemas,
+            only(&["public"]),
+            "an unknown catalog materializes as empty, then takes the name"
+        );
     }
 
     #[test]
@@ -359,15 +416,24 @@ mod tests {
         let server = Server::seed();
         let known = server.known();
         let mut view = ConnectionView::initial();
-        view.schemas.insert("reporting".into(), DatabaseView { schemas: only(&["dropped"]), show_system_schemas: true });
-        view.schemas.insert("postgres".into(), DatabaseView { schemas: only(&["dropped"]), show_system_schemas: false });
+        view.schemas
+            .insert("reporting".into(), DatabaseView { schemas: only(&["dropped"]), show_system_schemas: true });
+        view.schemas
+            .insert("postgres".into(), DatabaseView { schemas: only(&["dropped"]), show_system_schemas: false });
 
         let shown = view.apply(&ViewEdit::Database { name: "reporting".into(), shown: true }, &known);
-        assert_eq!(shown.schemas["reporting"], DatabaseView { schemas: Selection::DefaultOnly, show_system_schemas: true });
+        assert_eq!(
+            shown.schemas["reporting"],
+            DatabaseView { schemas: Selection::DefaultOnly, show_system_schemas: true }
+        );
         assert_eq!(shown_schemas(&shown, &server, "reporting"), ["public"]);
 
         let deferred = view.apply(&ViewEdit::Database { name: "postgres".into(), shown: true }, &known);
-        assert_eq!(deferred.schemas["postgres"].schemas, only(&["dropped"]), "without a catalog the check waits for the first load");
+        assert_eq!(
+            deferred.schemas["postgres"].schemas,
+            only(&["dropped"]),
+            "without a catalog the check waits for the first load"
+        );
     }
 
     #[test]
@@ -385,13 +451,20 @@ mod tests {
     fn a_system_schema_in_only_follows_the_toggle_without_being_forgotten() {
         let server = Server::seed();
         let known = server.known();
-        let checked = ConnectionView::initial().apply(&ViewEdit::Schema { database: "shop".into(), name: "pg_catalog".into(), shown: true }, &known);
+        let checked = ConnectionView::initial()
+            .apply(&ViewEdit::Schema { database: "shop".into(), name: "pg_catalog".into(), shown: true }, &known);
         assert_eq!(shown_schemas(&checked, &server, "shop"), ["lab", "public"]);
-        assert_eq!(system_schemas_to_load(&checked.database("shop", "shop"),crate::model::DatabaseKind::Postgres), Vec::<String>::new());
+        assert_eq!(
+            system_schemas_to_load(&checked.database("shop", "shop"), crate::model::DatabaseKind::Postgres),
+            Vec::<String>::new()
+        );
 
         let on = checked.apply(&ViewEdit::ShowSystemSchemas { database: "shop".into(), show: true }, &known);
         assert_eq!(shown_schemas(&on, &server, "shop"), ["lab", "pg_catalog", "public"]);
-        assert_eq!(system_schemas_to_load(&on.database("shop", "shop"),crate::model::DatabaseKind::Postgres), ["pg_catalog"]);
+        assert_eq!(
+            system_schemas_to_load(&on.database("shop", "shop"), crate::model::DatabaseKind::Postgres),
+            ["pg_catalog"]
+        );
 
         let off = on.apply(&ViewEdit::ShowSystemSchemas { database: "shop".into(), show: false }, &known);
         assert_eq!(shown_schemas(&off, &server, "shop"), ["lab", "public"]);
@@ -408,7 +481,11 @@ mod tests {
         assert_eq!(view.databases, only(&["secret", "shop", "template1"]));
         assert_eq!(resolve_databases(&view, &known), names(&["shop"]));
         let with_system = view.apply(&ViewEdit::ShowSystemDatabases { show: true }, &known);
-        assert_eq!(resolve_databases(&with_system, &known), names(&["shop", "template1"]), "secret has no CONNECT privilege");
+        assert_eq!(
+            resolve_databases(&with_system, &known),
+            names(&["shop", "template1"]),
+            "secret has no CONNECT privilege"
+        );
     }
 
     #[test]
@@ -423,10 +500,16 @@ mod tests {
 
     #[test]
     fn a_view_round_trips_through_json() {
-        let mut view = ConnectionView { databases: only(&["reporting", "shop"]), show_system_databases: true, schemas: BTreeMap::new() };
+        let mut view = ConnectionView {
+            databases: only(&["reporting", "shop"]),
+            show_system_databases: true,
+            schemas: BTreeMap::new(),
+        };
         view.schemas.insert("shop".into(), DatabaseView { schemas: Selection::All, show_system_schemas: false });
-        view.schemas.insert("reporting".into(), DatabaseView { schemas: Selection::DefaultOnly, show_system_schemas: true });
-        view.schemas.insert("postgres".into(), DatabaseView { schemas: only(&["pg_catalog"]), show_system_schemas: true });
+        view.schemas
+            .insert("reporting".into(), DatabaseView { schemas: Selection::DefaultOnly, show_system_schemas: true });
+        view.schemas
+            .insert("postgres".into(), DatabaseView { schemas: only(&["pg_catalog"]), show_system_schemas: true });
         let json = serde_json::to_value(&view).unwrap();
         assert_eq!(
             json,
