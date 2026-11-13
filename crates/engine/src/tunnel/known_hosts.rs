@@ -1,7 +1,7 @@
+use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::io::ErrorKind;
 use std::path::PathBuf;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use russh::keys::known_hosts::{known_host_keys_path, learn_known_hosts_path};
@@ -108,7 +108,7 @@ impl HostKeys {
     }
 
     fn hold(&self, host: &str, port: u16, key: &PublicKey) -> HostKeyId {
-        let mut pending = self.pending.lock().unwrap();
+        let mut pending = self.pending.lock();
         pending.prune();
         while pending.keys.len() >= PENDING_MAX {
             pending.keys.pop_front();
@@ -122,7 +122,7 @@ impl HostKeys {
     /// Appends the held key to the app's known_hosts. Sync and std-only, so the IPC command can
     /// run on the main thread.
     pub fn trust(&self, id: HostKeyId) -> Result<(), String> {
-        let mut pending = self.pending.lock().unwrap();
+        let mut pending = self.pending.lock();
         pending.prune();
         let index = pending
             .keys

@@ -1,4 +1,5 @@
-use std::sync::{Arc, Mutex, MutexGuard};
+use parking_lot::{Mutex, MutexGuard};
+use std::sync::Arc;
 
 use chacha20poly1305::aead::{Aead, AeadCore, KeyInit, OsRng, Payload};
 use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
@@ -50,11 +51,11 @@ pub struct MemoryKeyStore(Mutex<Option<[u8; 32]>>);
 
 impl KeyStore for MemoryKeyStore {
     fn load(&self) -> Result<Option<[u8; 32]>, SecretError> {
-        Ok(*self.0.lock().unwrap())
+        Ok(*self.0.lock())
     }
 
     fn save(&self, key: &[u8; 32]) -> Result<(), SecretError> {
-        *self.0.lock().unwrap() = Some(*key);
+        *self.0.lock() = Some(*key);
         Ok(())
     }
 }
@@ -100,7 +101,7 @@ impl Vault {
     }
 
     fn loaded(&self) -> Result<MutexGuard<'_, Option<Key>>, SecretError> {
-        let mut key = self.key.lock().unwrap_or_else(|e| e.into_inner());
+        let mut key = self.key.lock();
         if key.is_none() {
             *key = self.keys.load()?.map(Key::from);
         }

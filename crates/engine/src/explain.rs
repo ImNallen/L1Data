@@ -425,7 +425,7 @@ fn store_plan(
         caps,
         started,
     )?;
-    console.results.lock().unwrap().push(set);
+    console.results.lock().push(set);
     Ok(output)
 }
 

@@ -56,8 +56,8 @@ impl<'a> OutputBatch<'a> {
 pub struct Console {
     pub tab: TabId,
     pub inner: Mutex<ConsoleInner>,
-    pub results: std::sync::Mutex<Vec<Arc<ResultSet>>>,
-    pub latest: std::sync::Mutex<ConsoleState>,
+    pub results: parking_lot::Mutex<Vec<Arc<ResultSet>>>,
+    pub latest: parking_lot::Mutex<ConsoleState>,
     pub closed: AtomicBool,
 }
 
@@ -281,14 +281,14 @@ impl Console {
         Self {
             tab,
             inner: Mutex::new(inner),
-            results: std::sync::Mutex::new(Vec::new()),
-            latest: std::sync::Mutex::new(latest),
+            results: parking_lot::Mutex::new(Vec::new()),
+            latest: parking_lot::Mutex::new(latest),
             closed: AtomicBool::new(false),
         }
     }
 
     pub fn result_set(&self, r: ResultRef) -> Option<Arc<ResultSet>> {
-        self.results.lock().unwrap().iter().find(|s| s.r#ref == r).cloned()
+        self.results.lock().iter().find(|s| s.r#ref == r).cloned()
     }
 
     pub fn snapshot(&self, inner: &ConsoleInner) -> ConsoleState {
@@ -325,7 +325,7 @@ impl Console {
     pub fn publish(&self, inner: &mut ConsoleInner, shared: &Shared) -> ConsoleState {
         inner.rev += 1;
         let state = self.snapshot(inner);
-        *self.latest.lock().unwrap() = state.clone();
+        *self.latest.lock() = state.clone();
         if !self.closed.load(Ordering::Relaxed) {
             shared.emit(AppEvent::ConsoleChanged(state.clone()));
         }
@@ -971,7 +971,7 @@ async fn run_outputs(
                         actual.r#type = SqlTypeRef { display: known.type_display.clone(), category: known.category };
                     }
                 }
-                let ordinal = match u16::try_from(console.results.lock().unwrap().len()) {
+                let ordinal = match u16::try_from(console.results.lock().len()) {
                     Ok(n) => n,
                     Err(_) => {
                         failure = Some(crate::session::error("Too many result sets"));
@@ -994,7 +994,7 @@ async fn run_outputs(
                     columns,
                     origin,
                 ));
-                console.results.lock().unwrap().push(set.clone());
+                console.results.lock().push(set.clone());
                 active = Some((set.clone(), outputs.len()));
                 outputs.push(RunOutput::Rows { result: set.meta(), state: RowsState::Streaming });
                 console

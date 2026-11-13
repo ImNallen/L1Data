@@ -1,5 +1,6 @@
+use parking_lot::{Mutex, MutexGuard};
 use std::collections::{BTreeMap, HashMap};
-use std::sync::{Mutex, MutexGuard};
+
 use std::time::Duration;
 
 use serde_json::Value;
@@ -167,7 +168,7 @@ impl Chat {
     /// The lock, or `None` once the chat is deleted. Every store and publish path takes it
     /// here, so a deleted chat is inert without each caller remembering to check.
     pub(super) fn unless_deleted(&self) -> Option<MutexGuard<'_, ChatInner>> {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock();
         (!inner.deleted()).then_some(inner)
     }
 
@@ -176,7 +177,7 @@ impl Chat {
     }
 
     pub(crate) fn permission(&self) -> Permission {
-        self.inner.lock().unwrap().record.options.permission
+        self.inner.lock().record.options.permission
     }
 
     /// The one answer to "may this call run?". Idempotent per call id: the provider asks before
@@ -184,7 +185,7 @@ impl Chat {
     /// recorded, and a call whose input differs from the approved or pending one is denied.
     /// A current policy refusal takes precedence over any recorded decision.
     pub(crate) fn gate(&self, assistant: &Assistant, call: &ToolCallId, input: &Value, ask: &Ask) -> Gated {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         if let Ask::Refuse(message) = ask {
             return Gated::Deny(Refusal::Policy(message.clone()));
         }
@@ -222,7 +223,7 @@ impl Chat {
     }
 
     pub(crate) fn answer(&self, approval: ApprovalId, decision: Decision) -> Result<(), ApproveError> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         let call = inner
             .ledger
             .calls
@@ -239,7 +240,7 @@ impl Chat {
     }
 
     pub(crate) fn deny_pending(&self, why: Refusal) -> Vec<ToolCallId> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         let pending = inner.ledger.pending();
         for call in &pending {
             inner.ledger.decide(call, Err(why.clone()));
@@ -248,15 +249,15 @@ impl Chat {
     }
 
     pub(crate) fn cancel(&self, call: &ToolCallId) {
-        self.inner.lock().unwrap().ledger.decide(call, Err(Refusal::Cancelled));
+        self.inner.lock().ledger.decide(call, Err(Refusal::Cancelled));
     }
 
     pub(crate) fn has_pending(&self) -> bool {
-        self.inner.lock().unwrap().ledger.calls.values().any(|g| matches!(g, Gate::Pending { .. }))
+        self.inner.lock().ledger.calls.values().any(|g| matches!(g, Gate::Pending { .. }))
     }
 
     pub(crate) fn is_pending(&self, call: &ToolCallId) -> bool {
-        matches!(self.inner.lock().unwrap().ledger.calls.get(call), Some(Gate::Pending { .. }))
+        matches!(self.inner.lock().ledger.calls.get(call), Some(Gate::Pending { .. }))
     }
 
     pub(crate) fn publish_entry(&self, shared: &Shared, seq: u32, turn: u32, entry: Entry) {
@@ -305,7 +306,7 @@ impl Chat {
     }
 
     pub(crate) fn state(&self) -> ChatState {
-        Self::state_of(self.id, &self.inner.lock().unwrap())
+        Self::state_of(self.id, &self.inner.lock())
     }
 
     pub(crate) fn state_of(id: ChatId, inner: &ChatInner) -> ChatState {

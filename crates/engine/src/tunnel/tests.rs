@@ -179,7 +179,7 @@ impl Bastion {
                 let (config, gate, held) = (config.clone(), gate.clone(), held.clone());
                 tokio::spawn(async move {
                     let Ok(running) = server::run_stream(config, socket, gate.clone()).await else { return };
-                    held.lock().unwrap().push(running.handle());
+                    held.lock().push(running.handle());
                     gate.counters.live.fetch_add(1, Ordering::SeqCst);
                     let _ = running.await;
                     gate.counters.live.fetch_sub(1, Ordering::SeqCst);
@@ -198,7 +198,7 @@ impl Bastion {
     }
 
     async fn drop_connections(&self) {
-        let sessions: Vec<_> = self.sessions.lock().unwrap().drain(..).collect();
+        let sessions: Vec<_> = self.sessions.lock().drain(..).collect();
         for handle in sessions {
             let _ = handle.disconnect(Disconnect::ByApplication, "test".into(), "".into()).await;
         }

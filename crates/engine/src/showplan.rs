@@ -221,7 +221,7 @@ pub(crate) async fn run(console: Arc<Console>, shared: Arc<Shared>, launch: Laun
                 started,
             ) {
                 Ok((set, output)) => {
-                    console.results.lock().unwrap().push(set);
+                    console.results.lock().push(set);
                     output
                 }
                 Err(error) => {

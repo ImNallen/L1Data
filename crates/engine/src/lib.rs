@@ -33,12 +33,13 @@ mod update;
 mod view;
 mod writes;
 
+use parking_lot::RwLock;
 use std::collections::{BTreeSet, HashMap};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use tokio::sync::broadcast;
@@ -179,7 +180,7 @@ impl Shared {
     }
 
     pub(crate) fn settings(&self) -> Settings {
-        self.settings.read().unwrap().clone()
+        self.settings.read().clone()
     }
 
     fn next_run_id(&self) -> RunId {
@@ -194,11 +195,11 @@ impl Shared {
     }
 
     fn connection_state(&self, id: ConnectionId) -> Option<ConnectionState> {
-        self.connections.read().unwrap().get(&id).map(|e| e.state(id))
+        self.connections.read().get(&id).map(|e| e.state(id))
     }
 
     fn set_connection(&self, id: ConnectionId, slot: ConnSlot) {
-        let mut map = self.connections.write().unwrap();
+        let mut map = self.connections.write();
         let entry = map.entry(id).or_insert(ConnEntry { rev: 0, slot: ConnSlot::Disconnected });
         entry.rev += 1;
         entry.slot = slot;
@@ -208,7 +209,7 @@ impl Shared {
     }
 
     fn instance(&self, id: ConnectionId) -> Option<Arc<Instance>> {
-        self.connections.read().unwrap().get(&id).and_then(ConnEntry::instance)
+        self.connections.read().get(&id).and_then(ConnEntry::instance)
     }
 
     fn config(&self, id: ConnectionId) -> Option<ConnectionConfig> {
@@ -309,7 +310,7 @@ impl Shared {
     }
 
     fn all_consoles(&self) -> Vec<Arc<Console>> {
-        self.consoles.read().unwrap().values().cloned().collect()
+        self.consoles.read().values().cloned().collect()
     }
 
     /// Databases of `id` that may have a slot (`keep`): the home database, the shown ones, the
@@ -319,7 +320,7 @@ impl Shared {
     fn wanted(&self, instance: &Instance) -> Wanted {
         let mut keep = BTreeSet::from([instance.home.clone()]);
         for console in self.all_consoles() {
-            let config = console.latest.lock().unwrap().config.clone();
+            let config = console.latest.lock().config.clone();
             if config.connection_id == instance.config.id {
                 keep.insert(config.database);
             }
@@ -434,14 +435,14 @@ impl Shared {
         };
         let version = self.next_catalog_version();
         let extra = view::system_schemas_to_load(
-            &instance.view.read().unwrap().database(&slot.db.database, &instance.home),
+            &instance.view.read().database(&slot.db.database, &instance.home),
             instance.config.database_kind,
         );
         match session.catalog(slot.db.clone(), version, &extra).await {
             Ok(catalog) => {
                 let catalog = Arc::new(catalog);
                 slot.set(CatalogSlot::Ready(catalog.clone()));
-                let owed_check = instance.show_checks.lock().unwrap().remove(&slot.db.database);
+                let owed_check = instance.show_checks.lock().remove(&slot.db.database);
                 if owed_check {
                     self.check_shown_schemas(instance, &slot.db.database, &catalog).await;
                 }
@@ -486,7 +487,7 @@ impl Shared {
         if let Err(e) = self.store.set_view(instance.config.id, &next) {
             eprintln!("connection view save failed: {e}");
         }
-        *instance.view.write().unwrap() = next;
+        *instance.view.write() = next;
     }
 
     /// Re-reads `pg_database` on the home session into the instance and drops the probe cache,
@@ -500,8 +501,8 @@ impl Shared {
             .await
             .map_err(|e| failed(connection::connect_error_text(&e)))?;
         let (databases, _) = session.list_databases().await.map_err(|e| failed(e.message))?;
-        instance.probes.lock().unwrap().clear();
-        *instance.databases.write().unwrap() = Arc::new(databases);
+        instance.probes.lock().clear();
+        *instance.databases.write() = Arc::new(databases);
         Ok(())
     }
 
@@ -528,7 +529,7 @@ impl Shared {
     }
 
     fn republish_connection(&self, id: ConnectionId) {
-        let mut map = self.connections.write().unwrap();
+        let mut map = self.connections.write();
         let Some(entry) = map.get_mut(&id) else { return };
         entry.rev += 1;
         let state = entry.state(id);
@@ -581,7 +582,7 @@ impl Shared {
         if owed.catalog {
             match self.instance(db.connection_id) {
                 Some(instance) if instance.config.database_kind == DatabaseKind::SqlServer => {
-                    let tracked_slots: Vec<_> = instance.slots.lock().unwrap().values().cloned().collect();
+                    let tracked_slots: Vec<_> = instance.slots.lock().values().cloned().collect();
                     for slot in tracked_slots {
                         self.schedule_slot_catalog_refresh(instance.clone(), slot);
                     }
@@ -673,7 +674,7 @@ impl Shared {
     /// one write lock, so concurrent callers share a single attempt.
     async fn connect(self: &Arc<Self>, id: ConnectionId) -> Result<ServerInfo, ConnectError> {
         let (mut attempt, started) = {
-            let mut map = self.connections.write().unwrap();
+            let mut map = self.connections.write();
             let entry = map.entry(id).or_insert(ConnEntry { rev: 0, slot: ConnSlot::Disconnected });
             match &entry.slot {
                 ConnSlot::Connected(instance) => return Ok(instance.server.clone()),
@@ -887,7 +888,7 @@ impl Shared {
     }
 
     fn console(&self, tab: TabId) -> Option<Arc<Console>> {
-        self.consoles.read().unwrap().get(&tab).cloned()
+        self.consoles.read().get(&tab).cloned()
     }
 
     fn result_set(&self, r: ResultRef) -> Option<Arc<results::ResultSet>> {
@@ -964,8 +965,8 @@ impl Engine {
 
     pub fn boot(&self) -> BootSnapshot {
         let s = &self.shared;
-        let live = s.connections.read().unwrap().iter().map(|(id, e)| e.state(*id)).collect();
-        let consoles = s.consoles.read().unwrap().values().map(|c| c.latest.lock().unwrap().clone()).collect();
+        let live = s.connections.read().iter().map(|(id, e)| e.state(*id)).collect();
+        let consoles = s.consoles.read().values().map(|c| c.latest.lock().clone()).collect();
         let saved = s.store.connections().unwrap_or_else(|e| {
             eprintln!("connections load failed: {e}");
             store::SavedConnections { configs: Vec::new(), unreadable: 0 }
@@ -1115,7 +1116,7 @@ impl Engine {
         self.disconnect(id, false).await?;
         let s = &self.shared;
         s.store.delete_connection(id).map_err(|e| DisconnectError::Store { message: e.to_string() })?;
-        s.connections.write().unwrap().remove(&id);
+        s.connections.write().remove(&id);
         Ok(())
     }
 
@@ -1286,7 +1287,7 @@ impl Engine {
         let _edits = s.view_edits.lock().await;
         let instance = s.instance(id).ok_or(CatalogError::NotConnected)?;
         let view = instance.view();
-        let databases = instance.databases.read().unwrap().clone();
+        let databases = instance.databases.read().clone();
         // Showing a database whose catalog is unknown defers the empty-selection reset to its
         // first load. The check is registered before the catalogs are read: a load that finishes
         // in between is then seen here, and the check is withdrawn as `apply` covers it.
@@ -1295,7 +1296,7 @@ impl Engine {
             _ => None,
         };
         if let Some(name) = &deferred {
-            instance.show_checks.lock().unwrap().insert(name.clone());
+            instance.show_checks.lock().insert(name.clone());
         }
         let catalogs = instance.catalogs();
         let known = Known { home: &instance.home, databases: &databases, catalogs: &catalogs };
@@ -1309,7 +1310,7 @@ impl Engine {
             _ => None,
         };
         if let Some(name) = settled {
-            instance.show_checks.lock().unwrap().remove(name);
+            instance.show_checks.lock().remove(name);
         }
         let reload: Vec<String> = instance
             .slot_names()
@@ -1319,7 +1320,7 @@ impl Engine {
                     != view::system_schemas_to_load(&next.database(db, &instance.home), instance.config.database_kind)
             })
             .collect();
-        *instance.view.write().unwrap() = next;
+        *instance.view.write() = next;
         s.reconcile_instance(&instance);
         for database in reload {
             s.schedule_catalog_refresh(DatabaseRef { connection_id: id, database });
@@ -1337,7 +1338,7 @@ impl Engine {
             databases.into_iter().filter(|name| instance.slot(name).is_none() && instance.knows(name)).collect();
         let mut fresh = Vec::new();
         {
-            let mut probes = instance.probes.lock().unwrap();
+            let mut probes = instance.probes.lock();
             for name in candidates {
                 if !probes.contains_key(&name) {
                     probes.insert(name.clone(), SchemaCount::Probing);
@@ -1375,7 +1376,7 @@ impl Engine {
                     return;
                 }
                 // A re-read cleared the cache while this probe ran; its count is of the old list.
-                let mut probes = instance.probes.lock().unwrap();
+                let mut probes = instance.probes.lock();
                 if probes.get(&name) != Some(&SchemaCount::Probing) {
                     return;
                 }
@@ -1503,7 +1504,7 @@ impl Engine {
         let mut view =
             ConsoleConfigView { connection_id: c.connection_id, database: c.database, schema: c.schema, mode: c.mode };
         let console = {
-            let mut map = s.consoles.write().unwrap();
+            let mut map = s.consoles.write();
             map.entry(tab).or_insert_with(|| Arc::new(Console::new(tab, view.clone()))).clone()
         };
         let mut inner = console.inner.lock().await;
@@ -1693,7 +1694,7 @@ impl Engine {
                     config.database.clone(),
                     entered,
                 )?;
-                console.results.lock().unwrap().clear();
+                console.results.lock().clear();
                 inner.run = RunState::Running {
                     run_id,
                     started_at_ms: console::now_ms(),
@@ -1742,7 +1743,7 @@ impl Engine {
                 config.database.clone(),
                 entered,
             )?;
-            console.results.lock().unwrap().clear();
+            console.results.lock().clear();
             inner.run = RunState::Running {
                 run_id,
                 started_at_ms: console::now_ms(),
@@ -1776,7 +1777,7 @@ impl Engine {
             return Err(RunError::Busy);
         };
         let txn = inner.txn;
-        console.results.lock().unwrap().clear();
+        console.results.lock().clear();
         inner.run = RunState::Running {
             run_id,
             started_at_ms: console::now_ms(),
@@ -2058,8 +2059,8 @@ impl Engine {
         }
         console.closed.store(true, Ordering::Relaxed);
         console.drop_session(s).await;
-        s.consoles.write().unwrap().remove(&tab);
-        let connection_id = console.latest.lock().unwrap().config.connection_id;
+        s.consoles.write().remove(&tab);
+        let connection_id = console.latest.lock().config.connection_id;
         s.reconcile(connection_id);
         Ok(())
     }
@@ -2317,7 +2318,7 @@ impl Engine {
         if let Err(e) = self.shared.store.kv_set(KV_SETTINGS, &s) {
             eprintln!("settings save failed: {e}");
         }
-        let before = std::mem::replace(&mut *self.shared.settings.write().unwrap(), s.clone());
+        let before = std::mem::replace(&mut *self.shared.settings.write(), s.clone());
         drop(access);
         self.shared.reprobe_changed(&before.providers, &s.providers);
     }
@@ -3125,7 +3126,7 @@ mod tests {
                 mode: TxnMode::Manual,
             },
         ));
-        engine.shared.consoles.write().unwrap().insert(tab, legacy.clone());
+        engine.shared.consoles.write().insert(tab, legacy.clone());
         let before = serde_json::to_value(legacy.snapshot(&*legacy.inner.lock().await)).unwrap();
         for request in [
             RunRequest::Script {
@@ -3557,7 +3558,7 @@ mod tests {
     }
 
     fn probe_of(instance: &Instance, name: &str) -> Option<SchemaCount> {
-        instance.probes.lock().unwrap().get(name).cloned()
+        instance.probes.lock().get(name).cloned()
     }
 
     async fn wait_until(what: &str, done: impl Fn() -> bool) {
@@ -3656,7 +3657,7 @@ mod tests {
         let mut lost = 0;
         while std::time::Instant::now() < deadline {
             for (view, want_slot) in [(&shown, true), (&hidden, false)] {
-                *instance.view.write().unwrap() = view.clone();
+                *instance.view.write() = view.clone();
                 engine.shared.reconcile(id);
                 if instance.slot("x").is_some() != want_slot {
                     lost += 1;

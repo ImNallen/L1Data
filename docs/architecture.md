@@ -823,8 +823,8 @@ The frontend sequences two calls for one operation in two places only. `runTab` 
 pub struct Console {
     pub tab: TabId,
     pub inner: Mutex<ConsoleInner>,                       // tokio Mutex, held only for state edits, never across a query
-    pub results: std::sync::Mutex<Vec<Arc<ResultSet>>>,   // results of the current/last run only; dropped on re-run
-    pub latest: std::sync::Mutex<ConsoleState>,           // the last published snapshot, for boot()
+    pub results: parking_lot::Mutex<Vec<Arc<ResultSet>>>,   // results of the current/last run only; dropped on re-run
+    pub latest: parking_lot::Mutex<ConsoleState>,           // the last published snapshot, for boot()
     pub closed: AtomicBool,
 }
 pub struct ConsoleInner {
@@ -1075,7 +1075,7 @@ Everything lives under `app_data_dir()` (override with `L1_DATA_DATA_DIR` in deb
 
 Provider configs and the health check interval are part of `settings` in `kv`. Probe results stay in memory, so a launch never shows a stale sign-in. An update can install an older build, so a `settings` row that this build cannot parse loads as the defaults and stays as saved until the user changes a setting, rather than stopping `Engine::open`.
 
-The OS credential store holds one item, a random 32-byte master key, with service `dev.l1data.app` and user `master-key`. macOS therefore asks for keychain access once, not once per connection. Each password is sealed with XChaCha20-Poly1305 under that key, with a random nonce and the connection id as associated data, and the result is stored in the `secrets` table. An SSH secret is sealed the same way with `{id}/ssh` as associated data and stored in `ssh_secrets`, so a blob moved between the tables does not open. All passwords do not go into one keychain item because Windows Credential Manager caps an item at 2560 bytes. The first saved password creates the key. Reading a password never creates one. If the key is missing or a password fails to open (wiped keychain, copied data dir, memory store restart), the connection behaves as if it had no password, and the user enters it again at the `MissingPassword` prompt. `trait KeyStore { load, save }` has two implementations: `KeyringKeyStore` and `MemoryKeyStore`. The second exists for tests and e2e, selected by `L1_DATA_SECRET_STORE=memory` in debug builds only. SQLite access is a `std::sync::Mutex<rusqlite::Connection>`. Writes are single-row and sub-millisecond, so they run inline.
+The OS credential store holds one item, a random 32-byte master key, with service `dev.l1data.app` and user `master-key`. macOS therefore asks for keychain access once, not once per connection. Each password is sealed with XChaCha20-Poly1305 under that key, with a random nonce and the connection id as associated data, and the result is stored in the `secrets` table. An SSH secret is sealed the same way with `{id}/ssh` as associated data and stored in `ssh_secrets`, so a blob moved between the tables does not open. All passwords do not go into one keychain item because Windows Credential Manager caps an item at 2560 bytes. The first saved password creates the key. Reading a password never creates one. If the key is missing or a password fails to open (wiped keychain, copied data dir, memory store restart), the connection behaves as if it had no password, and the user enters it again at the `MissingPassword` prompt. `trait KeyStore { load, save }` has two implementations: `KeyringKeyStore` and `MemoryKeyStore`. The second exists for tests and e2e, selected by `L1_DATA_SECRET_STORE=memory` in debug builds only. SQLite access is a `parking_lot::Mutex<rusqlite::Connection>`. Writes are single-row and sub-millisecond, so they run inline.
 
 ### Repo layout
 

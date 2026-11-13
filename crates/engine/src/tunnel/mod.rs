@@ -5,6 +5,7 @@ mod known_hosts;
 #[cfg(test)]
 mod tests;
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -12,7 +13,7 @@ use std::io;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Weak};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -114,14 +115,14 @@ impl Tunnels {
         let fresh = || Arc::new(Cell::new(spec.clone(), self.hosts.clone()));
         let cell = match owner {
             None => fresh(),
-            Some(id) => self.cells.lock().unwrap().entry((id, spec.clone())).or_insert_with(fresh).clone(),
+            Some(id) => self.cells.lock().entry((id, spec.clone())).or_insert_with(fresh).clone(),
         };
         Ok(SshRoute(cell))
     }
 
     /// Drops the connection's routes, so its next session dials. Streams already open keep theirs.
     pub fn forget(&self, id: ConnectionId) {
-        self.cells.lock().unwrap().retain(|(owner, _), _| *owner != id);
+        self.cells.lock().retain(|(owner, _), _| *owner != id);
     }
 
     pub fn trust(&self, key: HostKeyId) -> Result<(), String> {

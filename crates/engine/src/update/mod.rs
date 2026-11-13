@@ -1,7 +1,8 @@
 mod machine;
 mod scripted;
 
-use std::sync::{Arc, Mutex, Weak};
+use parking_lot::Mutex;
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -93,13 +94,13 @@ impl Updates {
     }
 
     pub(crate) fn state(&self) -> UpdateState {
-        self.machine.lock().unwrap().state()
+        self.machine.lock().state()
     }
 }
 
 impl Shared {
     fn edit_update<T>(&self, f: impl FnOnce(&mut machine::Machine<Box<dyn Release>, Box<dyn Verified>>) -> T) -> T {
-        let (out, changed) = self.updates.machine.lock().unwrap().apply(f);
+        let (out, changed) = self.updates.machine.lock().apply(f);
         if let Some(state) = changed {
             self.emit(AppEvent::UpdateChanged(state));
         }
@@ -149,7 +150,7 @@ impl Shared {
         version: &str,
         accepted: Option<RestartImpact>,
     ) -> Result<InstallReply, UpdateError> {
-        if self.updates.machine.lock().unwrap().installing(version)? {
+        if self.updates.machine.lock().installing(version)? {
             return Ok(InstallReply::Restarting);
         }
         let impact = self.restart_impact().await;
@@ -204,7 +205,7 @@ impl Shared {
         let mut running: Vec<_> = self
             .all_consoles()
             .iter()
-            .filter(|c| c.latest.lock().unwrap().work.is_some_and(|w| w != ConsoleWork::Probe))
+            .filter(|c| c.latest.lock().work.is_some_and(|w| w != ConsoleWork::Probe))
             .map(|c| c.tab)
             .collect();
         running.sort_by_key(|t| t.0);
@@ -222,7 +223,7 @@ pub(crate) async fn schedule(shared: Weak<Shared>) {
     loop {
         tick.tick().await;
         let Some(shared) = shared.upgrade() else { return };
-        if shared.updates.machine.lock().unwrap().due(now_ms()) {
+        if shared.updates.machine.lock().due(now_ms()) {
             shared.update_check();
         }
     }
