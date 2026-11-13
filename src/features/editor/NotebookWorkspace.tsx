@@ -8,11 +8,11 @@ import type { RunState, TabId } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
 import { canCancel, hasUncommittedWork, isBusy, resultKey, rowResults, runSummary, shownResult, type ResultPick } from "../../state/status";
 import { notebookOf } from "../../state/notebooks";
-import { activeId, shownNotebook, useWorkspace } from "../../state/workspace";
+import { activeId, isFiltered, shownNotebook, useWorkspace } from "../../state/workspace";
 import { cx, IconButton } from "../../ui/primitives";
 import { useNow } from "../../ui/useNow";
-import { hasResultPager } from "../results/format";
-import { ResultsPane } from "../results/ResultsPane";
+import { hasResultPager, pageRows } from "../results/format";
+import { ResultsPane, useRowEstimate } from "../results/ResultsPane";
 import { CellGrip } from "./CellGrip";
 import { CellResizeHandle } from "./CellResizeHandle";
 import { CELL_SCROLL_MARGIN, cellHeights, EDITOR_MIN, pinnedTop, type DraggedHeights } from "./cellSizing";
@@ -106,6 +106,8 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
   const rowCounts = console ? rowResults(console.run).map((result) => result.meta.rowCount) : [];
   const largest = rowCounts.length > 0 ? Math.max(...rowCounts) : undefined;
   const table = tab?.table != null;
+  const estimate = useRowEstimate(tab);
+  const total = tab?.table ? (tab.table.exactRowCount ?? (isFiltered(tab.table.query) ? null : estimate)) : null;
   const picked = useWorkspace((s) => s.activeResult[id]);
   const shown = console ? shownResult(console.run, picked) : undefined;
   const shownKey = shown ? resultKey(shown) : "";
@@ -118,7 +120,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
     results: hasResults
       ? {
           table,
-          rows: largest,
+          rows: largest ?? (tab?.table ? pageRows(tab.table.page, pageSize, total) : undefined),
           pageSize,
           rowHeight: gridRowHeight(codeSize, density),
           chrome: Math.round(80 * DENSITY_FACTOR[density]),
