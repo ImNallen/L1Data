@@ -406,7 +406,7 @@ impl Turn {
             text.push_str(&format!(" HINT: {hint}"));
         }
         if let Some(position) = error.position {
-            let byte = OffsetMap::new(&tab.text).from_utf16(position);
+            let byte = OffsetMap::new(&tab.text).to_byte(position);
             let line = tab.text[..byte].matches('\n').count() + 1;
             let column = tab.text[..byte].rsplit('\n').next().map_or(0, |l| l.chars().count()) + 1;
             text.push_str(&format!(" (line {line}, column {column})"));
@@ -581,6 +581,7 @@ impl Turn {
         self.set_phase(if self.chat.has_pending() { TurnPhase::AwaitingApproval } else { TurnPhase::Working });
     }
 
+    #[expect(clippy::too_many_arguments, reason = "predates the clippy gate; group these arguments into a struct")]
     async fn on_gate(
         &mut self,
         agent: &mut Agent,

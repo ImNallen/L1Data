@@ -14,3 +14,6 @@ tempfile = "3"
 tokio = { workspace = true, features = ["signal"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tower-http = { version = "0.7", features = ["cors"] }
+
+[lints]
+workspace = true

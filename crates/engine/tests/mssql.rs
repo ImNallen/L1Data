@@ -82,11 +82,11 @@ impl Harness {
     async fn finish(&mut self, id: RunId) -> ConsoleState {
         tokio::time::timeout(Duration::from_secs(30), async {
             loop {
-                if let AppEvent::ConsoleChanged(state) = self.events.recv().await.unwrap() {
-                    if state.tab_id == self.tab && matches!(state.run, RunState::Finished { run_id, .. } if run_id==id)
-                    {
-                        return state;
-                    }
+                if let AppEvent::ConsoleChanged(state) = self.events.recv().await.unwrap()
+                    && state.tab_id == self.tab
+                    && matches!(state.run, RunState::Finished { run_id, .. } if run_id==id)
+                {
+                    return state;
                 }
             }
         })

@@ -248,10 +248,11 @@ impl Harness {
 
     async fn wait_finished(&mut self, tab: TabId, run_id: RunId) -> ConsoleState {
         loop {
-            if let AppEvent::ConsoleChanged(state) = self.next_event().await {
-                if state.tab_id == tab && matches!(state.run, RunState::Finished { run_id: r, .. } if r == run_id) {
-                    return state;
-                }
+            if let AppEvent::ConsoleChanged(state) = self.next_event().await
+                && state.tab_id == tab
+                && matches!(state.run, RunState::Finished { run_id: r, .. } if r == run_id)
+            {
+                return state;
             }
         }
     }
@@ -3857,7 +3858,7 @@ async fn a_begin_behind_any_comment_holds_its_writes_until_production_asks() {
         set_environment(&h, Some(Environment::Production)).await;
         for text in ["select now()", "commit"] {
             let asked = asked_to_run(&h, tab, script(text), None).await;
-            assert_eq!(asked.holds.statements, [held.clone()], "{header:?} then {text}");
+            assert_eq!(asked.holds.statements, std::slice::from_ref(&held), "{header:?} then {text}");
         }
         assert!(matches!(h.engine.console_commit(tab, None).await, Err(TxnError::ConfirmWrites { .. })), "{header:?}");
         assert_eq!(count(&oracle, &table).await, 0, "{header:?}: nothing committed unasked");
@@ -3880,7 +3881,7 @@ async fn a_rollback_to_a_savepoint_keeps_the_writes_before_it_held() {
         assert_eq!(state.txn, TxnState::Active, "{rollback_to}");
         set_environment(&h, Some(Environment::Production)).await;
         let asked = asked_to_run(&h, tab, script("commit"), None).await;
-        assert_eq!(asked.holds.statements, [held.clone()], "{rollback_to}");
+        assert_eq!(asked.holds.statements, std::slice::from_ref(&held), "{rollback_to}");
         assert_eq!(count(&oracle, &table).await, 0, "{rollback_to}: nothing committed unasked");
         h.engine.console_rollback(tab).await.unwrap();
     }
@@ -3950,7 +3951,7 @@ async fn writes_stay_held_until_the_engine_sees_their_transaction_end() {
         let asked = asked_to_run(&h, tab, script("select 1"), None).await;
         assert_eq!(
             asked.holds.statements,
-            [write.clone()],
+            std::slice::from_ref(&write),
             "an Idle the engine infers does not end the write's transaction"
         );
         set_environment(&h, Some(Environment::Staging)).await;
@@ -4005,7 +4006,7 @@ async fn prepared_transaction_statements_on_production_wait_for_the_digest() {
         (other, format!("rollback prepared '{gid}'")),
     ] {
         let asked = asked_to_run(&h, tab, script(&text), None).await;
-        assert_eq!(asked.sends.statements, [text.clone()]);
+        assert_eq!(asked.sends.statements, std::slice::from_ref(&text));
     }
     let prepared: i64 = oracle
         .query_one(&format!("select count(*) from pg_prepared_xacts where gid = '{gid}'"), &[])

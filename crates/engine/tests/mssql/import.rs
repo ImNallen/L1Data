@@ -119,10 +119,11 @@ async fn csv_import_stop_drains_blocked_work_and_abandoned_waiters_still_finish(
         let worker = tokio::spawn(async move { engine.table_import(tab, request, None).await });
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
-                if let AppEvent::ConsoleChanged(state) = h.events.recv().await.unwrap() {
-                    if state.tab_id == tab && state.work == Some(ConsoleWork::Import) {
-                        break;
-                    }
+                if let AppEvent::ConsoleChanged(state) = h.events.recv().await.unwrap()
+                    && state.tab_id == tab
+                    && state.work == Some(ConsoleWork::Import)
+                {
+                    break;
                 }
             }
         })
@@ -139,11 +140,12 @@ async fn csv_import_stop_drains_blocked_work_and_abandoned_waiters_still_finish(
         }
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
-                if let AppEvent::ConsoleChanged(state) = h.events.recv().await.unwrap() {
-                    if state.tab_id == tab && state.work.is_none() {
-                        assert_eq!(state.txn, TxnState::Idle);
-                        break;
-                    }
+                if let AppEvent::ConsoleChanged(state) = h.events.recv().await.unwrap()
+                    && state.tab_id == tab
+                    && state.work.is_none()
+                {
+                    assert_eq!(state.txn, TxnState::Idle);
+                    break;
                 }
             }
         })
@@ -273,10 +275,11 @@ async fn csv_import_cancel_after_completed_batches_keeps_no_rows() {
     let task = tokio::spawn(async move { engine.table_import(tab, request, None).await });
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            if let AppEvent::ConsoleChanged(state) = h.events.recv().await.unwrap() {
-                if state.tab_id == tab && state.import.is_some_and(|p| p.rows > 0 && p.rows < p.total_rows) {
-                    break;
-                }
+            if let AppEvent::ConsoleChanged(state) = h.events.recv().await.unwrap()
+                && state.tab_id == tab
+                && state.import.is_some_and(|p| p.rows > 0 && p.rows < p.total_rows)
+            {
+                break;
             }
         }
     })
@@ -303,10 +306,11 @@ async fn csv_import_close_and_disconnect_stop_without_bypassing_rollback() {
         let task = tokio::spawn(async move { engine.table_import(tab, request, None).await });
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
-                if let AppEvent::ConsoleChanged(state) = h.events.recv().await.unwrap() {
-                    if state.tab_id == tab && state.work == Some(ConsoleWork::Import) {
-                        break;
-                    }
+                if let AppEvent::ConsoleChanged(state) = h.events.recv().await.unwrap()
+                    && state.tab_id == tab
+                    && state.work == Some(ConsoleWork::Import)
+                {
+                    break;
                 }
             }
         })

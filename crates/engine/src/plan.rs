@@ -86,11 +86,11 @@ fn detail(obj: &Map<String, Value>) -> String {
         text.push('.');
     }
     text.push_str(relation);
-    if let Some(alias) = text_field(obj, "Alias") {
-        if alias != relation {
-            text.push(' ');
-            text.push_str(alias);
-        }
+    if let Some(alias) = text_field(obj, "Alias")
+        && alias != relation
+    {
+        text.push(' ');
+        text.push_str(alias);
     }
     if let Some(index) = text_field(obj, "Index Name") {
         text.push_str(" using ");

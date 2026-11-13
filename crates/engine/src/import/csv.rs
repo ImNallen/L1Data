@@ -71,7 +71,7 @@ impl<R: Read> Parser<R> {
         let mut state = State::Start;
         let mut quoted = false;
         loop {
-            if self.bytes % 4096 == 0 && stop.load(Ordering::Relaxed) {
+            if self.bytes.is_multiple_of(4096) && stop.load(Ordering::Relaxed) {
                 return Err(ImportError::Cancelled);
             }
             let byte = self.reader.fill_buf().map_err(io)?.first().copied();

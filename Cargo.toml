@@ -8,6 +8,12 @@ edition = "2024"
 version = "0.1.0"
 publish = false
 
+# The large enums are IPC errors returned once per command and sessions held once per tab,
+# so boxing them buys nothing.
+[workspace.lints.clippy]
+large_enum_variant = "allow"
+result_large_err = "allow"
+
 [workspace.dependencies]
 engine = { path = "crates/engine" }
 serde = { version = "1", features = ["derive", "rc"] }

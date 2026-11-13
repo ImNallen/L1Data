@@ -566,7 +566,7 @@ fn rows_text(rows: u64) -> String {
     let digits = rows.to_string();
     let mut grouped = String::new();
     for (i, d) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
             grouped.push(',');
         }
         grouped.push(d);
@@ -605,7 +605,7 @@ mod tests {
         use DatabaseKind::{Postgres, SqlServer};
         assert!(matches!(rerun(Postgres, "select * from orders", false), Rerun::Ready(_)));
         assert!(
-            matches!(rerun(Postgres, "select nextval('s'), pg_sleep(1)", false), Rerun::Unvetted { calls, .. } if &*calls == ["nextval", "pg_sleep"])
+            matches!(rerun(Postgres, "select nextval('s'), pg_sleep(1)", false), Rerun::Unvetted { calls, .. } if *calls == ["nextval", "pg_sleep"])
         );
         assert!(matches!(rerun(Postgres, "delete from orders returning *", false), Rerun::Refused(_)));
         assert!(

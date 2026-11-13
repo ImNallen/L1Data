@@ -97,7 +97,7 @@ pub(crate) fn analyze(text: &str, cursor: DocOffset, catalog: &Catalog) -> MapQu
         joins: vec![],
         incomplete: false,
     };
-    let at = map.from_utf16(cursor);
+    let at = map.to_byte(cursor);
     let selected = match kind {
         DatabaseKind::Postgres => super::pick(&super::split_statements(text), text, super::ByteTarget::Cursor(at))
             .into_iter()
@@ -424,9 +424,9 @@ mod tests {
     fn analyze_at_end(sql: &str, kind: DatabaseKind) -> MapQuery {
         analyze(sql, DocOffset(sql.encode_utf16().count() as u32), &catalog(kind))
     }
-    fn slice<'a>(sql: &'a str, range: DocRange) -> &'a str {
+    fn slice(sql: &str, range: DocRange) -> &str {
         let map = OffsetMap::new(sql);
-        &sql[map.from_utf16(range.from)..map.from_utf16(range.to)]
+        &sql[map.to_byte(range.from)..map.to_byte(range.to)]
     }
 
     #[test]

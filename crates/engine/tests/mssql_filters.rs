@@ -73,10 +73,10 @@ impl Harness {
         let accepted = self.engine.console_run(self.tab, request, None).await.unwrap();
         let state = tokio::time::timeout(Duration::from_secs(30), async {
             loop {
-                if let AppEvent::ConsoleChanged(state) = self.events.recv().await.unwrap() {
-                    if matches!(state.run, RunState::Finished { run_id, .. } if run_id == accepted.run_id) {
-                        return state;
-                    }
+                if let AppEvent::ConsoleChanged(state) = self.events.recv().await.unwrap()
+                    && matches!(state.run, RunState::Finished { run_id, .. } if run_id == accepted.run_id)
+                {
+                    return state;
                 }
             }
         })

@@ -104,11 +104,13 @@ fn format_batch(text: &str) -> Result<String, String> {
                 if !out.ends_with('\n') {
                     out.push('\n');
                 }
-            } else if !matches!(token.text, "." | "," | ")" | ";")
-                && !previous.is_some_and(|p| matches!(p.text, "." | "("))
-                && !(token.text == "(" && gap.is_empty())
-            {
-                out.push(' ');
+            } else {
+                let attached = matches!(token.text, "." | "," | ")" | ";")
+                    || previous.is_some_and(|p| matches!(p.text, "." | "("))
+                    || token.text == "(" && gap.is_empty();
+                if !attached {
+                    out.push(' ');
+                }
             }
         }
         out.push_str(token.text);

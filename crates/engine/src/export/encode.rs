@@ -151,7 +151,7 @@ impl Encoder {
                     sql_literal(out, self.dialect, col, cell);
                 }
                 out.extend_from_slice(b");\n");
-                if self.dialect == DatabaseKind::SqlServer && (self.rows + 1) % INSERTS_PER_BATCH == 0 {
+                if self.dialect == DatabaseKind::SqlServer && (self.rows + 1).is_multiple_of(INSERTS_PER_BATCH) {
                     out.extend_from_slice(b"GO\n");
                 }
             }

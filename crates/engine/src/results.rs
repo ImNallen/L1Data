@@ -387,6 +387,7 @@ fn find_pattern(query: &str) -> (Vec<char>, Vec<usize>) {
     (needle, prefix)
 }
 
+#[expect(clippy::too_many_arguments, reason = "predates the clippy gate; group these arguments into a struct")]
 pub(crate) fn plan_output(
     tab: TabId,
     run_id: RunId,

@@ -149,10 +149,10 @@ impl ConsoleInner {
         for s in statements.iter_mut() {
             if matches!(s.status, StmtStatus::Pending | StmtStatus::Preparing | StmtStatus::Running) {
                 for output in &mut s.outputs {
-                    if let RunOutput::Rows { state, .. } = output {
-                        if *state == RowsState::Streaming {
-                            *state = rows;
-                        }
+                    if let RunOutput::Rows { state, .. } = output
+                        && *state == RowsState::Streaming
+                    {
+                        *state = rows;
                     }
                 }
                 s.status = if stopped.is_none() { in_flight.clone() } else { StmtStatus::Skipped };
@@ -678,10 +678,10 @@ pub async fn run_task(
                 if stmt.changed { None } else { e.position.map(|p| DocOffset(stmt.origin.0.saturating_add(p.0))) };
             e
         });
-        if let Err(e) = &result {
-            if e.severity == "FATAL" {
-                fatal = Some(e.message.clone());
-            }
+        if let Err(e) = &result
+            && e.severity == "FATAL"
+        {
+            fatal = Some(e.message.clone());
         }
         let finished = if result.is_ok() { StmtOutcome::Ok } else { StmtOutcome::Err };
         // A cancel still closes the fence, or the session would stay inside it.

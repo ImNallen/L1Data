@@ -126,9 +126,9 @@ pub(super) async fn run(
         session.batch(fence.open()).await.map_err(|error| ImportError::Query { error })?;
         opened = true;
         if stop.load(Ordering::Relaxed) { return Err(ImportError::Cancelled); }
-        session.batch(&lock).await.map_err(|error| ImportError::Query { error })?;
-        if session.count(&identity).await.map_err(|error| ImportError::Query { error })? != u64::from(prepared.target.oid) { return Err(ImportError::TargetChanged); }
-        let copying = session.import_csv(&sql, rx, &stop, progress, |notice| console.output(s, run_id, notice));
+        session.batch(lock).await.map_err(|error| ImportError::Query { error })?;
+        if session.count(identity).await.map_err(|error| ImportError::Query { error })? != u64::from(prepared.target.oid) { return Err(ImportError::TargetChanged); }
+        let copying = session.import_csv(sql, rx, &stop, progress, |notice| console.output(s, run_id, notice));
         tokio::pin!(copying);
         let mut tick = tokio::time::interval(STREAM_EMIT_INTERVAL);
         let rows = loop {
@@ -157,8 +157,8 @@ pub(super) async fn run(
     if outcome.is_ok() && stop.load(Ordering::Relaxed) {
         outcome = Err(ImportError::Cancelled);
     }
-    if outcome.is_ok() {
-        if console
+    if outcome.is_ok()
+        && console
             .edit(s, run_id, |inner| {
                 if let SessionSlot::Busy { work: Work::Import { progress, .. }, .. } = &mut inner.session {
                     let (bytes, rows) = *changes.borrow();
@@ -169,25 +169,20 @@ pub(super) async fn run(
             })
             .await
             .is_err()
-        {
-            outcome = Err(ImportError::Cancelled);
-        }
+    {
+        outcome = Err(ImportError::Cancelled);
     }
     if outcome.is_ok() && stop.load(Ordering::Relaxed) {
         outcome = Err(ImportError::Cancelled);
     }
-    if outcome.is_ok() {
-        if let Some(finish) = fence.finish() {
-            if let Err(error) = session.batch(finish).await {
-                commit_unknown = matches!(fence, Fence::Auto)
-                    && error.sqlstate.as_deref().is_none_or(|state| state.starts_with("08") || state == "40003");
-                outcome = Err(if commit_unknown {
-                    ImportError::OutcomeUnknown { error }
-                } else {
-                    ImportError::Query { error }
-                });
-            }
-        }
+    if outcome.is_ok()
+        && let Some(finish) = fence.finish()
+        && let Err(error) = session.batch(finish).await
+    {
+        commit_unknown = matches!(fence, Fence::Auto)
+            && error.sqlstate.as_deref().is_none_or(|state| state.starts_with("08") || state == "40003");
+        outcome =
+            Err(if commit_unknown { ImportError::OutcomeUnknown { error } } else { ImportError::Query { error } });
     }
     let mut cleanup_failed = false;
     if outcome.is_err() && opened {
@@ -242,16 +237,16 @@ pub(super) async fn run(
     let returned = console
         .edit(s, run_id, |inner| {
             if outcome.is_ok() && unasked && after == TxnState::Active {
-                inner.unasked.add(&sql);
+                inner.unasked.add(sql);
             }
             if ended {
                 inner.unasked = WriteList::default();
             }
             let due = Console::return_session(inner, session, after, lost);
-            if commit_unknown || cleanup_failed {
-                if let SessionSlot::Lost { transaction, .. } = &mut inner.session {
-                    *transaction = TransactionLoss::Unknown;
-                }
+            if (commit_unknown || cleanup_failed)
+                && let SessionSlot::Lost { transaction, .. } = &mut inner.session
+            {
+                *transaction = TransactionLoss::Unknown;
             }
             due
         })
