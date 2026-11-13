@@ -2454,6 +2454,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_panic_while_a_lock_is_held_does_not_break_later_calls() {
+        let (engine, _dir) = engine().await;
+        let kept = engine.save_connection(draft("kept")).await.unwrap();
+        let shared = engine.shared.clone();
+        let panicked = std::thread::spawn(move || {
+            let _held = shared.connections.write();
+            panic!("a bug while the connections lock is held");
+        })
+        .join();
+        assert!(panicked.is_err());
+        let boot = engine.boot();
+        assert_eq!(boot.connections.iter().map(|c| c.id).collect::<Vec<_>>(), vec![kept.id]);
+        let added = engine.save_connection(draft("added")).await.unwrap();
+        assert_eq!(engine.boot().connections.len(), 2, "saving still works: {added:?}");
+    }
+
+    #[tokio::test]
     async fn a_sign_in_method_from_a_newer_build_loads_but_never_connects_or_saves() {
         let (engine, _dir) = engine().await;
         let login = ConnectionDraft {
