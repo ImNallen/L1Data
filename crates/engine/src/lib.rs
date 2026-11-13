@@ -199,7 +199,7 @@ impl Shared {
 
     fn set_connection(&self, id: ConnectionId, slot: ConnSlot) {
         let mut map = self.connections.write().unwrap();
-        let entry = map.entry(id).or_insert(ConnEntry { rev: 0, slot: ConnSlot::Connecting });
+        let entry = map.entry(id).or_insert(ConnEntry { rev: 0, slot: ConnSlot::Disconnected });
         entry.rev += 1;
         entry.slot = slot;
         let state = entry.state(id);
@@ -669,19 +669,39 @@ impl Shared {
         session.script(target).await
     }
 
+    /// Joins the connection's current attempt or starts one. The check and the claim happen under
+    /// one write lock, so concurrent callers share a single attempt.
     async fn connect(self: &Arc<Self>, id: ConnectionId) -> Result<ServerInfo, ConnectError> {
-        loop {
-            let connecting = match self.connections.read().unwrap().get(&id).map(|e| &e.slot) {
-                Some(ConnSlot::Connected(instance)) => return Ok(instance.server.clone()),
-                Some(ConnSlot::Connecting) => true,
-                _ => false,
-            };
-            if !connecting {
-                break;
+        let (mut attempt, started) = {
+            let mut map = self.connections.write().unwrap();
+            let entry = map.entry(id).or_insert(ConnEntry { rev: 0, slot: ConnSlot::Disconnected });
+            match &entry.slot {
+                ConnSlot::Connected(instance) => return Ok(instance.server.clone()),
+                // A closed channel means the attempt's task panicked and will never answer.
+                ConnSlot::Connecting(attempt) if attempt.has_changed().is_ok() => (attempt.clone(), None),
+                _ => {
+                    let (done, attempt) = tokio::sync::watch::channel(None);
+                    entry.rev += 1;
+                    entry.slot = ConnSlot::Connecting(attempt.clone());
+                    (attempt, Some((done, entry.state(id))))
+                }
             }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+        if let Some((done, state)) = started {
+            self.emit(AppEvent::ConnectionChanged(state));
+            let shared = self.clone();
+            self.spawn(async move {
+                let _ = done.send(Some(shared.open_connection(id).await));
+            });
         }
-        self.set_connection(id, ConnSlot::Connecting);
+        let outcome = attempt.wait_for(Option::is_some).await.ok().and_then(|done| done.clone());
+        outcome.unwrap_or_else(|| {
+            Err(ConnectError::Network { message: "The connection attempt stopped inside L1 Data.".into() })
+        })
+    }
+
+    /// One connect attempt. It runs in its own task, so a caller that stops waiting cannot abandon it.
+    async fn open_connection(self: &Arc<Self>, id: ConnectionId) -> Result<ServerInfo, ConnectError> {
         match self.open_instance(id).await {
             Ok((instance, home_pid, home_closed)) => {
                 let server = instance.server.clone();

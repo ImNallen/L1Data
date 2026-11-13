@@ -411,9 +411,12 @@ fn served_catalogs(slots: &HashMap<String, Arc<DbSlot>>) -> HashMap<String, Arc<
     slots.iter().filter_map(|(name, slot)| slot.last().map(|c| (name.clone(), c))).collect()
 }
 
+/// The outcome every caller of one connect attempt waits for, `None` until the attempt ends.
+pub type ConnectAttempt = tokio::sync::watch::Receiver<Option<Result<ServerInfo, ConnectError>>>;
+
 pub enum ConnSlot {
     Disconnected,
-    Connecting,
+    Connecting(ConnectAttempt),
     Connected(Arc<Instance>),
     Failed(ConnectError),
     Lost(String),
@@ -428,7 +431,7 @@ impl ConnEntry {
     pub fn state(&self, id: ConnectionId) -> ConnectionState {
         let status = match &self.slot {
             ConnSlot::Disconnected => ConnStatus::Disconnected,
-            ConnSlot::Connecting => ConnStatus::Connecting,
+            ConnSlot::Connecting(_) => ConnStatus::Connecting,
             ConnSlot::Connected(instance) => {
                 ConnStatus::Connected { server: instance.server.clone(), instance: instance.state() }
             }
