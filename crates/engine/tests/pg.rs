@@ -430,6 +430,18 @@ fn unique(prefix: &str) -> String {
 }
 
 #[tokio::test]
+async fn connect_after_an_abandoned_attempt_is_not_stuck() {
+    let h = Harness::start().await;
+    let abandoned = tokio::time::timeout(Duration::from_millis(1), h.engine.connect(h.conn)).await;
+    assert!(abandoned.is_err(), "the first attempt was still opening when its caller stopped waiting");
+    let server = tokio::time::timeout(Duration::from_secs(10), h.engine.connect(h.conn))
+        .await
+        .expect("a later connect does not wait on the abandoned one forever")
+        .unwrap();
+    assert!(server.version_num >= 160000);
+}
+
+#[tokio::test]
 async fn connect_reports_server_and_catalog_has_the_mockup_tables() {
     let h = Harness::start().await;
     let server = h.engine.connect(h.conn).await.unwrap();
