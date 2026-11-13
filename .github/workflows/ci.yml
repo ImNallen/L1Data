@@ -82,10 +82,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt
 
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: workspace
+
+      - name: cargo fmt --check
+        run: cargo fmt --check
 
       - name: cargo test --workspace
         run: cargo test --workspace
