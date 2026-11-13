@@ -1832,6 +1832,70 @@ async fn table_apply_in_manual_mode_waits_for_commit_and_a_failure_keeps_the_ope
     h.run_ok(auto, &format!("drop table public.{table}")).await;
 }
 
+async fn wait_for_work(h: &Harness, tab: TabId, work: Option<ConsoleWork>, why: &str) {
+    let until = Instant::now();
+    while h.console(tab).work != work {
+        assert!(until.elapsed() < Duration::from_secs(5), "{why}: work is {:?}", h.console(tab).work);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[tokio::test]
+async fn table_apply_finishes_and_frees_the_tab_after_its_caller_stops_waiting() {
+    let mut h = Harness::start().await;
+    h.engine.connect(h.conn).await.unwrap();
+    let tab = h.sql_tab(TxnMode::AutoCommit).await;
+    let table = edit_table(&mut h, tab).await;
+    let oracle = h.oracle().await;
+    oracle.batch_execute(&format!("BEGIN; LOCK TABLE public.{table} IN ACCESS EXCLUSIVE MODE")).await.unwrap();
+
+    let mut update = changes(&table);
+    update.updates.push(RowUpdate { key: vec![cell("id", Some("1"))], set: vec![cell("name", Some("z"))] });
+    let engine = h.engine.clone();
+    let caller = tokio::spawn(async move { engine.table_apply(tab, update, None).await });
+    wait_for_work(&h, tab, Some(ConsoleWork::Edit), "the apply holds the session").await;
+    caller.abort();
+    oracle.batch_execute("ROLLBACK").await.unwrap();
+
+    wait_for_work(&h, tab, None, "the tab is free again").await;
+    assert_eq!(rows_of(&mut h, tab, &table).await, "1:z:NULL 2:b:NULL 3:c:NULL", "the apply ran to completion");
+    h.run_ok(tab, &format!("drop table public.{table}")).await;
+}
+
+#[tokio::test]
+async fn commit_finishes_and_frees_the_tab_after_its_caller_stops_waiting() {
+    let mut h = Harness::start().await;
+    h.engine.connect(h.conn).await.unwrap();
+    let tab = h.sql_tab(TxnMode::Manual).await;
+    let oracle = h.oracle().await;
+    let table = unique("t_commit_wait");
+    let key = i64::from(uuid::Uuid::new_v4().as_fields().0);
+    oracle
+        .batch_execute(&format!(
+            "CREATE TABLE public.{table} (n int);
+             CREATE FUNCTION public.{table}_wait() RETURNS trigger LANGUAGE plpgsql
+                 AS $$ BEGIN PERFORM pg_advisory_xact_lock({key}); RETURN NULL; END $$;
+             CREATE CONSTRAINT TRIGGER {table}_wait AFTER INSERT ON public.{table}
+                 DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.{table}_wait();
+             SELECT pg_advisory_lock({key});"
+        ))
+        .await
+        .unwrap();
+    h.run_ok(tab, &format!("INSERT INTO public.{table} VALUES (1)")).await;
+    assert_eq!(h.console(tab).txn, TxnState::Active);
+
+    let engine = h.engine.clone();
+    let caller = tokio::spawn(async move { engine.console_commit(tab, None).await });
+    wait_for_work(&h, tab, Some(ConsoleWork::Transaction), "the commit waits on its deferred trigger").await;
+    caller.abort();
+    oracle.batch_execute(&format!("SELECT pg_advisory_unlock({key})")).await.unwrap();
+
+    wait_for_work(&h, tab, None, "the tab is free again").await;
+    assert_eq!(h.console(tab).txn, TxnState::Idle);
+    assert_eq!(count(&oracle, &table).await, 1, "the commit ran to completion");
+    oracle.batch_execute(&format!("DROP TABLE public.{table}; DROP FUNCTION public.{table}_wait()")).await.unwrap();
+}
+
 #[tokio::test]
 async fn table_pages_sort_and_filter_in_the_engine() {
     let mut h = Harness::start().await;
