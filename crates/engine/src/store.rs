@@ -1,6 +1,6 @@
+use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::path::Path;
-use std::sync::Mutex;
 
 use rusqlite::functions::FunctionFlags;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -171,7 +171,7 @@ impl Store {
     }
 
     fn with<T>(&self, f: impl FnOnce(&Connection) -> Result<T, StoreError>) -> Result<T, StoreError> {
-        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let state = self.state.lock();
         f(&state.conn)
     }
 
@@ -179,19 +179,19 @@ impl Store {
         &self,
         f: impl FnOnce(&Connection, &mut u64) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = self.state.lock();
         let StoreState { conn, history_revision, .. } = &mut *state;
         f(conn, history_revision)
     }
 
     pub(crate) fn with_saved<T>(&self, f: impl FnOnce(&Connection, &mut u64) -> T) -> T {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = self.state.lock();
         let StoreState { conn, saved_revision, .. } = &mut *state;
         f(conn, saved_revision)
     }
 
     pub fn connections(&self) -> Result<SavedConnections, StoreError> {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = self.state.lock();
         let StoreState { conn, unreadable_logged, .. } = &mut *state;
         let mut stmt = conn.prepare("SELECT id, json FROM connections ORDER BY rowid")?;
         let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
@@ -207,7 +207,7 @@ impl Store {
     }
 
     pub fn connection(&self, id: ConnectionId) -> Result<Option<ConnectionConfig>, StoreError> {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = self.state.lock();
         let StoreState { conn, unreadable_logged, .. } = &mut *state;
         let id = id.0.to_string();
         let json: Option<String> =

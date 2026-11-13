@@ -5,9 +5,10 @@ mod supervisor;
 pub(crate) mod tools;
 mod turn;
 
+use parking_lot::RwLock;
 use std::collections::{BTreeSet, HashMap};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use futures_util::future::join_all;
@@ -50,24 +51,24 @@ impl Assistant {
     }
 
     fn get(&self, id: ChatId) -> Option<Arc<Chat>> {
-        self.chats.read().unwrap().get(&id).cloned()
+        self.chats.read().get(&id).cloned()
     }
 
     fn all(&self) -> Vec<Arc<Chat>> {
-        self.chats.read().unwrap().values().cloned().collect()
+        self.chats.read().values().cloned().collect()
     }
 
     pub(crate) fn running_databases(&self, connection: ConnectionId) -> BTreeSet<String> {
         self.all()
             .iter()
-            .filter_map(|chat| chat.inner.lock().unwrap().turn.as_ref().and_then(|t| t.db.clone()))
+            .filter_map(|chat| chat.inner.lock().turn.as_ref().and_then(|t| t.db.clone()))
             .filter(|db| db.connection_id == connection)
             .map(|db| db.database)
             .collect()
     }
 
     pub(crate) fn running_chats(&self) -> Vec<ChatId> {
-        self.all().iter().filter(|chat| chat.inner.lock().unwrap().turn.is_some()).map(|chat| chat.id).collect()
+        self.all().iter().filter(|chat| chat.inner.lock().turn.is_some()).map(|chat| chat.id).collect()
     }
 
     pub(crate) fn live_states(&self) -> HashMap<ChatId, ChatState> {
@@ -102,14 +103,8 @@ impl Shared {
             }
             None => (self.draft_record(), ChatStatus::Draft),
         };
-        let chat = self
-            .assistant
-            .chats
-            .write()
-            .unwrap()
-            .entry(id)
-            .or_insert_with(|| Arc::new(Chat::new(id, record, status)))
-            .clone();
+        let chat =
+            self.assistant.chats.write().entry(id).or_insert_with(|| Arc::new(Chat::new(id, record, status))).clone();
         Ok(chat)
     }
 
@@ -182,7 +177,7 @@ impl Shared {
     pub(crate) fn assistant_open(&self, id: ChatId) -> Result<ChatView, ChatError> {
         let store_error = |e: StoreError| ChatError::Store { message: e.to_string() };
         let chat = self.chat(id).map_err(store_error)?;
-        let inner = chat.inner.lock().unwrap();
+        let inner = chat.inner.lock();
         let stored = if inner.stored() { self.store.chat_entries(id).map_err(store_error)? } else { Vec::new() };
         let mut entries: Vec<EntrySnapshot> = stored
             .into_iter()
@@ -201,7 +196,7 @@ impl Shared {
     pub(crate) fn assistant_configure(&self, id: ChatId, options: ChatOptions) -> Result<ChatState, ChatError> {
         let chat = self.chat(id).map_err(|e| ChatError::Store { message: e.to_string() })?;
         self.validate_options(&options)?;
-        chat.inner.lock().unwrap().record.options = options;
+        chat.inner.lock().record.options = options;
         chat.store_record(self);
         Ok(chat.publish_state(self))
     }
@@ -226,7 +221,7 @@ impl Shared {
             tab.title.clear();
             tab.target = RunTarget::All;
         }
-        let options = chat.inner.lock().unwrap().record.options.clone();
+        let options = chat.inner.lock().record.options.clone();
         let enabled = self.settings().providers.iter().any(|c| c.provider == options.provider && c.enabled);
         if !enabled {
             return Err(SendError::ProviderOff { provider: options.provider });
@@ -293,7 +288,7 @@ impl Shared {
         let turn = self.spawn(turn::run_turn(self.clone(), plan, control_rx));
         let abort = turn.abort_handle();
         let supervisor = self.spawn(supervise(self.clone(), chat.clone(), turn));
-        if let Some(active) = chat.inner.lock().unwrap().turn.as_mut() {
+        if let Some(active) = chat.inner.lock().turn.as_mut() {
             active.supervisor = Some(supervisor);
             active.abort = Some(abort);
         }
@@ -304,7 +299,7 @@ impl Shared {
         for chat in self.assistant.all() {
             chat.deny_pending(chat::Refusal::Stopped);
             {
-                let mut inner = chat.inner.lock().unwrap();
+                let mut inner = chat.inner.lock();
                 inner.record.session = None;
                 inner.record.access = None;
                 inner.record.recap_floor = inner.record.entry_count;
@@ -319,7 +314,7 @@ impl Shared {
 
     pub(crate) fn assistant_stop(&self, id: ChatId) {
         if let Some(chat) = self.assistant.get(id)
-            && let Some(active) = chat.inner.lock().unwrap().turn.as_ref()
+            && let Some(active) = chat.inner.lock().turn.as_ref()
         {
             let _ = active.control.try_send(TurnControl::Stop { grace: STOP_GRACE });
         }
@@ -338,7 +333,7 @@ impl Shared {
         let loaded = self.assistant.get(id);
         let (record, running) = match &loaded {
             Some(chat) => {
-                let mut inner = chat.inner.lock().unwrap();
+                let mut inner = chat.inner.lock();
                 inner.status = ChatStatus::Deleted;
                 let running = inner.turn.as_mut().map(|t| {
                     let _ = t.control.try_send(TurnControl::Stop { grace: QUIT_GRACE });
@@ -356,13 +351,13 @@ impl Shared {
                 abort.abort();
             }
         }
-        if let Some(closing) = loaded.as_ref().and_then(|chat| chat.inner.lock().unwrap().closing.clone()) {
+        if let Some(closing) = loaded.as_ref().and_then(|chat| chat.inner.lock().closing.clone()) {
             closing.wait().await;
         }
         if let Err(e) = self.store.delete_chat(id) {
             eprintln!("chat {} delete failed: {e}", id.0);
         }
-        self.assistant.chats.write().unwrap().remove(&id);
+        self.assistant.chats.write().remove(&id);
         let record = record.unwrap_or_else(|| self.draft_record());
         self.emit(AppEvent::ChatChanged(ChatState {
             id,
@@ -379,7 +374,7 @@ impl Shared {
         let mut tasks: FuturesUnordered<JoinHandle<()>> = FuturesUnordered::new();
         let mut aborts = Vec::new();
         for chat in self.assistant.all() {
-            if let Some(active) = chat.inner.lock().unwrap().turn.as_mut() {
+            if let Some(active) = chat.inner.lock().turn.as_mut() {
                 let _ = active.control.try_send(TurnControl::Stop { grace: QUIT_GRACE });
                 tasks.extend(active.supervisor.take());
                 aborts.extend(active.abort.take());
@@ -388,7 +383,7 @@ impl Shared {
         let deadline = tokio::time::Instant::now() + SHUTDOWN_WAIT;
         let _ = tokio::time::timeout_at(deadline, drain(&mut tasks)).await;
         let closing: Vec<Closing> =
-            self.assistant.all().iter().filter_map(|chat| chat.inner.lock().unwrap().closing.clone()).collect();
+            self.assistant.all().iter().filter_map(|chat| chat.inner.lock().closing.clone()).collect();
         let _ = tokio::time::timeout_at(deadline, join_all(closing.into_iter().map(Closing::wait))).await;
         for abort in aborts {
             abort.abort();

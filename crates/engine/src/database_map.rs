@@ -207,7 +207,7 @@ mod tests {
                     slot.set(crate::connection::CatalogSlot::Ready(Arc::new(catalog)));
                 }
                 "slot" => {
-                    instance.slots.lock().unwrap().remove(&db.database);
+                    instance.slots.lock().remove(&db.database);
                 }
                 _ => instance.close(),
             }

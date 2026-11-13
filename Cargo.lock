@@ -1552,6 +1552,7 @@ dependencies = [
  "keyring",
  "libc",
  "native-tls",
+ "parking_lot",
  "percent-encoding",
  "postgres-native-tls",
  "quick-xml 0.38.4",

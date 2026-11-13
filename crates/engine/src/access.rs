@@ -1,5 +1,4 @@
-use std::sync::{Mutex, MutexGuard};
-
+use parking_lot::{Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 use uuid::Uuid;
@@ -30,7 +29,7 @@ impl Access {
     }
 
     pub(crate) fn lock(&self) -> MutexGuard<'_, AccessLease> {
-        self.state.lock().unwrap()
+        self.state.lock()
     }
 
     pub(crate) fn changed(&self, lease: AccessLease) {

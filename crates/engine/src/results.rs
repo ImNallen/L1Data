@@ -1,4 +1,5 @@
-use std::sync::{Arc, RwLock};
+use parking_lot::RwLock;
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::aggregate::ColumnText;
@@ -104,7 +105,7 @@ impl ResultSet {
     }
 
     pub fn push_row<'a>(&self, cells: impl Iterator<Item = Option<&'a str>>, caps: &Caps) {
-        let mut a = self.data.write().unwrap();
+        let mut a = self.data.write();
         a.rows_seen += 1;
         if a.truncated.is_some() {
             return;
@@ -133,11 +134,11 @@ impl ResultSet {
     }
 
     pub fn set_elapsed(&self, elapsed_ms: u32) {
-        self.data.write().unwrap().elapsed_ms = elapsed_ms;
+        self.data.write().elapsed_ms = elapsed_ms;
     }
 
     pub fn meta(&self) -> ResultMeta {
-        let a = self.data.read().unwrap();
+        let a = self.data.read();
         ResultMeta {
             database_kind: self.database_kind,
             r#ref: self.r#ref,
@@ -152,7 +153,7 @@ impl ResultSet {
     }
 
     pub fn page(&self, start: u32, len: u32) -> Option<RowPage> {
-        let a = self.data.read().unwrap();
+        let a = self.data.read();
         let count = a.row_count();
         if start > count {
             return None;
@@ -179,7 +180,7 @@ impl ResultSet {
     }
 
     pub fn cell(&self, row: u32, col: u16) -> Option<Option<String>> {
-        let a = self.data.read().unwrap();
+        let a = self.data.read();
         if row >= a.row_count() || col as usize >= a.ncols {
             return None;
         }
@@ -192,7 +193,7 @@ impl ResultSet {
         direction: ResultFindDirection,
         current: impl Fn() -> bool,
     ) -> Result<ResultFind, ResultError> {
-        let row_count = self.data.read().unwrap().row_count();
+        let row_count = self.data.read().row_count();
         let ncols = self.columns.len();
         let anchor = match direction {
             ResultFindDirection::First => None,
@@ -249,7 +250,7 @@ impl ResultSet {
         query: &str,
         current: impl Fn() -> bool,
     ) -> Result<bool, ResultError> {
-        if cell.row >= self.data.read().unwrap().row_count() || cell.col as usize >= self.columns.len() {
+        if cell.row >= self.data.read().row_count() || cell.col as usize >= self.columns.len() {
             return Err(ResultError::OutOfRange);
         }
         if query.is_empty() {
@@ -273,7 +274,7 @@ impl ResultSet {
             if !current() {
                 return Err(ResultError::Gone);
             }
-            let a = self.data.read().unwrap();
+            let a = self.data.read();
             let Some(value) = a.cell(row as usize, col) else {
                 break false;
             };
@@ -309,7 +310,7 @@ impl ResultSet {
         if rows.start > rows.end || cols.start > cols.end {
             return Err(ResultError::OutOfRange);
         }
-        let a = self.data.read().unwrap();
+        let a = self.data.read();
         if rows.end >= a.row_count() || cols.end as usize >= a.ncols {
             return Err(ResultError::OutOfRange);
         }
@@ -327,7 +328,7 @@ impl ResultSet {
 
     /// Every stored cell of one column, whole.
     pub(crate) fn column(&self, col: u16) -> Result<ColumnText, ResultError> {
-        let a = self.data.read().unwrap();
+        let a = self.data.read();
         let meta =
             self.columns.get(col as usize).filter(|_| (col as usize) < a.ncols).ok_or(ResultError::OutOfRange)?;
         let cells = (0..a.row_count() as usize).map(|r| a.cell(r, col as usize).map(str::to_owned)).collect();
@@ -335,7 +336,7 @@ impl ResultSet {
     }
 
     pub(crate) fn series(&self, x: Option<u16>, y: u16, max_points: u32) -> Result<ChartSeries, ResultError> {
-        let a = self.data.read().unwrap();
+        let a = self.data.read();
         if x.is_some_and(|x| x as usize >= a.ncols) || y as usize >= a.ncols {
             return Err(ResultError::OutOfRange);
         }
@@ -359,7 +360,7 @@ impl ResultSet {
     }
 
     pub fn each_row<E>(&self, mut f: impl FnMut(&[Option<&str>]) -> Result<(), E>) -> Result<(u64, bool), E> {
-        let a = self.data.read().unwrap();
+        let a = self.data.read();
         let rows = a.row_count();
         let mut cells = Vec::with_capacity(a.ncols);
         for r in 0..rows as usize {

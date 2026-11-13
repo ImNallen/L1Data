@@ -1,8 +1,9 @@
 mod sqlserver_url;
 
+use parking_lot::{Mutex, RwLock};
 use std::collections::{BTreeSet, HashMap};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use crate::entra::AzCli;
@@ -210,21 +211,21 @@ impl DbSlot {
     }
 
     pub fn ready(&self) -> Option<Arc<Catalog>> {
-        match &*self.catalog.read().unwrap() {
+        match &*self.catalog.read() {
             CatalogSlot::Ready(c) => Some(c.clone()),
             _ => None,
         }
     }
 
     pub fn last(&self) -> Option<Arc<Catalog>> {
-        match &*self.catalog.read().unwrap() {
+        match &*self.catalog.read() {
             CatalogSlot::Ready(c) | CatalogSlot::Failed { last: Some(c), .. } => Some(c.clone()),
             _ => None,
         }
     }
 
     pub fn status(&self) -> CatalogStatus {
-        match &*self.catalog.read().unwrap() {
+        match &*self.catalog.read() {
             CatalogSlot::Idle => CatalogStatus::Idle,
             CatalogSlot::Opening => CatalogStatus::Loading,
             CatalogSlot::Ready(c) => CatalogStatus::Ready { version: c.version },
@@ -235,7 +236,7 @@ impl DbSlot {
     }
 
     pub fn set(&self, state: CatalogSlot) {
-        *self.catalog.write().unwrap() = state;
+        *self.catalog.write() = state;
     }
 
     pub fn fail(&self, message: String) {
@@ -254,7 +255,7 @@ pub struct RefreshGate {
 impl RefreshGate {
     /// True when the caller must run the load loop; false when a running loop will cover it.
     pub fn request(&self) -> bool {
-        let mut g = self.state.lock().unwrap();
+        let mut g = self.state.lock();
         let (running, dirty) = &mut *g;
         if *running {
             *dirty = true;
@@ -267,7 +268,7 @@ impl RefreshGate {
 
     /// After a load: true when another load is owed.
     pub fn again(&self) -> bool {
-        let mut g = self.state.lock().unwrap();
+        let mut g = self.state.lock();
         let (running, dirty) = &mut *g;
         if *dirty {
             *dirty = false;
@@ -303,27 +304,27 @@ impl Instance {
     }
 
     pub fn view(&self) -> ConnectionView {
-        self.view.read().unwrap().clone()
+        self.view.read().clone()
     }
 
     /// The served catalog of every slot that has one: Ready, or the last good one behind Failed.
     pub fn catalogs(&self) -> HashMap<String, Arc<Catalog>> {
-        served_catalogs(&self.slots.lock().unwrap())
+        served_catalogs(&self.slots.lock())
     }
 
     pub fn slot_names(&self) -> Vec<String> {
-        self.slots.lock().unwrap().keys().cloned().collect()
+        self.slots.lock().keys().cloned().collect()
     }
 
     /// The databases the view shows, resolved against the current `pg_database` list.
     pub fn shown(&self) -> BTreeSet<String> {
-        let databases = self.databases.read().unwrap().clone();
+        let databases = self.databases.read().clone();
         let known = Known { home: &self.home, databases: &databases, catalogs: &HashMap::new() };
-        view::resolve_databases(&self.view.read().unwrap(), &known)
+        view::resolve_databases(&self.view.read(), &known)
     }
 
     pub fn slot(&self, database: &str) -> Option<Arc<DbSlot>> {
-        self.slots.lock().unwrap().get(database).cloned()
+        self.slots.lock().get(database).cloned()
     }
 
     pub fn is_closed(&self) -> bool {
@@ -334,11 +335,11 @@ impl Instance {
     /// and stops the instance from opening another.
     pub fn close(&self) {
         self.closed.store(true, Ordering::Release);
-        self.slots.lock().unwrap().clear();
+        self.slots.lock().clear();
     }
 
     pub fn knows(&self, database: &str) -> bool {
-        self.databases.read().unwrap().iter().any(|d| d.name == database)
+        self.databases.read().iter().any(|d| d.name == database)
     }
 
     pub fn canonical_database<'a>(&'a self, requested: &'a str) -> &'a str {
@@ -351,7 +352,7 @@ impl Instance {
     /// a view written before this call is what it reads, and no converge can apply a set
     /// computed from an older view after one computed from a newer one.
     pub fn converge(&self, id: ConnectionId, wanted: impl FnOnce() -> Wanted) -> Vec<Arc<DbSlot>> {
-        let mut slots = self.slots.lock().unwrap();
+        let mut slots = self.slots.lock();
         if self.is_closed() {
             return Vec::new();
         }
@@ -365,17 +366,17 @@ impl Instance {
                 );
             }
         }
-        slots.values().filter(|s| matches!(*s.catalog.read().unwrap(), CatalogSlot::Idle)).cloned().collect()
+        slots.values().filter(|s| matches!(*s.catalog.read(), CatalogSlot::Idle)).cloned().collect()
     }
 
     /// The tree's view of the instance, resolved from the database list, the stored view, each
     /// slot's served catalog, and the probe cache.
     pub fn state(&self) -> InstanceState {
-        let slots = self.slots.lock().unwrap();
+        let slots = self.slots.lock();
         let catalogs = served_catalogs(&slots);
-        let list = self.databases.read().unwrap().clone();
-        let view = self.view.read().unwrap();
-        let probes = self.probes.lock().unwrap();
+        let list = self.databases.read().clone();
+        let view = self.view.read();
+        let probes = self.probes.lock();
         let known = Known { home: &self.home, databases: &list, catalogs: &catalogs };
         let shown = view::resolve_databases(&view, &known);
         let databases = list

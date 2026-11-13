@@ -2,10 +2,11 @@ pub(crate) mod agent;
 pub(crate) mod claude;
 pub(crate) mod limits;
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use serde_json::Value;
@@ -245,11 +246,11 @@ impl Providers {
     }
 
     pub(crate) fn models(&self, kind: ProviderKind) -> Option<Vec<ModelOption>> {
-        self.entries.lock().unwrap().get(&kind)?.models().map(<[ModelOption]>::to_vec)
+        self.entries.lock().get(&kind)?.models().map(<[ModelOption]>::to_vec)
     }
 
     fn due(&self, kind: ProviderKind, every_secs: u32) -> bool {
-        let entries = self.entries.lock().unwrap();
+        let entries = self.entries.lock();
         let Some(entry) = entries.get(&kind) else { return false };
         !entry.checking && entry.checked_at_ms.is_some_and(|at| now_ms() - at >= i64::from(every_secs) * 1000)
     }
@@ -270,7 +271,7 @@ impl Shared {
 
     pub(crate) fn provider_states(&self) -> Vec<ProviderState> {
         let settings = self.settings();
-        let entries = self.providers.entries.lock().unwrap();
+        let entries = self.providers.entries.lock();
         ProviderKind::ALL
             .iter()
             .map(|&kind| {
@@ -290,7 +291,7 @@ impl Shared {
 
     pub(crate) fn probe(self: &Arc<Self>, kind: ProviderKind, depth: ProbeDepth) {
         {
-            let mut entries = self.providers.entries.lock().unwrap();
+            let mut entries = self.providers.entries.lock();
             let entry = entries.entry(kind).or_default();
             if entry.running {
                 entry.owed = Some(entry.owed.map_or(depth, |owed| owed.max(depth)));
@@ -310,7 +311,7 @@ impl Shared {
                     e.outcome = Some(outcome);
                 });
                 let owed = {
-                    let mut entries = shared.providers.entries.lock().unwrap();
+                    let mut entries = shared.providers.entries.lock();
                     let entry = entries.entry(kind).or_default();
                     let owed = entry.owed.take();
                     entry.running = owed.is_some();
@@ -326,7 +327,7 @@ impl Shared {
     fn publish_provider(&self, kind: ProviderKind, edit: impl FnOnce(&mut ProviderEntry)) {
         let cfg = self.provider_config(kind);
         let state = {
-            let mut entries = self.providers.entries.lock().unwrap();
+            let mut entries = self.providers.entries.lock();
             let entry = entries.entry(kind).or_default();
             edit(entry);
             entry.rev += 1;
@@ -347,7 +348,7 @@ impl Shared {
             return ProbeOutcome::SignedOut { version: quick.version };
         }
         let kept = {
-            let entries = self.providers.entries.lock().unwrap();
+            let entries = self.providers.entries.lock();
             let entry = entries.get(&kind);
             let same_version = entry.and_then(ProviderEntry::version) == Some(quick.version.as_str());
             if depth == ProbeDepth::Quick && same_version {

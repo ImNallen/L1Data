@@ -146,7 +146,7 @@ impl Turn {
             }
         }
         let cfg = self.provider_config();
-        let stored = self.chat.inner.lock().unwrap().record.session.clone();
+        let stored = self.chat.inner.lock().record.session.clone();
         let mut resume = stored
             .as_ref()
             .filter(|s| {
@@ -259,7 +259,7 @@ impl Turn {
     }
 
     fn forget_session(&mut self) {
-        self.chat.inner.lock().unwrap().record.session = None;
+        self.chat.inner.lock().record.session = None;
         self.chat.store_record(&self.shared);
     }
 
@@ -333,8 +333,8 @@ impl Turn {
             tab_text.hash(&mut hasher);
             hasher.finish()
         };
-        let session = self.chat.inner.lock().unwrap().record.session.as_ref().map(|s| s.id.clone());
-        let last = self.chat.inner.lock().unwrap().last_context.clone();
+        let session = self.chat.inner.lock().record.session.as_ref().map(|s| s.id.clone());
+        let last = self.chat.inner.lock().last_context.clone();
         let same_session = !fresh_session && last.as_ref().zip(session.as_ref()).is_some_and(|(l, s)| l.session == *s);
         let outline = match (&last, &self.catalog, &self.db) {
             (Some(l), Some(c), Some(db)) if same_session && l.db == *db && l.catalog_version == c.version => {
@@ -367,7 +367,7 @@ impl Turn {
             outline,
         });
         if let (Some(db), Some(catalog)) = (&self.db, &self.catalog) {
-            self.chat.inner.lock().unwrap().last_context = Some(LastContext {
+            self.chat.inner.lock().last_context = Some(LastContext {
                 session: session.unwrap_or_default(),
                 db: db.clone(),
                 catalog_version: catalog.version,
@@ -381,7 +381,7 @@ impl Turn {
     }
 
     fn attachment(&self) -> Option<Attachment> {
-        let inner = self.chat.inner.lock().unwrap();
+        let inner = self.chat.inner.lock();
         match inner.live.get(&self.turn).map(|s| &s.entry) {
             Some(Entry::User { attachment, .. }) => attachment.clone(),
             _ => None,
@@ -391,7 +391,7 @@ impl Turn {
     fn last_run_error(&self, tab: &TabContext) -> Option<String> {
         let console = self.shared.console(tab.tab_id)?;
         let error = {
-            let latest = console.latest.lock().unwrap();
+            let latest = console.latest.lock();
             let RunState::Finished { statements, .. } = &latest.run else { return None };
             statements.iter().find_map(|s| match &s.status {
                 StmtStatus::Failed { error } => Some(error.clone()),
@@ -453,7 +453,7 @@ impl Turn {
             .shared
             .access
             .with(self.access, || {
-                let mut inner = self.chat.inner.lock().unwrap();
+                let mut inner = self.chat.inner.lock();
                 let next = ProviderSession {
                     provider: self.options.provider,
                     id: session_id.clone(),
@@ -479,7 +479,7 @@ impl Turn {
     }
 
     fn next_seq(&self) -> u32 {
-        self.chat.inner.lock().unwrap().next_seq()
+        self.chat.inner.lock().next_seq()
     }
 
     fn text_delta(&mut self, key: BlockKey, delta: &str) {
@@ -568,7 +568,7 @@ impl Turn {
 
     fn set_phase(&self, phase: TurnPhase) {
         {
-            let mut inner = self.chat.inner.lock().unwrap();
+            let mut inner = self.chat.inner.lock();
             match &mut inner.status {
                 ChatStatus::Running { phase: current, .. } if *current != phase => *current = phase,
                 _ => return,
@@ -721,7 +721,7 @@ impl Turn {
     }
 
     fn recap(&self) -> String {
-        let floor = self.chat.inner.lock().unwrap().record.recap_floor;
+        let floor = self.chat.inner.lock().record.recap_floor;
         let earlier: Vec<(u32, u32, Entry)> = self
             .shared
             .store
@@ -772,7 +772,7 @@ impl Turn {
         self.chat.publish_entry(&self.shared, seq, self.turn, end);
         let closing = self.agent.take().map(|agent| Closing::start(&self.shared, agent));
         {
-            let mut inner = self.chat.inner.lock().unwrap();
+            let mut inner = self.chat.inner.lock();
             inner.record.updated_at_ms = now_ms();
             inner.ledger = Default::default();
             inner.turn = None;

@@ -1,7 +1,8 @@
+use parking_lot::Mutex;
 use std::collections::{HashSet, VecDeque};
 use std::pin::Pin;
 use std::process::Stdio;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
@@ -28,15 +29,15 @@ pub(crate) struct ProcessGroups(Mutex<HashSet<i32>>);
 
 impl ProcessGroups {
     fn insert(&self, pgid: i32) {
-        self.0.lock().unwrap().insert(pgid);
+        self.0.lock().insert(pgid);
     }
 
     fn remove(&self, pgid: i32) -> bool {
-        self.0.lock().unwrap().remove(&pgid)
+        self.0.lock().remove(&pgid)
     }
 
     pub(crate) fn kill_all(&self) {
-        for pgid in self.0.lock().unwrap().drain() {
+        for pgid in self.0.lock().drain() {
             kill_group(pgid);
         }
     }
@@ -159,7 +160,7 @@ impl Pipes {
             while let Ok(n) = reader.read(&mut chunk).await
                 && n > 0
             {
-                let mut text = tail.lock().unwrap();
+                let mut text = tail.lock();
                 text.push_str(&String::from_utf8_lossy(&chunk[..n]));
                 if text.len() > STDERR_TAIL {
                     let cut = text.len() - STDERR_TAIL;
@@ -239,7 +240,7 @@ impl Pipes {
     }
 
     fn stderr_tail(&self) -> String {
-        self.stderr.lock().unwrap().clone()
+        self.stderr.lock().clone()
     }
 
     fn failure_detail(&self, fallback: &str) -> String {
