@@ -106,7 +106,6 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
   const rowCounts = console ? rowResults(console.run).map((result) => result.meta.rowCount) : [];
   const largest = rowCounts.length > 0 ? Math.max(...rowCounts) : undefined;
   const table = tab?.table != null;
-  const rows = table || largest === undefined ? largest : Math.min(largest, pageSize);
   const picked = useWorkspace((s) => s.activeResult[id]);
   const shown = console ? shownResult(console.run, picked) : undefined;
   const shownKey = shown ? resultKey(shown) : "";
@@ -119,7 +118,8 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
     results: hasResults
       ? {
           table,
-          rows,
+          rows: largest,
+          pageSize,
           rowHeight: gridRowHeight(codeSize, density),
           chrome: Math.round(80 * DENSITY_FACTOR[density]),
           pager: !table && largest !== undefined && hasResultPager(largest),
