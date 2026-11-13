@@ -162,6 +162,22 @@ impl Shared {
         });
     }
 
+    /// Runs `task` through `spawn_holding` and waits for its output. A caller that stops waiting
+    /// leaves the task running, so the session still goes back to the tab. `None` means the task
+    /// panicked, which `spawn_holding` has already reported.
+    pub(crate) async fn run_holding<T: Send + 'static>(
+        self: &Arc<Self>,
+        console: Arc<Console>,
+        run_id: RunId,
+        task: impl Future<Output = T> + Send + 'static,
+    ) -> Option<T> {
+        let (reply, result) = tokio::sync::oneshot::channel();
+        self.spawn_holding(console, run_id, async move {
+            let _ = reply.send(task.await);
+        });
+        result.await.ok()
+    }
+
     pub(crate) fn settings(&self) -> Settings {
         self.settings.read().unwrap().clone()
     }
@@ -799,45 +815,55 @@ impl Shared {
             console.publish(&mut inner, self);
             (session, commits, run_id)
         };
-        let (kind, sql) =
-            if commits { (sql::StmtKind::Commit, "COMMIT") } else { (sql::StmtKind::Rollback, "ROLLBACK") };
-        let started = std::time::Instant::now();
-        let mut result = session.finish_transaction(commits).await;
-        let elapsed_ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
-        let fatal = result.as_ref().err().filter(|e| e.severity == "FATAL").map(|e| e.message.clone());
-        let lost = session.closed_reason_settled(fatal).await;
-        if commits
-            && lost.is_some()
-            && let Err(error) = &mut result
-        {
-            error.message = format!("Commit outcome is unknown because the session was lost: {}", error.message);
-        }
-        let mut lines = vec![console::statement_line(0, sql)];
-        lines.extend(console::notice_lines(&mut session));
-        lines.push(match &result {
-            Ok(()) => OutputBody::Command { statement: 0, tag: sql.into(), elapsed_ms },
-            Err(error) => OutputBody::Error { statement: Some(0), error: error.clone() },
+        let shared = self.clone();
+        let task_console = console.clone();
+        let finished = self.run_holding(console.clone(), run_id, async move {
+            let this = &shared;
+            let console = &task_console;
+            let (kind, sql) =
+                if commits { (sql::StmtKind::Commit, "COMMIT") } else { (sql::StmtKind::Rollback, "ROLLBACK") };
+            let started = std::time::Instant::now();
+            let mut result = session.finish_transaction(commits).await;
+            let elapsed_ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
+            let fatal = result.as_ref().err().filter(|e| e.severity == "FATAL").map(|e| e.message.clone());
+            let lost = session.closed_reason_settled(fatal).await;
+            if commits
+                && lost.is_some()
+                && let Err(error) = &mut result
+            {
+                error.message = format!("Commit outcome is unknown because the session was lost: {}", error.message);
+            }
+            let mut lines = vec![console::statement_line(0, sql)];
+            lines.extend(console::notice_lines(&mut session));
+            lines.push(match &result {
+                Ok(()) => OutputBody::Command { statement: 0, tag: sql.into(), elapsed_ms },
+                Err(error) => OutputBody::Error { statement: Some(0), error: error.clone() },
+            });
+            console.output_all(this, run_id, lines);
+            let outcome = if result.is_ok() { txn::StmtOutcome::Ok } else { txn::StmtOutcome::Err };
+            let edited = console
+                .edit(this, run_id, |inner| {
+                    let txn = session.observed_txn().unwrap_or_else(|| txn::txn_after(inner.txn, &kind, outcome));
+                    if txn::ended(&kind, outcome, session.observed_txn()) {
+                        inner.unasked = WriteList::default();
+                    }
+                    let retired = Console::return_session(inner, session, txn, lost);
+                    retired.or_else(|| inner.finish_refreshes(commits && result.is_ok()))
+                })
+                .await;
+            if let Ok(Some((db, owed))) = edited {
+                this.schedule_refreshes(db, owed);
+            }
+            match result {
+                Ok(()) if commit && !commits => Err(TxnError::RolledBack),
+                Ok(()) => Ok(()),
+                Err(error) => Err(TxnError::Query(error)),
+            }
         });
-        console.output_all(self, run_id, lines);
-        let outcome = if result.is_ok() { txn::StmtOutcome::Ok } else { txn::StmtOutcome::Err };
-        let edited = console
-            .edit(self, run_id, |inner| {
-                let txn = session.observed_txn().unwrap_or_else(|| txn::txn_after(inner.txn, &kind, outcome));
-                if txn::ended(&kind, outcome, session.observed_txn()) {
-                    inner.unasked = WriteList::default();
-                }
-                let retired = Console::return_session(inner, session, txn, lost);
-                retired.or_else(|| inner.finish_refreshes(commits && result.is_ok()))
-            })
-            .await;
-        if let Ok(Some((db, owed))) = edited {
-            self.schedule_refreshes(db, owed);
-        }
-        match result {
-            Ok(()) if commit && !commits => Err(TxnError::RolledBack),
-            Ok(()) => Ok(()),
-            Err(error) => Err(TxnError::Query(error)),
-        }
+        finished.await.unwrap_or_else(|| {
+            let what = if commits { "Commit outcome is unknown: the commit" } else { "The rollback" };
+            Err(TxnError::Query(session::error(format!("{what} stopped inside L1 Data and its session was closed."))))
+        })
     }
 
     fn console(&self, tab: TabId) -> Option<Arc<Console>> {
@@ -1881,82 +1907,93 @@ impl Engine {
             (session, txn, stop, wrap, run_id, writes_stay_unasked)
         };
 
-        let inside = txn == TxnState::Active;
-        let mut lines = Vec::new();
-        let mut outcome: Result<(), ApplyError> = async {
-            session.batch(open).await.map_err(|e| ApplyError::Transaction { error: e })?;
-            for (i, edit) in plan.iter().enumerate() {
-                let change = &edit.change;
-                let sql = &edit.sql;
-                if stop.load(Ordering::Relaxed) {
-                    return Err(ApplyError::Transaction { error: session::error("Cancelled") });
-                }
-                let statement = i as u16;
-                lines.push(console::statement_line(statement, sql));
-                let started = std::time::Instant::now();
-                let executed = session.execute_edit(edit).await;
-                let elapsed_ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
-                lines.extend(console::notice_lines(&mut session));
-                let rows = match executed {
-                    Ok(rows) => rows,
-                    Err(e) => {
-                        let error = e;
-                        lines.push(OutputBody::Error { statement: Some(statement), error: error.clone() });
-                        return Err(ApplyError::Failed { change: *change, error });
+        let shared = s.clone();
+        let task_console = console.clone();
+        let applied = s.run_holding(console.clone(), run_id, async move {
+            let s = &shared;
+            let console = &task_console;
+            let inside = txn == TxnState::Active;
+            let mut lines = Vec::new();
+            let mut outcome: Result<(), ApplyError> = async {
+                session.batch(open).await.map_err(|e| ApplyError::Transaction { error: e })?;
+                for (i, edit) in plan.iter().enumerate() {
+                    let change = &edit.change;
+                    let sql = &edit.sql;
+                    if stop.load(Ordering::Relaxed) {
+                        return Err(ApplyError::Transaction { error: session::error("Cancelled") });
                     }
-                };
-                let verb = match change.kind {
-                    ChangeKind::Insert => "INSERT 0",
-                    ChangeKind::Update => "UPDATE",
-                    ChangeKind::Delete => "DELETE",
-                };
-                lines.push(OutputBody::Command { statement, tag: format!("{verb} {rows}"), elapsed_ms });
-                if change.kind != ChangeKind::Insert && rows != 1 {
-                    return Err(ApplyError::RowMismatch { change: *change, rows });
+                    let statement = i as u16;
+                    lines.push(console::statement_line(statement, sql));
+                    let started = std::time::Instant::now();
+                    let executed = session.execute_edit(edit).await;
+                    let elapsed_ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
+                    lines.extend(console::notice_lines(&mut session));
+                    let rows = match executed {
+                        Ok(rows) => rows,
+                        Err(e) => {
+                            let error = e;
+                            lines.push(OutputBody::Error { statement: Some(statement), error: error.clone() });
+                            return Err(ApplyError::Failed { change: *change, error });
+                        }
+                    };
+                    let verb = match change.kind {
+                        ChangeKind::Insert => "INSERT 0",
+                        ChangeKind::Update => "UPDATE",
+                        ChangeKind::Delete => "DELETE",
+                    };
+                    lines.push(OutputBody::Command { statement, tag: format!("{verb} {rows}"), elapsed_ms });
+                    if change.kind != ChangeKind::Insert && rows != 1 {
+                        return Err(ApplyError::RowMismatch { change: *change, rows });
+                    }
                 }
+                if let Some(finish) = finish {
+                    session.batch(finish).await.map_err(|error| ApplyError::OutcomeUnknown { error })?;
+                }
+                Ok(())
             }
-            if let Some(finish) = finish {
-                session.batch(finish).await.map_err(|error| ApplyError::OutcomeUnknown { error })?;
+            .await;
+            if outcome.is_err()
+                && let Err(rollback) = session.batch(undo).await
+            {
+                let message = format!(
+                    "Staged edits failed; rollback also failed: {}. The session was retired. Commit outcome may be unknown.",
+                    rollback.message
+                );
+                session.retire(message.clone());
+                outcome = Err(ApplyError::OutcomeUnknown { error: session::error(message) });
             }
-            Ok(())
-        }
-        .await;
-        if outcome.is_err()
-            && let Err(rollback) = session.batch(undo).await
-        {
-            let message = format!(
-                "Staged edits failed; rollback also failed: {}. The session was retired. Commit outcome may be unknown.",
-                rollback.message
-            );
-            session.retire(message.clone());
-            outcome = Err(ApplyError::OutcomeUnknown { error: session::error(message) });
-        }
-        let after = session.observed_txn().unwrap_or(match (&outcome, inside, finish) {
-            (_, true, _) => TxnState::Active,
-            (Ok(()), false, None) => TxnState::Active,
-            _ => TxnState::Idle,
+            let after = session.observed_txn().unwrap_or(match (&outcome, inside, finish) {
+                (_, true, _) => TxnState::Active,
+                (Ok(()), false, None) => TxnState::Active,
+                _ => TxnState::Idle,
+            });
+            let lost = session.closed_reason_settled(None).await;
+            lines.extend(console::notice_lines(&mut session));
+            if let Err(ApplyError::Transaction { error } | ApplyError::OutcomeUnknown { error }) = &outcome {
+                lines.push(OutputBody::Error { statement: None, error: error.clone() });
+            }
+            console.output_all(s, run_id, lines);
+            let held = writes_stay_unasked && outcome.is_ok();
+            let ended = !inside && (finish.is_some() || outcome.is_err());
+            let returned = console.edit(s, run_id, |inner| {
+                if held {
+                    plan.iter().for_each(|edit| inner.unasked.add(&edit.sql));
+                }
+                if ended {
+                    inner.unasked = WriteList::default();
+                }
+                Console::return_session(inner, session, after, lost)
+            });
+            if let Ok(Some((db, owed))) = returned.await {
+                s.schedule_refreshes(db, owed);
+            }
+            outcome.map(|()| ApplySummary { committed: after == TxnState::Idle })
         });
-        let lost = session.closed_reason_settled(None).await;
-        lines.extend(console::notice_lines(&mut session));
-        if let Err(ApplyError::Transaction { error } | ApplyError::OutcomeUnknown { error }) = &outcome {
-            lines.push(OutputBody::Error { statement: None, error: error.clone() });
-        }
-        console.output_all(s, run_id, lines);
-        let held = writes_stay_unasked && outcome.is_ok();
-        let ended = !inside && (finish.is_some() || outcome.is_err());
-        let returned = console.edit(s, run_id, |inner| {
-            if held {
-                plan.iter().for_each(|edit| inner.unasked.add(&edit.sql));
-            }
-            if ended {
-                inner.unasked = WriteList::default();
-            }
-            Console::return_session(inner, session, after, lost)
-        });
-        if let Ok(Some((db, owed))) = returned.await {
-            s.schedule_refreshes(db, owed);
-        }
-        outcome.map(|()| ApplySummary { committed: after == TxnState::Idle })
+        applied.await.unwrap_or_else(|| {
+            Err(ApplyError::OutcomeUnknown {
+                error: session::error("The edit stopped inside L1 Data and its session was closed."),
+            })
+        })
     }
 
     pub async fn table_import_prepare(
