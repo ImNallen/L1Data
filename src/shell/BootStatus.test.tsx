@@ -7,6 +7,7 @@ afterEach(cleanup);
 
 it("announces startup while the app waits for the engine", () => {
   render(<BootStatus state={{ kind: "starting" }} />);
+  expect(screen.getByRole("heading", { name: "L1 Data" })).toBeTruthy();
   expect(screen.getByRole("status").textContent).toContain("Starting L1 Data");
   expect(screen.queryByRole("button")).toBeNull();
 });
