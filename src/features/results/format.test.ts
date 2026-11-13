@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatClock, formatElapsed, groupDigits, hasResultPager, isNumeric, pageStatus, resultPage, shortType, toTsv } from "./format";
+import { formatClock, formatElapsed, groupDigits, hasResultPager, isNumeric, pageRows, pageStatus, resultPage, shortType, toTsv } from "./format";
 
 describe("groupDigits", () => {
   it("groups the integer part and keeps sign and fraction verbatim", () => {
@@ -122,5 +122,18 @@ describe("formatClock", () => {
     expect(formatClock(new Date(2026, 9, 15, 9, 5, 7, 900).getTime())).toBe("09:05:07");
     expect(formatClock(new Date(2026, 9, 15, 23, 59, 59).getTime())).toBe("23:59:59");
     expect(formatClock(new Date(2026, 9, 15, 0, 0, 0).getTime())).toBe("00:00:00");
+  });
+});
+
+describe("pageRows", () => {
+  it("expects the rows left on the page from the table's total", () => {
+    expect(pageRows(0, 10, 3)).toBe(3);
+    expect(pageRows(0, 10, 18_400)).toBe(10);
+    expect(pageRows(1, 10, 15)).toBe(5);
+    expect(pageRows(2, 10, 15)).toBe(0);
+  });
+
+  it("knows nothing without a total", () => {
+    expect(pageRows(0, 10, null)).toBeUndefined();
   });
 });
