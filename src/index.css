@@ -148,6 +148,15 @@
   --code-run-target-border: rgba(37, 99, 235, 0.3);
 }
 
+/* The webview already resolves the saved window scheme before boot loads the theme. */
+:root:not([data-theme]) {
+  --color-bg: light-dark(#ffffff, #0a0a0a);
+  --color-fg: light-dark(#171717, #f5f5f5);
+  --color-muted: light-dark(#4b4b4f, #a3a3a3);
+  --color-dim: light-dark(#67676c, #818181);
+  --color-keyword: light-dark(#1d64d8, #50a2ff);
+}
+
 html,
 body,
 #root {
@@ -208,6 +217,38 @@ textarea,
 ::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-hover);
   background-clip: padding-box;
+}
+
+.boot-activity > span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+@keyframes boot-activity {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-motion="reduced"]) .boot-activity > span {
+    animation-name: boot-activity;
+    animation-duration: 1.2s;
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+  }
+  .boot-activity > span:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+  .boot-activity > span:nth-child(3) {
+    animation-delay: 0.3s;
+  }
 }
 
 @keyframes spin {
