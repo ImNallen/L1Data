@@ -12,7 +12,10 @@ pub fn app_boot(engine: State<'_, Arc<Engine>>) -> BootSnapshot {
 
 #[tauri::command]
 #[specta::specta]
-pub async fn connection_save(engine: State<'_, Arc<Engine>>, draft: ConnectionDraft) -> Result<ConnectionConfig, SaveError> {
+pub async fn connection_save(
+    engine: State<'_, Arc<Engine>>,
+    draft: ConnectionDraft,
+) -> Result<ConnectionConfig, SaveError> {
     engine.save_connection(draft).await
 }
 
@@ -24,7 +27,10 @@ pub async fn connection_delete(engine: State<'_, Arc<Engine>>, id: ConnectionId)
 
 #[tauri::command]
 #[specta::specta]
-pub async fn connection_test(engine: State<'_, Arc<Engine>>, draft: ConnectionDraft) -> Result<ServerInfo, ConnectError> {
+pub async fn connection_test(
+    engine: State<'_, Arc<Engine>>,
+    draft: ConnectionDraft,
+) -> Result<ServerInfo, ConnectError> {
     engine.test_connection(draft).await
 }
 
@@ -48,7 +54,11 @@ pub async fn connection_connect(engine: State<'_, Arc<Engine>>, id: ConnectionId
 
 #[tauri::command]
 #[specta::specta]
-pub async fn connection_disconnect(engine: State<'_, Arc<Engine>>, id: ConnectionId, force: bool) -> Result<(), DisconnectError> {
+pub async fn connection_disconnect(
+    engine: State<'_, Arc<Engine>>,
+    id: ConnectionId,
+    force: bool,
+) -> Result<(), DisconnectError> {
     engine.disconnect(id, force).await
 }
 
@@ -72,7 +82,11 @@ pub async fn connection_refresh(engine: State<'_, Arc<Engine>>, id: ConnectionId
 
 #[tauri::command]
 #[specta::specta]
-pub async fn connection_edit_view(engine: State<'_, Arc<Engine>>, id: ConnectionId, edit: ViewEdit) -> Result<(), CatalogError> {
+pub async fn connection_edit_view(
+    engine: State<'_, Arc<Engine>>,
+    id: ConnectionId,
+    edit: ViewEdit,
+) -> Result<(), CatalogError> {
     engine.edit_view(id, edit).await
 }
 
@@ -84,61 +98,109 @@ pub fn connection_probe_databases(engine: State<'_, Arc<Engine>>, id: Connection
 
 #[tauri::command]
 #[specta::specta]
-pub async fn relation_detail(engine: State<'_, Arc<Engine>>, db: DatabaseRef, oid: u32) -> Result<RelationDetail, DetailError> {
+pub async fn relation_detail(
+    engine: State<'_, Arc<Engine>>,
+    db: DatabaseRef,
+    oid: u32,
+) -> Result<RelationDetail, DetailError> {
     engine.relation_detail(db, oid).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn object_script(engine: State<'_, Arc<Engine>>, db: DatabaseRef, target: ScriptTarget) -> Result<ObjectScript, DetailError> {
+pub async fn object_script(
+    engine: State<'_, Arc<Engine>>,
+    db: DatabaseRef,
+    target: ScriptTarget,
+) -> Result<ObjectScript, DetailError> {
     engine.object_script(db, target).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn exact_row_count(engine: State<'_, Arc<Engine>>, tab_id: TabId, db: DatabaseRef, schema: String, table: String, query: TableQuery) -> Result<u64, CountError> {
+pub async fn exact_row_count(
+    engine: State<'_, Arc<Engine>>,
+    tab_id: TabId,
+    db: DatabaseRef,
+    schema: String,
+    table: String,
+    query: TableQuery,
+) -> Result<u64, CountError> {
     engine.exact_row_count(tab_id, db, schema, table, query).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn console_configure(engine: State<'_, Arc<Engine>>, tab_id: TabId, config: ConsoleConfig) -> Result<ConsoleState, ConfigureError> {
+pub async fn console_configure(
+    engine: State<'_, Arc<Engine>>,
+    tab_id: TabId,
+    config: ConsoleConfig,
+) -> Result<ConsoleState, ConfigureError> {
     engine.console_configure(tab_id, config).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn script_params(engine: State<'_, Arc<Engine>>, text: String, target: RunTarget, database_kind: DatabaseKind) -> Result<Vec<Param>, RunError> {
+pub fn script_params(
+    engine: State<'_, Arc<Engine>>,
+    text: String,
+    target: RunTarget,
+    database_kind: DatabaseKind,
+) -> Result<Vec<Param>, RunError> {
     engine.script_params(&text, target, database_kind)
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn cell_references(engine: State<'_, Arc<Engine>>, text: String, database_kind: DatabaseKind) -> Vec<CellReference> {
+pub fn cell_references(
+    engine: State<'_, Arc<Engine>>,
+    text: String,
+    database_kind: DatabaseKind,
+) -> Vec<CellReference> {
     engine.cell_references(&text, database_kind)
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn script_outline(engine: State<'_, Arc<Engine>>, text: String, cursor: DocOffset, database_kind: DatabaseKind) -> ScriptOutline {
+pub fn script_outline(
+    engine: State<'_, Arc<Engine>>,
+    text: String,
+    cursor: DocOffset,
+    database_kind: DatabaseKind,
+) -> ScriptOutline {
     engine.script_outline(&text, cursor, database_kind)
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn completion_context(engine: State<'_, Arc<Engine>>, text: String, cursor: DocOffset, database_kind: DatabaseKind) -> CompletionContext {
+pub fn completion_context(
+    engine: State<'_, Arc<Engine>>,
+    text: String,
+    cursor: DocOffset,
+    database_kind: DatabaseKind,
+) -> CompletionContext {
     engine.completion_context(&text, cursor, database_kind)
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn editor_format(engine: State<'_, Arc<Engine>>, text: String, target: RunTarget, database_kind: DatabaseKind) -> Result<FormatEdit, FormatError> {
+pub fn editor_format(
+    engine: State<'_, Arc<Engine>>,
+    text: String,
+    target: RunTarget,
+    database_kind: DatabaseKind,
+) -> Result<FormatEdit, FormatError> {
     engine.editor_format(&text, target, database_kind)
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn console_run(engine: State<'_, Arc<Engine>>, tab_id: TabId, request: RunRequest, confirmed: Option<WriteDigest>) -> Result<RunAccepted, RunError> {
+pub async fn console_run(
+    engine: State<'_, Arc<Engine>>,
+    tab_id: TabId,
+    request: RunRequest,
+    confirmed: Option<WriteDigest>,
+) -> Result<RunAccepted, RunError> {
     engine.console_run(tab_id, request, confirmed).await
 }
 
@@ -151,7 +213,11 @@ pub async fn console_cancel(app: AppHandle, tab_id: TabId) {
 
 #[tauri::command]
 #[specta::specta]
-pub async fn console_commit(engine: State<'_, Arc<Engine>>, tab_id: TabId, confirmed: Option<WriteDigest>) -> Result<(), TxnError> {
+pub async fn console_commit(
+    engine: State<'_, Arc<Engine>>,
+    tab_id: TabId,
+    confirmed: Option<WriteDigest>,
+) -> Result<(), TxnError> {
     engine.console_commit(tab_id, confirmed).await
 }
 
@@ -163,31 +229,55 @@ pub async fn console_rollback(engine: State<'_, Arc<Engine>>, tab_id: TabId) -> 
 
 #[tauri::command]
 #[specta::specta]
-pub async fn table_apply(engine: State<'_, Arc<Engine>>, tab_id: TabId, changes: TableChanges, confirmed: Option<WriteDigest>) -> Result<ApplySummary, ApplyError> {
+pub async fn table_apply(
+    engine: State<'_, Arc<Engine>>,
+    tab_id: TabId,
+    changes: TableChanges,
+    confirmed: Option<WriteDigest>,
+) -> Result<ApplySummary, ApplyError> {
     engine.table_apply(tab_id, changes, confirmed).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn table_import_prepare(engine: State<'_, Arc<Engine>>, tab_id: TabId, target: ImportTarget, file: String) -> Result<ImportSourceId, ImportError> {
+pub async fn table_import_prepare(
+    engine: State<'_, Arc<Engine>>,
+    tab_id: TabId,
+    target: ImportTarget,
+    file: String,
+) -> Result<ImportSourceId, ImportError> {
     engine.table_import_prepare(tab_id, target, file).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn table_import_preview(engine: State<'_, Arc<Engine>>, tab_id: TabId, source: ImportSourceId, header: bool) -> Result<ImportPreview, ImportError> {
+pub async fn table_import_preview(
+    engine: State<'_, Arc<Engine>>,
+    tab_id: TabId,
+    source: ImportSourceId,
+    header: bool,
+) -> Result<ImportPreview, ImportError> {
     engine.table_import_preview(tab_id, source, header).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn table_import(engine: State<'_, Arc<Engine>>, tab_id: TabId, request: ImportRequest, confirmed: Option<WriteDigest>) -> Result<ImportSummary, ImportError> {
+pub async fn table_import(
+    engine: State<'_, Arc<Engine>>,
+    tab_id: TabId,
+    request: ImportRequest,
+    confirmed: Option<WriteDigest>,
+) -> Result<ImportSummary, ImportError> {
     engine.table_import(tab_id, request, confirmed).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn table_import_discard(engine: State<'_, Arc<Engine>>, tab_id: TabId, source: ImportSourceId) -> Result<(), ImportError> {
+pub async fn table_import_discard(
+    engine: State<'_, Arc<Engine>>,
+    tab_id: TabId,
+    source: ImportSourceId,
+) -> Result<(), ImportError> {
     engine.table_import_discard(tab_id, source).await
 }
 
@@ -199,49 +289,88 @@ pub async fn console_close(engine: State<'_, Arc<Engine>>, tab_id: TabId, force:
 
 #[tauri::command]
 #[specta::specta]
-pub fn result_page(engine: State<'_, Arc<Engine>>, result_ref: ResultRef, start: u32, len: u32) -> Result<RowPage, ResultError> {
+pub fn result_page(
+    engine: State<'_, Arc<Engine>>,
+    result_ref: ResultRef,
+    start: u32,
+    len: u32,
+) -> Result<RowPage, ResultError> {
     engine.result_page(result_ref, start, len)
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn result_cell(engine: State<'_, Arc<Engine>>, result_ref: ResultRef, row: u32, col: u16) -> Result<Option<String>, ResultError> {
+pub fn result_cell(
+    engine: State<'_, Arc<Engine>>,
+    result_ref: ResultRef,
+    row: u32,
+    col: u16,
+) -> Result<Option<String>, ResultError> {
     engine.result_cell(result_ref, row, col)
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn result_cell_matches(engine: State<'_, Arc<Engine>>, result_ref: ResultRef, cell: ResultCell, query: String) -> Result<bool, ResultError> {
+pub async fn result_cell_matches(
+    engine: State<'_, Arc<Engine>>,
+    result_ref: ResultRef,
+    cell: ResultCell,
+    query: String,
+) -> Result<bool, ResultError> {
     engine.result_cell_matches(result_ref, cell, query).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn result_find(engine: State<'_, Arc<Engine>>, result_ref: ResultRef, query: String, direction: ResultFindDirection) -> Result<ResultFind, ResultError> {
+pub async fn result_find(
+    engine: State<'_, Arc<Engine>>,
+    result_ref: ResultRef,
+    query: String,
+    direction: ResultFindDirection,
+) -> Result<ResultFind, ResultError> {
     engine.result_find(result_ref, query, direction).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn result_aggregate(engine: State<'_, Arc<Engine>>, result_ref: ResultRef, rows: RowSpan, cols: ColSpan) -> Result<CellAggregate, ResultError> {
+pub async fn result_aggregate(
+    engine: State<'_, Arc<Engine>>,
+    result_ref: ResultRef,
+    rows: RowSpan,
+    cols: ColSpan,
+) -> Result<CellAggregate, ResultError> {
     engine.result_aggregate(result_ref, rows, cols).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn result_series(engine: State<'_, Arc<Engine>>, result_ref: ResultRef, x: Option<u16>, y: u16, max_points: u32) -> Result<ChartSeries, ResultError> {
+pub async fn result_series(
+    engine: State<'_, Arc<Engine>>,
+    result_ref: ResultRef,
+    x: Option<u16>,
+    y: u16,
+    max_points: u32,
+) -> Result<ChartSeries, ResultError> {
     engine.result_series(result_ref, x, y, max_points).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn result_profile(engine: State<'_, Arc<Engine>>, result_ref: ResultRef, col: u16) -> Result<ColumnProfile, ResultError> {
+pub async fn result_profile(
+    engine: State<'_, Arc<Engine>>,
+    result_ref: ResultRef,
+    col: u16,
+) -> Result<ColumnProfile, ResultError> {
     engine.result_profile(result_ref, col).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn result_drill(engine: State<'_, Arc<Engine>>, result_ref: ResultRef, point: DrillPoint) -> Result<DrillQuery, DrillError> {
+pub fn result_drill(
+    engine: State<'_, Arc<Engine>>,
+    result_ref: ResultRef,
+    point: DrillPoint,
+) -> Result<DrillQuery, DrillError> {
     engine.result_drill(result_ref, point)
 }
 
@@ -253,7 +382,13 @@ pub fn result_plan(engine: State<'_, Arc<Engine>>, result_ref: ResultRef) -> Res
 
 #[tauri::command]
 #[specta::specta]
-pub async fn result_export(engine: State<'_, Arc<Engine>>, result_ref: ResultRef, format: ExportFormat, scope: ExportScope, path: String) -> Result<ExportSummary, ExportError> {
+pub async fn result_export(
+    engine: State<'_, Arc<Engine>>,
+    result_ref: ResultRef,
+    format: ExportFormat,
+    scope: ExportScope,
+    path: String,
+) -> Result<ExportSummary, ExportError> {
     engine.result_export(result_ref, format, scope, path).await
 }
 
@@ -265,7 +400,11 @@ pub async fn notebook_open(engine: State<'_, Arc<Engine>>, path: String) -> Resu
 
 #[tauri::command]
 #[specta::specta]
-pub async fn notebook_save(engine: State<'_, Arc<Engine>>, target: SaveTarget, notebook: NotebookText) -> Result<NotebookSaved, FileWriteError> {
+pub async fn notebook_save(
+    engine: State<'_, Arc<Engine>>,
+    target: SaveTarget,
+    notebook: NotebookText,
+) -> Result<NotebookSaved, FileWriteError> {
     engine.notebook_save(target, notebook).await
 }
 
@@ -301,13 +440,22 @@ pub fn history_clear(engine: State<'_, Arc<Engine>>) {
 
 #[tauri::command]
 #[specta::specta]
-pub fn saved_query_save(engine: State<'_, Arc<Engine>>, text: String, target: RunTarget, database_kind: DatabaseKind) -> Result<SaveQueryReply, SavedQueryError> {
+pub fn saved_query_save(
+    engine: State<'_, Arc<Engine>>,
+    text: String,
+    target: RunTarget,
+    database_kind: DatabaseKind,
+) -> Result<SaveQueryReply, SavedQueryError> {
     engine.saved_query_save(&text, target, database_kind)
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn saved_query_update(engine: State<'_, Arc<Engine>>, id: SavedQueryId, edit: SavedQueryEdit) -> Result<SavedQueries, SavedQueryError> {
+pub fn saved_query_update(
+    engine: State<'_, Arc<Engine>>,
+    id: SavedQueryId,
+    edit: SavedQueryEdit,
+) -> Result<SavedQueries, SavedQueryError> {
     engine.saved_query_update(id, edit)
 }
 
@@ -343,13 +491,21 @@ pub async fn assistant_open(engine: State<'_, Arc<Engine>>, chat_id: ChatId) -> 
 
 #[tauri::command]
 #[specta::specta]
-pub fn assistant_configure(engine: State<'_, Arc<Engine>>, chat_id: ChatId, options: ChatOptions) -> Result<ChatState, ChatError> {
+pub fn assistant_configure(
+    engine: State<'_, Arc<Engine>>,
+    chat_id: ChatId,
+    options: ChatOptions,
+) -> Result<ChatState, ChatError> {
     engine.assistant_configure(chat_id, options)
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn assistant_send(engine: State<'_, Arc<Engine>>, chat_id: ChatId, request: SendRequest) -> Result<TurnAccepted, SendError> {
+pub async fn assistant_send(
+    engine: State<'_, Arc<Engine>>,
+    chat_id: ChatId,
+    request: SendRequest,
+) -> Result<TurnAccepted, SendError> {
     engine.assistant_send(chat_id, request).await
 }
 
@@ -361,7 +517,12 @@ pub fn assistant_stop(engine: State<'_, Arc<Engine>>, chat_id: ChatId) {
 
 #[tauri::command]
 #[specta::specta]
-pub fn assistant_approve(engine: State<'_, Arc<Engine>>, chat_id: ChatId, approval: ApprovalId, decision: Decision) -> Result<(), ApproveError> {
+pub fn assistant_approve(
+    engine: State<'_, Arc<Engine>>,
+    chat_id: ChatId,
+    approval: ApprovalId,
+    decision: Decision,
+) -> Result<(), ApproveError> {
     engine.assistant_approve(chat_id, approval, decision)
 }
 
@@ -397,7 +558,11 @@ pub fn update_download(engine: State<'_, Arc<Engine>>, version: String) -> Resul
 
 #[tauri::command]
 #[specta::specta]
-pub async fn update_install(app: AppHandle, version: String, accepted: Option<RestartImpact>) -> Result<InstallReply, UpdateError> {
+pub async fn update_install(
+    app: AppHandle,
+    version: String,
+    accepted: Option<RestartImpact>,
+) -> Result<InstallReply, UpdateError> {
     app.state::<Arc<Engine>>().update_install(version, accepted).await
 }
 
@@ -409,24 +574,48 @@ pub fn update_set_track(engine: State<'_, Arc<Engine>>, track: UpdateTrack) -> R
 
 #[tauri::command]
 #[specta::specta]
-pub fn table_script(engine: State<'_, Arc<Engine>>, db: DatabaseRef, schema: String, table: String) -> Result<TableScript, String> {
+pub fn table_script(
+    engine: State<'_, Arc<Engine>>,
+    db: DatabaseRef,
+    schema: String,
+    table: String,
+) -> Result<TableScript, String> {
     engine.table_script(db, &schema, &table)
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn table_order(engine: State<'_, Arc<Engine>>, db: DatabaseRef, schema: String, table: String, order_by: String, edit: TableOrderEdit) -> Result<TableOrderView, String> {
+pub fn table_order(
+    engine: State<'_, Arc<Engine>>,
+    db: DatabaseRef,
+    schema: String,
+    table: String,
+    order_by: String,
+    edit: TableOrderEdit,
+) -> Result<TableOrderView, String> {
     engine.table_order(db, &schema, &table, &order_by, edit)
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn database_map_neighborhood(engine: State<'_, Arc<Engine>>, db: DatabaseRef, oid: u32, catalog_version: u64, after: Option<MapCursor>) -> Result<MapNeighborhood, MapError> {
+pub async fn database_map_neighborhood(
+    engine: State<'_, Arc<Engine>>,
+    db: DatabaseRef,
+    oid: u32,
+    catalog_version: u64,
+    after: Option<MapCursor>,
+) -> Result<MapNeighborhood, MapError> {
     engine.database_map_neighborhood(db, oid, catalog_version, after).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn database_map_query(engine: State<'_, Arc<Engine>>, db: DatabaseRef, text: String, cursor: DocOffset, catalog_version: u64) -> Result<MapQuery, MapError> {
+pub async fn database_map_query(
+    engine: State<'_, Arc<Engine>>,
+    db: DatabaseRef,
+    text: String,
+    cursor: DocOffset,
+    catalog_version: u64,
+) -> Result<MapQuery, MapError> {
     engine.database_map_query(db, text, cursor, catalog_version).await
 }

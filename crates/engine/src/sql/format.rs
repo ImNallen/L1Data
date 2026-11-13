@@ -27,10 +27,17 @@ fn checked(input: &str, output: String) -> Result<String, FormatError> {
         lex_strings(sql, strings)
             .into_iter()
             .filter(|l| l.kind != LexKind::Space)
-            .map(|l| (l.kind, if l.kind == LexKind::Word { sql[l.span].to_ascii_lowercase() } else { sql[l.span].to_owned() }))
+            .map(|l| {
+                (
+                    l.kind,
+                    if l.kind == LexKind::Word { sql[l.span].to_ascii_lowercase() } else { sql[l.span].to_owned() },
+                )
+            })
             .collect()
     };
-    let same = [Strings::Standard, Strings::Escaped].into_iter().all(|strings| significant(input, strings) == significant(&output, strings));
+    let same = [Strings::Standard, Strings::Escaped]
+        .into_iter()
+        .all(|strings| significant(input, strings) == significant(&output, strings));
     if same { Ok(output) } else { Err(FormatError::Unsafe) }
 }
 
@@ -67,7 +74,13 @@ fn read<'a>(sql: &'a str, lexemes: &[Lexeme]) -> (Vec<Tok<'a>>, Vec<Note<'a>>) {
         }
         match l.kind {
             LexKind::LineComment | LexKind::BlockComment => {
-                notes.push(Note { text, line: l.kind == LexKind::LineComment, own_line: newline, spaced, newline_after: false });
+                notes.push(Note {
+                    text,
+                    line: l.kind == LexKind::LineComment,
+                    own_line: newline,
+                    spaced,
+                    newline_after: false,
+                });
             }
             kind => {
                 toks.push(Tok { kind, text, notes: std::mem::take(&mut notes), spaced });
@@ -185,16 +198,70 @@ const VERBATIM_PHRASES: &[&[&str]] = &[
 
 /// After a leading `CREATE`, `ALTER`, or `DROP`, these words name what the statement acts on.
 const DDL_HEAD: &[&str] = &[
-    "aggregate", "collation", "column", "concurrently", "constraint", "data", "database", "default", "domain", "event", "exists", "extension",
-    "foreign", "function", "global", "if", "index", "local", "materialized", "not", "operator", "or", "policy", "privileges", "procedure",
-    "publication", "recursive", "replace", "role", "rule", "schema", "sequence", "server", "subscription", "table", "temp", "temporary",
-    "trigger", "type", "unique", "unlogged", "user", "view", "wrapper",
+    "aggregate",
+    "collation",
+    "column",
+    "concurrently",
+    "constraint",
+    "data",
+    "database",
+    "default",
+    "domain",
+    "event",
+    "exists",
+    "extension",
+    "foreign",
+    "function",
+    "global",
+    "if",
+    "index",
+    "local",
+    "materialized",
+    "not",
+    "operator",
+    "or",
+    "policy",
+    "privileges",
+    "procedure",
+    "publication",
+    "recursive",
+    "replace",
+    "role",
+    "rule",
+    "schema",
+    "sequence",
+    "server",
+    "subscription",
+    "table",
+    "temp",
+    "temporary",
+    "trigger",
+    "type",
+    "unique",
+    "unlogged",
+    "user",
+    "view",
+    "wrapper",
 ];
 
 /// Keywords that are values, so an operator after one is binary.
 const VALUE_WORDS: &[&str] = &[
-    "current_catalog", "current_date", "current_role", "current_schema", "current_time", "current_timestamp", "current_user", "default",
-    "false", "localtime", "localtimestamp", "null", "session_user", "system_user", "true", "user",
+    "current_catalog",
+    "current_date",
+    "current_role",
+    "current_schema",
+    "current_time",
+    "current_timestamp",
+    "current_user",
+    "default",
+    "false",
+    "localtime",
+    "localtimestamp",
+    "null",
+    "session_user",
+    "system_user",
+    "true",
+    "user",
 ];
 
 fn lower(tok: &Tok<'_>) -> Option<String> {
@@ -212,7 +279,12 @@ fn roles(toks: &[Tok<'_>], verbatim: bool) -> Vec<Role> {
     let mut roles: Vec<Role> = (0..toks.len())
         .map(|i| match word(i) {
             Some(w) if listed(RESERVED, w) => Role::Keyword,
-            Some(w) if listed(TYPE_OR_FUNCTION_NAME, w) && !(matches!(w, "left" | "right") && kind(i + 1) == Some(LexKind::Open)) => Role::Keyword,
+            Some(w)
+                if listed(TYPE_OR_FUNCTION_NAME, w)
+                    && !(matches!(w, "left" | "right") && kind(i + 1) == Some(LexKind::Open)) =>
+            {
+                Role::Keyword
+            }
             _ => Role::Plain,
         })
         .collect();
@@ -221,7 +293,10 @@ fn roles(toks: &[Tok<'_>], verbatim: bool) -> Vec<Role> {
             roles[0] = Role::Keyword;
         }
         if matches!(first, "create" | "alter" | "drop") {
-            let names_what = |i: usize| word(i).is_some_and(|w| DDL_HEAD.contains(&w)) && matches!(kind(i + 1), Some(LexKind::Word | LexKind::QuotedIdent));
+            let names_what = |i: usize| {
+                word(i).is_some_and(|w| DDL_HEAD.contains(&w))
+                    && matches!(kind(i + 1), Some(LexKind::Word | LexKind::QuotedIdent))
+            };
             let head = (1..toks.len()).take_while(|&i| names_what(i)).count();
             roles[1..=head].fill(Role::Keyword);
         }
@@ -285,7 +360,9 @@ fn root_clause(toks: &[Tok<'_>]) -> Option<Clause> {
     match words.first().map(String::as_str)? {
         "select" | "with" | "values" | "insert" | "update" | "delete" => Some(Clause::Start),
         "create" => {
-            let rest = words[1..].iter().skip_while(|w| matches!(w.as_str(), "global" | "local" | "temp" | "temporary" | "unlogged"));
+            let rest = words[1..]
+                .iter()
+                .skip_while(|w| matches!(w.as_str(), "global" | "local" | "temp" | "temporary" | "unlogged"));
             (rest.clone().next().map(String::as_str) == Some("table")).then_some(Clause::CreateTable)
         }
         _ => None,
@@ -349,10 +426,19 @@ struct ClauseStart {
 #[derive(Debug, Clone, Copy)]
 enum Frame {
     /// A statement or a subquery, laid out clause by clause. `close` is the indent of a subquery's `)`.
-    Query { indent: usize, close: Option<usize>, clause: Clause, open_betweens: usize },
+    Query {
+        indent: usize,
+        close: Option<usize>,
+        clause: Clause,
+        open_betweens: usize,
+    },
     Inline,
-    Case { indent: usize },
-    Columns { indent: usize },
+    Case {
+        indent: usize,
+    },
+    Columns {
+        indent: usize,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -403,7 +489,15 @@ fn root(clause: Clause) -> Frame {
 impl<'a> Layout<'a> {
     fn new(toks: &'a [Tok<'a>], roles: Vec<Role>, clause: Clause) -> Self {
         let words = toks.iter().map(lower).collect();
-        Layout { toks, words, roles, frames: vec![root(clause)], out: Out { text: String::new(), indent: 0 }, pending: None, phrase_end: 0 }
+        Layout {
+            toks,
+            words,
+            roles,
+            frames: vec![root(clause)],
+            out: Out { text: String::new(), indent: 0 },
+            pending: None,
+            phrase_end: 0,
+        }
     }
 
     fn run(mut self, trailing: &[Note<'_>]) -> String {
@@ -413,7 +507,11 @@ impl<'a> Layout<'a> {
             let sep = own.or(pending).unwrap_or_else(|| self.gap(i));
             let tok = &self.toks[i];
             let sep = self.put_notes(&tok.notes, sep, tok.spaced);
-            let text = if self.roles[i] == Role::Keyword { Cow::Owned(tok.text.to_ascii_uppercase()) } else { Cow::Borrowed(tok.text) };
+            let text = if self.roles[i] == Role::Keyword {
+                Cow::Owned(tok.text.to_ascii_uppercase())
+            } else {
+                Cow::Borrowed(tok.text)
+            };
             self.out.put(sep, &text);
             self.open(i, sep);
         }
@@ -516,8 +614,15 @@ impl<'a> Layout<'a> {
             "insert" if w(1) == "into" && current.before_statement() => line(InsertInto, 2),
             "update" if current.before_statement() => line(Update, 1),
             "delete" if w(1) == "from" && current.before_statement() => line(DeleteFrom, 2),
-            "values" if matches!(current, Start | With | InsertInto | SetOp) && !(i > 0 && self.word(i - 1) == "default") => line(Values, 1),
-            "from" if !(i > 1 && self.word(i - 1) == "distinct" && matches!(self.word(i - 2), "is" | "not")) => line(From, 1),
+            "values"
+                if matches!(current, Start | With | InsertInto | SetOp)
+                    && !(i > 0 && self.word(i - 1) == "default") =>
+            {
+                line(Values, 1)
+            }
+            "from" if !(i > 1 && self.word(i - 1) == "distinct" && matches!(self.word(i - 2), "is" | "not")) => {
+                line(From, 1)
+            }
             "on" if current == Join => inline(On, 1),
             "on" if w(1) == "conflict" => line(OnConflict, 2),
             "do" if current == OnConflict && w(1) == "update" && w(2) == "set" => inline(Set, 3),
@@ -548,10 +653,14 @@ impl<'a> Layout<'a> {
     fn open(&mut self, i: usize, sep: Sep) {
         match self.kind(i) {
             Some(LexKind::Open) => {
-                let subquery = matches!(self.word(i + 1), "select" | "with" | "values" | "insert" | "update" | "delete") && self.roles[i + 1] != Role::Name;
+                let subquery =
+                    matches!(self.word(i + 1), "select" | "with" | "values" | "insert" | "update" | "delete")
+                        && self.roles[i + 1] != Role::Name;
                 let line = self.out.indent;
                 let frame = match self.frames.last() {
-                    _ if subquery => Frame::Query { indent: line + 2, close: Some(line), clause: Clause::Start, open_betweens: 0 },
+                    _ if subquery => {
+                        Frame::Query { indent: line + 2, close: Some(line), clause: Clause::Start, open_betweens: 0 }
+                    }
                     Some(Frame::Query { clause: Clause::CreateTable, .. }) => {
                         self.set_query(Clause::TableTail, 0);
                         Frame::Columns { indent: line }
@@ -638,7 +747,11 @@ impl<'a> Layout<'a> {
         use LexKind::*;
         match self.kind(i) {
             Some(QuotedIdent | String | DollarString | Number | Param | Open | Operator) => true,
-            Some(Word) => self.roles[i] != Role::Keyword || listed(VALUE_WORDS, self.word(i)) || matches!(self.word(i), "array" | "case" | "cast"),
+            Some(Word) => {
+                self.roles[i] != Role::Keyword
+                    || listed(VALUE_WORDS, self.word(i))
+                    || matches!(self.word(i), "array" | "case" | "cast")
+            }
             _ => false,
         }
     }
@@ -692,8 +805,7 @@ mod tests {
         format_statement(sql).unwrap_or_else(|e| panic!("{e:?} for {sql:?}"))
     }
 
-    const SAMPLE: &str =
-        "select o.id, o.total::numeric(10,2), c.meta->>'tier' as tier from orders o join customers c on c.id = o.customer_id where o.status = any(array['paid','shipped']) and o.note ilike E'%\\'x%' -- trailing\norder by 2 desc";
+    const SAMPLE: &str = "select o.id, o.total::numeric(10,2), c.meta->>'tier' as tier from orders o join customers c on c.id = o.customer_id where o.status = any(array['paid','shipped']) and o.note ilike E'%\\'x%' -- trailing\norder by 2 desc";
 
     #[test]
     fn a_query_gets_one_clause_per_line_and_keeps_strings_operators_and_comments() {
@@ -716,7 +828,10 @@ mod tests {
 
     #[test]
     fn an_upsert_keeps_do_update_set_on_the_on_conflict_line() {
-        assert_eq!(fmt(UPSERT), "INSERT INTO t(a, b)\nVALUES (1, 'x')\nON CONFLICT (a) DO UPDATE SET b = excluded.b\nRETURNING *");
+        assert_eq!(
+            fmt(UPSERT),
+            "INSERT INTO t(a, b)\nVALUES (1, 'x')\nON CONFLICT (a) DO UPDATE SET b = excluded.b\nRETURNING *"
+        );
     }
 
     const WINDOW: &str = "select sum(total) over (partition by region order by day rows between 1 preceding and current row) from s /* keep me */";
@@ -776,7 +891,8 @@ mod tests {
         assert_eq!(fmt(LEADING_COMMA), "SELECT a -- first\n  , b\nFROM t");
     }
 
-    const FORMATTED: &str = "SELECT o.id,\n  o.total\nFROM orders o\nWHERE o.status = 'paid'\n  AND o.total > 10\nORDER BY 2 DESC";
+    const FORMATTED: &str =
+        "SELECT o.id,\n  o.total\nFROM orders o\nWHERE o.status = 'paid'\n  AND o.total > 10\nORDER BY 2 DESC";
 
     #[test]
     fn a_formatted_statement_comes_back_unchanged() {
@@ -856,7 +972,9 @@ mod tests {
 
     #[test]
     fn formatting_twice_changes_nothing_more() {
-        for sql in [SAMPLE, FUNCTION, UPSERT, WINDOW, OPERATORS, CTE, CASE, CREATE_TABLE, COMMENTED, LEADING_COMMA, FORMATTED] {
+        for sql in
+            [SAMPLE, FUNCTION, UPSERT, WINDOW, OPERATORS, CTE, CASE, CREATE_TABLE, COMMENTED, LEADING_COMMA, FORMATTED]
+        {
             let once = fmt(sql);
             assert_eq!(fmt(&once), once, "{sql:?}");
         }

@@ -147,7 +147,12 @@ impl Turn {
         }
         let cfg = self.provider_config();
         let stored = self.chat.inner.lock().unwrap().record.session.clone();
-        let mut resume = stored.as_ref().filter(|s| s.access == Some(self.access) && s.provider == self.options.provider && s.config_dir == cfg.config_dir).map(|s| s.id.clone());
+        let mut resume = stored
+            .as_ref()
+            .filter(|s| {
+                s.access == Some(self.access) && s.provider == self.options.provider && s.config_dir == cfg.config_dir
+            })
+            .map(|s| s.id.clone());
         // The provider keeps its transcript under the config dir the session was made in, so a
         // changed one cannot resume and the chat restarts with a recap.
         let mut recap = if stored.is_some() && resume.is_none() { Some(self.recap()) } else { None };
@@ -163,7 +168,13 @@ impl Turn {
         }
     }
 
-    async fn attempt(&mut self, control: &mut mpsc::Receiver<TurnControl>, cfg: &ProviderConfig, resume: Option<String>, recap: Option<&str>) -> Attempt {
+    async fn attempt(
+        &mut self,
+        control: &mut mpsc::Receiver<TurnControl>,
+        cfg: &ProviderConfig,
+        resume: Option<String>,
+        recap: Option<&str>,
+    ) -> Attempt {
         let resumed = resume.is_some();
         let p = provider(self.options.provider);
         let mut agent = match self.start_agent(control, cfg, resume).await {
@@ -171,18 +182,27 @@ impl Turn {
             Ok(Started::Stopped) => return Attempt::Done(TurnOutcome::Stopped),
             Err(e) => {
                 let error = start_failure(e);
-                return if resumed && p.session_lost(&error) { Attempt::Lost } else { Attempt::Done(TurnOutcome::Failed { error }) };
+                return if resumed && p.session_lost(&error) {
+                    Attempt::Lost
+                } else {
+                    Attempt::Done(TurnOutcome::Failed { error })
+                };
             }
         };
         if recap.is_some() {
-            self.notice(format!("{} could not resume this chat, so it was restarted with a summary of the conversation.", cfg.display_name));
+            self.notice(format!(
+                "{} could not resume this chat, so it was restarted with a summary of the conversation.",
+                cfg.display_name
+            ));
         }
         let prompt = self.prompt(!resumed, recap);
         self.set_phase(TurnPhase::Working);
         let lines = agent.codec.user_turn(&prompt);
         if let Err(e) = agent.write_for(&self.shared.access, self.access, lines).await {
             self.agent = Some(agent);
-            return Attempt::Done(TurnOutcome::Failed { error: AgentError::Exited { code: None, detail: e.to_string() } });
+            return Attempt::Done(TurnOutcome::Failed {
+                error: AgentError::Exited { code: None, detail: e.to_string() },
+            });
         }
         let mut waits: Waits = FuturesUnordered::new();
         let mut execs: Execs = FuturesUnordered::new();
@@ -243,16 +263,29 @@ impl Turn {
         self.chat.store_record(&self.shared);
     }
 
-    fn database_kind(&self) -> Option<DatabaseKind> { self.db.as_ref().and_then(|db| self.shared.config(db.connection_id)).map(|c| c.database_kind) }
-
-    fn provider_config(&self) -> ProviderConfig {
-        self.shared.settings().providers.into_iter().find(|c| c.provider == self.options.provider).unwrap_or_else(|| default_config(self.options.provider))
+    fn database_kind(&self) -> Option<DatabaseKind> {
+        self.db.as_ref().and_then(|db| self.shared.config(db.connection_id)).map(|c| c.database_kind)
     }
 
-    async fn start_agent(&mut self, control: &mut mpsc::Receiver<TurnControl>, cfg: &ProviderConfig, resume: Option<String>) -> Result<Started, StartError> {
+    fn provider_config(&self) -> ProviderConfig {
+        self.shared
+            .settings()
+            .providers
+            .into_iter()
+            .find(|c| c.provider == self.options.provider)
+            .unwrap_or_else(|| default_config(self.options.provider))
+    }
+
+    async fn start_agent(
+        &mut self,
+        control: &mut mpsc::Receiver<TurnControl>,
+        cfg: &ProviderConfig,
+        resume: Option<String>,
+    ) -> Result<Started, StartError> {
         let p = provider(self.options.provider);
         let host = self.shared.host_env().await;
-        let start = SessionStart { model: Some(self.options.model.clone()), effort: self.options.effort.clone(), resume };
+        let start =
+            SessionStart { model: Some(self.options.model.clone()), effort: self.options.effort.clone(), resume };
         let spec = p.launch(cfg, host, &start).map_err(|e| match e {
             AgentError::NotFound { binary } => StartError::NotFound { binary },
             other => StartError::Reported(other),
@@ -270,19 +303,30 @@ impl Turn {
         let instance = self.db.as_ref().and_then(|db| self.shared.instance(db.connection_id));
         let config = self.db.as_ref().and_then(|db| self.shared.config(db.connection_id));
         let server_version = instance.as_ref().map(|i| i.server.version.clone());
-        let connection = config.as_ref().map(|c| context::ConnectionFacts { database_kind: c.database_kind, name: &c.name, server_version: server_version.as_deref(), connected: self.connected.as_ref().map(|_| ()).map_err(String::as_str) });
+        let connection = config.as_ref().map(|c| context::ConnectionFacts {
+            database_kind: c.database_kind,
+            name: &c.name,
+            server_version: server_version.as_deref(),
+            connected: self.connected.as_ref().map(|_| ()).map_err(String::as_str),
+        });
         let shown: Vec<String> = match (&instance, &self.catalog, &self.db) {
-            (Some(instance), Some(catalog), Some(db)) => crate::view::resolve_schemas(&instance.view().database(&db.database, &instance.home), catalog),
+            (Some(instance), Some(catalog), Some(db)) => {
+                crate::view::resolve_schemas(&instance.view().database(&db.database, &instance.home), catalog)
+            }
             _ => Vec::new(),
         };
         let tab_text = self.tab.as_ref().map_or("", |t| t.text.as_str());
         let picked = self.tab.as_ref().and_then(|t| {
             let target = OffsetMap::new(&t.text).target(t.target);
-            let spans = crate::text::pick(&t.text, target, self.database_kind().unwrap_or(DatabaseKind::Postgres)).ok()?;
+            let spans =
+                crate::text::pick(&t.text, target, self.database_kind().unwrap_or(DatabaseKind::Postgres)).ok()?;
             Some(sql::StmtSpan { start: spans.first()?.start, end: spans.last()?.end })
         });
-        let selected = matches!(self.tab.as_ref().map(|t| t.target), Some(RunTarget::Selection { from, to }) if from.0 < to.0);
-        let last_error = (self.access.mode == AssistantAccess::Full).then(|| self.tab.as_ref().and_then(|t| self.last_run_error(t))).flatten();
+        let selected =
+            matches!(self.tab.as_ref().map(|t| t.target), Some(RunTarget::Selection { from, to }) if from.0 < to.0);
+        let last_error = (self.access.mode == AssistantAccess::Full)
+            .then(|| self.tab.as_ref().and_then(|t| self.last_run_error(t)))
+            .flatten();
         let attachment = self.attachment();
         let sql_hash = {
             let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -293,17 +337,42 @@ impl Turn {
         let last = self.chat.inner.lock().unwrap().last_context.clone();
         let same_session = !fresh_session && last.as_ref().zip(session.as_ref()).is_some_and(|(l, s)| l.session == *s);
         let outline = match (&last, &self.catalog, &self.db) {
-            (Some(l), Some(c), Some(db)) if same_session && l.db == *db && l.catalog_version == c.version => context::Repeat::Unchanged,
+            (Some(l), Some(c), Some(db)) if same_session && l.db == *db && l.catalog_version == c.version => {
+                context::Repeat::Unchanged
+            }
             _ => context::Repeat::Full,
         };
         let tab_sql = match &last {
-            Some(l) if same_session && l.sql_hash == sql_hash && self.db.as_ref() == Some(&l.db) => context::Repeat::Unchanged,
+            Some(l) if same_session && l.sql_hash == sql_hash && self.db.as_ref() == Some(&l.db) => {
+                context::Repeat::Unchanged
+            }
             _ => context::Repeat::Full,
         };
-        let tab = self.tab.as_ref().map(|t| context::TabFacts { title: &t.title, text: tab_text, picked, selected, last_error: last_error.as_deref() });
-        let block = context::build(&context::ContextInput { access: self.access.mode, connection, db: self.db.as_ref(), catalog: self.catalog.as_deref(), shown_schemas: &shown, tab, tab_sql, attachment: attachment.as_ref(), outline });
+        let tab = self.tab.as_ref().map(|t| context::TabFacts {
+            title: &t.title,
+            text: tab_text,
+            picked,
+            selected,
+            last_error: last_error.as_deref(),
+        });
+        let block = context::build(&context::ContextInput {
+            access: self.access.mode,
+            connection,
+            db: self.db.as_ref(),
+            catalog: self.catalog.as_deref(),
+            shown_schemas: &shown,
+            tab,
+            tab_sql,
+            attachment: attachment.as_ref(),
+            outline,
+        });
         if let (Some(db), Some(catalog)) = (&self.db, &self.catalog) {
-            self.chat.inner.lock().unwrap().last_context = Some(LastContext { session: session.unwrap_or_default(), db: db.clone(), catalog_version: catalog.version, sql_hash });
+            self.chat.inner.lock().unwrap().last_context = Some(LastContext {
+                session: session.unwrap_or_default(),
+                db: db.clone(),
+                catalog_version: catalog.version,
+                sql_hash,
+            });
         }
         match recap {
             Some(recap) => format!("{recap}\n\n{block}\n\n{}", self.user_text),
@@ -345,15 +414,25 @@ impl Turn {
         Some(text)
     }
 
-    async fn on_event(&mut self, agent: &mut Agent, event: AgentEvent, waits: &mut Waits, execs: &mut Execs) -> Option<TurnOutcome> {
+    async fn on_event(
+        &mut self,
+        agent: &mut Agent,
+        event: AgentEvent,
+        waits: &mut Waits,
+        execs: &mut Execs,
+    ) -> Option<TurnOutcome> {
         match event {
             AgentEvent::Ready(_) => {}
             AgentEvent::TurnStarted { session_id } => self.set_session(session_id),
             AgentEvent::Text { block, delta } => self.text_delta(block, &delta),
             AgentEvent::TextDone { block } => self.text_done(block),
             AgentEvent::ToolUse { call, name, input } => self.ensure_tool(&call, &name, &input),
-            AgentEvent::Permission { reply, call, name, input } => self.on_gate(agent, Site::Permission(reply), call, &name, input, waits, execs).await,
-            AgentEvent::ToolCall { reply, call, name, input } => self.on_gate(agent, Site::Call(reply), call, &name, input, waits, execs).await,
+            AgentEvent::Permission { reply, call, name, input } => {
+                self.on_gate(agent, Site::Permission(reply), call, &name, input, waits, execs).await
+            }
+            AgentEvent::ToolCall { reply, call, name, input } => {
+                self.on_gate(agent, Site::Call(reply), call, &name, input, waits, execs).await
+            }
             AgentEvent::ToolCancelled { call } => {
                 if let Some(state) = self.tool_mut(&call)
                     && let Some((_, abort)) = state.running.take()
@@ -370,20 +449,29 @@ impl Turn {
 
     fn set_session(&mut self, session_id: String) {
         let cfg = self.provider_config();
-        let changed = self.shared.access.with(self.access, || {
-            let mut inner = self.chat.inner.lock().unwrap();
-            let next = ProviderSession { provider: self.options.provider, id: session_id.clone(), config_dir: cfg.config_dir, access: Some(self.access) };
-            let changed = inner.record.session.as_ref() != Some(&next);
-            if changed {
-                inner.record.session = Some(next);
-            }
-            if let Some(last) = inner.last_context.as_mut()
-                && last.session.is_empty()
-            {
-                last.session = session_id.clone();
-            }
-            changed
-        }).unwrap_or(false);
+        let changed = self
+            .shared
+            .access
+            .with(self.access, || {
+                let mut inner = self.chat.inner.lock().unwrap();
+                let next = ProviderSession {
+                    provider: self.options.provider,
+                    id: session_id.clone(),
+                    config_dir: cfg.config_dir,
+                    access: Some(self.access),
+                };
+                let changed = inner.record.session.as_ref() != Some(&next);
+                if changed {
+                    inner.record.session = Some(next);
+                }
+                if let Some(last) = inner.last_context.as_mut()
+                    && last.session.is_empty()
+                {
+                    last.session = session_id.clone();
+                }
+                changed
+            })
+            .unwrap_or(false);
         if changed {
             self.chat.store_record(&self.shared);
         }
@@ -425,7 +513,14 @@ impl Turn {
                 continue;
             }
             state.dirty = false;
-            let entry = Entry::Text { blocks: resolve_blocks(reply::parse_text(&state.text, state.done).blocks, self.catalog.as_deref(), kind), done: state.done };
+            let entry = Entry::Text {
+                blocks: resolve_blocks(
+                    reply::parse_text(&state.text, state.done).blocks,
+                    self.catalog.as_deref(),
+                    kind,
+                ),
+                done: state.done,
+            };
             if state.done {
                 self.chat.store_entry(&self.shared, state.seq, self.turn, &entry);
             }
@@ -446,7 +541,14 @@ impl Turn {
         }
         let seq = self.next_seq();
         let tool = tools::describe(name, input, self.catalog.as_deref(), kind);
-        self.tools.push(ToolState { call: call.clone(), seq, input: input.clone(), tool: tool.clone(), status: ToolStatus::Running, running: None });
+        self.tools.push(ToolState {
+            call: call.clone(),
+            seq,
+            input: input.clone(),
+            tool: tool.clone(),
+            status: ToolStatus::Running,
+            running: None,
+        });
         let entry = Entry::Tool { call: call.clone(), tool, status: ToolStatus::Running };
         self.chat.store_entry(&self.shared, seq, self.turn, &entry);
         self.chat.publish_entry(&self.shared, seq, self.turn, entry);
@@ -479,11 +581,25 @@ impl Turn {
         self.set_phase(if self.chat.has_pending() { TurnPhase::AwaitingApproval } else { TurnPhase::Working });
     }
 
-    async fn on_gate(&mut self, agent: &mut Agent, site: Site, call: ToolCallId, name: &str, input: Value, waits: &mut Waits, execs: &mut Execs) {
+    async fn on_gate(
+        &mut self,
+        agent: &mut Agent,
+        site: Site,
+        call: ToolCallId,
+        name: &str,
+        input: Value,
+        waits: &mut Waits,
+        execs: &mut Execs,
+    ) {
         let parsed = tools::parse_call(name, &input);
         let ask = tools::policy(&parsed, self.chat.permission(), self.database_kind(), self.access.mode);
-        let gated = if self.stop_deadline.is_some() { Gated::Deny(Refusal::Stopped) } else {
-            self.shared.access.with(self.access, || self.chat.gate(&self.shared.assistant, &call, &input, &ask)).unwrap_or(Gated::Deny(Refusal::Stopped))
+        let gated = if self.stop_deadline.is_some() {
+            Gated::Deny(Refusal::Stopped)
+        } else {
+            self.shared
+                .access
+                .with(self.access, || self.chat.gate(&self.shared.assistant, &call, &input, &ask))
+                .unwrap_or(Gated::Deny(Refusal::Stopped))
         };
         // The card and the allow reply hold the input the ledger holds, never one it refused.
         if !matches!(gated, Gated::Deny(Refusal::Mismatch)) {
@@ -502,8 +618,17 @@ impl Turn {
         }
     }
 
-    async fn settle(&mut self, agent: &mut Agent, site: Site, call: ToolCallId, parsed: ParsedCall, verdict: Result<(), Refusal>, execs: &mut Execs) {
-        let verdict = if self.shared.access.with(self.access, || ()).is_none() { Err(Refusal::Stopped) } else { verdict };
+    async fn settle(
+        &mut self,
+        agent: &mut Agent,
+        site: Site,
+        call: ToolCallId,
+        parsed: ParsedCall,
+        verdict: Result<(), Refusal>,
+        execs: &mut Execs,
+    ) {
+        let verdict =
+            if self.shared.access.with(self.access, || ()).is_none() { Err(Refusal::Stopped) } else { verdict };
         match (site, verdict) {
             (Site::Permission(reply), Ok(())) => {
                 let input = self.tool_mut(&call).expect("on_gate made the card").input.clone();
@@ -523,7 +648,12 @@ impl Turn {
                 let lines = agent.codec.tool_result(&reply, &ModelResult { text: refusal_text(&why), is_error: true });
                 agent.write_for(&self.shared.access, self.access, lines).await.ok();
                 // A refused call leaves a card whose ask the user can still answer.
-                if !self.chat.is_pending(&call) && matches!(self.tool_mut(&call).map(|t| &t.status), Some(ToolStatus::Running | ToolStatus::AwaitingApproval { .. })) {
+                if !self.chat.is_pending(&call)
+                    && matches!(
+                        self.tool_mut(&call).map(|t| &t.status),
+                        Some(ToolStatus::Running | ToolStatus::AwaitingApproval { .. })
+                    )
+                {
                     self.set_tool_status(&call, refusal_status(why));
                 }
             }
@@ -539,10 +669,15 @@ impl Turn {
         let access = self.access;
         let reply_for_work = reply.clone();
         let (future, abort) = futures_util::future::abortable(Box::pin(async move {
-            let executed = match tokio::time::timeout(EXECUTION_TIMEOUT, tools::execute(&shared, db.as_ref(), parsed, access)).await {
-                Ok(executed) => executed,
-                Err(_) => Executed::failed(format!("The tool did not finish within {} s.", EXECUTION_TIMEOUT.as_secs())),
-            };
+            let executed =
+                match tokio::time::timeout(EXECUTION_TIMEOUT, tools::execute(&shared, db.as_ref(), parsed, access))
+                    .await
+                {
+                    Ok(executed) => executed,
+                    Err(_) => {
+                        Executed::failed(format!("The tool did not finish within {} s.", EXECUTION_TIMEOUT.as_secs()))
+                    }
+                };
             Work::Tool { reply: reply_for_work, call: id, executed }
         }) as BoxFuture<'static, Work>);
         if let Some(state) = self.tool_mut(&call) {
@@ -568,7 +703,11 @@ impl Turn {
     async fn on_stop(&mut self, agent: &mut Agent, grace: Duration) {
         self.stop_deadline = Some(Instant::now() + grace);
         self.chat.deny_pending(Refusal::Stopped);
-        let running: Vec<(ToolCallId, ReplyTo, AbortHandle)> = self.tools.iter_mut().filter_map(|t| t.running.take().map(|(reply, abort)| (t.call.clone(), reply, abort))).collect();
+        let running: Vec<(ToolCallId, ReplyTo, AbortHandle)> = self
+            .tools
+            .iter_mut()
+            .filter_map(|t| t.running.take().map(|(reply, abort)| (t.call.clone(), reply, abort)))
+            .collect();
         for (call, reply, abort) in running {
             abort.abort();
             let lines = agent.codec.tool_result(&reply, &ModelResult { text: STOPPED_TOOL.into(), is_error: true });
@@ -582,7 +721,14 @@ impl Turn {
 
     fn recap(&self) -> String {
         let floor = self.chat.inner.lock().unwrap().record.recap_floor;
-        let earlier: Vec<(u32, u32, Entry)> = self.shared.store.chat_entries(self.chat.id).unwrap_or_default().into_iter().filter(|(seq, turn, _)| *seq >= floor && *turn != self.turn).collect();
+        let earlier: Vec<(u32, u32, Entry)> = self
+            .shared
+            .store
+            .chat_entries(self.chat.id)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(seq, turn, _)| *seq >= floor && *turn != self.turn)
+            .collect();
         reply::recap(&earlier, super::RECAP_MAX_CHARS)
     }
 
@@ -600,16 +746,25 @@ impl Turn {
                 self.set_tool_status(&call, ToolStatus::Denied { stopped: true });
             }
         }
-        let open: Vec<ToolCallId> = self.tools.iter_mut().filter(|t| matches!(t.status, ToolStatus::Running | ToolStatus::AwaitingApproval { .. })).map(|t| {
-            if let Some((_, abort)) = t.running.take() {
-                abort.abort();
-            }
-            t.call.clone()
-        }).collect();
+        let open: Vec<ToolCallId> = self
+            .tools
+            .iter_mut()
+            .filter(|t| matches!(t.status, ToolStatus::Running | ToolStatus::AwaitingApproval { .. }))
+            .map(|t| {
+                if let Some((_, abort)) = t.running.take() {
+                    abort.abort();
+                }
+                t.call.clone()
+            })
+            .collect();
         for call in open {
             self.set_tool_status(&call, ToolStatus::Expired);
         }
-        let suggestions = if outcome == TurnOutcome::Completed { self.texts.last().map(|t| reply::parse_text(&t.text, true).followups).unwrap_or_default() } else { Vec::new() };
+        let suggestions = if outcome == TurnOutcome::Completed {
+            self.texts.last().map(|t| reply::parse_text(&t.text, true).followups).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         let seq = self.next_seq();
         let end = Entry::End { at_ms: now_ms(), outcome: outcome.clone(), suggestions };
         self.chat.store_entry(&self.shared, seq, self.turn, &end);
@@ -638,7 +793,10 @@ impl Turn {
         if let Some(db) = &self.db {
             self.shared.reconcile(db.connection_id);
         }
-        if let TurnOutcome::Failed { error: AgentError::NotFound { .. } | AgentError::SignedOut | AgentError::Exited { .. } } = outcome {
+        if let TurnOutcome::Failed {
+            error: AgentError::NotFound { .. } | AgentError::SignedOut | AgentError::Exited { .. },
+        } = outcome
+        {
             self.shared.probe(self.options.provider, ProbeDepth::Full);
         }
     }
@@ -660,7 +818,9 @@ fn refusal_status(why: Refusal) -> ToolStatus {
         Refusal::Declined => ToolStatus::Denied { stopped: false },
         Refusal::Stopped => ToolStatus::Denied { stopped: true },
         Refusal::Expired => ToolStatus::Expired,
-        Refusal::Policy(_) | Refusal::Cancelled | Refusal::Mismatch => ToolStatus::Failed { message: refusal_text(&why) },
+        Refusal::Policy(_) | Refusal::Cancelled | Refusal::Mismatch => {
+            ToolStatus::Failed { message: refusal_text(&why) }
+        }
     }
 }
 
@@ -678,7 +838,8 @@ fn resolve_blocks(blocks: Vec<ReplyBlock>, catalog: Option<&Catalog>, kind: Data
         .into_iter()
         .map(|block| match block {
             ReplyBlock::Sql { sql, complete: true, .. } => {
-                let (relations, vetted) = (reply::uses(&sql, catalog, kind), kind == DatabaseKind::Postgres && reply::vetted(&sql));
+                let (relations, vetted) =
+                    (reply::uses(&sql, catalog, kind), kind == DatabaseKind::Postgres && reply::vetted(&sql));
                 ReplyBlock::Sql { sql, relations, vetted, complete: true }
             }
             other => other,

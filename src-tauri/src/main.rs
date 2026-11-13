@@ -94,9 +94,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
 }
 
 fn export_bindings(builder: &tauri_specta::Builder<tauri::Wry>, path: &Path) {
-    builder
-        .export(Typescript::default(), path)
-        .expect("failed to export TypeScript bindings");
+    builder.export(Typescript::default(), path).expect("failed to export TypeScript bindings");
 }
 
 fn debug_env(key: &str) -> Option<String> {
@@ -128,7 +126,11 @@ fn engine_config(app: &tauri::App) -> Result<EngineConfig, Box<dyn Error>> {
 fn macos_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
     let close_window = || MenuItem::with_id(app, CLOSE_WINDOW, "Close Window", true, Some("Shift+CmdOrCtrl+W"));
-    let about = AboutMetadata { name: Some(app.package_info().name.clone()), version: Some(app.package_info().version.to_string()), ..Default::default() };
+    let about = AboutMetadata {
+        name: Some(app.package_info().name.clone()),
+        version: Some(app.package_info().version.to_string()),
+        ..Default::default()
+    };
     Menu::with_items(
         app,
         &[
@@ -144,7 +146,13 @@ fn macos_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
                     &PredefinedMenuItem::hide(app, None)?,
                     &PredefinedMenuItem::hide_others(app, None)?,
                     &PredefinedMenuItem::separator(app)?,
-                    &MenuItem::with_id(app, QUIT, format!("Quit {}", app.package_info().name), true, Some("CmdOrCtrl+Q"))?,
+                    &MenuItem::with_id(
+                        app,
+                        QUIT,
+                        format!("Quit {}", app.package_info().name),
+                        true,
+                        Some("CmdOrCtrl+Q"),
+                    )?,
                 ],
             )?,
             &Submenu::with_items(app, "File", true, &[&close_window()?])?,
@@ -242,7 +250,10 @@ async fn self_check(app: AppHandle, engine: Arc<Engine>) {
     app.exit(if ok { 0 } else { 1 });
 }
 
-async fn self_check_steps(engine: &Arc<Engine>, url: &str) -> Result<serde_json::Value, (&'static str, serde_json::Value)> {
+async fn self_check_steps(
+    engine: &Arc<Engine>,
+    url: &str,
+) -> Result<serde_json::Value, (&'static str, serde_json::Value)> {
     use engine::model::*;
     fn fail<E: serde::Serialize>(step: &'static str) -> impl FnOnce(E) -> (&'static str, serde_json::Value) {
         move |e| (step, serde_json::to_value(e).expect("IPC types serialize to JSON"))
@@ -253,18 +264,39 @@ async fn self_check_steps(engine: &Arc<Engine>, url: &str) -> Result<serde_json:
     let server = engine.connect(config.id).await.map_err(fail("connection_connect"))?;
     let tab = TabId(uuid::Uuid::new_v4());
     engine
-        .console_configure(tab, ConsoleConfig { connection_id: config.id, database: config.database.clone(), schema: None, mode: TxnMode::AutoCommit })
+        .console_configure(
+            tab,
+            ConsoleConfig {
+                connection_id: config.id,
+                database: config.database.clone(),
+                schema: None,
+                mode: TxnMode::AutoCommit,
+            },
+        )
         .await
         .map_err(fail("console_configure"))?;
     let accepted = engine
-        .console_run(tab, RunRequest::Script { text: "SELECT 1".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None)
+        .console_run(
+            tab,
+            RunRequest::Script {
+                text: "SELECT 1".into(),
+                target: RunTarget::All,
+                mode: RunMode::Run,
+                params: Vec::new(),
+                cells: Vec::new(),
+            },
+            None,
+        )
         .await
         .map_err(fail("console_run"))?;
     let finished = tokio::time::timeout(std::time::Duration::from_secs(30), async {
         loop {
             match events.recv().await {
-                Ok(AppEvent::ConsoleChanged(ConsoleState { tab_id, run: RunState::Finished { run_id, outcome, elapsed_ms, .. }, .. }))
-                    if tab_id == tab && run_id == accepted.run_id => return Ok((outcome, elapsed_ms)),
+                Ok(AppEvent::ConsoleChanged(ConsoleState {
+                    tab_id,
+                    run: RunState::Finished { run_id, outcome, elapsed_ms, .. },
+                    ..
+                })) if tab_id == tab && run_id == accepted.run_id => return Ok((outcome, elapsed_ms)),
                 Ok(_) => {}
                 Err(e) => return Err(e.to_string()),
             }
@@ -279,7 +311,10 @@ async fn self_check_steps(engine: &Arc<Engine>, url: &str) -> Result<serde_json:
     let page = engine
         .result_page(ResultRef { tab_id: tab, run_id: accepted.run_id, index: 0 }, 0, 1)
         .map_err(fail("result_page"))?;
-    let catalog = engine.catalog(DatabaseRef { connection_id: config.id, database: config.database.clone() }).await.map_err(fail("catalog_get"))?;
+    let catalog = engine
+        .catalog(DatabaseRef { connection_id: config.id, database: config.database.clone() })
+        .await
+        .map_err(fail("catalog_get"))?;
     let text_engine = engine.clone();
     let text_db = catalog.db.clone();
     let text_schema = catalog.default_schema.clone().unwrap_or_default();
@@ -297,9 +332,15 @@ async fn self_check_steps(engine: &Arc<Engine>, url: &str) -> Result<serde_json:
         .edit_view(config.id, ViewEdit::Database { name: "reporting".into(), shown: true })
         .await
         .map_err(fail("connection_edit_view"))?;
-    let reporting = engine.catalog(DatabaseRef { connection_id: config.id, database: "reporting".into() }).await.map_err(fail("catalog_get reporting"))?;
+    let reporting = engine
+        .catalog(DatabaseRef { connection_id: config.id, database: "reporting".into() })
+        .await
+        .map_err(fail("catalog_get reporting"))?;
     // Called from a plain thread, as the sync command is on the main thread of the desktop app.
-    let probe_database = match config.database_kind { DatabaseKind::Postgres => "postgres", DatabaseKind::SqlServer => "master" };
+    let probe_database = match config.database_kind {
+        DatabaseKind::Postgres => "postgres",
+        DatabaseKind::SqlServer => "master",
+    };
     let prober = engine.clone();
     let id = config.id;
     std::thread::spawn(move || prober.probe_databases(id, vec![probe_database.into()]))
@@ -455,15 +496,21 @@ mod tests {
     /// the current thread.
     #[test]
     fn sync_commands_never_reach_a_bare_tokio_call() {
-        const NEEDS_RUNTIME: [&str; 5] = ["tokio::spawn(", "tokio::task::spawn", "spawn_blocking(", "Handle::current(", "block_on("];
+        const NEEDS_RUNTIME: [&str; 5] =
+            ["tokio::spawn(", "tokio::task::spawn", "spawn_blocking(", "Handle::current(", "block_on("];
         let ipc = std::fs::read_to_string(IPC_PATH).unwrap();
         let engine = std::fs::read_to_string(ENGINE_PATH).unwrap();
         let mut checked = 0;
         for command in ipc.split("#[tauri::command]").skip(1) {
             let Some(signature) = command.lines().find(|l| l.starts_with("pub fn ")) else { continue };
             let body = sync_fn_body(command, signature["pub fn ".len()..].split('(').next().unwrap()).unwrap();
-            let method = body.split("engine.").nth(1).map(|rest| rest.split('(').next().unwrap()).unwrap_or_else(|| panic!("no engine call in {signature}"));
-            let engine_body = sync_fn_body(&engine, method).unwrap_or_else(|| panic!("Engine::{method} is not a sync method"));
+            let method = body
+                .split("engine.")
+                .nth(1)
+                .map(|rest| rest.split('(').next().unwrap())
+                .unwrap_or_else(|| panic!("no engine call in {signature}"));
+            let engine_body =
+                sync_fn_body(&engine, method).unwrap_or_else(|| panic!("Engine::{method} is not a sync method"));
             for pattern in NEEDS_RUNTIME {
                 assert!(!engine_body.contains(pattern), "{signature} is sync but Engine::{method} calls {pattern}");
             }
@@ -476,16 +523,25 @@ mod tests {
     /// skip the restart consent and the version policy.
     #[test]
     fn the_webview_cannot_reach_the_updater() {
-        let capabilities = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/capabilities/default.json")).unwrap();
+        let capabilities =
+            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/capabilities/default.json")).unwrap();
         let package = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../package.json")).unwrap();
-        assert!(capabilities.contains("core:default") && !capabilities.contains("updater:"), "a capability grants the webview an updater permission");
-        assert!(package.contains("@tauri-apps/api") && !package.contains("@tauri-apps/plugin-updater"), "the frontend depends on the updater plugin's JS API");
+        assert!(
+            capabilities.contains("core:default") && !capabilities.contains("updater:"),
+            "a capability grants the webview an updater permission"
+        );
+        assert!(
+            package.contains("@tauri-apps/api") && !package.contains("@tauri-apps/plugin-updater"),
+            "the frontend depends on the updater plugin's JS API"
+        );
     }
 
     #[test]
     fn capabilities_let_the_webview_destroy_its_window_after_the_close_flush() {
-        let capabilities: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/capabilities/default.json")).unwrap()).unwrap();
+        let capabilities: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/capabilities/default.json")).unwrap(),
+        )
+        .unwrap();
         assert!(capabilities["permissions"].as_array().unwrap().iter().any(|p| p == "core:window:allow-destroy"));
     }
 
@@ -499,9 +555,6 @@ mod tests {
             std::fs::write(BINDINGS_PATH, &fresh).unwrap();
         }
         let committed = std::fs::read_to_string(BINDINGS_PATH).unwrap_or_default();
-        assert!(
-            fresh == committed,
-            "src/ipc/bindings.ts is stale; run `pnpm bindings` and commit the result"
-        );
+        assert!(fresh == committed, "src/ipc/bindings.ts is stale; run `pnpm bindings` and commit the result");
     }
 }

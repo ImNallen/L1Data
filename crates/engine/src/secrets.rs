@@ -31,9 +31,10 @@ impl KeyringKeyStore {
 impl KeyStore for KeyringKeyStore {
     fn load(&self) -> Result<Option<[u8; 32]>, SecretError> {
         match Self::entry()?.get_secret() {
-            Ok(bytes) => {
-                bytes.try_into().map(Some).map_err(|b: Vec<u8>| SecretError(format!("master key is {} bytes, expected 32", b.len())))
-            }
+            Ok(bytes) => bytes
+                .try_into()
+                .map(Some)
+                .map_err(|b: Vec<u8>| SecretError(format!("master key is {} bytes, expected 32", b.len()))),
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(e) => Err(SecretError(e.to_string())),
         }
@@ -230,7 +231,8 @@ mod tests {
         let key = Key::from(keys.load().unwrap().unwrap());
         let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng);
         let aad = id.0.to_string();
-        let ciphertext = XChaCha20Poly1305::new(&key).encrypt(&nonce, Payload { msg: b"hunter2", aad: aad.as_bytes() }).unwrap();
+        let ciphertext =
+            XChaCha20Poly1305::new(&key).encrypt(&nonce, Payload { msg: b"hunter2", aad: aad.as_bytes() }).unwrap();
         let sealed = Sealed { nonce: nonce.into(), ciphertext };
         assert_eq!(vault.open(id, SecretSlot::Database, &sealed).unwrap().as_deref(), Some("hunter2"));
     }

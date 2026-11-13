@@ -48,10 +48,24 @@ fn main() {
     let sql = value_of("--fake-sql").unwrap_or_else(|| "select count(*) from orders".into());
     let linger = Duration::from_millis(value_of("--fake-linger-ms").and_then(|v| v.parse().ok()).unwrap_or(0));
     let signed_out = signed_out || scenario == "signed-out-start";
-    let mut cli = Cli { stdin: stdin_lines(), backlog: VecDeque::new(), log, session_id, resumed, model, sql, linger, signed_out, next_id: 0 };
+    let mut cli = Cli {
+        stdin: stdin_lines(),
+        backlog: VecDeque::new(),
+        log,
+        session_id,
+        resumed,
+        model,
+        sql,
+        linger,
+        signed_out,
+        next_id: 0,
+    };
     if scenario == "signed-out-start" {
         cli.read_line();
-        println!("{}", json!({ "type": "result", "subtype": "error_during_execution", "is_error": true, "num_turns": 0, "session_id": "", "errors": [], "result": "Not logged in · Please run /login", "result_index": 0 }));
+        println!(
+            "{}",
+            json!({ "type": "result", "subtype": "error_during_execution", "is_error": true, "num_turns": 0, "session_id": "", "errors": [], "result": "Not logged in · Please run /login", "result_index": 0 })
+        );
         std::process::exit(1);
     }
     cli.handshake();
@@ -62,7 +76,8 @@ fn usage(request_id: &Value, signed_out: bool) -> Value {
     let reply = if signed_out {
         json!({ "subscription_type": null, "rate_limits_available": false, "rate_limits": null, "behaviors": null })
     } else {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
+        let now =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
         let at = |secs: i64| {
             let t = chrono::DateTime::from_timestamp(now + secs, 0).unwrap_or_default().naive_utc();
             format!("{}T{}+00:00", t.date(), t.time())
@@ -81,7 +96,10 @@ fn usage(request_id: &Value, signed_out: bool) -> Value {
 }
 
 fn session_lost(id: &str) -> ! {
-    println!("{}", json!({ "type": "result", "subtype": "error_during_execution", "is_error": true, "num_turns": 0, "session_id": id, "errors": [format!("No conversation found with session ID: {id}")], "result_index": 0 }));
+    println!(
+        "{}",
+        json!({ "type": "result", "subtype": "error_during_execution", "is_error": true, "num_turns": 0, "session_id": id, "errors": [format!("No conversation found with session ID: {id}")], "result_index": 0 })
+    );
     eprintln!("No conversation found with session ID: {id}");
     std::process::exit(1)
 }
@@ -90,7 +108,11 @@ struct Log(Option<std::fs::File>);
 
 impl Log {
     fn open(args: &[String]) -> Self {
-        let path = args.windows(2).find(|w| w[0] == "--fake-log").map(|w| w[1].clone()).or_else(|| std::env::var("L1_FAKE_CLAUDE_LOG").ok());
+        let path = args
+            .windows(2)
+            .find(|w| w[0] == "--fake-log")
+            .map(|w| w[1].clone())
+            .or_else(|| std::env::var("L1_FAKE_CLAUDE_LOG").ok());
         Self(path.and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok()))
     }
 
@@ -211,7 +233,9 @@ impl Cli {
         let models = ["opus", "fable", "sonnet", "haiku"].map(|value| {
             json!({ "value": value, "resolvedModel": format!("claude-{value}-5-5"), "displayName": format!("{} 5.5", capitalize(value)), "description": "Fake", "supportsEffort": true, "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"] })
         });
-        let mut list = vec![json!({ "value": "default", "resolvedModel": "claude-opus-5-5", "displayName": "Default (recommended)", "description": "Opus 5.5", "supportsEffort": true, "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"] })];
+        let mut list = vec![
+            json!({ "value": "default", "resolvedModel": "claude-opus-5-5", "displayName": "Default (recommended)", "description": "Opus 5.5", "supportsEffort": true, "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"] }),
+        ];
         list.extend(models);
         list.push(json!({ "value": "fake", "resolvedModel": "fake-1-0", "displayName": "Fake 1.0", "description": "Only the stand-in lists this model", "supportsThinkingOff": true }));
         self.send(json!({ "type": "control_response", "response": { "subtype": "success", "request_id": init["request_id"], "response": {
@@ -275,16 +299,34 @@ impl Cli {
                     self.result_success();
                 }
                 "search" => self.tool_turn("search_catalog", json!({ "query": "orders" }), None, None),
-                "query-tampered" => self.tool_turn("run_query", json!({ "sql": "select count(*) from orders", "purpose": "Count the orders" }), None, Some(json!({ "sql": "select count(*) from customers", "purpose": "Count the orders" }))),
-                "ask-differs" => self.tool_turn("run_query", json!({ "sql": "select count(*) from orders", "purpose": "Count the orders" }), Some(json!({ "sql": "select count(*) from customers", "purpose": "Count the orders" })), None),
+                "query-tampered" => self.tool_turn(
+                    "run_query",
+                    json!({ "sql": "select count(*) from orders", "purpose": "Count the orders" }),
+                    None,
+                    Some(json!({ "sql": "select count(*) from customers", "purpose": "Count the orders" })),
+                ),
+                "ask-differs" => self.tool_turn(
+                    "run_query",
+                    json!({ "sql": "select count(*) from orders", "purpose": "Count the orders" }),
+                    Some(json!({ "sql": "select count(*) from customers", "purpose": "Count the orders" })),
+                    None,
+                ),
                 "call-before-answer" => {
                     let asked = json!({ "sql": "select count(*) from orders", "purpose": "Count the orders" });
                     let tool_use_id = self.tool_use("run_query", &asked);
                     let ask_id = self.send_ask("run_query", &tool_use_id, &asked);
-                    let (text, failed) = self.call("run_query", &tool_use_id, json!({ "sql": "select count(*) from customers", "purpose": "Count the orders" }));
+                    let (text, failed) = self.call(
+                        "run_query",
+                        &tool_use_id,
+                        json!({ "sql": "select count(*) from customers", "purpose": "Count the orders" }),
+                    );
                     let decision = self.answer_to(&ask_id);
-                    let outcome = if failed { format!("The tool failed: {text}") } else { format!("The tool returned:\n{text}") };
-                    let reply = format!("{outcome}; the ask was {}", if decision["behavior"] == "allow" { "allowed" } else { "denied" });
+                    let outcome =
+                        if failed { format!("The tool failed: {text}") } else { format!("The tool returned:\n{text}") };
+                    let reply = format!(
+                        "{outcome}; the ask was {}",
+                        if decision["behavior"] == "allow" { "allowed" } else { "denied" }
+                    );
                     self.stream(&reply, Duration::ZERO);
                     self.result_success();
                 }
@@ -304,7 +346,9 @@ impl Cli {
     fn turn_start(&mut self) {
         self.send(json!({ "type": "system", "subtype": "session_state_changed", "state": "running", "session_id": self.session_id }));
         self.send(json!({ "type": "system", "subtype": "init", "cwd": std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default(), "session_id": self.session_id, "tools": ["mcp__l1__describe_tables", "mcp__l1__search_catalog", "mcp__l1__run_query"], "mcp_servers": [{ "name": "l1", "status": "connected", "source": "sdk" }], "model": self.model, "permissionMode": "default", "claude_code_version": "2.1.301" }));
-        self.send(json!({ "type": "system", "subtype": "status", "status": "requesting", "session_id": self.session_id }));
+        self.send(
+            json!({ "type": "system", "subtype": "status", "status": "requesting", "session_id": self.session_id }),
+        );
     }
 
     fn message_start(&mut self) {

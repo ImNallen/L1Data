@@ -1,6 +1,6 @@
 use std::collections::{HashSet, VecDeque};
-use std::process::Stdio;
 use std::pin::Pin;
+use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -83,9 +83,13 @@ pub(crate) enum StartError {
 impl std::fmt::Display for StartError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            StartError::NotFound { binary } | StartError::Reported(AgentError::NotFound { binary }) => write!(f, "{binary} not found"),
+            StartError::NotFound { binary } | StartError::Reported(AgentError::NotFound { binary }) => {
+                write!(f, "{binary} not found")
+            }
             StartError::Exited { code: Some(code), detail } => write!(f, "exited with code {code}: {}", detail.trim()),
-            StartError::Exited { code: None, detail } | StartError::Reported(AgentError::Exited { detail, .. }) => write!(f, "exited: {}", detail.trim()),
+            StartError::Exited { code: None, detail } | StartError::Reported(AgentError::Exited { detail, .. }) => {
+                write!(f, "exited: {}", detail.trim())
+            }
             StartError::Reported(AgentError::SignedOut) => write!(f, "signed out"),
             StartError::Reported(AgentError::Provider { message }) => write!(f, "{message}"),
             StartError::Timeout => write!(f, "no answer to the handshake within {} s", READY_TIMEOUT.as_secs()),
@@ -97,10 +101,19 @@ impl Pipes {
     fn spawn(shared: &Shared, spec: &LaunchSpec) -> Result<Pipes, StartError> {
         // Spawning into a missing directory fails with the same NotFound as a missing binary.
         if !spec.cwd.is_dir() {
-            return Err(StartError::Exited { code: None, detail: format!("the assistant's working directory {} is missing", spec.cwd.display()) });
+            return Err(StartError::Exited {
+                code: None,
+                detail: format!("the assistant's working directory {} is missing", spec.cwd.display()),
+            });
         }
         let mut command = Command::new(&spec.program);
-        command.args(&spec.args).current_dir(&spec.cwd).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+        command
+            .args(&spec.args)
+            .current_dir(&spec.cwd)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
         for key in &spec.env_remove {
             command.env_remove(key);
         }
@@ -155,7 +168,17 @@ impl Pipes {
                 }
             }
         });
-        Ok(Pipes { child, pgid, groups: shared.process_groups.clone(), stdin: Some(stdin), lines, outbox: Vec::new(), stderr, stderr_drained: Some(stderr_drained), eof: false })
+        Ok(Pipes {
+            child,
+            pgid,
+            groups: shared.process_groups.clone(),
+            stdin: Some(stdin),
+            lines,
+            outbox: Vec::new(),
+            stderr,
+            stderr_drained: Some(stderr_drained),
+            eof: false,
+        })
     }
 
     async fn line(&mut self) -> Option<String> {
@@ -202,9 +225,11 @@ impl Pipes {
         let stdin = self.stdin.as_mut().expect("only close takes stdin");
         while !self.outbox.is_empty() {
             let written = std::future::poll_fn(|cx| {
-                access.with(lease, || Pin::new(&mut *stdin).poll_write(cx, &self.outbox))
+                access
+                    .with(lease, || Pin::new(&mut *stdin).poll_write(cx, &self.outbox))
                     .unwrap_or_else(|| std::task::Poll::Ready(Err(std::io::ErrorKind::PermissionDenied.into())))
-            }).await?;
+            })
+            .await?;
             if written == 0 {
                 return Err(std::io::ErrorKind::WriteZero.into());
             }
@@ -264,7 +289,11 @@ impl Agent {
     /// Spawns `spec`, writes `codec.open()`, and waits for `AgentEvent::Ready`. Lines that arrive
     /// before it go through the codec like any other; the CLI sent its first MCP message 4 ms
     /// before answering `initialize`, so the reader never waits on a request the host has in flight.
-    pub(crate) async fn start(shared: &Shared, spec: LaunchSpec, codec: Box<dyn Codec>) -> Result<(Agent, Handshake), StartError> {
+    pub(crate) async fn start(
+        shared: &Shared,
+        spec: LaunchSpec,
+        codec: Box<dyn Codec>,
+    ) -> Result<(Agent, Handshake), StartError> {
         let mut agent = Agent { codec, pipes: Pipes::spawn(shared, &spec)?, pending: VecDeque::new() };
         let open = agent.codec.open();
         if let Err(e) = agent.write(open).await {
@@ -281,7 +310,9 @@ impl Agent {
                     }
                     Next::Event(other) => early.push_back(other),
                     Next::Flush => {}
-                    Next::Eof { code } => return Err(StartError::Exited { code, detail: agent.pipes.failure_detail("") }),
+                    Next::Eof { code } => {
+                        return Err(StartError::Exited { code, detail: agent.pipes.failure_detail("") });
+                    }
                 }
                 if let Err(e) = agent.flush().await {
                     return Err(agent.pipes.exited(&e.to_string()).await);
@@ -324,7 +355,12 @@ impl Agent {
         self.pipes.flush().await
     }
 
-    pub(crate) async fn write_for(&mut self, access: &Access, lease: AccessLease, lines: Vec<String>) -> std::io::Result<()> {
+    pub(crate) async fn write_for(
+        &mut self,
+        access: &Access,
+        lease: AccessLease,
+        lines: Vec<String>,
+    ) -> std::io::Result<()> {
         self.pipes.queue(lines);
         self.flush_for(access, lease).await
     }
@@ -349,7 +385,11 @@ pub(crate) trait Exchange: Send {
     fn read(&mut self, line: &str) -> Option<Self::Output>;
 }
 
-pub(crate) async fn exchange<E: Exchange>(shared: &Shared, spec: &LaunchSpec, mut script: E) -> Result<E::Output, StartError> {
+pub(crate) async fn exchange<E: Exchange>(
+    shared: &Shared,
+    spec: &LaunchSpec,
+    mut script: E,
+) -> Result<E::Output, StartError> {
     let mut pipes = Pipes::spawn(shared, spec)?;
     let out = match pipes.write(script.open()).await {
         Err(e) => Err(pipes.exited(&e.to_string()).await),
@@ -468,11 +508,29 @@ mod tests {
     #[tokio::test]
     async fn a_downgrade_stops_a_partial_delivery_and_switching_back_does_not_restore_it() {
         let dir = tempfile::tempdir().unwrap();
-        let engine = Engine::open(EngineConfig { data_dir: dir.path().to_owned(), keys: Arc::new(MemoryKeyStore::default()), agent_path: AgentPath::Fixed("".into()), az_binary: None, user_known_hosts: None, updates: Arc::new(crate::ScriptedTransport::named("off").unwrap()) }).await.unwrap();
-        engine.set_settings(crate::model::Settings { assistant_access: crate::model::AssistantAccess::Full, ..engine.settings() });
+        let engine = Engine::open(EngineConfig {
+            data_dir: dir.path().to_owned(),
+            keys: Arc::new(MemoryKeyStore::default()),
+            agent_path: AgentPath::Fixed("".into()),
+            az_binary: None,
+            user_known_hosts: None,
+            updates: Arc::new(crate::ScriptedTransport::named("off").unwrap()),
+        })
+        .await
+        .unwrap();
+        engine.set_settings(crate::model::Settings {
+            assistant_access: crate::model::AssistantAccess::Full,
+            ..engine.settings()
+        });
         for kind in ["initial_prompt", "tool_result"] {
             let lease = *engine.shared.access.lock();
-            let spec = LaunchSpec { program: "sh".into(), args: vec!["-c".into(), "echo ready; sleep 1; cat".into()], env_set: Vec::new(), env_remove: Vec::new(), cwd: std::env::temp_dir() };
+            let spec = LaunchSpec {
+                program: "sh".into(),
+                args: vec!["-c".into(), "echo ready; sleep 1; cat".into()],
+                env_set: Vec::new(),
+                env_remove: Vec::new(),
+                cwd: std::env::temp_dir(),
+            };
             let (mut agent, _) = Agent::start(&engine.shared, spec, Box::new(LineCodec)).await.unwrap();
             let payload = format!("{{\"{kind}\":\"{}\"}}", "private".repeat(100_000));
             let mut write = Box::pin(agent.write_for(&engine.shared.access, lease, vec![payload]));
@@ -480,8 +538,14 @@ mod tests {
             drop(write);
             let remaining = agent.pipes.outbox.len();
             assert!(remaining > 0);
-            engine.set_settings(crate::model::Settings { assistant_access: crate::model::AssistantAccess::SchemaOnly, ..engine.settings() });
-            engine.set_settings(crate::model::Settings { assistant_access: crate::model::AssistantAccess::Full, ..engine.settings() });
+            engine.set_settings(crate::model::Settings {
+                assistant_access: crate::model::AssistantAccess::SchemaOnly,
+                ..engine.settings()
+            });
+            engine.set_settings(crate::model::Settings {
+                assistant_access: crate::model::AssistantAccess::Full,
+                ..engine.settings()
+            });
             let error = agent.flush_for(&engine.shared.access, lease).await.unwrap_err();
             assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
             assert_eq!(agent.pipes.outbox.len(), remaining, "no further byte was delivered");
@@ -493,12 +557,29 @@ mod tests {
     #[tokio::test]
     async fn close_ends_a_child_that_ignores_eof_even_with_no_group_to_kill() {
         let dir = tempfile::tempdir().unwrap();
-        let engine = Engine::open(EngineConfig { data_dir: dir.path().to_owned(), keys: Arc::new(MemoryKeyStore::default()), agent_path: AgentPath::Fixed("".into()), az_binary: None, user_known_hosts: None, updates: Arc::new(crate::ScriptedTransport::named("off").unwrap()) }).await.unwrap();
-        let spec = LaunchSpec { program: "sh".into(), args: vec!["-c".into(), "echo ready; exec sleep 60".into()], env_set: Vec::new(), env_remove: Vec::new(), cwd: std::env::temp_dir() };
+        let engine = Engine::open(EngineConfig {
+            data_dir: dir.path().to_owned(),
+            keys: Arc::new(MemoryKeyStore::default()),
+            agent_path: AgentPath::Fixed("".into()),
+            az_binary: None,
+            user_known_hosts: None,
+            updates: Arc::new(crate::ScriptedTransport::named("off").unwrap()),
+        })
+        .await
+        .unwrap();
+        let spec = LaunchSpec {
+            program: "sh".into(),
+            args: vec!["-c".into(), "echo ready; exec sleep 60".into()],
+            env_set: Vec::new(),
+            env_remove: Vec::new(),
+            cwd: std::env::temp_dir(),
+        };
         let (agent, _) = Agent::start(&engine.shared, spec, Box::new(LineCodec)).await.unwrap();
         let pid = agent.pipes.pgid;
         assert!(agent.pipes.groups.remove(pid), "the group was registered at spawn");
-        tokio::time::timeout(CLOSE_GRACE + Duration::from_secs(3), agent.close()).await.expect("close waited on a child that nothing killed");
+        tokio::time::timeout(CLOSE_GRACE + Duration::from_secs(3), agent.close())
+            .await
+            .expect("close waited on a child that nothing killed");
         // SAFETY: signal 0 only asks whether the process exists.
         assert_eq!(unsafe { libc::kill(pid, 0) }, -1, "process {pid} outlived close");
     }
@@ -507,8 +588,23 @@ mod tests {
     #[tokio::test]
     async fn a_write_to_a_child_that_already_died_reports_its_stderr() {
         let dir = tempfile::tempdir().unwrap();
-        let engine = Engine::open(EngineConfig { data_dir: dir.path().to_owned(), keys: Arc::new(MemoryKeyStore::default()), agent_path: AgentPath::Fixed("".into()), az_binary: None, user_known_hosts: None, updates: Arc::new(crate::ScriptedTransport::named("off").unwrap()) }).await.unwrap();
-        let spec = LaunchSpec { program: "sh".into(), args: vec!["-c".into(), "echo 'No conversation found' >&2; exit 1".into()], env_set: Vec::new(), env_remove: Vec::new(), cwd: std::env::temp_dir() };
+        let engine = Engine::open(EngineConfig {
+            data_dir: dir.path().to_owned(),
+            keys: Arc::new(MemoryKeyStore::default()),
+            agent_path: AgentPath::Fixed("".into()),
+            az_binary: None,
+            user_known_hosts: None,
+            updates: Arc::new(crate::ScriptedTransport::named("off").unwrap()),
+        })
+        .await
+        .unwrap();
+        let spec = LaunchSpec {
+            program: "sh".into(),
+            args: vec!["-c".into(), "echo 'No conversation found' >&2; exit 1".into()],
+            env_set: Vec::new(),
+            env_remove: Vec::new(),
+            cwd: std::env::temp_dir(),
+        };
         let mut pipes = Pipes::spawn(&engine.shared, &spec).unwrap();
         std::thread::sleep(Duration::from_millis(300));
         let broken = pipes.write(vec!["initialize".into()]).await.expect_err("the child is gone");
@@ -519,9 +615,24 @@ mod tests {
     #[tokio::test]
     async fn a_cancelled_next_or_flush_loses_no_line_no_eof_and_no_write() {
         let dir = tempfile::tempdir().unwrap();
-        let engine = Engine::open(EngineConfig { data_dir: dir.path().to_owned(), keys: Arc::new(MemoryKeyStore::default()), agent_path: AgentPath::Fixed("".into()), az_binary: None, user_known_hosts: None, updates: Arc::new(crate::ScriptedTransport::named("off").unwrap()) }).await.unwrap();
+        let engine = Engine::open(EngineConfig {
+            data_dir: dir.path().to_owned(),
+            keys: Arc::new(MemoryKeyStore::default()),
+            agent_path: AgentPath::Fixed("".into()),
+            az_binary: None,
+            user_known_hosts: None,
+            updates: Arc::new(crate::ScriptedTransport::named("off").unwrap()),
+        })
+        .await
+        .unwrap();
         let script = "echo ready; echo one; sleep 0.2; echo two; sleep 0.5; cat";
-        let spec = LaunchSpec { program: "sh".into(), args: vec!["-c".into(), script.into()], env_set: Vec::new(), env_remove: Vec::new(), cwd: std::env::temp_dir() };
+        let spec = LaunchSpec {
+            program: "sh".into(),
+            args: vec!["-c".into(), script.into()],
+            env_set: Vec::new(),
+            env_remove: Vec::new(),
+            cwd: std::env::temp_dir(),
+        };
         let (mut agent, _) = Agent::start(&engine.shared, spec, Box::new(LineCodec)).await.unwrap();
         let mut cancelled = 0;
         assert_eq!(texts_until(&mut agent, &mut cancelled, 2).await, ["one", "two"]);
@@ -534,12 +645,18 @@ mod tests {
         drop(flush);
         agent.flush().await.unwrap();
         drop(agent.pipes.stdin.take());
-        let echoed = tokio::time::timeout(Duration::from_secs(10), texts_until(&mut agent, &mut cancelled, payload.len())).await.expect("cat echoed every line");
+        let echoed =
+            tokio::time::timeout(Duration::from_secs(10), texts_until(&mut agent, &mut cancelled, payload.len()))
+                .await
+                .expect("cat echoed every line");
         assert_eq!(echoed, payload);
 
         let mut eof = 0;
         let first = next_cancelling(&mut agent, &mut eof).await;
         let again = next_cancelling(&mut agent, &mut eof).await;
-        assert!(matches!((&first, &again), (Next::Eof { code: Some(0) }, Next::Eof { code: Some(0) })), "the end of stream is reported on every call after it");
+        assert!(
+            matches!((&first, &again), (Next::Eof { code: Some(0) }, Next::Eof { code: Some(0) })),
+            "the end of stream is reported on every call after it"
+        );
     }
 }

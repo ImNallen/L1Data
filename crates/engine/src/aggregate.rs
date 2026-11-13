@@ -33,11 +33,7 @@ const MAX_DIGITS: usize = 1_048_576;
 /// finite number or a special. Two columns are counts even when both are summable.
 pub(crate) fn aggregate(columns: &[ColumnText]) -> CellAggregate {
     let count = columns.iter().map(|c| c.cells.len() as u64).sum();
-    let non_null = columns
-        .iter()
-        .flat_map(|c| &c.cells)
-        .filter(|c| c.is_some())
-        .count() as u64;
+    let non_null = columns.iter().flat_map(|c| &c.cells).filter(|c| c.is_some()).count() as u64;
     let counts = CellAggregate::Counts { count, non_null };
     if columns.len() != 1 || !summable(&columns[0]) {
         return counts;
@@ -56,14 +52,7 @@ pub(crate) fn aggregate(columns: &[ColumnText]) -> CellAggregate {
     let Some((sum, avg, min, max)) = summarize(&values, non_null) else {
         return counts;
     };
-    CellAggregate::Numeric {
-        count,
-        non_null,
-        sum,
-        avg,
-        min,
-        max,
-    }
+    CellAggregate::Numeric { count, non_null, sum, avg, min, max }
 }
 
 fn summable(col: &ColumnText) -> bool {
@@ -121,11 +110,7 @@ fn parse_finite(text: &str) -> Option<Exact> {
     if !within_budget(&coeff, scale) {
         return None;
     }
-    Some(Exact {
-        negative,
-        coeff,
-        scale,
-    })
+    Some(Exact { negative, coeff, scale })
 }
 
 fn split_mantissa(mant: &str) -> Option<(&str, &str)> {
@@ -140,9 +125,7 @@ fn split_mantissa(mant: &str) -> Option<(&str, &str)> {
             if int_part.is_empty() || frac.is_empty() {
                 return None;
             }
-            if !int_part.bytes().all(|b| b.is_ascii_digit())
-                || !frac.bytes().all(|b| b.is_ascii_digit())
-            {
+            if !int_part.bytes().all(|b| b.is_ascii_digit()) || !frac.bytes().all(|b| b.is_ascii_digit()) {
                 return None;
             }
             Some((int_part, frac))
@@ -189,11 +172,7 @@ fn summarize(values: &[Parsed], non_null: u64) -> Option<(String, String, String
         let nan = "NaN".to_owned();
         return Some((nan.clone(), nan.clone(), nan.clone(), nan));
     }
-    let finite_sum = if finites.is_empty() {
-        None
-    } else {
-        Some(sum_finites(&finites)?)
-    };
+    let finite_sum = if finites.is_empty() { None } else { Some(sum_finites(&finites)?) };
     let (sum, avg) = if pos_inf && neg_inf {
         ("NaN".to_owned(), "NaN".to_owned())
     } else if pos_inf {
@@ -232,11 +211,7 @@ fn summarize(values: &[Parsed], non_null: u64) -> Option<(String, String, String
 
 fn sum_finites(values: &[Exact]) -> Option<Exact> {
     let scale = values.iter().map(|v| v.scale).max()?;
-    let mut acc = Exact {
-        negative: false,
-        coeff: vec![0],
-        scale,
-    };
+    let mut acc = Exact { negative: false, coeff: vec![0], scale };
     for value in values {
         acc = add_exact(&acc, &align(value, scale)?)?;
     }
@@ -255,11 +230,7 @@ fn align(exact: &Exact, scale: i64) -> Option<Exact> {
         }
         coeff.extend(std::iter::repeat(0).take(delta));
     }
-    Some(Exact {
-        negative: exact.negative,
-        coeff,
-        scale,
-    })
+    Some(Exact { negative: exact.negative, coeff, scale })
 }
 
 fn add_exact(left: &Exact, right: &Exact) -> Option<Exact> {
@@ -269,22 +240,14 @@ fn add_exact(left: &Exact, right: &Exact) -> Option<Exact> {
         if coeff.len() > MAX_DIGITS {
             return None;
         }
-        return Some(Exact {
-            negative: left.negative && !is_zero(&coeff),
-            coeff,
-            scale,
-        });
+        return Some(Exact { negative: left.negative && !is_zero(&coeff), coeff, scale });
     }
     let (coeff, negative) = match cmp_mag(&left.coeff, &right.coeff) {
         Ordering::Equal => (vec![0], false),
         Ordering::Greater => (sub_mag(&left.coeff, &right.coeff), left.negative),
         Ordering::Less => (sub_mag(&right.coeff, &left.coeff), right.negative),
     };
-    Some(Exact {
-        negative: negative && !is_zero(&coeff),
-        coeff,
-        scale,
-    })
+    Some(Exact { negative: negative && !is_zero(&coeff), coeff, scale })
 }
 
 fn div_half_even(sum: &Exact, divisor: u64, target_scale: i64) -> Option<Exact> {
@@ -303,11 +266,7 @@ fn div_half_even(sum: &Exact, divisor: u64, target_scale: i64) -> Option<Exact> 
     if coeff.len() > MAX_DIGITS {
         return None;
     }
-    Some(Exact {
-        negative: sum.negative && !is_zero(&coeff),
-        coeff,
-        scale: target_scale,
-    })
+    Some(Exact { negative: sum.negative && !is_zero(&coeff), coeff, scale: target_scale })
 }
 
 fn div_mag(coeff: &[u8], divisor: u64) -> Vec<u8> {
@@ -384,16 +343,8 @@ fn cmp_abs(left: &Exact, right: &Exact) -> Ordering {
         other => return other,
     }
     for i in 0..left_len {
-        let l = if i < left.coeff.len() {
-            left.coeff[i]
-        } else {
-            0
-        };
-        let r = if i < right.coeff.len() {
-            right.coeff[i]
-        } else {
-            0
-        };
+        let l = if i < left.coeff.len() { left.coeff[i] } else { 0 };
+        let r = if i < right.coeff.len() { right.coeff[i] } else { 0 };
         match l.cmp(&r) {
             Ordering::Equal => {}
             other => return other,
@@ -423,8 +374,7 @@ fn sub_mag(left: &[u8], right: &[u8]) -> Vec<u8> {
     let mut out = vec![0u8; left.len()];
     let mut borrow = 0i16;
     for i in 0..left.len() {
-        let mut value =
-            i16::from(left[left.len() - 1 - i]) - i16::from(digit_from_end(right, i)) - borrow;
+        let mut value = i16::from(left[left.len() - 1 - i]) - i16::from(digit_from_end(right, i)) - borrow;
         if value < 0 {
             value += 10;
             borrow = 1;
@@ -437,23 +387,12 @@ fn sub_mag(left: &[u8], right: &[u8]) -> Vec<u8> {
 }
 
 fn digit_from_end(digits: &[u8], index: usize) -> u8 {
-    if index < digits.len() {
-        digits[digits.len() - 1 - index]
-    } else {
-        0
-    }
+    if index < digits.len() { digits[digits.len() - 1 - index] } else { 0 }
 }
 
 fn strip_leading_zeros(digits: Vec<u8>) -> Vec<u8> {
-    let start = digits
-        .iter()
-        .position(|&d| d != 0)
-        .unwrap_or(digits.len().saturating_sub(1));
-    if start == 0 {
-        digits
-    } else {
-        digits[start..].to_vec()
-    }
+    let start = digits.iter().position(|&d| d != 0).unwrap_or(digits.len().saturating_sub(1));
+    if start == 0 { digits } else { digits[start..].to_vec() }
 }
 
 fn is_zero(digits: &[u8]) -> bool {
@@ -517,11 +456,7 @@ mod tests {
     use super::*;
 
     fn column(display: &str, category: TypeCategory, cells: &[Option<&str>]) -> ColumnText {
-        ColumnText {
-            display: display.into(),
-            category,
-            cells: cells.iter().map(|c| c.map(str::to_owned)).collect(),
-        }
+        ColumnText { display: display.into(), category, cells: cells.iter().map(|c| c.map(str::to_owned)).collect() }
     }
 
     fn numeric(cells: &[Option<&str>]) -> ColumnText {
@@ -548,9 +483,7 @@ mod tests {
 
     fn quad(agg: CellAggregate) -> (String, String, String, String) {
         match agg {
-            CellAggregate::Numeric {
-                sum, avg, min, max, ..
-            } => (sum, avg, min, max),
+            CellAggregate::Numeric { sum, avg, min, max, .. } => (sum, avg, min, max),
             CellAggregate::Counts { .. } => panic!("counts"),
         }
     }
@@ -583,13 +516,7 @@ mod tests {
 
     #[test]
     fn sum_past_two_to_the_sixty_three_keeps_every_digit() {
-        assert_eq!(
-            sum_of(aggregate(&[nums(&[
-                "9223372036854775808",
-                "9223372036854775808"
-            ])])),
-            "18446744073709551616"
-        );
+        assert_eq!(sum_of(aggregate(&[nums(&["9223372036854775808", "9223372036854775808"])])), "18446744073709551616");
     }
 
     #[test]
@@ -601,24 +528,11 @@ mod tests {
     #[test]
     fn negative_scale_average_keeps_six_fractional_digits() {
         let exponent = nums(&["1e+20", "1e+20", "2e+20"]);
-        let plain = nums(&[
-            "100000000000000000000",
-            "100000000000000000000",
-            "200000000000000000000",
-        ]);
+        let plain = nums(&["100000000000000000000", "100000000000000000000", "200000000000000000000"]);
         assert_eq!(sum_of(aggregate(&[exponent])), "400000000000000000000");
-        assert_eq!(
-            avg_of(aggregate(&[nums(&["1e+20", "1e+20", "2e+20"])])),
-            "133333333333333333333.333333"
-        );
-        assert_eq!(
-            avg_of(aggregate(&[plain])),
-            "133333333333333333333.333333"
-        );
-        assert_eq!(
-            avg_of(aggregate(&[nums(&["1e+20"])])),
-            "100000000000000000000.000000"
-        );
+        assert_eq!(avg_of(aggregate(&[nums(&["1e+20", "1e+20", "2e+20"])])), "133333333333333333333.333333");
+        assert_eq!(avg_of(aggregate(&[plain])), "133333333333333333333.333333");
+        assert_eq!(avg_of(aggregate(&[nums(&["1e+20"])])), "100000000000000000000.000000");
     }
 
     #[test]
@@ -644,66 +558,27 @@ mod tests {
                 max: "1".into()
             }
         );
-        assert_eq!(
-            aggregate(&[numeric(&[None, None])]),
-            CellAggregate::Counts {
-                count: 2,
-                non_null: 0
-            }
-        );
-        assert_eq!(
-            aggregate(&[numeric(&[Some("")])]),
-            CellAggregate::Counts {
-                count: 1,
-                non_null: 1
-            }
-        );
-        assert_eq!(
-            aggregate(&[numeric(&[Some("1"), Some("")])]),
-            CellAggregate::Counts {
-                count: 2,
-                non_null: 2
-            }
-        );
+        assert_eq!(aggregate(&[numeric(&[None, None])]), CellAggregate::Counts { count: 2, non_null: 0 });
+        assert_eq!(aggregate(&[numeric(&[Some("")])]), CellAggregate::Counts { count: 1, non_null: 1 });
+        assert_eq!(aggregate(&[numeric(&[Some("1"), Some("")])]), CellAggregate::Counts { count: 2, non_null: 2 });
     }
 
     #[test]
     fn specials_poison_the_sum_and_order_below_and_above_finites() {
-        assert_eq!(
-            quad(aggregate(&[nums(&["NaN", "1"])])),
-            ("NaN".into(), "NaN".into(), "NaN".into(), "NaN".into())
-        );
+        assert_eq!(quad(aggregate(&[nums(&["NaN", "1"])])), ("NaN".into(), "NaN".into(), "NaN".into(), "NaN".into()));
         assert_eq!(
             quad(aggregate(&[nums(&["+Infinity", "inf", "4"])])),
-            (
-                "Infinity".into(),
-                "Infinity".into(),
-                "4".into(),
-                "Infinity".into()
-            )
+            ("Infinity".into(), "Infinity".into(), "4".into(), "Infinity".into())
         );
         assert_eq!(
             quad(aggregate(&[nums(&["-inf", "-Infinity", "4"])])),
-            (
-                "-Infinity".into(),
-                "-Infinity".into(),
-                "-Infinity".into(),
-                "4".into()
-            )
+            ("-Infinity".into(), "-Infinity".into(), "-Infinity".into(), "4".into())
         );
         assert_eq!(
             quad(aggregate(&[nums(&["Infinity", "-inf", "1"])])),
-            (
-                "NaN".into(),
-                "NaN".into(),
-                "-Infinity".into(),
-                "Infinity".into()
-            )
+            ("NaN".into(), "NaN".into(), "-Infinity".into(), "Infinity".into())
         );
-        assert_eq!(
-            quad(aggregate(&[nums(&["NaN"])])),
-            ("NaN".into(), "NaN".into(), "NaN".into(), "NaN".into())
-        );
+        assert_eq!(quad(aggregate(&[nums(&["NaN"])])), ("NaN".into(), "NaN".into(), "NaN".into(), "NaN".into()));
         assert_eq!(
             aggregate(&[nums(&["-0", "0.0"])]),
             CellAggregate::Numeric {
@@ -721,55 +596,30 @@ mod tests {
     fn money_text_and_a_second_column_are_counts() {
         assert_eq!(
             aggregate(&[column("money", TypeCategory::Numeric, &[Some("$1,234.00")])]),
-            CellAggregate::Counts {
-                count: 1,
-                non_null: 1
-            }
+            CellAggregate::Counts { count: 1, non_null: 1 }
         );
         assert_eq!(
-            aggregate(&[column(
-                "smallmoney",
-                TypeCategory::Numeric,
-                &[Some("12.3456")]
-            )]),
-            CellAggregate::Counts {
-                count: 1,
-                non_null: 1
-            }
+            aggregate(&[column("smallmoney", TypeCategory::Numeric, &[Some("12.3456")])]),
+            CellAggregate::Counts { count: 1, non_null: 1 }
         );
         assert_eq!(
             aggregate(&[
                 column("bigint", TypeCategory::Integer, &[Some("1")]),
                 column("numeric", TypeCategory::Numeric, &[Some("2.00")])
             ]),
-            CellAggregate::Counts {
-                count: 2,
-                non_null: 2
-            }
+            CellAggregate::Counts { count: 2, non_null: 2 }
         );
         assert_eq!(
             aggregate(&[
                 column("numeric", TypeCategory::Numeric, &[Some("2.00")]),
                 column("text", TypeCategory::Text, &[Some("paid")])
             ]),
-            CellAggregate::Counts {
-                count: 2,
-                non_null: 2
-            }
+            CellAggregate::Counts { count: 2, non_null: 2 }
         );
         assert_eq!(
             aggregate(&[column("text", TypeCategory::Text, &[Some("1"), Some("2")])]),
-            CellAggregate::Counts {
-                count: 2,
-                non_null: 2
-            }
+            CellAggregate::Counts { count: 2, non_null: 2 }
         );
-        assert_eq!(
-            aggregate(&[numeric(&[Some("nope")])]),
-            CellAggregate::Counts {
-                count: 1,
-                non_null: 1
-            }
-        );
+        assert_eq!(aggregate(&[numeric(&[Some("nope")])]), CellAggregate::Counts { count: 1, non_null: 1 });
     }
 }

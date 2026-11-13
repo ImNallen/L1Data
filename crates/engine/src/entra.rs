@@ -44,7 +44,13 @@ impl std::fmt::Debug for AzCli {
 
 impl AzCli {
     pub(crate) fn new(agent_path: AgentPath, binary: Option<PathBuf>) -> Self {
-        Self { agent_path, binary, path: tokio::sync::OnceCell::new(), state: tokio::sync::Mutex::default(), finished_fetches: AtomicU64::new(0) }
+        Self {
+            agent_path,
+            binary,
+            path: tokio::sync::OnceCell::new(),
+            state: tokio::sync::Mutex::default(),
+            finished_fetches: AtomicU64::new(0),
+        }
     }
 
     pub(crate) async fn token(&self) -> Result<String, ConnectError> {
@@ -83,22 +89,49 @@ impl AzCli {
         let path = self.path.get_or_init(|| shell_path::search_path(&self.agent_path, &home)).await;
         let program = self.program(path)?;
         let mut command = tokio::process::Command::new(&program);
-        command.args(["account", "get-access-token", "--resource", RESOURCE, "--output", "json"]).env("PATH", path).stdin(Stdio::null()).kill_on_drop(true);
+        command
+            .args(["account", "get-access-token", "--resource", RESOURCE, "--output", "json"])
+            .env("PATH", path)
+            .stdin(Stdio::null())
+            .kill_on_drop(true);
         shell_path::hide_console(&mut command);
         let run = command.output();
         let output = tokio::time::timeout(AZ_TIMEOUT, run)
             .await
-            .map_err(|_| auth(format!("Run `az login`, then try again. The Azure CLI did not answer within {} s.", AZ_TIMEOUT.as_secs())))?
-            .map_err(|e| auth(format!("Install the Azure CLI, run `az login`, then try again. {} did not run: {e}", program.display())))?;
+            .map_err(|_| {
+                auth(format!(
+                    "Run `az login`, then try again. The Azure CLI did not answer within {} s.",
+                    AZ_TIMEOUT.as_secs()
+                ))
+            })?
+            .map_err(|e| {
+                auth(format!(
+                    "Install the Azure CLI, run `az login`, then try again. {} did not run: {e}",
+                    program.display()
+                ))
+            })?;
         if !output.status.success() {
-            let said = String::from_utf8_lossy(&output.stderr).lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default().chars().take(300).collect::<String>();
-            return Err(auth(format!("Run `az login`, then try again. The Azure CLI has no token for Azure SQL: {said}")));
+            let said = String::from_utf8_lossy(&output.stderr)
+                .lines()
+                .map(str::trim)
+                .find(|l| !l.is_empty())
+                .unwrap_or_default()
+                .chars()
+                .take(300)
+                .collect::<String>();
+            return Err(auth(format!(
+                "Run `az login`, then try again. The Azure CLI has no token for Azure SQL: {said}"
+            )));
         }
         parse(&output.stdout).map_err(|e| auth(format!("The Azure CLI's token could not be read: {e}")))
     }
 
     fn program(&self, path: &OsString) -> Result<PathBuf, ConnectError> {
-        let missing = |at: String| auth(format!("Install the Azure CLI, run `az login`, then try again. Entra ID sign-in uses it, and it is not {at}."));
+        let missing = |at: String| {
+            auth(format!(
+                "Install the Azure CLI, run `az login`, then try again. Entra ID sign-in uses it, and it is not {at}."
+            ))
+        };
         if let Some(binary) = &self.binary {
             return shell_path::executable(binary).ok_or_else(|| missing(format!("at {}", binary.display())));
         }
@@ -129,7 +162,10 @@ fn parse(stdout: &[u8]) -> Result<Token, String> {
         Some(serde_json::Value::String(s)) => s.trim().parse().ok(),
         _ => None,
     };
-    Ok(Token { access: reply.access_token, expires_at: seconds.and_then(|s| UNIX_EPOCH.checked_add(Duration::from_secs(s))) })
+    Ok(Token {
+        access: reply.access_token,
+        expires_at: seconds.and_then(|s| UNIX_EPOCH.checked_add(Duration::from_secs(s))),
+    })
 }
 
 #[cfg(test)]
@@ -144,9 +180,16 @@ mod tests {
     fn a_reply_parses_to_its_token_and_posix_expiry() {
         let reply = br#"{"accessToken":"eyJ0","expiresOn":"2026-10-25 14:03:12.000000","expires_on":1761400992,"subscription":"s","tenant":"t","tokenType":"Bearer"}"#;
         assert_eq!(parse(reply).unwrap(), Token { access: "eyJ0".into(), expires_at: Some(epoch(1761400992)) });
-        assert_eq!(parse(br#"{"accessToken":"a","expires_on":"1761400992"}"#).unwrap().expires_at, Some(epoch(1761400992)));
+        assert_eq!(
+            parse(br#"{"accessToken":"a","expires_on":"1761400992"}"#).unwrap().expires_at,
+            Some(epoch(1761400992))
+        );
         assert_eq!(parse(br#"{"accessToken":"a","expiresOn":"2026-10-25 14:03:12.000000"}"#).unwrap().expires_at, None);
-        assert_eq!(parse(br#"{"accessToken":"a","expires_on":18446744073709551615}"#).unwrap().expires_at, None, "an expiry past SystemTime is not cached");
+        assert_eq!(
+            parse(br#"{"accessToken":"a","expires_on":18446744073709551615}"#).unwrap().expires_at,
+            None,
+            "an expiry past SystemTime is not cached"
+        );
         assert!(parse(br#"{"accessToken":"","expires_on":1}"#).is_err());
         assert!(parse(b"ERROR: Please run 'az login'").is_err());
     }

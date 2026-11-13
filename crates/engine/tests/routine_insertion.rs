@@ -19,15 +19,23 @@ struct Harness {
 impl Harness {
     async fn open(kind: DatabaseKind) -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let engine =
-            Engine::open(EngineConfig { data_dir: dir.path().into(), keys: Arc::new(MemoryKeyStore::default()), agent_path: AgentPath::Fixed("".into()), az_binary: None, user_known_hosts: None, updates: Arc::new(engine::ScriptedTransport::named("off").unwrap()) })
-                .await
-                .unwrap();
+        let engine = Engine::open(EngineConfig {
+            data_dir: dir.path().into(),
+            keys: Arc::new(MemoryKeyStore::default()),
+            agent_path: AgentPath::Fixed("".into()),
+            az_binary: None,
+            user_known_hosts: None,
+            updates: Arc::new(engine::ScriptedTransport::named("off").unwrap()),
+        })
+        .await
+        .unwrap();
         let draft = match kind {
-            DatabaseKind::Postgres => {
-                draft_from_url(&std::env::var("L1_DATA_TEST_PG").unwrap_or_else(|_| "postgres://l1data:l1data@localhost:5433/shop".into()), "Routine insertion")
-                    .unwrap()
-            }
+            DatabaseKind::Postgres => draft_from_url(
+                &std::env::var("L1_DATA_TEST_PG")
+                    .unwrap_or_else(|_| "postgres://l1data:l1data@localhost:5433/shop".into()),
+                "Routine insertion",
+            )
+            .unwrap(),
             DatabaseKind::SqlServer => ConnectionDraft {
                 database_kind: kind,
                 id: None,
@@ -36,7 +44,9 @@ impl Harness {
                 port: std::env::var("L1_DATA_TEST_MSSQL_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(1434),
                 database: "shop".into(),
                 user: "sa".into(),
-                password: PasswordInput::Set(std::env::var("L1_DATA_TEST_MSSQL_PASSWORD").unwrap_or_else(|_| "L1Data_dev_Str0ng".into())),
+                password: PasswordInput::Set(
+                    std::env::var("L1_DATA_TEST_MSSQL_PASSWORD").unwrap_or_else(|_| "L1Data_dev_Str0ng".into()),
+                ),
                 ssl_mode: SslMode::Require,
                 ca_cert_path: None,
                 color: None,
@@ -50,7 +60,15 @@ impl Harness {
         let db = DatabaseRef { connection_id: config.id, database: config.database };
         let tab = TabId(uuid::Uuid::new_v4());
         engine
-            .console_configure(tab, ConsoleConfig { connection_id: config.id, database: db.database.clone(), schema: None, mode: TxnMode::AutoCommit })
+            .console_configure(
+                tab,
+                ConsoleConfig {
+                    connection_id: config.id,
+                    database: db.database.clone(),
+                    schema: None,
+                    mode: TxnMode::AutoCommit,
+                },
+            )
             .await
             .unwrap();
         Self { engine, db, tab, _dir: dir }
@@ -58,7 +76,22 @@ impl Harness {
 
     async fn run(&self, sql: &str) -> ConsoleState {
         let mut events = self.engine.subscribe();
-        let id = self.engine.console_run(self.tab, RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await.unwrap().run_id;
+        let id = self
+            .engine
+            .console_run(
+                self.tab,
+                RunRequest::Script {
+                    text: sql.into(),
+                    target: RunTarget::All,
+                    mode: RunMode::Run,
+                    params: Vec::new(),
+                    cells: Vec::new(),
+                },
+                None,
+            )
+            .await
+            .unwrap()
+            .run_id;
         tokio::time::timeout(Duration::from_secs(15), async {
             loop {
                 if let AppEvent::ConsoleChanged(state) = events.recv().await.unwrap()
@@ -99,7 +132,10 @@ impl Harness {
         }
         let checked = AssertUnwindSafe(async {
             let rows = self.sql(remaining).await;
-            assert!(!rows.is_empty() && rows.iter().flatten().all(Option::is_none), "Disposable routine objects remained: {rows:?}");
+            assert!(
+                !rows.is_empty() && rows.iter().flatten().all(Option::is_none),
+                "Disposable routine objects remained: {rows:?}"
+            );
         })
         .catch_unwind()
         .await;
@@ -209,7 +245,12 @@ async fn postgres_keeps_existing_routine_insertion_for_functions_procedures_and_
         h.engine
             .console_configure(
                 h.tab,
-                ConsoleConfig { connection_id: h.db.connection_id, database: h.db.database.clone(), schema: Some(schema.clone()), mode: TxnMode::AutoCommit },
+                ConsoleConfig {
+                    connection_id: h.db.connection_id,
+                    database: h.db.database.clone(),
+                    schema: Some(schema.clone()),
+                    mode: TxnMode::AutoCommit,
+                },
             )
             .await
             .unwrap();
@@ -253,16 +294,26 @@ async fn postgres_catalog_quotes_only_the_names_that_need_it() {
         let r = s.relations.iter().find(|r| r.name == "Line Items").unwrap();
         let f = routine(&catalog, &schema, "MyFunc");
         assert_eq!((s.quoted.as_str(), r.quoted.as_str()), (format!("\"{schema}\"").as_str(), "\"Line Items\""));
-        assert_eq!(r.columns.iter().map(|c| c.quoted.as_str()).collect::<Vec<_>>(), ["\"order\"", "\"MixedCase\"", "plain"]);
+        assert_eq!(
+            r.columns.iter().map(|c| c.quoted.as_str()).collect::<Vec<_>>(),
+            ["\"order\"", "\"MixedCase\"", "plain"]
+        );
         assert_eq!((f.quoted.as_str(), f.insert_text.as_str()), ("\"MyFunc\"", "\"MyFunc\"()"));
         assert_eq!(h.sql(&format!("SELECT {}.{}", s.quoted, f.insert_text)).await, vec![vec![Some("7".into())]]);
         let columns = r.columns.iter().map(|c| format!("t.{}", c.quoted)).collect::<Vec<_>>().join(", ");
         h.sql(&format!("INSERT INTO {}.{} VALUES (1, 2, 3)", s.quoted, r.quoted)).await;
-        assert_eq!(h.sql(&format!("SELECT {columns} FROM {}.{} t", s.quoted, r.quoted)).await, vec![vec![Some("1".into()), Some("2".into()), Some("3".into())]]);
+        assert_eq!(
+            h.sql(&format!("SELECT {columns} FROM {}.{} t", s.quoted, r.quoted)).await,
+            vec![vec![Some("1".into()), Some("2".into()), Some("3".into())]]
+        );
     })
     .catch_unwind()
     .await;
-    h.cleanup(vec![format!("DROP SCHEMA IF EXISTS \"{schema}\" CASCADE")], &format!("SELECT to_regnamespace('\"{schema}\"')")).await;
+    h.cleanup(
+        vec![format!("DROP SCHEMA IF EXISTS \"{schema}\" CASCADE")],
+        &format!("SELECT to_regnamespace('\"{schema}\"')"),
+    )
+    .await;
     if let Err(error) = outcome {
         std::panic::resume_unwind(error);
     }
@@ -281,15 +332,24 @@ async fn sql_server_catalog_brackets_only_the_names_that_need_it() {
         let s = catalog.schemas.iter().find(|s| s.name == schema).unwrap();
         let r = s.relations.iter().find(|r| r.name == "order").unwrap();
         assert_eq!((s.quoted.as_str(), r.quoted.as_str()), (schema.as_str(), "[order]"));
-        assert_eq!(r.columns.iter().map(|c| c.quoted.as_str()).collect::<Vec<_>>(), ["[select]", "Plain", "[two words]"]);
+        assert_eq!(
+            r.columns.iter().map(|c| c.quoted.as_str()).collect::<Vec<_>>(),
+            ["[select]", "Plain", "[two words]"]
+        );
         let columns = r.columns.iter().map(|c| format!("t.{}", c.quoted)).collect::<Vec<_>>().join(", ");
         h.sql(&format!("INSERT INTO {}.{} VALUES (1, 2, 3)", s.quoted, r.quoted)).await;
-        assert_eq!(h.sql(&format!("SELECT {columns} FROM {}.{} t", s.quoted, r.quoted)).await, vec![vec![Some("1".into()), Some("2".into()), Some("3".into())]]);
+        assert_eq!(
+            h.sql(&format!("SELECT {columns} FROM {}.{} t", s.quoted, r.quoted)).await,
+            vec![vec![Some("1".into()), Some("2".into()), Some("3".into())]]
+        );
     })
     .catch_unwind()
     .await;
     h.cleanup(
-        vec![format!("DROP TABLE IF EXISTS [{schema}].[order]"), format!("IF SCHEMA_ID(N'{schema}') IS NOT NULL DROP SCHEMA [{schema}]")],
+        vec![
+            format!("DROP TABLE IF EXISTS [{schema}].[order]"),
+            format!("IF SCHEMA_ID(N'{schema}') IS NOT NULL DROP SCHEMA [{schema}]"),
+        ],
         &format!("SELECT SCHEMA_ID(N'{schema}')"),
     )
     .await;

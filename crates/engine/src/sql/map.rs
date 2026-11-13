@@ -16,24 +16,12 @@ impl Token<'_> {
     fn name(&self, kind: DatabaseKind) -> Option<String> {
         match self.class {
             Class::Word if !self.text.starts_with(['#', '@']) => {
-                Some(if kind == DatabaseKind::Postgres {
-                    self.text.to_ascii_lowercase()
-                } else {
-                    self.text.to_owned()
-                })
+                Some(if kind == DatabaseKind::Postgres { self.text.to_ascii_lowercase() } else { self.text.to_owned() })
             }
-            Class::Name
-                if self.text.starts_with('"')
-                    && self.text.ends_with('"')
-                    && self.text.len() >= 2 =>
-            {
+            Class::Name if self.text.starts_with('"') && self.text.ends_with('"') && self.text.len() >= 2 => {
                 Some(self.text[1..self.text.len() - 1].replace("\"\"", "\""))
             }
-            Class::Name
-                if self.text.starts_with('[')
-                    && self.text.ends_with(']')
-                    && self.text.len() >= 2 =>
-            {
+            Class::Name if self.text.starts_with('[') && self.text.ends_with(']') && self.text.len() >= 2 => {
                 Some(self.text[1..self.text.len() - 1].replace("]]", "]"))
             }
             _ => None,
@@ -72,16 +60,11 @@ fn boundary(t: &Token<'_>) -> bool {
 }
 
 fn range(map: &OffsetMap<'_>, start: usize, end: usize) -> DocRange {
-    DocRange {
-        from: map.to_utf16(start),
-        to: map.to_utf16(end),
-    }
+    DocRange { from: map.to_utf16(start), to: map.to_utf16(end) }
 }
 
 fn resolve(parts: &[String], catalog: &Catalog, ctes: &[String]) -> MapResolution {
-    let unresolved = |reason: &str| MapResolution::Unresolved {
-        reason: reason.into(),
-    };
+    let unresolved = |reason: &str| MapResolution::Unresolved { reason: reason.into() };
     if parts.len() == 1 && ctes.contains(&parts[0]) {
         return unresolved("CTE source");
     }
@@ -116,14 +99,10 @@ pub(crate) fn analyze(text: &str, cursor: DocOffset, catalog: &Catalog) -> MapQu
     };
     let at = map.from_utf16(cursor);
     let selected = match kind {
-        DatabaseKind::Postgres => super::pick(
-            &super::split_statements(text),
-            text,
-            super::ByteTarget::Cursor(at),
-        )
-        .into_iter()
-        .next()
-        .map(|s| s.start..s.end),
+        DatabaseKind::Postgres => super::pick(&super::split_statements(text), text, super::ByteTarget::Cursor(at))
+            .into_iter()
+            .next()
+            .map(|s| s.start..s.end),
         DatabaseKind::SqlServer => {
             let mut span = super::tsql::statement_around(text, at);
             if text[span.clone()].trim().is_empty() && at > 0 && text.as_bytes()[at - 1] == b';' {
@@ -139,8 +118,7 @@ pub(crate) fn analyze(text: &str, cursor: DocOffset, catalog: &Catalog) -> MapQu
     let sql = &text[selected.clone()];
     let lexemes = map_lexemes(sql, kind);
     let unclosed = lexemes.iter().any(|l| {
-        matches!(l.class, Class::Name | Class::Str | Class::BlockComment)
-            && !closed(kind, &sql[l.span.clone()])
+        matches!(l.class, Class::Name | Class::Str | Class::BlockComment) && !closed(kind, &sql[l.span.clone()])
     });
     let tokens: Vec<_> = lexemes
         .into_iter()
@@ -213,10 +191,7 @@ pub(crate) fn analyze(text: &str, cursor: DocOffset, catalog: &Catalog) -> MapQu
             let start = i;
             let mut parts = vec![];
             let mut complete_name = true;
-            if tokens
-                .get(i)
-                .is_some_and(|t| t.word("only") || t.word("lateral"))
-            {
+            if tokens.get(i).is_some_and(|t| t.word("only") || t.word("lateral")) {
                 result.incomplete = true;
                 joins_sound = false;
                 i += 1;
@@ -242,14 +217,8 @@ pub(crate) fn analyze(text: &str, cursor: DocOffset, catalog: &Catalog) -> MapQu
             }
             let end = i;
             let mut resolution = resolve(&parts, catalog, &ctes);
-            if !complete_name
-                || tokens
-                    .get(i)
-                    .is_some_and(|t| t.class == Class::Open || t.class == Class::Dot)
-            {
-                resolution = MapResolution::Unresolved {
-                    reason: "Function or unsupported source".into(),
-                };
+            if !complete_name || tokens.get(i).is_some_and(|t| t.class == Class::Open || t.class == Class::Dot) {
+                resolution = MapResolution::Unresolved { reason: "Function or unsupported source".into() };
                 result.incomplete = true;
                 joins_sound = false;
             }
@@ -268,10 +237,7 @@ pub(crate) fn analyze(text: &str, cursor: DocOffset, catalog: &Catalog) -> MapQu
             if alias.is_some() {
                 i += 1;
             }
-            if tokens
-                .get(i)
-                .is_some_and(|t| !boundary(t) && t.class != Class::Comma)
-            {
+            if tokens.get(i).is_some_and(|t| !boundary(t) && t.class != Class::Comma) {
                 result.incomplete = true;
                 joins_sound = false;
             }
@@ -305,19 +271,7 @@ pub(crate) fn analyze(text: &str, cursor: DocOffset, catalog: &Catalog) -> MapQu
         if t.word("select") && i > 0 && !ctes.is_empty() {
             joins_sound = false;
         }
-        if [
-            "union",
-            "except",
-            "intersect",
-            "apply",
-            "pivot",
-            "unpivot",
-            "using",
-            "natural",
-        ]
-        .iter()
-        .any(|w| t.word(w))
-        {
+        if ["union", "except", "intersect", "apply", "pivot", "unpivot", "using", "natural"].iter().any(|w| t.word(w)) {
             result.incomplete = true;
             joins_sound = false;
         }
@@ -327,8 +281,7 @@ pub(crate) fn analyze(text: &str, cursor: DocOffset, catalog: &Catalog) -> MapQu
         result.incomplete = true;
         joins_sound = false;
     }
-    if tokens.iter().filter(|t| t.word("select")).count() != 1
-        || tokens.iter().any(|t| t.word("or") || t.text == "::")
+    if tokens.iter().filter(|t| t.word("select")).count() != 1 || tokens.iter().any(|t| t.word("or") || t.text == "::")
     {
         result.incomplete = true;
         joins_sound = false;
@@ -338,33 +291,20 @@ pub(crate) fn analyze(text: &str, cursor: DocOffset, catalog: &Catalog) -> MapQu
         .iter()
         .filter_map(|o| {
             o.alias.clone().or_else(|| match o.resolution {
-                MapResolution::CatalogMatch { oid } => catalog
-                    .schemas
-                    .iter()
-                    .flat_map(|s| &s.relations)
-                    .find(|r| r.oid == oid)
-                    .map(|r| r.name.clone()),
+                MapResolution::CatalogMatch { oid } => {
+                    catalog.schemas.iter().flat_map(|s| &s.relations).find(|r| r.oid == oid).map(|r| r.name.clone())
+                }
                 _ => None,
             })
         })
         .collect();
-    if bindings
-        .iter()
-        .enumerate()
-        .any(|(i, b)| bindings[..i].contains(b))
-    {
+    if bindings.iter().enumerate().any(|(i, b)| bindings[..i].contains(b)) {
         result.incomplete = true;
         joins_sound = false;
     }
     if joins_sound {
         for (start, end, joined) in scopes {
-            match predicates(
-                &tokens[start..end],
-                joined,
-                &result.occurrences,
-                catalog,
-                &map,
-            ) {
+            match predicates(&tokens[start..end], joined, &result.occurrences, catalog, &map) {
                 Some(edges) => result.joins.extend(edges),
                 None => result.incomplete = true,
             }
@@ -415,16 +355,8 @@ fn predicates(
             let MapResolution::CatalogMatch { oid } = occurrence.resolution else {
                 return None;
             };
-            let relation = catalog
-                .schemas
-                .iter()
-                .flat_map(|s| &s.relations)
-                .find(|r| r.oid == oid)?;
-            relation
-                .columns
-                .iter()
-                .any(|c| c.name == column)
-                .then_some((occurrence.id, column))
+            let relation = catalog.schemas.iter().flat_map(|s| &s.relations).find(|r| r.oid == oid)?;
+            relation.columns.iter().any(|c| c.name == column).then_some((occurrence.id, column))
         };
         let (source, source_column) = bind(a, ac)?;
         let (target, target_column) = bind(b, bc)?;
@@ -434,10 +366,7 @@ fn predicates(
         edges.push(MapQueryJoin {
             source,
             target,
-            columns: MapColumnPair {
-                source: source_column,
-                target: target_column,
-            },
+            columns: MapColumnPair { source: source_column, target: target_column },
             range: range(map, a.start, bc.end),
         });
     }
@@ -473,10 +402,7 @@ mod tests {
                 .collect(),
         };
         Catalog {
-            db: DatabaseRef {
-                connection_id: ConnectionId(uuid::Uuid::nil()),
-                database: "shop".into(),
-            },
+            db: DatabaseRef { connection_id: ConnectionId(uuid::Uuid::nil()), database: "shop".into() },
             database_kind: kind,
             version: 7,
             default_schema: Some("public".into()),
@@ -486,11 +412,7 @@ mod tests {
                 quoted: "public".into(),
                 system: false,
                 table_count: 3,
-                relations: vec![
-                    relation(1, "orders"),
-                    relation(2, "people"),
-                    relation(3, "Odd\"Table"),
-                ],
+                relations: vec![relation(1, "orders"), relation(2, "people"), relation(3, "Odd\"Table")],
                 functions: vec![],
                 sequences: vec![],
                 types: vec![],
@@ -500,11 +422,7 @@ mod tests {
     }
 
     fn analyze_at_end(sql: &str, kind: DatabaseKind) -> MapQuery {
-        analyze(
-            sql,
-            DocOffset(sql.encode_utf16().count() as u32),
-            &catalog(kind),
-        )
+        analyze(sql, DocOffset(sql.encode_utf16().count() as u32), &catalog(kind))
     }
     fn slice<'a>(sql: &'a str, range: DocRange) -> &'a str {
         let map = OffsetMap::new(sql);
@@ -532,23 +450,12 @@ mod tests {
         let sql = "-- 😀漢 FROM fake\nSELECT 'JOIN nope ON x=y', a.id FROM \"public\".\"Odd\"\"Table\" a /* JOIN fake */ JOIN public.people p ON a.\"odd\"\"column\"=p.id";
         let result = analyze_at_end(sql, DatabaseKind::Postgres);
         assert_eq!(result.occurrences.len(), 2);
-        assert!(matches!(
-            result.occurrences[0].resolution,
-            MapResolution::CatalogMatch { oid: 3 }
-        ));
-        assert_eq!(
-            slice(sql, result.occurrences[0].range),
-            "\"public\".\"Odd\"\"Table\""
-        );
-        assert_eq!(
-            slice(sql, result.joins[0].range),
-            "a.\"odd\"\"column\"=p.id"
-        );
+        assert!(matches!(result.occurrences[0].resolution, MapResolution::CatalogMatch { oid: 3 }));
+        assert_eq!(slice(sql, result.occurrences[0].range), "\"public\".\"Odd\"\"Table\"");
+        assert_eq!(slice(sql, result.joins[0].range), "a.\"odd\"\"column\"=p.id");
         assert_eq!(
             result.occurrences[0].range.from.0,
-            sql[..sql.find("\"public\"").unwrap()]
-                .encode_utf16()
-                .count() as u32
+            sql[..sql.find("\"public\"").unwrap()].encode_utf16().count() as u32
         );
         let result = analyze_at_end(
             "SELECT * FROM [public].[orders] a JOIN [public].[people] b ON a.[id]=b.[id]",
@@ -563,19 +470,14 @@ mod tests {
         for kind in [DatabaseKind::Postgres, DatabaseKind::SqlServer] {
             let result = analyze_at_end("SELECT * FROM orders a JOIN people b ON a.id=b.id", kind);
             assert!(result.incomplete && result.joins.is_empty());
-            assert!(matches!(
-                result.occurrences[0].resolution,
-                MapResolution::Tentative { oid: 1 }
-            ));
+            assert!(matches!(result.occurrences[0].resolution, MapResolution::Tentative { oid: 1 }));
         }
         assert!(matches!(
-            analyze_at_end("SELECT * FROM PUBLIC.ORDERS", DatabaseKind::Postgres).occurrences[0]
-                .resolution,
+            analyze_at_end("SELECT * FROM PUBLIC.ORDERS", DatabaseKind::Postgres).occurrences[0].resolution,
             MapResolution::CatalogMatch { oid: 1 }
         ));
         assert!(matches!(
-            analyze_at_end("SELECT * FROM PUBLIC.ORDERS", DatabaseKind::SqlServer).occurrences[0]
-                .resolution,
+            analyze_at_end("SELECT * FROM PUBLIC.ORDERS", DatabaseKind::SqlServer).occurrences[0].resolution,
             MapResolution::Unresolved { .. }
         ));
         let mut catalog = catalog(DatabaseKind::Postgres);
@@ -596,22 +498,14 @@ mod tests {
                 kind,
             );
             assert_eq!(result.occurrences.len(), 2);
-            assert!(matches!(
-                result.occurrences[0].resolution,
-                MapResolution::Unresolved { .. }
-            ));
+            assert!(matches!(result.occurrences[0].resolution, MapResolution::Unresolved { .. }));
             assert!(result.incomplete && result.joins.is_empty());
-            let derived = analyze_at_end(
-                "SELECT * FROM (SELECT * FROM public.orders) x JOIN public.people p ON x.id=p.id",
-                kind,
-            );
+            let derived =
+                analyze_at_end("SELECT * FROM (SELECT * FROM public.orders) x JOIN public.people p ON x.id=p.id", kind);
             assert_eq!(derived.occurrences.len(), 1);
             assert!(derived.incomplete && derived.joins.is_empty());
             let cross = analyze_at_end("SELECT * FROM shop.public.orders", kind);
-            assert!(matches!(
-                cross.occurrences[0].resolution,
-                MapResolution::Unresolved { .. }
-            ));
+            assert!(matches!(cross.occurrences[0].resolution, MapResolution::Unresolved { .. }));
             assert!(cross.joins.is_empty());
         }
         let temp = analyze_at_end("SELECT * FROM #orders", DatabaseKind::SqlServer);
@@ -620,21 +514,12 @@ mod tests {
 
     #[test]
     fn explain_wrappers_do_not_resolve_ctes_as_catalog_tables() {
-        for prefix in [
-            "EXPLAIN ",
-            "EXPLAIN (ANALYZE, BUFFERS) ",
-            "EXPLAIN ANALYZE ",
-        ] {
-            let sql = format!(
-                "{prefix}WITH orders AS (SELECT * FROM public.people) SELECT * FROM orders"
-            );
+        for prefix in ["EXPLAIN ", "EXPLAIN (ANALYZE, BUFFERS) ", "EXPLAIN ANALYZE "] {
+            let sql = format!("{prefix}WITH orders AS (SELECT * FROM public.people) SELECT * FROM orders");
             let result = analyze_at_end(&sql, DatabaseKind::Postgres);
             assert_eq!(result.occurrences.len(), 1);
             assert!(
-                matches!(
-                    result.occurrences[0].resolution,
-                    MapResolution::Unresolved { .. }
-                ),
+                matches!(result.occurrences[0].resolution, MapResolution::Unresolved { .. }),
                 "{prefix}: {:?}",
                 result.occurrences[0].resolution
             );
@@ -656,19 +541,12 @@ mod tests {
                 "a.id=a.parent_id",
                 "a.id=b.id AND",
             ] {
-                let sql =
-                    format!("SELECT * FROM public.orders a JOIN public.people b ON {predicate}");
+                let sql = format!("SELECT * FROM public.orders a JOIN public.people b ON {predicate}");
                 let result = analyze_at_end(&sql, kind);
-                assert!(
-                    result.incomplete && result.joins.is_empty(),
-                    "{kind:?}: {predicate}"
-                );
+                assert!(result.incomplete && result.joins.is_empty(), "{kind:?}: {predicate}");
                 assert_eq!(result.occurrences.len(), 2, "{predicate}");
             }
-            let result = analyze_at_end(
-                "SELECT * FROM public.orders a JOIN public.people a ON a.id=a.id",
-                kind,
-            );
+            let result = analyze_at_end("SELECT * FROM public.orders a JOIN public.people a ON a.id=a.id", kind);
             assert!(result.joins.is_empty() && result.incomplete);
         }
     }
@@ -686,32 +564,20 @@ mod tests {
             }
             let result = analyze_at_end("SELECT * FROM public.orders.", kind);
             assert!(result.incomplete);
-            assert!(matches!(
-                result.occurrences[0].resolution,
-                MapResolution::Unresolved { .. }
-            ));
+            assert!(matches!(result.occurrences[0].resolution, MapResolution::Unresolved { .. }));
         }
     }
 
     #[test]
     fn incomplete_lexemes_and_unsupported_sources_do_not_fabricate_joins() {
         for kind in [DatabaseKind::Postgres, DatabaseKind::SqlServer] {
-            for suffix in [
-                " AND (",
-                " AND 'unterminated",
-                " AND \"unterminated",
-                " AND CAST(a.id AS int)=b.id",
-            ] {
-                let sql = format!(
-                    "SELECT * FROM public.orders a JOIN public.people b ON a.id=b.id{suffix}"
-                );
+            for suffix in [" AND (", " AND 'unterminated", " AND \"unterminated", " AND CAST(a.id AS int)=b.id"] {
+                let sql = format!("SELECT * FROM public.orders a JOIN public.people b ON a.id=b.id{suffix}");
                 let result = analyze_at_end(&sql, kind);
                 assert!(result.incomplete && result.joins.is_empty(), "{sql}");
             }
-            let result = analyze_at_end(
-                "SELECT * FROM public.orders a WITH (NOLOCK) JOIN public.people b ON a.id=b.id",
-                kind,
-            );
+            let result =
+                analyze_at_end("SELECT * FROM public.orders a WITH (NOLOCK) JOIN public.people b ON a.id=b.id", kind);
             assert!(result.incomplete && result.joins.is_empty());
         }
     }
@@ -726,50 +592,23 @@ mod tests {
         }
         let next = "SELECT * FROM public.orders;SELECT * FROM public.people;";
         let at = next.find(';').unwrap() + 1;
-        let result = analyze(
-            next,
-            DocOffset(at as u32),
-            &catalog(DatabaseKind::SqlServer),
-        );
-        assert!(matches!(
-            result.occurrences[0].resolution,
-            MapResolution::CatalogMatch { oid: 2 }
-        ));
-        assert!(
-            analyze_at_end("SELECT * FROM public.orders;\n\n", DatabaseKind::SqlServer)
-                .statement
-                .is_none()
-        );
+        let result = analyze(next, DocOffset(at as u32), &catalog(DatabaseKind::SqlServer));
+        assert!(matches!(result.occurrences[0].resolution, MapResolution::CatalogMatch { oid: 2 }));
+        assert!(analyze_at_end("SELECT * FROM public.orders;\n\n", DatabaseKind::SqlServer).statement.is_none());
     }
 
     #[test]
     fn statement_choice_uses_cursor_in_each_dialect_and_ignores_fake_sources() {
         for (kind, sql) in [
-            (
-                DatabaseKind::Postgres,
-                "SELECT * FROM public.orders;\nSELECT * FROM public.people;",
-            ),
-            (
-                DatabaseKind::SqlServer,
-                "SELECT * FROM public.orders\nGO\nSELECT * FROM public.people",
-            ),
+            (DatabaseKind::Postgres, "SELECT * FROM public.orders;\nSELECT * FROM public.people;"),
+            (DatabaseKind::SqlServer, "SELECT * FROM public.orders\nGO\nSELECT * FROM public.people"),
         ] {
             let result = analyze(sql, DocOffset(10), &catalog(kind));
             assert_eq!(result.occurrences.len(), 1);
-            assert!(matches!(
-                result.occurrences[0].resolution,
-                MapResolution::CatalogMatch { oid: 1 }
-            ));
+            assert!(matches!(result.occurrences[0].resolution, MapResolution::CatalogMatch { oid: 1 }));
             let result = analyze_at_end(sql, kind);
-            assert!(matches!(
-                result.occurrences[0].resolution,
-                MapResolution::CatalogMatch { oid: 2 }
-            ));
-            assert!(
-                analyze_at_end("SELECT 'FROM public.orders -- JOIN public.people'", kind)
-                    .occurrences
-                    .is_empty()
-            );
+            assert!(matches!(result.occurrences[0].resolution, MapResolution::CatalogMatch { oid: 2 }));
+            assert!(analyze_at_end("SELECT 'FROM public.orders -- JOIN public.people'", kind).occurrences.is_empty());
         }
     }
 }

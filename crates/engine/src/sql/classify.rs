@@ -57,7 +57,9 @@ pub fn classify(stmt: &str) -> StmtKind {
         "BEGIN" | "START" => StmtKind::Begin,
         "COMMIT" | "END" if chains(&words) => StmtKind::CommitAndChain,
         "COMMIT" | "END" => StmtKind::Commit,
-        "ROLLBACK" | "ABORT" if w(1) == "TO" || (matches!(w(1), "WORK" | "TRANSACTION") && w(2) == "TO") => StmtKind::RollbackTo,
+        "ROLLBACK" | "ABORT" if w(1) == "TO" || (matches!(w(1), "WORK" | "TRANSACTION") && w(2) == "TO") => {
+            StmtKind::RollbackTo
+        }
         "ROLLBACK" | "ABORT" if chains(&words) => StmtKind::RollbackAndChain,
         "ROLLBACK" | "ABORT" => StmtKind::Rollback,
         "SAVEPOINT" => StmtKind::Savepoint,
@@ -67,7 +69,9 @@ pub fn classify(stmt: &str) -> StmtKind {
         "DELETE" => StmtKind::Dml(DmlVerb::Delete),
         "MERGE" => StmtKind::Dml(DmlVerb::Merge),
         "WITH" => after_with(stmt),
-        "SELECT" | "TABLE" | "VALUES" | "EXPLAIN" | "SHOW" | "FETCH" | "UNION" | "INTERSECT" | "EXCEPT" => StmtKind::Query,
+        "SELECT" | "TABLE" | "VALUES" | "EXPLAIN" | "SHOW" | "FETCH" | "UNION" | "INTERSECT" | "EXCEPT" => {
+            StmtKind::Query
+        }
         "COPY" => copy_kind(stmt),
         "VACUUM" | "CLUSTER" | "CHECKPOINT" => StmtKind::NoTxnBlock(w(0).to_owned()),
         "ALTER" if w(1) == "SYSTEM" => StmtKind::NoTxnBlock("ALTER SYSTEM".into()),
@@ -106,9 +110,8 @@ fn copy_kind(stmt: &str) -> StmtKind {
 /// Postgres reports `CREATE OR REPLACE FUNCTION` as `CREATE FUNCTION` and `CREATE UNIQUE INDEX`
 /// as `CREATE INDEX`: the verb plus the object word, skipping modifiers between them.
 fn ddl_tag(words: &[String]) -> String {
-    const MODIFIERS: [&str; 10] = [
-        "OR", "REPLACE", "UNIQUE", "TEMP", "TEMPORARY", "UNLOGGED", "GLOBAL", "LOCAL", "RECURSIVE", "CONCURRENTLY",
-    ];
+    const MODIFIERS: [&str; 10] =
+        ["OR", "REPLACE", "UNIQUE", "TEMP", "TEMPORARY", "UNLOGGED", "GLOBAL", "LOCAL", "RECURSIVE", "CONCURRENTLY"];
     let verb = &words[0];
     let object = words[1..].iter().find(|w| !MODIFIERS.contains(&w.as_str()));
     match object {
@@ -201,8 +204,14 @@ mod tests {
     fn comments_and_ctes_do_not_confuse_the_verb() {
         assert_eq!(classify("-- note\n/* more */ with x as (select 1) select * from x"), StmtKind::Query);
         assert_eq!(classify("with x as (insert into t values (1)) select 1"), StmtKind::Query);
-        assert_eq!(classify("WITH \"{{a}}\" AS (\nSELECT 1\n)\nINSERT INTO t SELECT * FROM \"{{a}}\""), StmtKind::Dml(DmlVerb::Insert));
-        assert_eq!(classify("with recursive r as (select 1), update as (select 2) update t set n = 1 from r"), StmtKind::Dml(DmlVerb::Update));
+        assert_eq!(
+            classify("WITH \"{{a}}\" AS (\nSELECT 1\n)\nINSERT INTO t SELECT * FROM \"{{a}}\""),
+            StmtKind::Dml(DmlVerb::Insert)
+        );
+        assert_eq!(
+            classify("with recursive r as (select 1), update as (select 2) update t set n = 1 from r"),
+            StmtKind::Dml(DmlVerb::Update)
+        );
         assert_eq!(classify("with d as (select 1) select * from d for update"), StmtKind::Query);
         assert_eq!(classify("with d as (select 1) delete from t using d"), StmtKind::Dml(DmlVerb::Delete));
         assert_eq!(classify("/* update */ select 1"), StmtKind::Query);
@@ -242,9 +251,15 @@ mod tests {
         assert_eq!(classify("merge into t using s on true when matched then delete"), StmtKind::Dml(DmlVerb::Merge));
         assert_eq!(classify("create table t (id int)"), StmtKind::Ddl("CREATE TABLE".into()));
         assert_eq!(classify("create temp table t (id int)"), StmtKind::Ddl("CREATE TABLE".into()));
-        assert_eq!(classify("create or replace function f() returns int as $$ select 1 $$ language sql"), StmtKind::Ddl("CREATE FUNCTION".into()));
+        assert_eq!(
+            classify("create or replace function f() returns int as $$ select 1 $$ language sql"),
+            StmtKind::Ddl("CREATE FUNCTION".into())
+        );
         assert_eq!(classify("create unique index i on t (a)"), StmtKind::Ddl("CREATE INDEX".into()));
-        assert_eq!(classify("create materialized view v as select 1"), StmtKind::Ddl("CREATE MATERIALIZED VIEW".into()));
+        assert_eq!(
+            classify("create materialized view v as select 1"),
+            StmtKind::Ddl("CREATE MATERIALIZED VIEW".into())
+        );
         assert_eq!(classify("alter table t add column b int"), StmtKind::Ddl("ALTER TABLE".into()));
         assert_eq!(classify("drop table if exists t"), StmtKind::Ddl("DROP TABLE".into()));
         assert_eq!(classify("comment on table t is 'x'"), StmtKind::Ddl("COMMENT ON".into()));

@@ -33,7 +33,11 @@ pub(super) fn category(name: &str) -> TypeCategory {
 pub(super) fn display(name: &str, length: i32, precision: u8, scale: u8) -> String {
     match name {
         "nvarchar" | "nchar" | "varchar" | "char" | "varbinary" | "binary" => {
-            let size = if length == -1 { "max".into() } else { (if name.starts_with('n') { length / 2 } else { length }).to_string() };
+            let size = if length == -1 {
+                "max".into()
+            } else {
+                (if name.starts_with('n') { length / 2 } else { length }).to_string()
+            };
             format!("{name}({size})")
         }
         "decimal" | "numeric" => format!("{name}({precision},{scale})"),
@@ -67,7 +71,12 @@ impl MsSession {
         let rows = self.rows(&format!("SELECT COUNT(*) FROM sys.schemas s WHERE NOT {SYSTEM}")).await?;
         number(rows.first().ok_or_else(|| error("Schema count returned no row"))?, 0)
     }
-    pub(in crate::session) async fn catalog(&mut self, db: DatabaseRef, version: u64, extra: &[String]) -> Result<Catalog, QueryError> {
+    pub(in crate::session) async fn catalog(
+        &mut self,
+        db: DatabaseRef,
+        version: u64,
+        extra: &[String],
+    ) -> Result<Catalog, QueryError> {
         let rows = self.rows(&format!("SELECT s.name, CASE WHEN {SYSTEM} THEN 1 ELSE 0 END, (SELECT COUNT(*) FROM sys.all_objects o WHERE o.schema_id=s.schema_id AND o.type='U') FROM sys.schemas s ORDER BY s.name")).await?;
         let mut schemas = rows
             .iter()
@@ -86,7 +95,8 @@ impl MsSession {
                 })
             })
             .collect::<Result<Vec<_>, QueryError>>()?;
-        let schema_index: HashMap<String, usize> = schemas.iter().enumerate().map(|(i, s)| (s.name.clone(), i)).collect();
+        let schema_index: HashMap<String, usize> =
+            schemas.iter().enumerate().map(|(i, s)| (s.name.clone(), i)).collect();
         let defaults = self.rows("SELECT SCHEMA_NAME()").await?;
         let default_name = defaults.first().and_then(|r| r[0].as_deref());
         let default_schema = schemas
@@ -95,7 +105,11 @@ impl MsSession {
             .or_else(|| schemas.iter().find(|s| s.name == "dbo"))
             .or_else(|| schemas.iter().find(|s| !s.system))
             .map(|s| s.name.clone());
-        let extra = if extra.is_empty() { "NULL".into() } else { extra.iter().map(|s| quote_literal(s)).collect::<Vec<_>>().join(",") };
+        let extra = if extra.is_empty() {
+            "NULL".into()
+        } else {
+            extra.iter().map(|s| quote_literal(s)).collect::<Vec<_>>().join(",")
+        };
         let filter = format!("(NOT {SYSTEM} OR s.name IN ({extra}))");
         let rows = self.rows(&format!("SELECT o.object_id, s.name, o.name, o.type, (SELECT SUM(p.rows) FROM sys.partitions p WHERE p.object_id=o.object_id AND p.index_id IN (0,1)) FROM sys.all_objects o JOIN sys.schemas s ON s.schema_id=o.schema_id WHERE o.type IN ('U','V') AND {filter} ORDER BY o.name")).await?;
         let mut relation_index = HashMap::new();
@@ -136,7 +150,10 @@ impl MsSession {
                 type_display: display(name, number(&r, 4)?, number(&r, 5)?, number(&r, 6)?),
                 category: if number::<u8>(&r, 13)? != 0 { TypeCategory::Binary } else { category(name) },
                 not_null: number::<u8>(&r, 7)? == 0,
-                writable: number::<u8>(&r, 8)? == 0 && number::<u8>(&r, 9)? == 0 && number::<u8>(&r, 12)? == 0 && !matches!(name, "timestamp" | "rowversion"),
+                writable: number::<u8>(&r, 8)? == 0
+                    && number::<u8>(&r, 9)? == 0
+                    && number::<u8>(&r, 12)? == 0
+                    && !matches!(name, "timestamp" | "rowversion"),
                 pk: number::<u8>(&r, 10)? != 0,
                 fk: number::<u8>(&r, 11)? != 0,
             });
@@ -166,8 +183,17 @@ impl MsSession {
                 if !f.args.is_empty() {
                     f.args.push_str(", ");
                 }
-                f.args.push_str(&format!("{} {}{}", required(&r, 1)?, required(&r, 2)?, if number::<u8>(&r, 3)? != 0 { " OUTPUT" } else { "" }));
-                arguments.push(if number::<u8>(&r, 4)? != 0 { format!("@table_argument_{}", arguments.len() + 1) } else { "NULL".into() });
+                f.args.push_str(&format!(
+                    "{} {}{}",
+                    required(&r, 1)?,
+                    required(&r, 2)?,
+                    if number::<u8>(&r, 3)? != 0 { " OUTPUT" } else { "" }
+                ));
+                arguments.push(if number::<u8>(&r, 4)? != 0 {
+                    format!("@table_argument_{}", arguments.len() + 1)
+                } else {
+                    "NULL".into()
+                });
             }
         }
         for (_, (si, fi, arguments)) in routine_index {
@@ -224,13 +250,6 @@ impl MsSession {
                 kind,
             });
         }
-        Ok(Catalog {
-            database_kind: DatabaseKind::SqlServer,
-            db,
-            version,
-            default_schema,
-            schemas,
-            extensions: vec![],
-        })
+        Ok(Catalog { database_kind: DatabaseKind::SqlServer, db, version, default_schema, schemas, extensions: vec![] })
     }
 }

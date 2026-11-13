@@ -313,8 +313,10 @@ fn table_statements(t: &Table, out: &mut Vec<String>, warnings: &mut Vec<String>
     let name = qualified(&t.schema, &t.name);
     let keyword = if t.foreign.is_some() { "FOREIGN TABLE" } else { "TABLE" };
     let partition = matches!(t.parent, Parent::Partition { .. });
-    let (late, early): (Vec<_>, Vec<_>) = t.constraints.iter().filter(|k| !k.inherited && !k.after_tree).partition(|k| k.after_indexes);
-    let (deferred, inline): (Vec<_>, Vec<_>) = early.into_iter().partition(|k| k.definition.ends_with(" NOT VALID") || partition && makes_index(k));
+    let (late, early): (Vec<_>, Vec<_>) =
+        t.constraints.iter().filter(|k| !k.inherited && !k.after_tree).partition(|k| k.after_indexes);
+    let (deferred, inline): (Vec<_>, Vec<_>) =
+        early.into_iter().partition(|k| k.definition.ends_with(" NOT VALID") || partition && makes_index(k));
     let constraints = inline.iter().map(|k| format!("CONSTRAINT {} {}", ident(&k.name), constraint_definition(k)));
     out.extend(t.owned_sequences.iter().map(create_sequence));
 
@@ -322,7 +324,10 @@ fn table_statements(t: &Table, out: &mut Vec<String>, warnings: &mut Vec<String>
     match (&t.parent, &t.of_type) {
         (Parent::Partition { schema, name: parent, bound }, _) => {
             head.push_str(&format!(" PARTITION OF {}", qualified(schema, parent)));
-            let overrides = t.columns.iter().filter_map(|c| generation_override(c).map(|g| format!("{} WITH OPTIONS{g}", ident(&c.name))));
+            let overrides = t
+                .columns
+                .iter()
+                .filter_map(|c| generation_override(c).map(|g| format!("{} WITH OPTIONS{g}", ident(&c.name))));
             let body: Vec<_> = overrides.chain(constraints).collect();
             if !body.is_empty() {
                 head.push_str(&format!(" (\n    {}\n)", body.join(",\n    ")));
@@ -332,7 +337,8 @@ fn table_statements(t: &Table, out: &mut Vec<String>, warnings: &mut Vec<String>
         (Parent::None, Some(of_type)) => {
             head.push_str(&format!(" OF {of_type}"));
             let options = t.columns.iter().map(|c| (c, column_options(c, t))).filter(|(_, o)| !o.is_empty());
-            let body: Vec<_> = options.map(|(c, o)| format!("{} WITH OPTIONS{o}", ident(&c.name))).chain(constraints).collect();
+            let body: Vec<_> =
+                options.map(|(c, o)| format!("{} WITH OPTIONS{o}", ident(&c.name))).chain(constraints).collect();
             if !body.is_empty() {
                 head.push_str(&format!(" (\n    {}\n)", body.join(",\n    ")));
             }
@@ -355,7 +361,10 @@ fn table_statements(t: &Table, out: &mut Vec<String>, warnings: &mut Vec<String>
             let body: Vec<_> = columns.chain(constraints).collect();
             head.push_str(&format!(" (\n    {}\n)", body.join(",\n    ")));
             if let Parent::Inherits(parents) = parent {
-                head.push_str(&format!(" INHERITS ({})", parents.iter().map(|(s, n)| qualified(s, n)).collect::<Vec<_>>().join(", ")));
+                head.push_str(&format!(
+                    " INHERITS ({})",
+                    parents.iter().map(|(s, n)| qualified(s, n)).collect::<Vec<_>>().join(", ")
+                ));
             }
         }
     }
@@ -377,17 +386,37 @@ fn table_statements(t: &Table, out: &mut Vec<String>, warnings: &mut Vec<String>
     out.push(head);
     out.extend(restore_attached_names(t));
     for c in t.columns.iter().filter(|c| identity_waits(t, c)) {
-        out.extend(c.identity.as_ref().map(|i| format!("ALTER TABLE {name} ALTER COLUMN {} ADD {}", ident(&c.name), identity_clause(i, &t.schema, &t.name))));
+        out.extend(c.identity.as_ref().map(|i| {
+            format!("ALTER TABLE {name} ALTER COLUMN {} ADD {}", ident(&c.name), identity_clause(i, &t.schema, &t.name))
+        }));
     }
 
-    out.extend(t.owned_sequences.iter().map(|s| format!("ALTER SEQUENCE {} OWNED BY {name}.{}", qualified(&s.schema, &s.name), ident(&s.column))));
+    out.extend(
+        t.owned_sequences
+            .iter()
+            .map(|s| format!("ALTER SEQUENCE {} OWNED BY {name}.{}", qualified(&s.schema, &s.name), ident(&s.column))),
+    );
     out.extend(t.sequence_states.iter().filter_map(|s| {
-        s.unlogged.map(|unlogged| format!("ALTER SEQUENCE {} SET {}", qualified(&s.schema, &s.name), if unlogged { "UNLOGGED" } else { "LOGGED" }))
+        s.unlogged.map(|unlogged| {
+            format!(
+                "ALTER SEQUENCE {} SET {}",
+                qualified(&s.schema, &s.name),
+                if unlogged { "UNLOGGED" } else { "LOGGED" }
+            )
+        })
     }));
-    let add = |k: &&Constraint| format!("ALTER TABLE {name} ADD CONSTRAINT {} {}", ident(&k.name), constraint_definition(k));
+    let add =
+        |k: &&Constraint| format!("ALTER TABLE {name} ADD CONSTRAINT {} {}", ident(&k.name), constraint_definition(k));
     out.extend(deferred.iter().map(add));
     for c in &t.columns {
-        out.extend(column_changes(c, keyword, &name, !partition && c.declared && c.inherited.is_none(), !partition && merged_default(c).is_some(), not_null_constraint(t, c).is_some()));
+        out.extend(column_changes(
+            c,
+            keyword,
+            &name,
+            !partition && c.declared && c.inherited.is_none(),
+            !partition && merged_default(c).is_some(),
+            not_null_constraint(t, c).is_some(),
+        ));
     }
     indexes(&t.indexes, keyword, &t.schema, &name, out, warnings);
     out.extend(late.iter().map(add));
@@ -433,7 +462,10 @@ fn table_statements(t: &Table, out: &mut Vec<String>, warnings: &mut Vec<String>
     }
     warnings.extend(unscripted(&t.unscripted, &t.schema, &name, None));
     for c in t.columns.iter().filter(|c| !partition && !c.declared && generation_override(c).is_some()) {
-        warnings.push(format!("the generation expression of {name}.{}, which a replay takes from its parent", ident(&c.name)));
+        warnings.push(format!(
+            "the generation expression of {name}.{}, which a replay takes from its parent",
+            ident(&c.name)
+        ));
     }
     if !in_replay_order(&t.columns) {
         warnings.push(format!("the column order of {name}, because a replay puts inherited columns first"));
@@ -444,7 +476,8 @@ fn table_statements(t: &Table, out: &mut Vec<String>, warnings: &mut Vec<String>
 }
 
 fn in_replay_order(columns: &[Column]) -> bool {
-    let positions: Vec<i64> = columns.iter().map(|c| c.inherited.as_ref().map_or(i64::MAX, |p| p.replay_order)).collect();
+    let positions: Vec<i64> =
+        columns.iter().map(|c| c.inherited.as_ref().map_or(i64::MAX, |p| p.replay_order)).collect();
     positions.windows(2).all(|w| w[0] <= w[1])
 }
 
@@ -456,14 +489,23 @@ fn unscripted(u: &Unscripted, schema: &str, name: &str, decides: Option<&str>) -
     out.extend(u.security_labels.iter().map(|labeled| format!("security labels on {labeled}")));
     let membership = |publications: &[String], through: &str| {
         let list: Vec<String> = publications.iter().map(|p| ident(p)).collect();
-        (!list.is_empty()).then(|| format!("membership of {name} in {} {}{through}", if list.len() == 1 { "publication" } else { "publications" }, list.join(", ")))
+        (!list.is_empty()).then(|| {
+            format!(
+                "membership of {name} in {} {}{through}",
+                if list.len() == 1 { "publication" } else { "publications" },
+                list.join(", ")
+            )
+        })
     };
     out.extend(membership(&u.publications, ""));
     out.extend(membership(&u.schema_publications, &format!(" through schema {}", ident(schema))));
     if !u.inherited_not_nulls.is_empty() {
         let list: Vec<String> = u.inherited_not_nulls.iter().map(|n| ident(n)).collect();
         let noun = if list.len() == 1 { "not-null constraint" } else { "not-null constraints" };
-        out.push(format!("{noun} {} of {name}, which a replay takes from its parent, with the parent's name and validated", list.join(", ")));
+        out.push(format!(
+            "{noun} {} of {name}, which a replay takes from its parent, with the parent's name and validated",
+            list.join(", ")
+        ));
     }
     out
 }
@@ -484,7 +526,11 @@ fn constraint_definition(k: &Constraint) -> String {
     if let Some(space) = &k.index_tablespace {
         parameters.push_str(&format!(" USING INDEX TABLESPACE {}", ident(space)));
     }
-    let at = [" WHERE ", " DEFERRABLE"].iter().filter_map(|needle| top_level(&k.definition, needle)).min().unwrap_or(k.definition.len());
+    let at = [" WHERE ", " DEFERRABLE"]
+        .iter()
+        .filter_map(|needle| top_level(&k.definition, needle))
+        .min()
+        .unwrap_or(k.definition.len());
     format!("{}{parameters}{}", &k.definition[..at], &k.definition[at..])
 }
 
@@ -530,9 +576,16 @@ fn restore_attached_names(t: &Table) -> Option<String> {
         return None;
     }
     let relation = qualified(&t.schema, &t.name);
-    let row = |a: &AttachedIndex, last: &str| format!("        [{}, {}, {}]", quote_literal(&relation), quote_literal(&a.parent), quote_literal(last));
+    let row = |a: &AttachedIndex, last: &str| {
+        format!("        [{}, {}, {}]", quote_literal(&relation), quote_literal(&a.parent), quote_literal(last))
+    };
     let names: Vec<String> = t.attached_indexes.iter().map(|a| row(a, &a.name)).collect();
-    let then: Vec<String> = t.attached_indexes.iter().flat_map(|a| attached_changes(t, a, &relation).into_iter().map(move |s| (a, s))).map(|(a, s)| row(a, &s)).collect();
+    let then: Vec<String> = t
+        .attached_indexes
+        .iter()
+        .flat_map(|a| attached_changes(t, a, &relation).into_iter().map(move |s| (a, s)))
+        .map(|(a, s)| row(a, &s))
+        .collect();
     let find = "        attached := (SELECT h.inhrelid FROM pg_catalog.pg_inherits h JOIN pg_catalog.pg_index i ON i.indexrelid = h.inhrelid
                      WHERE h.inhparent = pg_catalog.to_regclass(entry[2]) AND i.indrelid = entry[1]::regclass);";
     let mut body = format!(
@@ -580,7 +633,10 @@ BEGIN
         ));
     }
     body.push_str("END");
-    let tag = std::iter::once("$l1$".to_owned()).chain((1..).map(|n| format!("$l1_{n}$"))).find(|tag| !body.contains(tag.as_str())).unwrap_or_default();
+    let tag = std::iter::once("$l1$".to_owned())
+        .chain((1..).map(|n| format!("$l1_{n}$")))
+        .find(|tag| !body.contains(tag.as_str()))
+        .unwrap_or_default();
     Some(format!("DO {tag}\n{body}\n{tag}"))
 }
 
@@ -589,7 +645,8 @@ fn attached_changes(t: &Table, a: &AttachedIndex, relation: &str) -> Vec<String>
     let escape = |s: &str| s.replace('%', "%%");
     let key = |o: &str| o.split_once('=').map_or(o, |(k, _)| k).to_owned();
     let mut out = vec![];
-    let reset: Vec<String> = a.parent_options.iter().map(|o| key(o)).filter(|k| !a.options.iter().any(|o| key(o) == *k)).collect();
+    let reset: Vec<String> =
+        a.parent_options.iter().map(|o| key(o)).filter(|k| !a.options.iter().any(|o| key(o) == *k)).collect();
     if !reset.is_empty() {
         out.push(format!("ALTER INDEX %2$s RESET ({})", escape(&reset.join(", "))));
     }
@@ -609,7 +666,11 @@ fn attached_changes(t: &Table, a: &AttachedIndex, relation: &str) -> Vec<String>
     }
     out.extend(a.comment.as_ref().map(|c| format!("COMMENT ON INDEX %2$s IS {}", escape(&quote_literal(c)))));
     for k in t.constraints.iter().filter(|k| backing_index(t, k) == Some(a)) {
-        out.extend(k.comment.as_ref().map(|c| format!("COMMENT ON CONSTRAINT %1$I ON {relation} IS {}", escape(&quote_literal(c)))));
+        out.extend(
+            k.comment
+                .as_ref()
+                .map(|c| format!("COMMENT ON CONSTRAINT %1$I ON {relation} IS {}", escape(&quote_literal(c)))),
+        );
     }
     out
 }
@@ -636,15 +697,30 @@ fn merged_default(c: &Column) -> Option<String> {
 fn column_head(c: &Column) -> String {
     let mut out = format!("{} {}", ident(&c.name), c.type_name);
     if let Some((schema, name)) = &c.collation {
-        out.push_str(&format!(" COLLATE {}", if schema == "pg_catalog" { ident(name) } else { qualified(schema, name) }));
+        out.push_str(&format!(
+            " COLLATE {}",
+            if schema == "pg_catalog" { ident(name) } else { qualified(schema, name) }
+        ));
     }
     out
 }
 
-fn column_changes(c: &Column, keyword: &str, relation: &str, declared: bool, declared_default: bool, has_not_null_constraint: bool) -> Vec<String> {
+fn column_changes(
+    c: &Column,
+    keyword: &str,
+    relation: &str,
+    declared: bool,
+    declared_default: bool,
+    has_not_null_constraint: bool,
+) -> Vec<String> {
     let (default, not_null, storage, compression) = match &c.inherited {
         _ if declared => (c.default.as_ref(), c.not_null, &c.type_storage, ""),
-        Some(p) => (if declared_default { c.default.as_ref() } else { p.default.as_ref() }, p.not_null, &p.storage, p.compression.as_str()),
+        Some(p) => (
+            if declared_default { c.default.as_ref() } else { p.default.as_ref() },
+            p.not_null,
+            &p.storage,
+            p.compression.as_str(),
+        ),
         None => (None, false, &c.type_storage, ""),
     };
     let mut changes = vec![];
@@ -667,11 +743,14 @@ fn column_changes(c: &Column, keyword: &str, relation: &str, declared: bool, dec
         changes.push(format!("SET STORAGE {kind}"));
     }
     if c.compression != compression {
-        changes.push(format!("SET COMPRESSION {}", match c.compression.as_str() {
-            "p" => "pglz",
-            "l" => "lz4",
-            _ => "default",
-        }));
+        changes.push(format!(
+            "SET COMPRESSION {}",
+            match c.compression.as_str() {
+                "p" => "pglz",
+                "l" => "lz4",
+                _ => "default",
+            }
+        ));
     }
     if !c.options.is_empty() {
         changes.push(format!("SET ({})", c.options.join(", ")));
@@ -679,7 +758,10 @@ fn column_changes(c: &Column, keyword: &str, relation: &str, declared: bool, dec
     if !c.fdw_options.is_empty() {
         changes.push(fdw_options("ADD ", &c.fdw_options).trim_start().to_owned());
     }
-    changes.into_iter().map(|change| format!("ALTER {keyword} {relation} ALTER COLUMN {} {change}", ident(&c.name))).collect()
+    changes
+        .into_iter()
+        .map(|change| format!("ALTER {keyword} {relation} ALTER COLUMN {} {change}", ident(&c.name)))
+        .collect()
 }
 
 fn fdw_options(lead: &str, options: &[String]) -> String {
@@ -787,11 +869,7 @@ fn object_warnings(
         &Unscripted {
             privileges: privileges.to_vec(),
             owner: owner.clone(),
-            security_labels: if security_label {
-                vec![name.to_owned()]
-            } else {
-                vec![]
-            },
+            security_labels: if security_label { vec![name.to_owned()] } else { vec![] },
             ..Default::default()
         },
         schema,
@@ -816,23 +894,13 @@ pub fn standalone_sequence(s: &StandaloneSequence) -> Ddl {
     statements.extend(comment(&format!("SEQUENCE {name}"), &s.comment));
     Ddl {
         text: script(statements),
-        warnings: object_warnings(
-            &s.sequence.schema,
-            &name,
-            &s.privileges,
-            &s.owner,
-            s.security_label,
-        ),
+        warnings: object_warnings(&s.sequence.schema, &name, &s.privileges, &s.owner, s.security_label),
     }
 }
 
 pub fn enum_type(o: &ScriptedObject, labels: &[String]) -> Ddl {
     let name = qualified(&o.schema, &o.name);
-    let labels = labels
-        .iter()
-        .map(|label| quote_literal(label))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let labels = labels.iter().map(|label| quote_literal(label)).collect::<Vec<_>>().join(", ");
     let mut statements = vec![format!("CREATE TYPE {name} AS ENUM ({labels})")];
     statements.extend(comment(&format!("TYPE {name}"), &o.comment));
     Ddl {
@@ -907,10 +975,7 @@ pub fn range_type(o: &ScriptedObject, range: &RangeScript) -> Ddl {
     if let Some(diff) = &range.subtype_diff {
         lines.push(format!("    SUBTYPE_DIFF = {diff}"));
     }
-    let mut statements = vec![format!(
-        "CREATE TYPE {name} AS RANGE (\n{}\n)",
-        lines.join(",\n")
-    )];
+    let mut statements = vec![format!("CREATE TYPE {name} AS RANGE (\n{}\n)", lines.join(",\n"))];
     statements.extend(comment(&format!("TYPE {name}"), &o.comment));
     Ddl {
         text: script(statements),
@@ -928,16 +993,10 @@ pub fn extension_script(
 ) -> Ddl {
     let quoted = ident(name);
     let stored = comment_text.map(str::to_owned);
-    let mut statements = vec![format!(
-        "CREATE EXTENSION {quoted} WITH SCHEMA {} VERSION {}",
-        ident(schema),
-        quote_literal(version)
-    )];
+    let mut statements =
+        vec![format!("CREATE EXTENSION {quoted} WITH SCHEMA {} VERSION {}", ident(schema), quote_literal(version))];
     statements.extend(comment(&format!("EXTENSION {quoted}"), &stored));
-    Ddl {
-        text: script(statements),
-        warnings: object_warnings(schema, &quoted, &[], owner, security_label),
-    }
+    Ddl { text: script(statements), warnings: object_warnings(schema, &quoted, &[], owner, security_label) }
 }
 
 fn identity_clause(i: &Identity, schema: &str, table: &str) -> String {
@@ -950,16 +1009,31 @@ fn identity_clause(i: &Identity, schema: &str, table: &str) -> String {
     if options.is_empty() { head } else { format!("{head} ({})", options.join(" ")) }
 }
 
-fn indexes(list: &[Index], keyword: &str, schema: &str, relation: &str, out: &mut Vec<String>, warnings: &mut Vec<String>) {
+fn indexes(
+    list: &[Index],
+    keyword: &str,
+    schema: &str,
+    relation: &str,
+    out: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+) {
     for i in list {
         let name = ident(&i.name);
         let qualified_name = qualified(schema, &i.name);
         out.extend(i.definition.as_deref().map(index));
-        out.extend(i.statistics.iter().map(|s| format!("ALTER INDEX {qualified_name} ALTER COLUMN {} SET STATISTICS {}", s.column, s.target)));
+        out.extend(
+            i.statistics
+                .iter()
+                .map(|s| format!("ALTER INDEX {qualified_name} ALTER COLUMN {} SET STATISTICS {}", s.column, s.target)),
+        );
         match (i.invalid, i.partitioned) {
             (false, _) => {}
-            (true, false) => warnings.push(format!("the invalid state of index {qualified_name}, which a replay builds valid")),
-            (true, true) => warnings.push(format!("the partial attachment of index {qualified_name}, which a replay attaches to every partition")),
+            (true, false) => {
+                warnings.push(format!("the invalid state of index {qualified_name}, which a replay builds valid"))
+            }
+            (true, true) => warnings.push(format!(
+                "the partial attachment of index {qualified_name}, which a replay attaches to every partition"
+            )),
         }
         if let (Some(space), Some(_)) = (&i.tablespace, &i.definition) {
             out.push(format!("ALTER INDEX {} SET TABLESPACE {}", qualified(schema, &i.name), ident(space)));
@@ -1000,7 +1074,11 @@ pub fn view(v: &View) -> Ddl {
     for c in &v.columns {
         statements.extend(column_changes(c, keyword, &name, false, false, false));
     }
-    let decides = if v.materialized { "whose privileges a refresh runs the query with" } else { "whose privileges the view's query is checked against" };
+    let decides = if v.materialized {
+        "whose privileges a refresh runs the query with"
+    } else {
+        "whose privileges the view's query is checked against"
+    };
     let mut warnings = unscripted(&v.unscripted, &v.schema, &name, Some(decides));
     indexes(&v.indexes, keyword, &v.schema, &name, &mut statements, &mut warnings);
     for tr in &v.triggers {
@@ -1021,7 +1099,13 @@ pub fn routine(r: &Routine) -> Ddl {
     let mut statements = vec![r.definition.trim_end().to_owned()];
     statements.extend(r.extensions.iter().map(|e| format!("ALTER {target} DEPENDS ON EXTENSION {}", ident(e))));
     statements.extend(comment(&target, &r.comment));
-    let mut warnings: Vec<String> = owner(&r.owner, &r.signature, r.security_definer.then_some("whose privileges the SECURITY DEFINER function runs with")).into_iter().collect();
+    let mut warnings: Vec<String> = owner(
+        &r.owner,
+        &r.signature,
+        r.security_definer.then_some("whose privileges the SECURITY DEFINER function runs with"),
+    )
+    .into_iter()
+    .collect();
     warnings.extend(privileges(&r.signature, &r.privileges));
     if r.security_labels {
         warnings.push(format!("security labels on {}", r.signature));
@@ -1030,11 +1114,23 @@ pub fn routine(r: &Routine) -> Ddl {
 }
 
 /// An index attached to `attached_to`, its parent table's index, is attached again, as `pg_dump` does.
-pub fn index_script(i: &Index, constraint: Option<&Constraint>, attached_to: Option<&str>, keyword: &str, schema: &str, relation: &str) -> Ddl {
-    let mut statements: Vec<String> = constraint.map(|k| format!("ALTER {keyword} {relation} ADD CONSTRAINT {} {}", ident(&k.name), constraint_definition(k))).into_iter().collect();
+pub fn index_script(
+    i: &Index,
+    constraint: Option<&Constraint>,
+    attached_to: Option<&str>,
+    keyword: &str,
+    schema: &str,
+    relation: &str,
+) -> Ddl {
+    let mut statements: Vec<String> = constraint
+        .map(|k| format!("ALTER {keyword} {relation} ADD CONSTRAINT {} {}", ident(&k.name), constraint_definition(k)))
+        .into_iter()
+        .collect();
     let mut warnings = vec![];
     indexes(std::slice::from_ref(i), keyword, schema, relation, &mut statements, &mut warnings);
-    statements.extend(attached_to.map(|parent| format!("ALTER INDEX {parent} ATTACH PARTITION {}", qualified(schema, &i.name))));
+    statements.extend(
+        attached_to.map(|parent| format!("ALTER INDEX {parent} ATTACH PARTITION {}", qualified(schema, &i.name))),
+    );
     if let Some(k) = constraint {
         statements.extend(comment(&format!("CONSTRAINT {} ON {relation}", ident(&k.name)), &k.comment));
     }
@@ -1061,7 +1157,13 @@ pub fn trigger(t: &Trigger, keyword: &str, table: &str) -> Vec<String> {
     (!t.cloned)
         .then(|| t.definition.clone())
         .into_iter()
-        .chain(state.map(|s| format!("ALTER {} {table} {s} TRIGGER {}", if keyword == "FOREIGN TABLE" { keyword } else { "TABLE" }, ident(&t.name))))
+        .chain(state.map(|s| {
+            format!(
+                "ALTER {} {table} {s} TRIGGER {}",
+                if keyword == "FOREIGN TABLE" { keyword } else { "TABLE" },
+                ident(&t.name)
+            )
+        }))
         .chain(comment(&format!("TRIGGER {} ON {table}", ident(&t.name)), &t.comment))
         .collect()
 }
@@ -1169,11 +1271,29 @@ mod tests {
     }
 
     fn sequence(start: i64, increment: i64, min: i64, max: i64) -> Sequence {
-        Sequence { schema: "public".into(), name: "t_id_seq".into(), column: "id".into(), type_name: "bigint".into(), start, increment, min, max, cache: 1, cycle: false }
+        Sequence {
+            schema: "public".into(),
+            name: "t_id_seq".into(),
+            column: "id".into(),
+            type_name: "bigint".into(),
+            start,
+            increment,
+            min,
+            max,
+            cache: 1,
+            cycle: false,
+        }
     }
 
     fn col(name: &str, type_name: &str) -> Column {
-        Column { name: name.into(), type_name: type_name.into(), declared: true, storage: "x".into(), type_storage: "x".into(), ..Default::default() }
+        Column {
+            name: name.into(),
+            type_name: type_name.into(),
+            declared: true,
+            storage: "x".into(),
+            type_storage: "x".into(),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -1183,31 +1303,92 @@ mod tests {
             name: "t".into(),
             comment: Some("it's".into()),
             columns: vec![
-                Column { not_null: true, identity: Some(Identity { always: false, sequence: sequence(1000, 10, 1, i64::MAX) }), ..col("id", "bigint") },
-                Column { collation: Some(("pg_catalog".into(), "C".into())), not_null: true, storage: "e".into(), statistics: Some(500), ..col("code", "text") },
-                Column { default: Some("(price * qty)".into()), generated: Some(Generated::Stored), ..col("Total", "numeric(12,2)") },
-                Column { default: Some("'new'::text".into()), comment: Some("lifecycle".into()), compression: "l".into(), options: vec!["n_distinct=5".into()], ..col("status", "text") },
+                Column {
+                    not_null: true,
+                    identity: Some(Identity { always: false, sequence: sequence(1000, 10, 1, i64::MAX) }),
+                    ..col("id", "bigint")
+                },
+                Column {
+                    collation: Some(("pg_catalog".into(), "C".into())),
+                    not_null: true,
+                    storage: "e".into(),
+                    statistics: Some(500),
+                    ..col("code", "text")
+                },
+                Column {
+                    default: Some("(price * qty)".into()),
+                    generated: Some(Generated::Stored),
+                    ..col("Total", "numeric(12,2)")
+                },
+                Column {
+                    default: Some("'new'::text".into()),
+                    comment: Some("lifecycle".into()),
+                    compression: "l".into(),
+                    options: vec!["n_distinct=5".into()],
+                    ..col("status", "text")
+                },
                 Column { not_null: true, ..col("seq", "bigserial") },
             ],
             owned_sequences: vec![Sequence { name: "old_seq".into(), start: 777, ..sequence(1, 1, 1, i64::MAX) }],
             constraints: vec![
                 Constraint { name: "t_pkey".into(), definition: "PRIMARY KEY (id)".into(), ..Default::default() },
-                Constraint { name: "positive".into(), definition: "CHECK ((id > 0)) NOT VALID".into(), comment: Some("checked later".into()), ..Default::default() },
+                Constraint {
+                    name: "positive".into(),
+                    definition: "CHECK ((id > 0)) NOT VALID".into(),
+                    comment: Some("checked later".into()),
+                    ..Default::default()
+                },
             ],
             indexes: vec![
-                Index { name: "t_pkey".into(), comment: Some("pk".into()), replica_identity: true, ..Default::default() },
-                Index { name: "t_code".into(), definition: Some("CREATE INDEX t_code ON public.t USING btree (code)".into()), clustered: true, ..Default::default() },
+                Index {
+                    name: "t_pkey".into(),
+                    comment: Some("pk".into()),
+                    replica_identity: true,
+                    ..Default::default()
+                },
+                Index {
+                    name: "t_code".into(),
+                    definition: Some("CREATE INDEX t_code ON public.t USING btree (code)".into()),
+                    clustered: true,
+                    ..Default::default()
+                },
             ],
             replica_identity: ReplicaIdentity::Index,
-            triggers: vec![Trigger { name: "audit".into(), definition: "CREATE TRIGGER audit AFTER INSERT ON public.t FOR EACH ROW EXECUTE FUNCTION public.audit()".into(), enabled: 'D', comment: Some("tr".into()), cloned: false }],
-            rules: vec![Rule { name: "r".into(), definition: "CREATE RULE r AS\n    ON UPDATE TO public.t DO INSTEAD NOTHING;".into(), enabled: 'D', comment: None }],
+            triggers: vec![Trigger {
+                name: "audit".into(),
+                definition:
+                    "CREATE TRIGGER audit AFTER INSERT ON public.t FOR EACH ROW EXECUTE FUNCTION public.audit()".into(),
+                enabled: 'D',
+                comment: Some("tr".into()),
+                cloned: false,
+            }],
+            rules: vec![Rule {
+                name: "r".into(),
+                definition: "CREATE RULE r AS\n    ON UPDATE TO public.t DO INSTEAD NOTHING;".into(),
+                enabled: 'D',
+                comment: None,
+            }],
             row_security: true,
             force_row_security: true,
             policies: vec![
-                Policy { name: "own".into(), permissive: false, command: 'w', roles: vec!["Admins".into(), "app".into()], using: Some("(id > 0)".into()), check: Some("true".into()), comment: Some("p".into()) },
+                Policy {
+                    name: "own".into(),
+                    permissive: false,
+                    command: 'w',
+                    roles: vec!["Admins".into(), "app".into()],
+                    using: Some("(id > 0)".into()),
+                    check: Some("true".into()),
+                    comment: Some("p".into()),
+                },
                 Policy { name: "all".into(), permissive: true, command: '*', ..Default::default() },
             ],
-            statistics: vec![Statistics { schema: "public".into(), name: "s".into(), definition: "CREATE STATISTICS public.s ON id, code FROM public.t".into(), target: Some(50), comment: None }],
+            statistics: vec![Statistics {
+                schema: "public".into(),
+                name: "s".into(),
+                definition: "CREATE STATISTICS public.s ON id, code FROM public.t".into(),
+                target: Some(50),
+                comment: None,
+            }],
             ..Default::default()
         };
         assert_eq!(
@@ -1286,8 +1467,17 @@ COMMENT ON COLUMN public.t.status IS 'lifecycle';
             schema: "app".into(),
             name: "tree".into(),
             columns: vec![Column { not_null: true, ..col("id", "integer") }, col("parent", "integer")],
-            constraints: vec![Constraint { name: "tree_parent".into(), definition: "FOREIGN KEY (parent) REFERENCES app.tree(id)".into(), after_indexes: true, ..Default::default() }],
-            indexes: vec![Index { name: "tree_id".into(), definition: Some("CREATE UNIQUE INDEX tree_id ON app.tree USING btree (id)".into()), ..Default::default() }],
+            constraints: vec![Constraint {
+                name: "tree_parent".into(),
+                definition: "FOREIGN KEY (parent) REFERENCES app.tree(id)".into(),
+                after_indexes: true,
+                ..Default::default()
+            }],
+            indexes: vec![Index {
+                name: "tree_id".into(),
+                definition: Some("CREATE UNIQUE INDEX tree_id ON app.tree USING btree (id)".into()),
+                ..Default::default()
+            }],
             ..Default::default()
         };
         assert_eq!(
@@ -1298,10 +1488,41 @@ COMMENT ON COLUMN public.t.status IS 'lifecycle';
 
     #[test]
     fn a_child_declares_its_own_identity_on_a_column_it_also_inherits() {
-        let identity = Identity { always: false, sequence: Sequence { schema: "app".into(), name: "kid_id_seq".into(), column: "id".into(), type_name: "integer".into(), start: 1, increment: 1, min: 1, max: 2147483647, cache: 1, cycle: false } };
-        let id = Column { not_null: true, identity: Some(identity), inherited: Some(Inherited { storage: "x".into(), ..Inherited::default() }), ..col("id", "integer") };
-        let t = Table { schema: "app".into(), name: "kid".into(), parent: Parent::Inherits(vec![("app".into(), "plain".into())]), columns: vec![id], ..Default::default() };
-        assert!(table(&t).text.starts_with("CREATE TABLE app.kid (\n    id integer GENERATED BY DEFAULT AS IDENTITY\n) INHERITS (app.plain);\n"), "{}", table(&t).text);
+        let identity = Identity {
+            always: false,
+            sequence: Sequence {
+                schema: "app".into(),
+                name: "kid_id_seq".into(),
+                column: "id".into(),
+                type_name: "integer".into(),
+                start: 1,
+                increment: 1,
+                min: 1,
+                max: 2147483647,
+                cache: 1,
+                cycle: false,
+            },
+        };
+        let id = Column {
+            not_null: true,
+            identity: Some(identity),
+            inherited: Some(Inherited { storage: "x".into(), ..Inherited::default() }),
+            ..col("id", "integer")
+        };
+        let t = Table {
+            schema: "app".into(),
+            name: "kid".into(),
+            parent: Parent::Inherits(vec![("app".into(), "plain".into())]),
+            columns: vec![id],
+            ..Default::default()
+        };
+        assert!(
+            table(&t).text.starts_with(
+                "CREATE TABLE app.kid (\n    id integer GENERATED BY DEFAULT AS IDENTITY\n) INHERITS (app.plain);\n"
+            ),
+            "{}",
+            table(&t).text
+        );
     }
 
     #[test]
@@ -1309,12 +1530,28 @@ COMMENT ON COLUMN public.t.status IS 'lifecycle';
         let partition = |name: &str, constraints: Vec<Constraint>| Table {
             schema: "app".into(),
             name: name.into(),
-            parent: Parent::Partition { schema: "app".into(), name: "r".into(), bound: format!("FOR VALUES IN ('{name}')") },
+            parent: Parent::Partition {
+                schema: "app".into(),
+                name: "r".into(),
+                bound: format!("FOR VALUES IN ('{name}')"),
+            },
             constraints,
             ..Default::default()
         };
-        let fk = Constraint { name: "a_ref".into(), definition: "FOREIGN KEY (ref_id) REFERENCES app.b(id)".into(), comment: Some("to b".into()), after_tree: true, ..Default::default() };
-        let root = Table { schema: "app".into(), name: "r".into(), partition_key: Some("LIST (k)".into()), partitions: vec![partition("a", vec![fk]), partition("b", vec![])], ..Default::default() };
+        let fk = Constraint {
+            name: "a_ref".into(),
+            definition: "FOREIGN KEY (ref_id) REFERENCES app.b(id)".into(),
+            comment: Some("to b".into()),
+            after_tree: true,
+            ..Default::default()
+        };
+        let root = Table {
+            schema: "app".into(),
+            name: "r".into(),
+            partition_key: Some("LIST (k)".into()),
+            partitions: vec![partition("a", vec![fk]), partition("b", vec![])],
+            ..Default::default()
+        };
         let text = table(&root).text;
         assert!(
             text.ends_with("CREATE TABLE app.b PARTITION OF app.r\n    FOR VALUES IN ('b');\n\nALTER TABLE app.a ADD CONSTRAINT a_ref FOREIGN KEY (ref_id) REFERENCES app.b(id);\n\nCOMMENT ON CONSTRAINT a_ref ON app.a IS 'to b';\n"),
@@ -1324,8 +1561,18 @@ COMMENT ON COLUMN public.t.status IS 'lifecycle';
 
     #[test]
     fn a_child_declares_the_default_of_a_column_it_merges_from_parents_whose_defaults_conflict() {
-        let merged = Column { default: Some("3".into()), inherited: Some(Inherited { default: Some("1".into()), storage: "x".into(), ..Inherited::default() }), ..col("a", "integer") };
-        let t = Table { schema: "app".into(), name: "pab".into(), parent: Parent::Inherits(vec![("app".into(), "pa".into()), ("app".into(), "pb".into())]), columns: vec![merged], ..Default::default() };
+        let merged = Column {
+            default: Some("3".into()),
+            inherited: Some(Inherited { default: Some("1".into()), storage: "x".into(), ..Inherited::default() }),
+            ..col("a", "integer")
+        };
+        let t = Table {
+            schema: "app".into(),
+            name: "pab".into(),
+            parent: Parent::Inherits(vec![("app".into(), "pa".into()), ("app".into(), "pb".into())]),
+            columns: vec![merged],
+            ..Default::default()
+        };
         assert_eq!(table(&t).text, "CREATE TABLE app.pab (\n    a integer DEFAULT 3\n) INHERITS (app.pa, app.pb);\n");
     }
 
@@ -1345,11 +1592,29 @@ COMMENT ON COLUMN public.t.status IS 'lifecycle';
             columns,
             ..Default::default()
         };
-        assert_eq!(table(&partition(vec![generated("(a * 3)", "(a * 2)", false)])).text, "CREATE TABLE app.g_1 PARTITION OF app.g (\n    b WITH OPTIONS GENERATED ALWAYS AS ((a * 3)) STORED\n)\n    FOR VALUES IN (1);\n");
-        assert_eq!(table(&partition(vec![generated("(a * 2)", "(a * 2)", false)])).text, "CREATE TABLE app.g_1 PARTITION OF app.g\n    FOR VALUES IN (1);\n");
-        let child = |declared: bool| Table { schema: "app".into(), name: "c".into(), parent: Parent::Inherits(vec![("app".into(), "p".into())]), columns: vec![generated("(a * 3)", "(a * 2)", declared)], ..Default::default() };
-        assert_eq!(table(&child(true)).text, "CREATE TABLE app.c (\n    b integer GENERATED ALWAYS AS ((a * 3)) STORED\n) INHERITS (app.p);\n");
-        assert_eq!(table(&child(false)).warnings, ["the generation expression of app.c.b, which a replay takes from its parent"]);
+        assert_eq!(
+            table(&partition(vec![generated("(a * 3)", "(a * 2)", false)])).text,
+            "CREATE TABLE app.g_1 PARTITION OF app.g (\n    b WITH OPTIONS GENERATED ALWAYS AS ((a * 3)) STORED\n)\n    FOR VALUES IN (1);\n"
+        );
+        assert_eq!(
+            table(&partition(vec![generated("(a * 2)", "(a * 2)", false)])).text,
+            "CREATE TABLE app.g_1 PARTITION OF app.g\n    FOR VALUES IN (1);\n"
+        );
+        let child = |declared: bool| Table {
+            schema: "app".into(),
+            name: "c".into(),
+            parent: Parent::Inherits(vec![("app".into(), "p".into())]),
+            columns: vec![generated("(a * 3)", "(a * 2)", declared)],
+            ..Default::default()
+        };
+        assert_eq!(
+            table(&child(true)).text,
+            "CREATE TABLE app.c (\n    b integer GENERATED ALWAYS AS ((a * 3)) STORED\n) INHERITS (app.p);\n"
+        );
+        assert_eq!(
+            table(&child(false)).warnings,
+            ["the generation expression of app.c.b, which a replay takes from its parent"]
+        );
     }
 
     const RESTORE_HEAD: &str = "DECLARE
@@ -1392,17 +1657,28 @@ BEGIN
 ";
 
     fn restore(names: &str, then: Option<&str>) -> String {
-        let then = then.map(|t| format!("    FOREACH entry SLICE 1 IN ARRAY ARRAY[\n{t}\n{RESTORE_THEN}")).unwrap_or_default();
+        let then =
+            then.map(|t| format!("    FOREACH entry SLICE 1 IN ARRAY ARRAY[\n{t}\n{RESTORE_THEN}")).unwrap_or_default();
         format!("DO $l1$\n{RESTORE_HEAD}{names}\n{RESTORE_NAMES}{then}END\n$l1$;\n")
     }
 
     #[test]
     fn each_partition_restores_its_attached_index_names_right_after_it_is_created() {
-        let clone = |name: &str, enabled: char, comment: Option<&str>| Trigger { name: name.into(), definition: "CREATE TRIGGER ignored".into(), enabled, comment: comment.map(Into::into), cloned: true };
+        let clone = |name: &str, enabled: char, comment: Option<&str>| Trigger {
+            name: name.into(),
+            definition: "CREATE TRIGGER ignored".into(),
+            enabled,
+            comment: comment.map(Into::into),
+            cloned: true,
+        };
         let partition = |name: &str| Table {
             schema: "app".into(),
             name: name.into(),
-            parent: Parent::Partition { schema: "app".into(), name: "ri".into(), bound: format!("FOR VALUES IN ({})", &name[3..]) },
+            parent: Parent::Partition {
+                schema: "app".into(),
+                name: "ri".into(),
+                bound: format!("FOR VALUES IN ({})", &name[3..]),
+            },
             ..Default::default()
         };
         let t = Table {
@@ -1414,19 +1690,53 @@ BEGIN
                 Table {
                     replica_identity: ReplicaIdentity::Index,
                     attached_indexes: vec![
-                        AttachedIndex { name: "ri_1_custom".into(), parent: "app.ri_id_k".into(), clustered: true, replica_identity: true, comment: Some("leaf 100%".into()), ..Default::default() },
+                        AttachedIndex {
+                            name: "ri_1_custom".into(),
+                            parent: "app.ri_id_k".into(),
+                            clustered: true,
+                            replica_identity: true,
+                            comment: Some("leaf 100%".into()),
+                            ..Default::default()
+                        },
                         AttachedIndex { name: "it's".into(), parent: "app.\"Odd\"".into(), ..Default::default() },
                     ],
                     triggers: vec![clone("off", 'D', None), clone("on", 'O', Some("leaf note"))],
-                    indexes: vec![Index { name: "ri_1_k_idx".into(), definition: Some("CREATE INDEX ri_1_k_idx ON app.ri_1 USING btree (k) WHERE (k > 0)".into()), ..Default::default() }],
-                    constraints: vec![Constraint { name: "ri_1_own".into(), definition: "UNIQUE (k)".into(), ..Default::default() }, Constraint { name: "ri_1_chk".into(), definition: "CHECK ((k > 0))".into(), ..Default::default() }],
+                    indexes: vec![Index {
+                        name: "ri_1_k_idx".into(),
+                        definition: Some("CREATE INDEX ri_1_k_idx ON app.ri_1 USING btree (k) WHERE (k > 0)".into()),
+                        ..Default::default()
+                    }],
+                    constraints: vec![
+                        Constraint { name: "ri_1_own".into(), definition: "UNIQUE (k)".into(), ..Default::default() },
+                        Constraint {
+                            name: "ri_1_chk".into(),
+                            definition: "CHECK ((k > 0))".into(),
+                            ..Default::default()
+                        },
+                    ],
                     ..partition("ri_1")
                 },
                 Table {
-                    attached_indexes: vec![AttachedIndex { name: "ri_2 key".into(), parent: "app.ri_id_k".into(), ..Default::default() }],
+                    attached_indexes: vec![AttachedIndex {
+                        name: "ri_2 key".into(),
+                        parent: "app.ri_id_k".into(),
+                        ..Default::default()
+                    }],
                     constraints: vec![
-                        Constraint { name: "ri_2 key".into(), definition: "UNIQUE (id, k)".into(), comment: Some("cloned".into()), inherited: true, ..Default::default() },
-                        Constraint { name: "ri_chk".into(), definition: "CHECK ((k > 0))".into(), comment: Some("inherited check".into()), inherited: true, ..Default::default() },
+                        Constraint {
+                            name: "ri_2 key".into(),
+                            definition: "UNIQUE (id, k)".into(),
+                            comment: Some("cloned".into()),
+                            inherited: true,
+                            ..Default::default()
+                        },
+                        Constraint {
+                            name: "ri_chk".into(),
+                            definition: "CHECK ((k > 0))".into(),
+                            comment: Some("inherited check".into()),
+                            inherited: true,
+                            ..Default::default()
+                        },
                     ],
                     ..partition("ri_2")
                 },
@@ -1441,7 +1751,10 @@ BEGIN
         ['app.ri_1', 'app.ri_id_k', 'COMMENT ON INDEX %2$s IS ''leaf 100%%''']",
             ),
         );
-        let ri_2 = restore("        ['app.ri_2', 'app.ri_id_k', 'ri_2 key']", Some("        ['app.ri_2', 'app.ri_id_k', 'COMMENT ON CONSTRAINT %1$I ON app.ri_2 IS ''cloned''']"));
+        let ri_2 = restore(
+            "        ['app.ri_2', 'app.ri_id_k', 'ri_2 key']",
+            Some("        ['app.ri_2', 'app.ri_id_k', 'COMMENT ON CONSTRAINT %1$I ON app.ri_2 IS ''cloned''']"),
+        );
         assert_eq!(
             table(&t).text,
             format!(
@@ -1485,11 +1798,23 @@ COMMENT ON CONSTRAINT ri_chk ON app.ri_2 IS 'inherited check';
             tablespace: Some("Fast".into()),
             ..Default::default()
         };
-        let t = Table { schema: "app".into(), name: "p_1".into(), attached_indexes: vec![index], parent: Parent::Partition { schema: "app".into(), name: "p".into(), bound: "FOR VALUES IN (1)".into() }, ..Default::default() };
+        let t = Table {
+            schema: "app".into(),
+            name: "p_1".into(),
+            attached_indexes: vec![index],
+            parent: Parent::Partition { schema: "app".into(), name: "p".into(), bound: "FOR VALUES IN (1)".into() },
+            ..Default::default()
+        };
         let then = "        ['app.p_1', 'app.p_k', 'ALTER INDEX %2$s RESET (autosummarize)'],
         ['app.p_1', 'app.p_k', 'ALTER INDEX %2$s SET (fillfactor=33)'],
         ['app.p_1', 'app.p_k', 'ALTER INDEX %2$s SET TABLESPACE \"Fast\"']";
-        assert_eq!(table(&t).text, format!("CREATE TABLE app.p_1 PARTITION OF app.p\n    FOR VALUES IN (1);\n\n{}", restore("        ['app.p_1', 'app.p_k', 'p_1_k_idx']", Some(then))));
+        assert_eq!(
+            table(&t).text,
+            format!(
+                "CREATE TABLE app.p_1 PARTITION OF app.p\n    FOR VALUES IN (1);\n\n{}",
+                restore("        ['app.p_1', 'app.p_k', 'p_1_k_idx']", Some(then))
+            )
+        );
     }
 
     #[test]
@@ -1504,7 +1829,15 @@ COMMENT ON CONSTRAINT ri_chk ON app.ri_2 IS 'inherited check';
 
     #[test]
     fn a_partition_tree_scripts_each_partition_after_its_parent_with_what_differs_from_it() {
-        let inherited = |default: Option<&str>| Some(Inherited { replay_order: 1, default: default.map(Into::into), not_null: false, storage: "p".into(), compression: String::new() });
+        let inherited = |default: Option<&str>| {
+            Some(Inherited {
+                replay_order: 1,
+                default: default.map(Into::into),
+                not_null: false,
+                storage: "p".into(),
+                compression: String::new(),
+            })
+        };
         let partition = |name: &str, columns: Vec<Column>| Table {
             schema: "public".into(),
             name: name.into(),
@@ -1515,26 +1848,60 @@ COMMENT ON CONSTRAINT ri_chk ON app.ri_2 IS 'inherited check';
         let v = Column { declared: false, storage: "p".into(), type_storage: "p".into(), ..col("v", "integer") };
         let leaf = Table {
             parent: Parent::Partition { schema: "public".into(), name: "e1".into(), bound: "DEFAULT".into() },
-            ..partition("e1_rest", vec![Column { default: Some("7".into()), inherited: inherited(Some("7")), ..v.clone() }])
+            ..partition(
+                "e1_rest",
+                vec![Column { default: Some("7".into()), inherited: inherited(Some("7")), ..v.clone() }],
+            )
         };
         let t = Table {
             schema: "public".into(),
             name: "e".into(),
-            columns: vec![Column { default: Some("7".into()), storage: "p".into(), type_storage: "p".into(), ..col("v", "integer") }],
+            columns: vec![Column {
+                default: Some("7".into()),
+                storage: "p".into(),
+                type_storage: "p".into(),
+                ..col("v", "integer")
+            }],
             partition_key: Some("LIST (v)".into()),
             partitions: vec![
                 Table {
                     unlogged: true,
                     options: vec!["fillfactor=70".into()],
-                    constraints: vec![Constraint { name: "e1_note".into(), definition: "CHECK ((v < 10))".into(), ..Default::default() }],
+                    constraints: vec![Constraint {
+                        name: "e1_note".into(),
+                        definition: "CHECK ((v < 10))".into(),
+                        ..Default::default()
+                    }],
                     partition_key: Some("RANGE (v)".into()),
                     partitions: vec![leaf],
-                    ..partition("e1", vec![Column { default: Some("9".into()), not_null: true, inherited: inherited(Some("7")), ..v.clone() }])
+                    ..partition(
+                        "e1",
+                        vec![Column {
+                            default: Some("9".into()),
+                            not_null: true,
+                            inherited: inherited(Some("7")),
+                            ..v.clone()
+                        }],
+                    )
                 },
                 Table {
-                    foreign: Some(Foreign { server: "remote".into(), options: vec!["table_name=a, b".into(), "Odd=it's".into()] }),
-                    parent: Parent::Partition { schema: "public".into(), name: "e".into(), bound: "FOR VALUES IN (2)".into() },
-                    ..partition("e2", vec![Column { inherited: inherited(Some("7")), fdw_options: vec!["column_name=vv".into()], ..v.clone() }])
+                    foreign: Some(Foreign {
+                        server: "remote".into(),
+                        options: vec!["table_name=a, b".into(), "Odd=it's".into()],
+                    }),
+                    parent: Parent::Partition {
+                        schema: "public".into(),
+                        name: "e".into(),
+                        bound: "FOR VALUES IN (2)".into(),
+                    },
+                    ..partition(
+                        "e2",
+                        vec![Column {
+                            inherited: inherited(Some("7")),
+                            fdw_options: vec!["column_name=vv".into()],
+                            ..v.clone()
+                        }],
+                    )
                 },
             ],
             ..Default::default()
@@ -1569,7 +1936,15 @@ ALTER FOREIGN TABLE public.e2 ALTER COLUMN v OPTIONS (ADD column_name 'vv');
 
     #[test]
     fn an_inheritance_child_declares_its_own_columns_and_warns_when_a_replay_reorders_them() {
-        let from_base = |position: i64| Some(Inherited { replay_order: position, default: None, not_null: false, storage: "x".into(), compression: String::new() });
+        let from_base = |position: i64| {
+            Some(Inherited {
+                replay_order: position,
+                default: None,
+                not_null: false,
+                storage: "x".into(),
+                compression: String::new(),
+            })
+        };
         let t = Table {
             schema: "app".into(),
             name: "child".into(),
@@ -1581,15 +1956,25 @@ ALTER FOREIGN TABLE public.e2 ALTER COLUMN v OPTIONS (ADD column_name 'vv');
             ],
             parent: Parent::Inherits(vec![("app".into(), "base".into()), ("app".into(), "Other".into())]),
             unscripted: Unscripted {
-                privileges: vec![grant("SELECT", None, "app", Change::Granted), grant("UPDATE", Some("\"Mixed\""), "PUBLIC", Change::GrantedWithGrantOption)],
-                sequence_privileges: vec![SequencePrivileges { schema: "app".into(), name: "child_id_seq".into(), privileges: vec![grant("USAGE", None, "app", Change::Granted)] }],
+                privileges: vec![
+                    grant("SELECT", None, "app", Change::Granted),
+                    grant("UPDATE", Some("\"Mixed\""), "PUBLIC", Change::GrantedWithGrantOption),
+                ],
+                sequence_privileges: vec![SequencePrivileges {
+                    schema: "app".into(),
+                    name: "child_id_seq".into(),
+                    privileges: vec![grant("USAGE", None, "app", Change::Granted)],
+                }],
                 security_labels: vec!["app.child".into(), "app.child.\"Mixed\"".into(), "app.child_id_seq".into()],
                 ..Default::default()
             },
             ..Default::default()
         };
         let ddl = table(&t);
-        assert_eq!(ddl.text, "CREATE TABLE app.child (\n    note text,\n    extra text\n) INHERITS (app.base, app.\"Other\");\n\nALTER TABLE app.child ALTER COLUMN id SET DEFAULT 2;\n");
+        assert_eq!(
+            ddl.text,
+            "CREATE TABLE app.child (\n    note text,\n    extra text\n) INHERITS (app.base, app.\"Other\");\n\nALTER TABLE app.child ALTER COLUMN id SET DEFAULT 2;\n"
+        );
         assert_eq!(
             ddl.warnings,
             [
@@ -1604,7 +1989,12 @@ ALTER FOREIGN TABLE public.e2 ALTER COLUMN v OPTIONS (ADD column_name 'vv');
     }
 
     fn not_null(name: &str, column: &str, tail: &str) -> Constraint {
-        Constraint { name: name.into(), definition: format!("NOT NULL {}{tail}", ident(column)), not_null_column: Some(column.into()), ..Default::default() }
+        Constraint {
+            name: name.into(),
+            definition: format!("NOT NULL {}{tail}", ident(column)),
+            not_null_column: Some(column.into()),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -1613,7 +2003,13 @@ ALTER FOREIGN TABLE public.e2 ALTER COLUMN v OPTIONS (ADD column_name 'vv');
         let t = Table {
             schema: "app".into(),
             name: "t".into(),
-            columns: vec![required("plain"), required("named"), required("Mi xed"), required("later"), required("local")],
+            columns: vec![
+                required("plain"),
+                required("named"),
+                required("Mi xed"),
+                required("later"),
+                required("local"),
+            ],
             constraints: vec![
                 Constraint { comment: Some("why".into()), ..not_null("t_named", "named", "") },
                 not_null("Odd \"nn\"", "Mi xed", ""),
@@ -1647,24 +2043,50 @@ COMMENT ON CONSTRAINT t_named ON app.t IS 'why';
         let t = Table {
             schema: "app".into(),
             name: "kid".into(),
-            columns: vec![Column { not_null: true, declared: false, inherited: Some(Inherited { not_null: true, storage: "x".into(), ..Default::default() }), ..col("id", "integer") }],
-            constraints: vec![Constraint { inherited: true, comment: Some("from base".into()), ..not_null("base_id_not_null", "id", "") }],
+            columns: vec![Column {
+                not_null: true,
+                declared: false,
+                inherited: Some(Inherited { not_null: true, storage: "x".into(), ..Default::default() }),
+                ..col("id", "integer")
+            }],
+            constraints: vec![Constraint {
+                inherited: true,
+                comment: Some("from base".into()),
+                ..not_null("base_id_not_null", "id", "")
+            }],
             parent: Parent::Inherits(vec![("app".into(), "base".into())]),
             ..Default::default()
         };
-        assert_eq!(table(&t).text, "CREATE TABLE app.kid (\n    \n) INHERITS (app.base);\n\nCOMMENT ON CONSTRAINT base_id_not_null ON app.kid IS 'from base';\n");
+        assert_eq!(
+            table(&t).text,
+            "CREATE TABLE app.kid (\n    \n) INHERITS (app.base);\n\nCOMMENT ON CONSTRAINT base_id_not_null ON app.kid IS 'from base';\n"
+        );
     }
 
     #[test]
     fn a_partition_writes_its_own_not_null_constraint_instead_of_setting_not_null() {
         let from_parent = |not_null: bool| Some(Inherited { not_null, storage: "x".into(), ..Default::default() });
-        let required = |name: &str, parent_requires: bool| Column { not_null: true, declared: false, inherited: from_parent(parent_requires), ..col(name, "integer") };
+        let required = |name: &str, parent_requires: bool| Column {
+            not_null: true,
+            declared: false,
+            inherited: from_parent(parent_requires),
+            ..col(name, "integer")
+        };
         let t = Table {
             schema: "app".into(),
             name: "p_1".into(),
             parent: Parent::Partition { schema: "app".into(), name: "p".into(), bound: "FOR VALUES IN (1)".into() },
-            columns: vec![required("merged", true), required("own", false), required("later", false), required("set", false)],
-            constraints: vec![not_null("p_1_merged", "merged", ""), not_null("p_1_own", "own", ""), not_null("p_1_later", "later", " NOT VALID")],
+            columns: vec![
+                required("merged", true),
+                required("own", false),
+                required("later", false),
+                required("set", false),
+            ],
+            constraints: vec![
+                not_null("p_1_merged", "merged", ""),
+                not_null("p_1_own", "own", ""),
+                not_null("p_1_later", "later", " NOT VALID"),
+            ],
             ..Default::default()
         };
         assert_eq!(
@@ -1688,40 +2110,97 @@ ALTER TABLE app.p_1 ALTER COLUMN set SET NOT NULL;
             schema: "app".into(),
             name: "pets".into(),
             of_type: Some("app.pet".into()),
-            columns: vec![Column { not_null: true, ..col("id", "integer") }, Column { not_null: true, ..col("kind", "text") }],
+            columns: vec![
+                Column { not_null: true, ..col("id", "integer") },
+                Column { not_null: true, ..col("kind", "text") },
+            ],
             constraints: vec![not_null("pets_id", "id", "")],
             ..Default::default()
         };
-        assert_eq!(table(&t).text, "CREATE TABLE app.pets OF app.pet (\n    kind WITH OPTIONS NOT NULL,\n    CONSTRAINT pets_id NOT NULL id\n);\n");
+        assert_eq!(
+            table(&t).text,
+            "CREATE TABLE app.pets OF app.pet (\n    kind WITH OPTIONS NOT NULL,\n    CONSTRAINT pets_id NOT NULL id\n);\n"
+        );
     }
 
     #[test]
     fn an_identity_waits_for_a_no_inherit_not_null_constraint_it_would_conflict_with() {
-        let sequence = Sequence { schema: "app".into(), name: "t_id_seq".into(), column: "id".into(), type_name: "integer".into(), start: 1, increment: 1, min: 1, max: i64::from(i32::MAX), cache: 1, cycle: false };
-        let column = Column { not_null: true, identity: Some(Identity { always: true, sequence }), ..col("id", "integer") };
-        let t = |constraint: Constraint| Table { schema: "app".into(), name: "t".into(), columns: vec![column.clone()], constraints: vec![constraint], ..Default::default() };
+        let sequence = Sequence {
+            schema: "app".into(),
+            name: "t_id_seq".into(),
+            column: "id".into(),
+            type_name: "integer".into(),
+            start: 1,
+            increment: 1,
+            min: 1,
+            max: i64::from(i32::MAX),
+            cache: 1,
+            cycle: false,
+        };
+        let column =
+            Column { not_null: true, identity: Some(Identity { always: true, sequence }), ..col("id", "integer") };
+        let t = |constraint: Constraint| Table {
+            schema: "app".into(),
+            name: "t".into(),
+            columns: vec![column.clone()],
+            constraints: vec![constraint],
+            ..Default::default()
+        };
         assert_eq!(
             table(&t(not_null("t_id_not_null", "id", " NO INHERIT"))).text,
             "CREATE TABLE app.t (\n    id integer,\n    CONSTRAINT t_id_not_null NOT NULL id NO INHERIT\n);\n\nALTER TABLE app.t ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY;\n"
         );
-        assert_eq!(table(&t(not_null("t_named", "id", ""))).text, "CREATE TABLE app.t (\n    id integer GENERATED ALWAYS AS IDENTITY,\n    CONSTRAINT t_named NOT NULL id\n);\n");
+        assert_eq!(
+            table(&t(not_null("t_named", "id", ""))).text,
+            "CREATE TABLE app.t (\n    id integer GENERATED ALWAYS AS IDENTITY,\n    CONSTRAINT t_named NOT NULL id\n);\n"
+        );
     }
 
     #[test]
     fn inherited_not_nulls_a_replay_cannot_reproduce_are_warned_once_per_table() {
         let warnings = |names: &[&str]| {
-            table(&Table { schema: "app".into(), name: "p_1".into(), unscripted: Unscripted { inherited_not_nulls: names.iter().map(|n| n.to_string()).collect(), ..Default::default() }, ..Default::default() }).warnings
+            table(&Table {
+                schema: "app".into(),
+                name: "p_1".into(),
+                unscripted: Unscripted {
+                    inherited_not_nulls: names.iter().map(|n| n.to_string()).collect(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .warnings
         };
         assert_eq!(warnings(&[]), Vec::<String>::new());
-        assert_eq!(warnings(&["p_1_id"]), ["not-null constraint p_1_id of app.p_1, which a replay takes from its parent, with the parent's name and validated"]);
-        assert_eq!(warnings(&["Odd nn", "p_1_id"]), ["not-null constraints \"Odd nn\", p_1_id of app.p_1, which a replay takes from its parent, with the parent's name and validated"]);
+        assert_eq!(
+            warnings(&["p_1_id"]),
+            [
+                "not-null constraint p_1_id of app.p_1, which a replay takes from its parent, with the parent's name and validated"
+            ]
+        );
+        assert_eq!(
+            warnings(&["Odd nn", "p_1_id"]),
+            [
+                "not-null constraints \"Odd nn\", p_1_id of app.p_1, which a replay takes from its parent, with the parent's name and validated"
+            ]
+        );
     }
 
     #[test]
     fn a_typed_table_takes_its_columns_from_its_type_and_declares_only_their_options() {
-        let typed = |columns: Vec<Column>, constraints: Vec<Constraint>| Table { schema: "app".into(), name: "pets".into(), of_type: Some("app.pet".into()), columns, constraints, ..Default::default() };
+        let typed = |columns: Vec<Column>, constraints: Vec<Constraint>| Table {
+            schema: "app".into(),
+            name: "pets".into(),
+            of_type: Some("app.pet".into()),
+            columns,
+            constraints,
+            ..Default::default()
+        };
         let t = typed(
-            vec![col("id", "integer"), Column { default: Some("'cat'::text".into()), not_null: true, ..col("kind", "text") }, Column { not_null: true, ..col("name", "text") }],
+            vec![
+                col("id", "integer"),
+                Column { default: Some("'cat'::text".into()), not_null: true, ..col("kind", "text") },
+                Column { not_null: true, ..col("name", "text") },
+            ],
             vec![Constraint { name: "pets_pkey".into(), definition: "PRIMARY KEY (id)".into(), ..Default::default() }],
         );
         assert_eq!(
@@ -1736,13 +2215,29 @@ ALTER TABLE app.p_1 ALTER COLUMN set SET NOT NULL;
         let clause = |s: Sequence| identity_clause(&Identity { always: false, sequence: s }, "public", "t");
         assert_eq!(clause(sequence(1, 1, 1, i64::MAX)), "GENERATED BY DEFAULT AS IDENTITY");
         assert_eq!(
-            identity_clause(&Identity { always: true, sequence: Sequence { type_name: "integer".into(), ..sequence(1, 1, 1, i64::from(i32::MAX)) } }, "public", "t"),
+            identity_clause(
+                &Identity {
+                    always: true,
+                    sequence: Sequence { type_name: "integer".into(), ..sequence(1, 1, 1, i64::from(i32::MAX)) }
+                },
+                "public",
+                "t"
+            ),
             "GENERATED ALWAYS AS IDENTITY"
         );
-        assert_eq!(clause(Sequence { type_name: "smallint".into(), ..sequence(-1, -1, i64::from(i16::MIN), -1) }), "GENERATED BY DEFAULT AS IDENTITY (INCREMENT BY -1)");
-        assert_eq!(clause(Sequence { cache: 20, cycle: true, ..sequence(5, 1, 5, 100) }), "GENERATED BY DEFAULT AS IDENTITY (MINVALUE 5 MAXVALUE 100 CACHE 20 CYCLE)");
+        assert_eq!(
+            clause(Sequence { type_name: "smallint".into(), ..sequence(-1, -1, i64::from(i16::MIN), -1) }),
+            "GENERATED BY DEFAULT AS IDENTITY (INCREMENT BY -1)"
+        );
+        assert_eq!(
+            clause(Sequence { cache: 20, cycle: true, ..sequence(5, 1, 5, 100) }),
+            "GENERATED BY DEFAULT AS IDENTITY (MINVALUE 5 MAXVALUE 100 CACHE 20 CYCLE)"
+        );
         assert_eq!(clause(sequence(50, 1, 1, i64::MAX)), "GENERATED BY DEFAULT AS IDENTITY (START WITH 50)");
-        assert_eq!(clause(Sequence { name: "custom".into(), ..sequence(1, 1, 1, i64::MAX) }), "GENERATED BY DEFAULT AS IDENTITY (SEQUENCE NAME public.custom)");
+        assert_eq!(
+            clause(Sequence { name: "custom".into(), ..sequence(1, 1, 1, i64::MAX) }),
+            "GENERATED BY DEFAULT AS IDENTITY (SEQUENCE NAME public.custom)"
+        );
     }
 
     #[test]
@@ -1753,9 +2248,22 @@ ALTER TABLE app.p_1 ALTER COLUMN set SET NOT NULL;
             options: vec!["security_barrier=true".into(), "check_option=cascaded".into()],
             query: " SELECT orders.id\n   FROM public.orders;".into(),
             comment: Some("paid only".into()),
-            columns: vec![Column { default: Some("42".into()), comment: Some("the id".into()), ..col("id", "integer") }],
-            rules: vec![Rule { name: "ins".into(), definition: "CREATE RULE ins AS\n    ON INSERT TO public.paid DO INSTEAD NOTHING;".into(), enabled: 'O', comment: None }],
-            unscripted: Unscripted { privileges: vec![grant("SELECT", None, "PUBLIC", Change::Revoked)], owner: Owner { name: "app".into(), connecting_role: true }, ..Default::default() },
+            columns: vec![Column {
+                default: Some("42".into()),
+                comment: Some("the id".into()),
+                ..col("id", "integer")
+            }],
+            rules: vec![Rule {
+                name: "ins".into(),
+                definition: "CREATE RULE ins AS\n    ON INSERT TO public.paid DO INSTEAD NOTHING;".into(),
+                enabled: 'O',
+                comment: None,
+            }],
+            unscripted: Unscripted {
+                privileges: vec![grant("SELECT", None, "PUBLIC", Change::Revoked)],
+                owner: Owner { name: "app".into(), connecting_role: true },
+                ..Default::default()
+            },
             ..Default::default()
         };
         assert_eq!(
@@ -1771,11 +2279,25 @@ ALTER TABLE app.p_1 ALTER COLUMN set SET NOT NULL;
             materialized: true,
             query: " SELECT 1 AS day;".into(),
             columns: vec![Column { statistics: Some(200), ..col("day", "integer") }],
-            indexes: vec![Index { name: "m_day".into(), definition: Some("CREATE UNIQUE INDEX m_day ON public.m USING btree (day)".into()), clustered: true, ..Default::default() }],
+            indexes: vec![Index {
+                name: "m_day".into(),
+                definition: Some("CREATE UNIQUE INDEX m_day ON public.m USING btree (day)".into()),
+                clustered: true,
+                ..Default::default()
+            }],
             ..Default::default()
         };
-        let owned = View { unscripted: Unscripted { owner: Owner { name: "Bob".into(), connecting_role: false }, ..Default::default() }, ..m.clone() };
-        assert_eq!(view(&owned).warnings, ["owner \"Bob\" of public.m, whose privileges a refresh runs the query with"]);
+        let owned = View {
+            unscripted: Unscripted {
+                owner: Owner { name: "Bob".into(), connecting_role: false },
+                ..Default::default()
+            },
+            ..m.clone()
+        };
+        assert_eq!(
+            view(&owned).warnings,
+            ["owner \"Bob\" of public.m, whose privileges a refresh runs the query with"]
+        );
         assert_eq!(
             view(&m).text,
             "CREATE MATERIALIZED VIEW public.m AS\n SELECT 1 AS day\nWITH NO DATA;\n\nALTER MATERIALIZED VIEW public.m ALTER COLUMN day SET STATISTICS 200;\n\nCREATE UNIQUE INDEX m_day ON public.m USING btree (day);\n\nALTER MATERIALIZED VIEW public.m CLUSTER ON m_day;\n"
@@ -1785,7 +2307,9 @@ ALTER TABLE app.p_1 ALTER COLUMN set SET NOT NULL;
     #[test]
     fn a_routine_ends_its_definition_and_keeps_its_comment_and_extension_dependencies() {
         let p = Routine {
-            definition: "CREATE OR REPLACE PROCEDURE public.p(a integer)\n LANGUAGE sql\nAS $procedure$ SELECT 1 $procedure$\n".into(),
+            definition:
+                "CREATE OR REPLACE PROCEDURE public.p(a integer)\n LANGUAGE sql\nAS $procedure$ SELECT 1 $procedure$\n"
+                    .into(),
             procedure: true,
             signature: "public.p(a integer)".into(),
             comment: Some("x".into()),
@@ -1798,20 +2322,37 @@ ALTER TABLE app.p_1 ALTER COLUMN set SET NOT NULL;
                 "CREATE OR REPLACE PROCEDURE public.p(a integer)\n LANGUAGE sql\nAS $procedure$ SELECT 1 $procedure$;\n\nALTER PROCEDURE public.p(a integer) DEPENDS ON EXTENSION plpgsql;\n\nALTER PROCEDURE public.p(a integer) DEPENDS ON EXTENSION \"Odd ext\";\n\nCOMMENT ON PROCEDURE public.p(a integer) IS 'x';\n".into()
             )
         );
-        let revoked = Routine { privileges: vec![grant("EXECUTE", None, "PUBLIC", Change::Revoked)], signature: "public.p(integer)".into(), ..p.clone() };
+        let revoked = Routine {
+            privileges: vec![grant("EXECUTE", None, "PUBLIC", Change::Revoked)],
+            signature: "public.p(integer)".into(),
+            ..p.clone()
+        };
         assert_eq!(routine(&revoked).warnings, ["privileges on public.p(integer) (EXECUTE revoked from PUBLIC)"]);
         let labeled = Routine { security_labels: true, ..revoked };
-        assert_eq!(routine(&labeled).warnings, ["privileges on public.p(integer) (EXECUTE revoked from PUBLIC)", "security labels on public.p(integer)"]);
+        assert_eq!(
+            routine(&labeled).warnings,
+            ["privileges on public.p(integer) (EXECUTE revoked from PUBLIC)", "security labels on public.p(integer)"]
+        );
     }
 
     #[test]
     fn a_routine_warns_about_an_owner_other_than_the_connecting_role_and_always_for_security_definer() {
         let f = |owner: &str, connecting_role: bool, security_definer: bool| {
-            routine(&Routine { definition: "CREATE FUNCTION app.f() ...".into(), signature: "app.f()".into(), owner: Owner { name: owner.into(), connecting_role }, security_definer, ..Default::default() }).warnings
+            routine(&Routine {
+                definition: "CREATE FUNCTION app.f() ...".into(),
+                signature: "app.f()".into(),
+                owner: Owner { name: owner.into(), connecting_role },
+                security_definer,
+                ..Default::default()
+            })
+            .warnings
         };
         assert!(f("me", true, false).is_empty());
         assert_eq!(f("Bob", false, false), ["owner \"Bob\" of app.f()"]);
-        assert_eq!(f("me", true, true), ["owner me of app.f(), whose privileges the SECURITY DEFINER function runs with"]);
+        assert_eq!(
+            f("me", true, true),
+            ["owner me of app.f(), whose privileges the SECURITY DEFINER function runs with"]
+        );
     }
 
     #[test]
@@ -1820,10 +2361,20 @@ ALTER TABLE app.p_1 ALTER COLUMN set SET NOT NULL;
             schema: "app".into(),
             name: "p_1".into(),
             parent: Parent::Partition { schema: "app".into(), name: "p".into(), bound: "FOR VALUES IN (1)".into() },
-            unscripted: Unscripted { owner: Owner { name: "bob".into(), connecting_role: false }, ..Default::default() },
+            unscripted: Unscripted {
+                owner: Owner { name: "bob".into(), connecting_role: false },
+                ..Default::default()
+            },
             ..Default::default()
         };
-        let t = Table { schema: "app".into(), name: "p".into(), columns: vec![col("k", "integer")], partition_key: Some("LIST (k)".into()), partitions: vec![leaf], ..Default::default() };
+        let t = Table {
+            schema: "app".into(),
+            name: "p".into(),
+            columns: vec![col("k", "integer")],
+            partition_key: Some("LIST (k)".into()),
+            partitions: vec![leaf],
+            ..Default::default()
+        };
         assert_eq!(table(&t).warnings, ["owner bob of app.p_1"]);
     }
 
@@ -1841,8 +2392,18 @@ ALTER TABLE app.p_1 ALTER COLUMN set SET NOT NULL;
                     index_tablespace: Some("Fast".into()),
                     ..Default::default()
                 },
-                Constraint { name: "t_b_key".into(), definition: "UNIQUE (b)".into(), index_options: vec!["fillfactor=80".into()], ..Default::default() },
-                Constraint { name: "t_excl".into(), definition: "EXCLUDE USING gist (b WITH =) WITH (fillfactor='60') WHERE ((b > 0))".into(), index_tablespace: Some("fast".into()), ..Default::default() },
+                Constraint {
+                    name: "t_b_key".into(),
+                    definition: "UNIQUE (b)".into(),
+                    index_options: vec!["fillfactor=80".into()],
+                    ..Default::default()
+                },
+                Constraint {
+                    name: "t_excl".into(),
+                    definition: "EXCLUDE USING gist (b WITH =) WITH (fillfactor='60') WHERE ((b > 0))".into(),
+                    index_tablespace: Some("fast".into()),
+                    ..Default::default()
+                },
             ],
             indexes: vec![Index { name: "t_pkey".into(), tablespace: Some("Fast".into()), ..Default::default() }],
             ..Default::default()
@@ -1859,11 +2420,27 @@ ALTER TABLE app.p_1 ALTER COLUMN set SET NOT NULL;
             schema: "app".into(),
             name: "t_1".into(),
             parent: Parent::Partition { schema: "app".into(), name: "t".into(), bound: "FOR VALUES IN (1)".into() },
-            constraints: vec![Constraint { name: "t_chk".into(), definition: "CHECK ((k > 0))".into(), comment: Some("from the parent".into()), inherited: true, ..Default::default() }],
+            constraints: vec![Constraint {
+                name: "t_chk".into(),
+                definition: "CHECK ((k > 0))".into(),
+                comment: Some("from the parent".into()),
+                inherited: true,
+                ..Default::default()
+            }],
             sequence_states: vec![
-                SequenceState { schema: "app".into(), name: "t_1_id_seq".into(), unlogged: Some(true), comment: Some("ids".into()) },
+                SequenceState {
+                    schema: "app".into(),
+                    name: "t_1_id_seq".into(),
+                    unlogged: Some(true),
+                    comment: Some("ids".into()),
+                },
                 SequenceState { schema: "app".into(), name: "Odd seq".into(), unlogged: Some(false), comment: None },
-                SequenceState { schema: "app".into(), name: "noted".into(), unlogged: None, comment: Some("it's".into()) },
+                SequenceState {
+                    schema: "app".into(),
+                    name: "noted".into(),
+                    unlogged: None,
+                    comment: Some("it's".into()),
+                },
             ],
             ..Default::default()
         };
@@ -1876,14 +2453,31 @@ ALTER TABLE app.p_1 ALTER COLUMN set SET NOT NULL;
     #[test]
     fn an_index_a_constraint_creates_scripts_as_the_constraint() {
         let pkey = Index { name: "orders_pkey".into(), comment: Some("pk".into()), ..Default::default() };
-        let constraint = Constraint { name: "orders_pkey".into(), definition: "PRIMARY KEY (id)".into(), comment: Some("the key".into()), ..Default::default() };
+        let constraint = Constraint {
+            name: "orders_pkey".into(),
+            definition: "PRIMARY KEY (id)".into(),
+            comment: Some("the key".into()),
+            ..Default::default()
+        };
         assert_eq!(
             index_script(&pkey, Some(&constraint), None, "TABLE", "public", "public.orders").text,
             "ALTER TABLE public.orders ADD CONSTRAINT orders_pkey PRIMARY KEY (id);\n\nCOMMENT ON INDEX public.orders_pkey IS 'pk';\n\nCOMMENT ON CONSTRAINT orders_pkey ON public.orders IS 'the key';\n"
         );
-        let plain = Index { name: "i".into(), definition: Some("CREATE INDEX i ON ONLY public.t USING btree (a)".into()), tablespace: Some("fast".into()), ..Default::default() };
-        assert_eq!(index_script(&plain, None, None, "TABLE", "public", "public.t").text, "CREATE INDEX i ON public.t USING btree (a);\n\nALTER INDEX public.i SET TABLESPACE fast;\n");
-        let copy = Index { name: "t_1_a_idx".into(), definition: Some("CREATE INDEX t_1_a_idx ON public.t_1 USING btree (a)".into()), ..Default::default() };
+        let plain = Index {
+            name: "i".into(),
+            definition: Some("CREATE INDEX i ON ONLY public.t USING btree (a)".into()),
+            tablespace: Some("fast".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            index_script(&plain, None, None, "TABLE", "public", "public.t").text,
+            "CREATE INDEX i ON public.t USING btree (a);\n\nALTER INDEX public.i SET TABLESPACE fast;\n"
+        );
+        let copy = Index {
+            name: "t_1_a_idx".into(),
+            definition: Some("CREATE INDEX t_1_a_idx ON public.t_1 USING btree (a)".into()),
+            ..Default::default()
+        };
         assert_eq!(
             index_script(&copy, None, Some("public.t_a"), "TABLE", "public", "public.t_1").text,
             "CREATE INDEX t_1_a_idx ON public.t_1 USING btree (a);\n\nALTER INDEX public.t_a ATTACH PARTITION public.t_1_a_idx;\n"
@@ -1892,13 +2486,42 @@ ALTER TABLE app.p_1 ALTER COLUMN set SET NOT NULL;
 
     #[test]
     fn an_index_keeps_its_column_statistics_and_warns_when_invalid_or_partly_attached() {
-        let expr = Index { name: "Lower".into(), definition: Some("CREATE INDEX \"Lower\" ON app.t USING btree (lower(a))".into()), statistics: vec![ColumnStatistics { column: 1, target: 300 }], ..Default::default() };
+        let expr = Index {
+            name: "Lower".into(),
+            definition: Some("CREATE INDEX \"Lower\" ON app.t USING btree (lower(a))".into()),
+            statistics: vec![ColumnStatistics { column: 1, target: 300 }],
+            ..Default::default()
+        };
         assert_eq!(index_script(&expr, None, None, "TABLE", "app", "app.t"), Ddl::complete("CREATE INDEX \"Lower\" ON app.t USING btree (lower(a));\n\nALTER INDEX app.\"Lower\" ALTER COLUMN 1 SET STATISTICS 300;\n".into()));
-        let broken = Index { name: "dup".into(), definition: Some("CREATE UNIQUE INDEX dup ON app.t USING btree (a)".into()), invalid: true, ..Default::default() };
-        assert_eq!(index_script(&broken, None, None, "TABLE", "app", "app.t").warnings, ["the invalid state of index app.dup, which a replay builds valid"]);
-        let only = Index { name: "p_k".into(), definition: Some("CREATE INDEX p_k ON ONLY app.p USING btree (k)".into()), invalid: true, partitioned: true, ..Default::default() };
-        let t = Table { schema: "app".into(), name: "p".into(), columns: vec![col("k", "integer")], partition_key: Some("LIST (k)".into()), indexes: vec![only], ..Default::default() };
-        assert_eq!(table(&t).warnings, ["the partial attachment of index app.p_k, which a replay attaches to every partition"]);
+        let broken = Index {
+            name: "dup".into(),
+            definition: Some("CREATE UNIQUE INDEX dup ON app.t USING btree (a)".into()),
+            invalid: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            index_script(&broken, None, None, "TABLE", "app", "app.t").warnings,
+            ["the invalid state of index app.dup, which a replay builds valid"]
+        );
+        let only = Index {
+            name: "p_k".into(),
+            definition: Some("CREATE INDEX p_k ON ONLY app.p USING btree (k)".into()),
+            invalid: true,
+            partitioned: true,
+            ..Default::default()
+        };
+        let t = Table {
+            schema: "app".into(),
+            name: "p".into(),
+            columns: vec![col("k", "integer")],
+            partition_key: Some("LIST (k)".into()),
+            indexes: vec![only],
+            ..Default::default()
+        };
+        assert_eq!(
+            table(&t).warnings,
+            ["the partial attachment of index app.p_k, which a replay attaches to every partition"]
+        );
     }
 
     #[test]
@@ -1907,18 +2530,33 @@ ALTER TABLE app.p_1 ALTER COLUMN set SET NOT NULL;
             schema: "app".into(),
             name: "t".into(),
             columns: vec![col("id", "integer")],
-            unscripted: Unscripted { publications: publications.iter().map(|p| p.to_string()).collect(), ..Default::default() },
+            unscripted: Unscripted {
+                publications: publications.iter().map(|p| p.to_string()).collect(),
+                ..Default::default()
+            },
             ..Default::default()
         };
         assert_eq!(table(&t(&["pub"])).warnings, ["membership of app.t in publication pub"]);
         assert_eq!(table(&t(&["a", "B b"])).warnings, ["membership of app.t in publications a, \"B b\""]);
-        let through_schema = Table { unscripted: Unscripted { schema_publications: vec!["all app".into()], ..t(&["pub"]).unscripted }, ..t(&[]) };
-        assert_eq!(table(&through_schema).warnings, ["membership of app.t in publication pub", "membership of app.t in publication \"all app\" through schema app"]);
+        let through_schema = Table {
+            unscripted: Unscripted { schema_publications: vec!["all app".into()], ..t(&["pub"]).unscripted },
+            ..t(&[])
+        };
+        assert_eq!(
+            table(&through_schema).warnings,
+            [
+                "membership of app.t in publication pub",
+                "membership of app.t in publication \"all app\" through schema app"
+            ]
+        );
     }
 
     #[test]
     fn only_a_top_level_on_only_is_dropped() {
-        assert_eq!(index(r#"CREATE INDEX "x ON ONLY y" ON ONLY public.t USING btree (a)"#), r#"CREATE INDEX "x ON ONLY y" ON public.t USING btree (a)"#);
+        assert_eq!(
+            index(r#"CREATE INDEX "x ON ONLY y" ON ONLY public.t USING btree (a)"#),
+            r#"CREATE INDEX "x ON ONLY y" ON public.t USING btree (a)"#
+        );
         assert_eq!(index("CREATE INDEX i ON public.t USING btree (a)"), "CREATE INDEX i ON public.t USING btree (a)");
     }
 
@@ -1955,10 +2593,7 @@ ALTER TABLE app.p_1 ALTER COLUMN set SET NOT NULL;
             owned_column: "id".into(),
             comment: Some("orders".into()),
             privileges: vec![grant("USAGE", None, "app", Change::Granted)],
-            owner: Owner {
-                name: "bob".into(),
-                connecting_role: false,
-            },
+            owner: Owner { name: "bob".into(), connecting_role: false },
             security_label: true,
         };
         let ddl = standalone_sequence(&owned);
@@ -1996,10 +2631,7 @@ ALTER TABLE app.p_1 ALTER COLUMN set SET NOT NULL;
             enum_type(&bare(), &["sad".into(), "ok".into(), "happy".into()]).text,
             "CREATE TYPE lab.mood AS ENUM ('sad', 'ok', 'happy');\n"
         );
-        let domain = ScriptedObject {
-            name: "posint".into(),
-            ..bare()
-        };
+        let domain = ScriptedObject { name: "posint".into(), ..bare() };
         assert_eq!(
             domain_type(
                 &domain,
@@ -2012,33 +2644,19 @@ ALTER TABLE app.p_1 ALTER COLUMN set SET NOT NULL;
             .text,
             "CREATE DOMAIN lab.posint AS integer\n    CONSTRAINT posint_positive CHECK ((VALUE > 0));\n"
         );
-        let pet = ScriptedObject {
-            name: "pet".into(),
-            ..bare()
-        };
+        let pet = ScriptedObject { name: "pet".into(), ..bare() };
         assert_eq!(
             composite_type(
                 &pet,
                 &[
-                    CompositeField {
-                        name: "id".into(),
-                        type_name: "integer".into(),
-                        collation: None
-                    },
-                    CompositeField {
-                        name: "name".into(),
-                        type_name: "text".into(),
-                        collation: Some("C".into())
-                    }
+                    CompositeField { name: "id".into(), type_name: "integer".into(), collation: None },
+                    CompositeField { name: "name".into(), type_name: "text".into(), collation: Some("C".into()) }
                 ]
             )
             .text,
             "CREATE TYPE lab.pet AS (\n    id integer,\n    name text COLLATE \"C\"\n);\n"
         );
-        let span = ScriptedObject {
-            name: "span".into(),
-            ..bare()
-        };
+        let span = ScriptedObject { name: "span".into(), ..bare() };
         assert_eq!(
             range_type(
                 &span,
@@ -2054,15 +2672,7 @@ ALTER TABLE app.p_1 ALTER COLUMN set SET NOT NULL;
             "CREATE TYPE lab.span AS RANGE (\n    SUBTYPE = integer\n);\n"
         );
         assert_eq!(
-            extension_script(
-                "plpgsql",
-                "pg_catalog",
-                "1.0",
-                None,
-                &Owner::default(),
-                false
-            )
-            .text,
+            extension_script("plpgsql", "pg_catalog", "1.0", None, &Owner::default(), false).text,
             "CREATE EXTENSION plpgsql WITH SCHEMA pg_catalog VERSION '1.0';\n"
         );
     }

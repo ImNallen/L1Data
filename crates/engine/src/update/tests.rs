@@ -11,9 +11,16 @@ use crate::{AgentPath, Engine, EngineConfig, MemoryKeyStore};
 
 async fn open(dir: &Path, transport: &Arc<ScriptedTransport>) -> Arc<Engine> {
     let updates = transport.clone();
-    Engine::open(EngineConfig { data_dir: dir.into(), keys: Arc::new(MemoryKeyStore::default()), agent_path: AgentPath::Fixed("".into()), az_binary: None, user_known_hosts: None, updates })
-        .await
-        .unwrap()
+    Engine::open(EngineConfig {
+        data_dir: dir.into(),
+        keys: Arc::new(MemoryKeyStore::default()),
+        agent_path: AgentPath::Fixed("".into()),
+        az_binary: None,
+        user_known_hosts: None,
+        updates,
+    })
+    .await
+    .unwrap()
 }
 
 async fn engine_with(scenario: &str) -> (Arc<Engine>, Arc<ScriptedTransport>, tempfile::TempDir) {
@@ -59,9 +66,9 @@ fn offer(status: UpdateStatus) -> UpdateStatus {
 
 fn listed(status: &UpdateStatus) -> Vec<&str> {
     match status {
-        UpdateStatus::Available { changes, .. } | UpdateStatus::Downloading { changes, .. } | UpdateStatus::Downloaded { changes, .. } => {
-            changes.iter().map(|c| c.version.as_str()).collect()
-        }
+        UpdateStatus::Available { changes, .. }
+        | UpdateStatus::Downloading { changes, .. }
+        | UpdateStatus::Downloaded { changes, .. } => changes.iter().map(|c| c.version.as_str()).collect(),
         _ => vec![],
     }
 }
@@ -83,7 +90,10 @@ async fn the_first_check_runs_fifteen_seconds_after_open() {
     let waited = opened.elapsed();
     assert!((Duration::from_secs(15)..Duration::from_secs(16)).contains(&waited), "{waited:?}");
     let state = next_update(&mut events, |s| *s != UpdateStatus::Checking).await;
-    assert_eq!((offer(state.status), state.track, state.current_version.as_str()), (available("0.2.0", false), UpdateTrack::Stable, "0.1.0"));
+    assert_eq!(
+        (offer(state.status), state.track, state.current_version.as_str()),
+        (available("0.2.0", false), UpdateTrack::Stable, "0.1.0")
+    );
     assert!(state.checked_at_ms.is_some());
 }
 
@@ -97,8 +107,16 @@ async fn a_nightly_build_switched_to_stable_is_offered_the_older_stable_and_rest
     assert_eq!((state.status, state.track), (available("0.1.0", true), UpdateTrack::Stable));
     engine.update_set_track(UpdateTrack::Nightly).unwrap();
     let state = next_update(&mut events, |s| *s != UpdateStatus::Checking).await;
-    assert_eq!(listed(&state.status), ["0.1.1-nightly.20261024.6", "0.1.1-nightly.20261023.7"], "the running nightly is not listed");
-    assert_eq!(offer(state.status), available("0.1.1-nightly.20261024.6", false), "switching back offers the newer nightly");
+    assert_eq!(
+        listed(&state.status),
+        ["0.1.1-nightly.20261024.6", "0.1.1-nightly.20261023.7"],
+        "the running nightly is not listed"
+    );
+    assert_eq!(
+        offer(state.status),
+        available("0.1.1-nightly.20261024.6", false),
+        "switching back offers the newer nightly"
+    );
     engine.update_set_track(UpdateTrack::Stable).unwrap();
     assert_eq!(next_update(&mut events, |s| *s != UpdateStatus::Checking).await.status, available("0.1.0", true));
     assert_eq!(saved_track(&engine), Some(json!({ "track": "Stable" })));
@@ -106,7 +124,9 @@ async fn a_nightly_build_switched_to_stable_is_offered_the_older_stable_and_rest
     engine.update_download("0.1.0".into()).unwrap();
     let state = next_update(&mut events, |s| matches!(s, UpdateStatus::Downloaded { .. })).await;
     assert_eq!(state.status, UpdateStatus::Downloaded { version: "0.1.0".into(), downgrade: true, changes: vec![] });
-    let Ok(InstallReply::Confirm { impact }) = engine.update_install("0.1.0".into(), None).await else { panic!("a restart always asks first") };
+    let Ok(InstallReply::Confirm { impact }) = engine.update_install("0.1.0".into(), None).await else {
+        panic!("a restart always asks first")
+    };
     assert_eq!(impact, RestartImpact::default());
     assert!(matches!(engine.update_install("0.1.0".into(), Some(impact)).await, Ok(InstallReply::Restarting)));
     assert_eq!(engine.boot().updates.status, UpdateStatus::Installing { version: "0.1.0".into() });
@@ -133,7 +153,10 @@ async fn a_build_that_cannot_update_saves_no_track_until_one_is_chosen() {
     assert_eq!(engine.boot().updates.status, UpdateStatus::Disabled { reason: UpdatesOff::DevBuild });
     engine.update_set_track(UpdateTrack::Nightly).unwrap();
     let state = next_update(&mut events, |_| true).await;
-    assert_eq!((state.track, state.status), (UpdateTrack::Nightly, UpdateStatus::Disabled { reason: UpdatesOff::DevBuild }));
+    assert_eq!(
+        (state.track, state.status),
+        (UpdateTrack::Nightly, UpdateStatus::Disabled { reason: UpdatesOff::DevBuild })
+    );
     assert_eq!(saved_track(&engine), Some(json!({ "track": "Nightly" })));
 }
 
@@ -154,7 +177,9 @@ async fn a_failed_install_publishes_the_failure_and_does_not_relaunch() {
     let (engine, transport, _dir) = engine_with("install-fails").await;
     let mut events = engine.subscribe();
     downloaded(&engine, &mut events, "0.2.0").await;
-    let Ok(InstallReply::Confirm { impact }) = engine.update_install("0.2.0".into(), None).await else { panic!("a restart always asks first") };
+    let Ok(InstallReply::Confirm { impact }) = engine.update_install("0.2.0".into(), None).await else {
+        panic!("a restart always asks first")
+    };
     assert!(matches!(engine.update_install("0.2.0".into(), Some(impact)).await, Ok(InstallReply::Restarting)));
     let state = next_update(&mut events, |s| matches!(s, UpdateStatus::Failed { .. })).await;
     assert_eq!(state.status, UpdateStatus::Failed { failure: UpdateFailure::ReadOnlyLocation });
@@ -169,7 +194,10 @@ async fn a_bad_signature_fails_the_download_and_the_next_step_is_a_check() {
     assert_eq!(state.status, UpdateStatus::Failed { failure: UpdateFailure::BadSignature });
     assert!(matches!(engine.update_install("0.2.0".into(), None).await, Err(UpdateError::Stale)));
     engine.update_check();
-    assert_eq!(offer(next_update(&mut events, |s| *s != UpdateStatus::Checking).await.status), available("0.2.0", false));
+    assert_eq!(
+        offer(next_update(&mut events, |s| *s != UpdateStatus::Checking).await.status),
+        available("0.2.0", false)
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -203,7 +231,10 @@ async fn update_check_runs_from_a_thread_with_no_runtime() {
     let mut events = engine.subscribe();
     let caller = engine.clone();
     std::thread::spawn(move || caller.update_check()).join().unwrap();
-    assert_eq!(offer(next_update(&mut events, |s| *s != UpdateStatus::Checking).await.status), available("0.2.0", false));
+    assert_eq!(
+        offer(next_update(&mut events, |s| *s != UpdateStatus::Checking).await.status),
+        available("0.2.0", false)
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -224,7 +255,10 @@ async fn update_set_track_runs_from_a_thread_with_no_runtime() {
     let caller = engine.clone();
     std::thread::spawn(move || caller.update_set_track(UpdateTrack::Nightly)).join().unwrap().unwrap();
     let state = next_update(&mut events, |s| *s != UpdateStatus::Checking).await;
-    assert_eq!((state.track, offer(state.status)), (UpdateTrack::Nightly, available("0.2.1-nightly.20261023.7", false)));
+    assert_eq!(
+        (state.track, offer(state.status)),
+        (UpdateTrack::Nightly, available("0.2.1-nightly.20261023.7", false))
+    );
 }
 
 #[tokio::test(start_paused = true)]

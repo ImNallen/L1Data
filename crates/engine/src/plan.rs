@@ -19,17 +19,11 @@ fn statement(mut obj: Map<String, Value>) -> Result<StatementPlan, String> {
     let planning_time_ms = take_opt_f64(&mut obj, "Planning Time")?;
     let execution_time_ms = take_opt_f64(&mut obj, "Execution Time")?;
     let plan_value = obj.remove("Plan").ok_or_else(|| "a plan has no Plan".to_string())?;
-    let root_obj = serde_json::from_value::<Map<String, Value>>(plan_value)
-        .map_err(|_| "a plan has no Plan".to_string())?;
+    let root_obj =
+        serde_json::from_value::<Map<String, Value>>(plan_value).map_err(|_| "a plan has no Plan".to_string())?;
     let root = node(&root_obj)?;
     let properties = properties_of(&obj, &[]);
-    Ok(StatementPlan {
-        planning_time_ms,
-        execution_time_ms,
-        statement_text: String::new(),
-        root,
-        properties,
-    })
+    Ok(StatementPlan { planning_time_ms, execution_time_ms, statement_text: String::new(), root, properties })
 }
 
 fn node(obj: &Map<String, Value>) -> Result<PlanNode, String> {
@@ -199,10 +193,7 @@ fn json_i64(value: &Value) -> i64 {
 fn properties_of(obj: &Map<String, Value>, lifted: &[&str]) -> Vec<PlanProperty> {
     obj.iter()
         .filter(|(key, _)| !lifted.iter().any(|name| name == key))
-        .map(|(key, value)| PlanProperty {
-            name: key.clone(),
-            value: show(value),
-        })
+        .map(|(key, value)| PlanProperty { name: key.clone(), value: show(value) })
         .collect()
 }
 
@@ -315,13 +306,7 @@ mod tests {
         assert_eq!(timed.statement_text, "");
         assert_eq!(timed.planning_time_ms, Some(0.5));
         assert_eq!(timed.execution_time_ms, Some(1.5));
-        assert_eq!(
-            timed.properties,
-            vec![PlanProperty {
-                name: "Whatever".to_string(),
-                value: "kept".to_string(),
-            }]
-        );
+        assert_eq!(timed.properties, vec![PlanProperty { name: "Whatever".to_string(), value: "kept".to_string() }]);
         let parent = &timed.root;
         assert_eq!(parent.total_time_ms, Some(6.0));
         assert_eq!(parent.self_time_ms, Some(4.0));
@@ -342,13 +327,7 @@ mod tests {
                 temp_written: 3,
             })
         );
-        assert_eq!(
-            parent.properties,
-            vec![PlanProperty {
-                name: "Output".to_string(),
-                value: "[\"id\"]".to_string(),
-            }]
-        );
+        assert_eq!(parent.properties, vec![PlanProperty { name: "Output".to_string(), value: "[\"id\"]".to_string() }]);
         assert_eq!(parent.children.len(), 1);
         let child = &parent.children[0];
         assert_eq!(child.operation, "Index Scan");
@@ -356,13 +335,7 @@ mod tests {
         assert_eq!(child.total_time_ms, Some(2.0));
         assert_eq!(child.self_time_ms, Some(2.0));
         assert_eq!(child.buffers, None);
-        assert_eq!(
-            child.properties,
-            vec![PlanProperty {
-                name: "Filter".to_string(),
-                value: "(id = 1)".to_string(),
-            }]
-        );
+        assert_eq!(child.properties, vec![PlanProperty { name: "Filter".to_string(), value: "(id = 1)".to_string() }]);
 
         let costs_only = &plan.statements[1];
         assert_eq!(costs_only.planning_time_ms, None);
@@ -371,10 +344,7 @@ mod tests {
         assert!(!costs_only.root.diverges);
         assert_eq!(
             costs_only.root.properties,
-            vec![PlanProperty {
-                name: "Parallel Aware".to_string(),
-                value: "false".to_string(),
-            }]
+            vec![PlanProperty { name: "Parallel Aware".to_string(), value: "false".to_string() }]
         );
 
         let join = &plan.statements[2];

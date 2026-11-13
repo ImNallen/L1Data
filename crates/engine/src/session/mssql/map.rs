@@ -18,8 +18,9 @@ impl MsSession {
             name: required(r, 2)?.into(),
             columns: vec![],
         });
-        let rows = self.rows(&format!(
-            "WITH incident AS (
+        let rows = self
+            .rows(&format!(
+                "WITH incident AS (
                 SELECT TOP (33) fk.* FROM sys.foreign_keys fk
                 WHERE (fk.parent_object_id={oid} OR fk.referenced_object_id={oid}) AND fk.object_id>{after}
                 ORDER BY fk.object_id
@@ -32,8 +33,11 @@ impl MsSession {
              JOIN sys.foreign_key_columns fc ON fc.constraint_object_id=fk.object_id
              JOIN sys.columns sc ON sc.object_id=fc.parent_object_id AND sc.column_id=fc.parent_column_id
              JOIN sys.columns tc ON tc.object_id=fc.referenced_object_id AND tc.column_id=fc.referenced_column_id
-             ORDER BY fk.object_id,fc.constraint_column_id", oid=native_object_id(oid), after=native_object_id(after)
-        )).await?;
+             ORDER BY fk.object_id,fc.constraint_column_id",
+                oid = native_object_id(oid),
+                after = native_object_id(after)
+            ))
+            .await?;
         for r in rows {
             let source = number::<i32>(&r, 2)? as u32;
             let target = number::<i32>(&r, 5)? as u32;
@@ -59,10 +63,7 @@ impl MsSession {
                     name: required(&r, 7)?.into(),
                     columns: vec![],
                 },
-                MapColumnPair {
-                    source: required(&r, 8)?.into(),
-                    target: required(&r, 9)?.into(),
-                },
+                MapColumnPair { source: required(&r, 8)?.into(), target: required(&r, 9)?.into() },
             );
         }
         Ok(Some(page))

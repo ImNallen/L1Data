@@ -19,10 +19,16 @@ struct Harness {
 impl Harness {
     async fn open(database: &str) -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let engine =
-            Engine::open(EngineConfig { data_dir: dir.path().into(), keys: Arc::new(MemoryKeyStore::default()), agent_path: AgentPath::Fixed("".into()), az_binary: None, user_known_hosts: None, updates: Arc::new(engine::ScriptedTransport::named("off").unwrap()) })
-                .await
-                .unwrap();
+        let engine = Engine::open(EngineConfig {
+            data_dir: dir.path().into(),
+            keys: Arc::new(MemoryKeyStore::default()),
+            agent_path: AgentPath::Fixed("".into()),
+            az_binary: None,
+            user_known_hosts: None,
+            updates: Arc::new(engine::ScriptedTransport::named("off").unwrap()),
+        })
+        .await
+        .unwrap();
         let events = engine.subscribe();
         let connection = engine
             .save_connection(ConnectionDraft {
@@ -33,7 +39,9 @@ impl Harness {
                 port: std::env::var("L1_DATA_TEST_MSSQL_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(1434),
                 database: database.into(),
                 user: "sa".into(),
-                password: PasswordInput::Set(std::env::var("L1_DATA_TEST_MSSQL_PASSWORD").unwrap_or_else(|_| "L1Data_dev_Str0ng".into())),
+                password: PasswordInput::Set(
+                    std::env::var("L1_DATA_TEST_MSSQL_PASSWORD").unwrap_or_else(|_| "L1Data_dev_Str0ng".into()),
+                ),
                 ssl_mode: SslMode::Require,
                 ca_cert_path: None,
                 color: None,
@@ -47,7 +55,15 @@ impl Harness {
         let db = DatabaseRef { connection_id: connection.id, database: database.into() };
         let tab = TabId(uuid::Uuid::new_v4());
         engine
-            .console_configure(tab, ConsoleConfig { connection_id: connection.id, database: db.database.clone(), schema: None, mode: TxnMode::AutoCommit })
+            .console_configure(
+                tab,
+                ConsoleConfig {
+                    connection_id: connection.id,
+                    database: db.database.clone(),
+                    schema: None,
+                    mode: TxnMode::AutoCommit,
+                },
+            )
             .await
             .unwrap();
         Self { engine, events, db, tab, _dir: dir }
@@ -70,7 +86,15 @@ impl Harness {
     }
 
     async fn sql(&mut self, text: &str) -> ConsoleState {
-        let state = self.request(RunRequest::Script { text: text.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }).await;
+        let state = self
+            .request(RunRequest::Script {
+                text: text.into(),
+                target: RunTarget::All,
+                mode: RunMode::Run,
+                params: Vec::new(),
+                cells: Vec::new(),
+            })
+            .await;
         Self::assert_ok(&state);
         state
     }
@@ -118,17 +142,36 @@ async fn additive_headers_refuse_unresolved_case_insensitive_order_names() {
     let mut h = Harness::open("shop").await;
     let table = format!("l1_header_ci_{}", uuid::Uuid::new_v4().simple());
     let outcome = AssertUnwindSafe(async {
-        h.sql(&format!("CREATE TABLE dbo.[{table}] (id int PRIMARY KEY); INSERT INTO dbo.[{table}] VALUES (1),(2)")).await;
+        h.sql(&format!("CREATE TABLE dbo.[{table}] (id int PRIMARY KEY); INSERT INTO dbo.[{table}] VALUES (1),(2)"))
+            .await;
         h.engine.refresh_catalog(h.db.clone()).await.unwrap();
         for order in ["ID DESC", "[ID] DESC", "\"ID\" DESC"] {
             let raw = h.browse(&table, order).await;
             let inspected = h.engine.table_order(h.db.clone(), "dbo", &table, order, TableOrderEdit::Inspect).unwrap();
             assert_eq!(inspected.sql, order);
             assert!(inspected.keys.is_none());
-            let error = h.engine.table_order(h.db.clone(), "dbo", &table, order, TableOrderEdit::Cycle { column: "id".into(), additive: true }).unwrap_err();
+            let error = h
+                .engine
+                .table_order(
+                    h.db.clone(),
+                    "dbo",
+                    &table,
+                    order,
+                    TableOrderEdit::Cycle { column: "id".into(), additive: true },
+                )
+                .unwrap_err();
             assert!(error.contains("exact table column names") && error.contains("without Shift"), "{error}");
             assert_eq!(h.rows(&raw), vec![vec![Some("2".into())], vec![Some("1".into())]]);
-            let sorted = h.engine.table_order(h.db.clone(), "dbo", &table, order, TableOrderEdit::Cycle { column: "id".into(), additive: false }).unwrap();
+            let sorted = h
+                .engine
+                .table_order(
+                    h.db.clone(),
+                    "dbo",
+                    &table,
+                    order,
+                    TableOrderEdit::Cycle { column: "id".into(), additive: false },
+                )
+                .unwrap();
             assert_eq!(sorted.sql, "[id] ASC");
             let state = h.browse(&table, &sorted.sql).await;
             assert_eq!(h.rows(&state), vec![vec![Some("1".into())], vec![Some("2".into())]]);

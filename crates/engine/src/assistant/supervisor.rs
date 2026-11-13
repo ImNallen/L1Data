@@ -12,8 +12,14 @@ pub(super) async fn supervise(shared: Arc<Shared>, chat: Arc<Chat>, turn: JoinHa
     let Err(e) = turn.await else { return };
     let outcome = match e.try_into_panic() {
         Ok(panic) => {
-            let text = panic.downcast_ref::<&str>().map(|s| (*s).to_owned()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_default();
-            TurnOutcome::Failed { error: AgentError::Provider { message: format!("The turn failed inside L1 Data: {text}") } }
+            let text = panic
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_owned())
+                .or_else(|| panic.downcast_ref::<String>().cloned())
+                .unwrap_or_default();
+            TurnOutcome::Failed {
+                error: AgentError::Provider { message: format!("The turn failed inside L1 Data: {text}") },
+            }
         }
         Err(_) => TurnOutcome::Lost,
     };

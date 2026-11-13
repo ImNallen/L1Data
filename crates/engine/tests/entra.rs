@@ -38,7 +38,16 @@ impl Harness {
     }
 
     async fn open(dir: tempfile::TempDir, agent_path: AgentPath, az_binary: Option<PathBuf>) -> Self {
-        let engine = Engine::open(EngineConfig { data_dir: dir.path().join("data"), keys: Arc::new(MemoryKeyStore::default()), agent_path, az_binary, user_known_hosts: None, updates: Arc::new(engine::ScriptedTransport::named("off").unwrap()) }).await.unwrap();
+        let engine = Engine::open(EngineConfig {
+            data_dir: dir.path().join("data"),
+            keys: Arc::new(MemoryKeyStore::default()),
+            agent_path,
+            az_binary,
+            user_known_hosts: None,
+            updates: Arc::new(engine::ScriptedTransport::named("off").unwrap()),
+        })
+        .await
+        .unwrap();
         Self { engine, dir }
     }
 
@@ -53,7 +62,14 @@ impl Harness {
 
 fn fake_az(program: &Path, dir: &tempfile::TempDir, scenario: &str, delay_secs: u32) {
     let log = dir.path().join("az.log");
-    std::fs::write(program, format!("#!/bin/sh\n/bin/sleep {delay_secs}\nexec '{FAKE_AZ}' --fake-scenario {scenario} --fake-log '{}' \"$@\"\n", log.display())).unwrap();
+    std::fs::write(
+        program,
+        format!(
+            "#!/bin/sh\n/bin/sleep {delay_secs}\nexec '{FAKE_AZ}' --fake-scenario {scenario} --fake-log '{}' \"$@\"\n",
+            log.display()
+        ),
+    )
+    .unwrap();
     std::fs::set_permissions(program, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
@@ -91,12 +107,27 @@ fn entra(host: &str, port: u16) -> ConnectionDraft {
 async fn an_entra_connection_needs_no_user_and_saves_no_password() {
     let h = Harness::with_az("ok").await;
     let saved = h.engine.save_connection(entra("db.example.net", 1433)).await.unwrap();
-    assert_eq!((saved.sql_server_auth, saved.has_password, saved.user.as_str()), (Some(SqlServerAuth::EntraAzureCli), false, ""));
-    let hidden_user = h.engine.save_connection(ConnectionDraft { id: Some(saved.id), user: "sa".into(), ..entra("db.example.net", 1433) }).await.unwrap();
+    assert_eq!(
+        (saved.sql_server_auth, saved.has_password, saved.user.as_str()),
+        (Some(SqlServerAuth::EntraAzureCli), false, "")
+    );
+    let hidden_user = h
+        .engine
+        .save_connection(ConnectionDraft { id: Some(saved.id), user: "sa".into(), ..entra("db.example.net", 1433) })
+        .await
+        .unwrap();
     assert_eq!(hidden_user.user, "", "the previous stable must find no user to try with an empty password");
-    let login = h.engine.save_connection(ConnectionDraft { id: Some(saved.id), sql_server_auth: Some(SqlServerAuth::SqlLogin), ..entra("db.example.net", 1433) }).await;
+    let login = h
+        .engine
+        .save_connection(ConnectionDraft {
+            id: Some(saved.id),
+            sql_server_auth: Some(SqlServerAuth::SqlLogin),
+            ..entra("db.example.net", 1433)
+        })
+        .await;
     assert!(matches!(login, Err(SaveError::Invalid { message }) if message == "user is required"));
-    let postgres = ConnectionDraft { database_kind: DatabaseKind::Postgres, user: "postgres".into(), ..entra("localhost", 5432) };
+    let postgres =
+        ConnectionDraft { database_kind: DatabaseKind::Postgres, user: "postgres".into(), ..entra("localhost", 5432) };
     assert_eq!(h.engine.save_connection(postgres).await.unwrap().sql_server_auth, None);
     assert_eq!(h.calls(), 0, "saving never runs az");
 }
@@ -134,7 +165,11 @@ async fn concurrent_sign_ins_share_one_az_call_and_its_failure() {
     let h = Harness::with_slow_az("signed-out", 1).await;
     let draft = entra("127.0.0.1", closing_port());
     let started = std::time::Instant::now();
-    let tries = tokio::join!(h.engine.test_connection(draft.clone()), h.engine.test_connection(draft.clone()), h.engine.test_connection(draft.clone()));
+    let tries = tokio::join!(
+        h.engine.test_connection(draft.clone()),
+        h.engine.test_connection(draft.clone()),
+        h.engine.test_connection(draft.clone())
+    );
     for result in [tries.0, tries.1, tries.2] {
         assert!(matches!(result, Err(ConnectError::Auth { .. })), "{result:?}");
     }
@@ -147,22 +182,35 @@ async fn concurrent_sign_ins_share_one_az_call_and_its_failure() {
 #[tokio::test]
 async fn a_signed_out_cli_fails_as_auth_naming_az_login() {
     let h = Harness::with_az("signed-out").await;
-    let Err(ConnectError::Auth { message }) = h.engine.test_connection(entra("127.0.0.1", closing_port())).await else { panic!("expected Auth") };
-    assert!(message.starts_with("Run `az login`, then try again.") && message.contains("Please run 'az login'"), "{message}");
+    let Err(ConnectError::Auth { message }) = h.engine.test_connection(entra("127.0.0.1", closing_port())).await else {
+        panic!("expected Auth")
+    };
+    assert!(
+        message.starts_with("Run `az login`, then try again.") && message.contains("Please run 'az login'"),
+        "{message}"
+    );
     assert_eq!(h.calls(), 1);
 }
 
 #[tokio::test]
 async fn a_missing_cli_fails_as_auth_naming_the_install_and_az_login() {
     let h = Harness::without_az().await;
-    let Err(ConnectError::Auth { message }) = h.engine.test_connection(entra("127.0.0.1", closing_port())).await else { panic!("expected Auth") };
+    let Err(ConnectError::Auth { message }) = h.engine.test_connection(entra("127.0.0.1", closing_port())).await else {
+        panic!("expected Auth")
+    };
     assert!(message.starts_with("Install the Azure CLI, run `az login`, then try again."), "{message}");
 }
 
 #[tokio::test]
 async fn an_entra_token_is_never_sent_over_tls_that_skips_verification() {
     let h = Harness::with_az("ok").await;
-    let Err(ConnectError::Tls { message }) = h.engine.test_connection(ConnectionDraft { ssl_mode: SslMode::Require, ..entra("127.0.0.1", refused_port()) }).await else { panic!("expected Tls") };
+    let Err(ConnectError::Tls { message }) = h
+        .engine
+        .test_connection(ConnectionDraft { ssl_mode: SslMode::Require, ..entra("127.0.0.1", refused_port()) })
+        .await
+    else {
+        panic!("expected Tls")
+    };
     assert!(message.starts_with("Choose Verify full"), "{message}");
     assert_eq!(h.calls(), 0, "the token is not even fetched");
 }
@@ -170,7 +218,9 @@ async fn an_entra_token_is_never_sent_over_tls_that_skips_verification() {
 #[tokio::test]
 async fn the_engine_config_az_binary_replaces_az_on_the_path() {
     let h = Harness::with_az_binary("signed-out").await;
-    let Err(ConnectError::Auth { message }) = h.engine.test_connection(entra("127.0.0.1", closing_port())).await else { panic!("expected Auth") };
+    let Err(ConnectError::Auth { message }) = h.engine.test_connection(entra("127.0.0.1", closing_port())).await else {
+        panic!("expected Auth")
+    };
     assert!(message.contains("Please run 'az login'"), "{message}");
     assert_eq!(h.calls(), 1);
 }
@@ -192,7 +242,12 @@ async fn the_dev_servers_self_signed_certificate_fails_an_entra_sign_in_before_l
     let id = h.engine.save_connection(entra(&host, port)).await.unwrap().id;
     for _ in 0..2 {
         let Err(ConnectError::Tls { message }) = h.engine.connect(id).await else { panic!("expected Tls") };
-        assert!(message.starts_with("The server's certificate could not be verified, so the Microsoft Entra ID token was not sent."), "{message}");
+        assert!(
+            message.starts_with(
+                "The server's certificate could not be verified, so the Microsoft Entra ID token was not sent."
+            ),
+            "{message}"
+        );
         assert!(!message.contains("trust_cert"), "{message}");
     }
     assert_eq!(h.calls(), 1, "a login that refused the token would drop it, so the second sign-in would run az again");

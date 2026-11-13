@@ -36,7 +36,12 @@ impl InsertPlan {
     pub fn new(target: ImportTarget, shape: ImportTargetShape, columns: &[&str]) -> Result<Self, ImportError> {
         let mut ascii = Vec::new();
         for name in columns {
-            let kind = shape.columns.iter().find(|(n, _)| n == name).map(|(_, t)| t.as_str()).ok_or(ImportError::TargetChanged)?;
+            let kind = shape
+                .columns
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, t)| t.as_str())
+                .ok_or(ImportError::TargetChanged)?;
             if !matches!(
                 kind,
                 "tinyint"
@@ -68,7 +73,10 @@ impl InsertPlan {
         }
         let qualified = format!("{}.{}", quote_ident(&target.schema), quote_ident(&target.table));
         let names = columns.iter().map(|n| quote_ident(n)).collect::<Vec<_>>().join(",");
-        let display = format!("INSERT {qualified} ({names}) VALUES ({})", (1..=columns.len()).map(|n| format!("@P{n}")).collect::<Vec<_>>().join(","));
+        let display = format!(
+            "INSERT {qualified} ({names}) VALUES ({})",
+            (1..=columns.len()).map(|n| format!("@P{n}")).collect::<Vec<_>>().join(",")
+        );
         let mut values = Vec::new();
         let templates = (0..128.min(2000 / columns.len())).map(|row| {
             values.push(format!("({})", (0..columns.len()).map(|col| format!("@P{}", row * columns.len() + col + 1)).collect::<Vec<_>>().join(",")));
@@ -97,7 +105,11 @@ impl InsertPlan {
     }
     pub fn validate_row(&self, row: &[Option<String>], line: u64, record: u64) -> Result<(), ImportError> {
         if row.iter().zip(&self.ascii).any(|(value, ascii)| *ascii && value.as_ref().is_some_and(|v| !v.is_ascii())) {
-            return Err(ImportError::Csv { line, record, message: "SQL Server char/varchar import accepts ASCII only; use nchar/nvarchar for Unicode".into() });
+            return Err(ImportError::Csv {
+                line,
+                record,
+                message: "SQL Server char/varchar import accepts ASCII only; use nchar/nvarchar for Unicode".into(),
+            });
         }
         Ok(())
     }
@@ -135,7 +147,12 @@ fn query(error: QueryError) -> ImportError {
     ImportError::Query { error }
 }
 fn unknown(message: impl Into<String>) -> ImportError {
-    ImportError::OutcomeUnknown { error: error(format!("{}. Import may have committed. The session was retired; do not retry without checking stored rows.", message.into())) }
+    ImportError::OutcomeUnknown {
+        error: error(format!(
+            "{}. Import may have committed. The session was retired; do not retry without checking stored rows.",
+            message.into()
+        )),
+    }
 }
 
 fn metadata(target: &ImportTarget) -> String {
@@ -198,12 +215,19 @@ fn shape(rows: Vec<Vec<Option<String>>>) -> Result<ImportTargetShape, QueryError
     let first = rows.first().ok_or_else(|| error("Missing import target metadata"))?;
     Ok(ImportTargetShape {
         signature: required(first, 0)?.into(),
-        columns: rows.iter().skip(1).map(|r| Ok((required(r, 0)?.into(), required(r, 1)?.into()))).collect::<Result<_, QueryError>>()?,
+        columns: rows
+            .iter()
+            .skip(1)
+            .map(|r| Ok((required(r, 0)?.into(), required(r, 1)?.into())))
+            .collect::<Result<_, QueryError>>()?,
     })
 }
 
 impl MsSession {
-    pub(in crate::session) async fn import_target(&mut self, target: &ImportTarget) -> Result<ImportTargetShape, QueryError> {
+    pub(in crate::session) async fn import_target(
+        &mut self,
+        target: &ImportTarget,
+    ) -> Result<ImportTargetShape, QueryError> {
         shape(self.rows(&metadata(target)).await?)
     }
 }
@@ -213,7 +237,10 @@ async fn state(client: &mut TdsClient, database: &str, expected: TxnState) -> Re
     let row = result.first().ok_or_else(|| error("Missing import transaction state"))?;
     let (count, active) = if expected == TxnState::Idle { ("0", "0") } else { ("1", "1") };
     if required(row, 0)? != count || required(row, 1)? != active || observe(client, database)? != expected {
-        return Err(error(format!("SQL Server import transaction state changed unexpectedly: expected {expected:?}, server {row:?}, native {:?}", observe(client, database)?)));
+        return Err(error(format!(
+            "SQL Server import transaction state changed unexpectedly: expected {expected:?}, server {row:?}, native {:?}",
+            observe(client, database)?
+        )));
     }
     number(row, 2)
 }
@@ -239,7 +266,8 @@ enum BatchOutcome {
 async fn insert(client: &mut TdsClient, plan: &InsertPlan, chunk: &ImportRows) -> Result<BatchOutcome, ImportError> {
     let values = chunk.rows.iter().flatten().map(|v| v.as_deref()).collect::<Vec<_>>();
     let params = values.iter().map(|v| v as &dyn tiberius::ToSql).collect::<Vec<_>>();
-    let stream = client.query(&plan.templates[chunk.rows.len() - 1], &params).await.map_err(query_error).map_err(query)?;
+    let stream =
+        client.query(&plan.templates[chunk.rows.len() - 1], &params).await.map_err(query_error).map_err(query)?;
     let mut stream = std::pin::pin!(stream);
     let mut outcome = None;
     let mut failure = None;
@@ -248,7 +276,11 @@ async fn insert(client: &mut TdsClient, plan: &InsertPlan, chunk: &ImportRows) -
             Ok(Some(QueryItem::Row(row))) => {
                 if let Some(message) = row.get::<&str, _>(0) {
                     let mut e = error(message);
-                    e.context = Some(format!("CSV records {} through {}", chunk.first_record, chunk.first_record + chunk.rows.len() as u64 - 1));
+                    e.context = Some(format!(
+                        "CSV records {} through {}",
+                        chunk.first_record,
+                        chunk.first_record + chunk.rows.len() as u64 - 1
+                    ));
                     outcome = Some(BatchOutcome::RolledBack(query(e)));
                 } else if row.get::<i32, _>(1) == Some(chunk.rows.len() as i32) {
                     outcome = Some(BatchOutcome::Inserted);
@@ -261,7 +293,11 @@ async fn insert(client: &mut TdsClient, plan: &InsertPlan, chunk: &ImportRows) -
                     failure = Some(query_error(tiberius::error::Error::Server(e)));
                 }
             }
-            Err(tiberius::error::Error::Server(e)) if e.code() == 266 && matches!(outcome, Some(BatchOutcome::RolledBack(_))) => break,
+            Err(tiberius::error::Error::Server(e))
+                if e.code() == 266 && matches!(outcome, Some(BatchOutcome::RolledBack(_))) =>
+            {
+                break;
+            }
             Err(e) => return Err(query(query_error(e))),
             Ok(None) => break,
             _ => {}
@@ -342,14 +378,17 @@ impl MsSession {
                 if imported.is_err() {
                     stop.store(true, Ordering::Relaxed);
                 }
-                let produced = producer.as_mut().unwrap().await.map_err(|e| query(error(e.to_string()))).and_then(|r| r);
+                let produced =
+                    producer.as_mut().unwrap().await.map_err(|e| query(error(e.to_string()))).and_then(|r| r);
                 producer.take();
                 let imported = imported.and_then(|n| produced.map(|()| n));
                 if matches!(fence, FenceState::RolledBack) {
                     state(lease.client(), &database, TxnState::Idle).await.map_err(|e| unknown(e.message))?;
                     return imported;
                 }
-                check_fence(lease.client(), &database, &id).await.map_err(|e| unknown(format!("{}; operation result {imported:?}", e.message)))?;
+                check_fence(lease.client(), &database, &id)
+                    .await
+                    .map_err(|e| unknown(format!("{}; operation result {imported:?}", e.message)))?;
                 match imported {
                     Ok(count) if !stop.load(Ordering::Relaxed) => {
                         rows(lease.client(), plan.commit_sql()).await.map_err(|e| unknown(e.message))?;

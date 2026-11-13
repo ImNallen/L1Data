@@ -1,7 +1,10 @@
 use super::{Kind, STATEMENT_WORDS, Token, lex, split_batches};
 
 #[derive(Clone, Copy)]
-enum InsertSource { Values, Select }
+enum InsertSource {
+    Values,
+    Select,
+}
 
 #[derive(Clone, Copy)]
 enum Statement {
@@ -25,17 +28,31 @@ fn format_batch(text: &str) -> Result<String, String> {
             let root = statement.is_none() && token.text != ";";
             let mut allowed = false;
             if root {
-                statement = Some(if token.word("SELECT") { Statement::Select }
-                    else if token.word("INSERT") { Statement::InsertTarget }
-                    else if token.word("UPDATE") { Statement::Update { set: false } }
-                    else if token.word("DELETE") { Statement::Delete }
-                    else { return Err("Unsupported T-SQL formatting statement".into()); });
+                statement = Some(if token.word("SELECT") {
+                    Statement::Select
+                } else if token.word("INSERT") {
+                    Statement::InsertTarget
+                } else if token.word("UPDATE") {
+                    Statement::Update { set: false }
+                } else if token.word("DELETE") {
+                    Statement::Delete
+                } else {
+                    return Err("Unsupported T-SQL formatting statement".into());
+                });
                 allowed = true;
             } else if depth == 0 {
                 match statement {
-                    Some(Statement::InsertTarget) if token.word("INTO") && significant.is_some_and(|p| p.word("INSERT")) => allowed = true,
+                    Some(Statement::InsertTarget)
+                        if token.word("INTO") && significant.is_some_and(|p| p.word("INSERT")) =>
+                    {
+                        allowed = true
+                    }
                     Some(Statement::InsertTarget) if token.word("VALUES") || token.word("SELECT") => {
-                        statement = Some(Statement::InsertSource(if token.word("VALUES") { InsertSource::Values } else { InsertSource::Select }));
+                        statement = Some(Statement::InsertSource(if token.word("VALUES") {
+                            InsertSource::Values
+                        } else {
+                            InsertSource::Select
+                        }));
                         allowed = true;
                         dml_clause = token.word("VALUES");
                     }
@@ -47,11 +64,13 @@ fn format_batch(text: &str) -> Result<String, String> {
                     _ => {}
                 }
             }
-            if !allowed && token.kind == Kind::Word
-                && (STATEMENT_WORDS.iter().any(|w| token.word(w) && (*w != "SELECT" || depth == 0 && !matches!(statement, Some(Statement::Select))))
-                    || ["APPLY", "CASE", "EXCEPT", "FOR", "INTERSECT", "INTO", "OVER", "PIVOT", "UNION", "UNPIVOT"]
-                        .iter()
-                        .any(|w| token.word(w))
+            if !allowed
+                && token.kind == Kind::Word
+                && (STATEMENT_WORDS.iter().any(|w| {
+                    token.word(w) && (*w != "SELECT" || depth == 0 && !matches!(statement, Some(Statement::Select)))
+                }) || ["APPLY", "CASE", "EXCEPT", "FOR", "INTERSECT", "INTO", "OVER", "PIVOT", "UNION", "UNPIVOT"]
+                    .iter()
+                    .any(|w| token.word(w))
                     || token.word("OUTPUT") && !matches!(statement, Some(Statement::Select))
                     || token.word("VALUES") && depth == 0 && !matches!(statement, Some(Statement::Select)))
             {
@@ -59,7 +78,8 @@ fn format_batch(text: &str) -> Result<String, String> {
             }
             if token.kind == Kind::Symbol
                 && ![
-                    "(", ")", ".", ",", ";", "+", "-", "*", "/", "%", "&", "|", "^", "~", "=", "<", ">", "<=", ">=", "<>", "!=", "!<", "!>",
+                    "(", ")", ".", ",", ";", "+", "-", "*", "/", "%", "&", "|", "^", "~", "=", "<", ">", "<=", ">=",
+                    "<>", "!=", "!<", "!>",
                 ]
                 .contains(&token.text)
             {
@@ -68,10 +88,14 @@ fn format_batch(text: &str) -> Result<String, String> {
         }
         let gap = previous.map_or("", |p| &text[p.end..token.start]);
         let clause = dml_clause
-            || depth == 0 && token.word("SELECT") && matches!(statement, Some(Statement::InsertSource(InsertSource::Select)))
             || depth == 0
-            && ["FROM", "WHERE", "GROUP", "HAVING", "ORDER", "OFFSET", "FETCH"].iter().any(|w| token.word(w))
-            && !(token.word("FROM") && matches!(statement, Some(Statement::Delete)) && significant.is_some_and(|p| p.word("DELETE")));
+                && token.word("SELECT")
+                && matches!(statement, Some(Statement::InsertSource(InsertSource::Select)))
+            || depth == 0
+                && ["FROM", "WHERE", "GROUP", "HAVING", "ORDER", "OFFSET", "FETCH"].iter().any(|w| token.word(w))
+                && !(token.word("FROM")
+                    && matches!(statement, Some(Statement::Delete))
+                    && significant.is_some_and(|p| p.word("DELETE")));
         let newline = clause
             || previous.is_some_and(|p| p.kind == Kind::LineComment || p.text == ";")
             || token.comment() && gap.contains(['\r', '\n']);
@@ -90,7 +114,9 @@ fn format_batch(text: &str) -> Result<String, String> {
         out.push_str(token.text);
         match token.text {
             "(" if !token.comment() => depth += 1,
-            ")" if !token.comment() => depth = depth.checked_sub(1).ok_or("Unsupported unbalanced T-SQL parentheses")?,
+            ")" if !token.comment() => {
+                depth = depth.checked_sub(1).ok_or("Unsupported unbalanced T-SQL parentheses")?
+            }
             ";" if !token.comment() && depth == 0 => {
                 if matches!(statement, Some(Statement::InsertTarget | Statement::Update { set: false })) {
                     return Err("Unsupported incomplete T-SQL formatting statement".into());
@@ -99,7 +125,9 @@ fn format_batch(text: &str) -> Result<String, String> {
             }
             _ => {}
         }
-        if !token.comment() { significant = Some(token); }
+        if !token.comment() {
+            significant = Some(token);
+        }
         previous = Some(token);
     }
     if depth != 0 {
@@ -158,20 +186,41 @@ mod tests {
         assert_eq!(tokens(text), tokens(&formatted));
         assert_eq!(format(&formatted).unwrap(), formatted);
         assert_eq!(format("select 1 select 2").unwrap(), "select 1 select 2");
-        assert_eq!(format("select  a,b from t where a=1; select 2").unwrap(), "select a, b\nfrom t\nwhere a = 1;\nselect 2");
+        assert_eq!(
+            format("select  a,b from t where a=1; select 2").unwrap(),
+            "select a, b\nfrom t\nwhere a = 1;\nselect 2"
+        );
     }
 
     #[test]
     fn formatter_lays_out_ordinary_dml_without_changing_tokens() {
         for (text, expected) in [
-            ("insert into dbo.t (id,n) values (1,N'hello'),(2,@n);", "insert into dbo.t (id, n)\nvalues (1, N'hello'),(2, @n);"),
+            (
+                "insert into dbo.t (id,n) values (1,N'hello'),(2,@n);",
+                "insert into dbo.t (id, n)\nvalues (1, N'hello'),(2, @n);",
+            ),
             ("INSERT #t DEFAULT VALUES;", "INSERT #t DEFAULT\nVALUES;"),
-            ("Insert dbo.t(id,n) Select id,n From dbo.s Where id>@id Order by id;", "Insert dbo.t(id, n)\nSelect id, n\nFrom dbo.s\nWhere id > @id\nOrder by id;"),
-            ("update t set n=@n,id=id+1 from dbo.t t where id=2;", "update t\nset n = @n, id = id + 1\nfrom dbo.t t\nwhere id = 2;"),
+            (
+                "Insert dbo.t(id,n) Select id,n From dbo.s Where id>@id Order by id;",
+                "Insert dbo.t(id, n)\nSelect id, n\nFrom dbo.s\nWhere id > @id\nOrder by id;",
+            ),
+            (
+                "update t set n=@n,id=id+1 from dbo.t t where id=2;",
+                "update t\nset n = @n, id = id + 1\nfrom dbo.t t\nwhere id = 2;",
+            ),
             ("DELETE FROM dbo.t WHERE id=@id;", "DELETE FROM dbo.t\nWHERE id = @id;"),
-            ("delete t from dbo.t t join dbo.s s on t.id=s.id where s.n=1;", "delete t\nfrom dbo.t t join dbo.s s on t.id = s.id\nwhere s.n = 1;"),
-            ("update t set n=(select max(n) from s); delete from t; insert t values (1); select 2;", "update t\nset n =(select max(n) from s);\ndelete from t;\ninsert t\nvalues (1);\nselect 2;"),
-            ("insert /* target */ into [旅]]人] values (N'😀',-1,1e-3,@旅); -- keep\nGO -- batch\nDELETE /* keep */ FROM #t WHERE n=-@n;", "insert /* target */ into [旅]]人]\nvalues (N'😀', - 1, 1e-3, @旅);\n-- keep\nGO -- batch\nDELETE /* keep */ FROM #t\nWHERE n = - @n;"),
+            (
+                "delete t from dbo.t t join dbo.s s on t.id=s.id where s.n=1;",
+                "delete t\nfrom dbo.t t join dbo.s s on t.id = s.id\nwhere s.n = 1;",
+            ),
+            (
+                "update t set n=(select max(n) from s); delete from t; insert t values (1); select 2;",
+                "update t\nset n =(select max(n) from s);\ndelete from t;\ninsert t\nvalues (1);\nselect 2;",
+            ),
+            (
+                "insert /* target */ into [旅]]人] values (N'😀',-1,1e-3,@旅); -- keep\nGO -- batch\nDELETE /* keep */ FROM #t WHERE n=-@n;",
+                "insert /* target */ into [旅]]人]\nvalues (N'😀', - 1, 1e-3, @旅);\n-- keep\nGO -- batch\nDELETE /* keep */ FROM #t\nWHERE n = - @n;",
+            ),
             ("INSERT t VALUES ((SELECT max(n) FROM s));", "INSERT t\nVALUES ((SELECT max(n) FROM s));"),
         ] {
             let formatted = format(text).unwrap();

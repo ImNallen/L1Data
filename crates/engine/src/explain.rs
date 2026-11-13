@@ -1,16 +1,16 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use futures_util::StreamExt;
 
-use crate::console::{self, statement_line, Console, ConsoleInner, Orphaned, Work};
+use crate::Shared;
+use crate::console::{self, Console, ConsoleInner, Orphaned, Work, statement_line};
 use crate::model::*;
 use crate::results::Caps;
 use crate::session::{self, QueryEvent, Session};
 use crate::sql::StmtSpan;
 use crate::writes;
-use crate::Shared;
 
 pub(crate) enum ExplainMode {
     Explain,
@@ -235,10 +235,36 @@ pub(crate) async fn run(console: Arc<Console>, shared: Arc<Shared>, launch: Laun
     let caps = Caps { max_rows: settings.max_rows, max_bytes: settings.max_result_bytes };
 
     if let Err(error) = session.use_schema(schema.as_deref(), entered).await {
-        return finish(&console, &shared, session, run_id, &body, &connection, &database, started, entered, None, failed(error)).await;
+        return finish(
+            &console,
+            &shared,
+            session,
+            run_id,
+            &body,
+            &connection,
+            &database,
+            started,
+            entered,
+            None,
+            failed(error),
+        )
+        .await;
     }
     if let Err(error) = session.batch(bracket.open()).await {
-        return finish(&console, &shared, session, run_id, &body, &connection, &database, started, entered, None, failed(error)).await;
+        return finish(
+            &console,
+            &shared,
+            session,
+            run_id,
+            &body,
+            &connection,
+            &database,
+            started,
+            entered,
+            None,
+            failed(error),
+        )
+        .await;
     }
     console.output(&shared, run_id, statement_line(0, &body));
     let read = read_plan(&mut session, &body, &stop).await;
@@ -250,17 +276,77 @@ pub(crate) async fn run(console: Arc<Console>, shared: Arc<Shared>, launch: Laun
             Read::Failed(error) => failed(in_document(error, origin, prefix)),
             Read::Ready { .. } => failed(error),
         };
-        return finish(&console, &shared, session, run_id, &body, &connection, &database, started, entered, lost, end).await;
+        return finish(&console, &shared, session, run_id, &body, &connection, &database, started, entered, lost, end)
+            .await;
     }
     match read {
-        Read::Cancelled => finish(&console, &shared, session, run_id, &body, &connection, &database, started, restored, None, cancelled()).await,
-        Read::Failed(error) => finish(&console, &shared, session, run_id, &body, &connection, &database, started, restored, None, failed(in_document(error, origin, prefix))).await,
+        Read::Cancelled => {
+            finish(
+                &console,
+                &shared,
+                session,
+                run_id,
+                &body,
+                &connection,
+                &database,
+                started,
+                restored,
+                None,
+                cancelled(),
+            )
+            .await
+        }
+        Read::Failed(error) => {
+            finish(
+                &console,
+                &shared,
+                session,
+                run_id,
+                &body,
+                &connection,
+                &database,
+                started,
+                restored,
+                None,
+                failed(in_document(error, origin, prefix)),
+            )
+            .await
+        }
         Read::Ready { cell, columns } => {
-            let output = match store_plan(&console, run_id, &schema, &connection, &database, &cell, columns, &caps, started) {
-                Ok(output) => output,
-                Err(error) => return finish(&console, &shared, session, run_id, &body, &connection, &database, started, restored, None, failed(error)).await,
-            };
-            finish(&console, &shared, session, run_id, &body, &connection, &database, started, restored, None, ok_plan(output)).await
+            let output =
+                match store_plan(&console, run_id, &schema, &connection, &database, &cell, columns, &caps, started) {
+                    Ok(output) => output,
+                    Err(error) => {
+                        return finish(
+                            &console,
+                            &shared,
+                            session,
+                            run_id,
+                            &body,
+                            &connection,
+                            &database,
+                            started,
+                            restored,
+                            None,
+                            failed(error),
+                        )
+                        .await;
+                    }
+                };
+            finish(
+                &console,
+                &shared,
+                session,
+                run_id,
+                &body,
+                &connection,
+                &database,
+                started,
+                restored,
+                None,
+                ok_plan(output),
+            )
+            .await
         }
     }
 }
@@ -375,9 +461,18 @@ async fn finish(
     let plan_end = match end {
         End { error: Some(error), .. } => console::PlanEnd::Failed(error),
         End { outcome: RunOutcome::Cancelled, .. } => console::PlanEnd::Cancelled,
-        End { outputs, .. } => console::PlanEnd::Ready(outputs.into_iter().next().expect("a finished explain stores one plan")),
+        End { outputs, .. } => {
+            console::PlanEnd::Ready(outputs.into_iter().next().expect("a finished explain stores one plan"))
+        }
     };
-    console::finish_plan(console, shared, connection, database, console::PlanFinish { session, run_id, sql: body.to_owned(), started, txn, lost, end: plan_end }).await
+    console::finish_plan(
+        console,
+        shared,
+        connection,
+        database,
+        console::PlanFinish { session, run_id, sql: body.to_owned(), started, txn, lost, end: plan_end },
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -415,13 +510,24 @@ mod tests {
                     environment: Some(Environment::Production),
                     sql_server_auth: None,
                 },
-                console: ConsoleConfigView { connection_id: id, database: "shop".into(), schema: None, mode: TxnMode::AutoCommit },
+                console: ConsoleConfigView {
+                    connection_id: id,
+                    database: "shop".into(),
+                    schema: None,
+                    mode: TxnMode::AutoCommit,
+                },
                 unasked: WriteList::default(),
             }
         }
 
         fn target(&self) -> writes::Target<'_> {
-            writes::Target { saved: &self.saved, opened: &self.saved, console: &self.console, txn: TxnState::Idle, unasked: &self.unasked }
+            writes::Target {
+                saved: &self.saved,
+                opened: &self.saved,
+                console: &self.console,
+                txn: TxnState::Idle,
+                unasked: &self.unasked,
+            }
         }
     }
 
@@ -473,24 +579,41 @@ mod tests {
         let prod = Prod::new();
         let target = prod.target();
 
-        let aborted = prepare(ExplainMode::Explain, DatabaseKind::Postgres, TxnState::Aborted, select, &one, &target, None).unwrap_err();
+        let aborted =
+            prepare(ExplainMode::Explain, DatabaseKind::Postgres, TxnState::Aborted, select, &one, &target, None)
+                .unwrap_err();
         expect_unsupported(aborted, "The transaction must be rolled back first.");
 
         let two = [StmtSpan { start: 0, end: 6 }, StmtSpan { start: 6, end: select.len() }];
-        let several = prepare(ExplainMode::Explain, DatabaseKind::Postgres, TxnState::Idle, select, &two, &target, None).unwrap_err();
+        let several =
+            prepare(ExplainMode::Explain, DatabaseKind::Postgres, TxnState::Idle, select, &two, &target, None)
+                .unwrap_err();
         expect_unsupported(several, "Explain one statement.");
 
         let explained = "/* c */ explain select 1";
-        let already = prepare(ExplainMode::Explain, DatabaseKind::Postgres, TxnState::Idle, explained, &[span_of(explained)], &target, None).unwrap_err();
+        let already = prepare(
+            ExplainMode::Explain,
+            DatabaseKind::Postgres,
+            TxnState::Idle,
+            explained,
+            &[span_of(explained)],
+            &target,
+            None,
+        )
+        .unwrap_err();
         expect_unsupported(already, "The statement already starts with EXPLAIN.");
 
-        let sql_server = prepare(ExplainMode::Analyze, DatabaseKind::SqlServer, TxnState::Idle, select, &one, &target, None).unwrap_err();
+        let sql_server =
+            prepare(ExplainMode::Analyze, DatabaseKind::SqlServer, TxnState::Idle, select, &one, &target, None)
+                .unwrap_err();
         expect_unsupported(sql_server, "Explain is only for PostgreSQL.");
 
-        let none = prepare(ExplainMode::Explain, DatabaseKind::Postgres, TxnState::Idle, select, &[], &target, None).unwrap_err();
+        let none = prepare(ExplainMode::Explain, DatabaseKind::Postgres, TxnState::Idle, select, &[], &target, None)
+            .unwrap_err();
         assert!(matches!(none, RunError::NoStatement), "got {none:?}");
 
-        let open = prepare(ExplainMode::Explain, DatabaseKind::Postgres, TxnState::Open, select, &one, &target, None).unwrap_err();
+        let open = prepare(ExplainMode::Explain, DatabaseKind::Postgres, TxnState::Open, select, &one, &target, None)
+            .unwrap_err();
         expect_unsupported(open, "Explain is only for PostgreSQL.");
     }
 
@@ -500,16 +623,29 @@ mod tests {
         let spans = [span_of(text)];
         let prod = Prod::new();
         let target = prod.target();
-        let analyze = prepare(ExplainMode::Analyze, DatabaseKind::Postgres, TxnState::Idle, text, &spans, &target, None);
+        let analyze =
+            prepare(ExplainMode::Analyze, DatabaseKind::Postgres, TxnState::Idle, text, &spans, &target, None);
         let Err(RunError::ConfirmWrites { confirmation }) = analyze else {
             panic!("analyze update should confirm, got {analyze:?}");
         };
-        let explain = prepare(ExplainMode::Explain, DatabaseKind::Postgres, TxnState::Idle, text, &spans, &target, None);
+        let explain =
+            prepare(ExplainMode::Explain, DatabaseKind::Postgres, TxnState::Idle, text, &spans, &target, None);
         assert!(explain.is_ok(), "explain update should pass: {explain:?}");
 
         let digest = confirmation.digest.clone();
-        let active = prepare(ExplainMode::Analyze, DatabaseKind::Postgres, TxnState::Active, text, &spans, &target, Some(&digest));
-        assert!(matches!(active, Err(RunError::ConfirmWrites { .. })), "idle digest must not accept active analyze, got {active:?}");
+        let active = prepare(
+            ExplainMode::Analyze,
+            DatabaseKind::Postgres,
+            TxnState::Active,
+            text,
+            &spans,
+            &target,
+            Some(&digest),
+        );
+        assert!(
+            matches!(active, Err(RunError::ConfirmWrites { .. })),
+            "idle digest must not accept active analyze, got {active:?}"
+        );
     }
 
     #[test]

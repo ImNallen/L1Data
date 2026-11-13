@@ -87,7 +87,13 @@ impl Shared {
                 if !fixes.is_empty() {
                     self.store.put_entries(id, &fixes)?;
                 }
-                let entry_count = entries.iter().chain(fixes.iter()).map(|(seq, _, _)| seq + 1).max().unwrap_or(0).max(record.entry_count);
+                let entry_count = entries
+                    .iter()
+                    .chain(fixes.iter())
+                    .map(|(seq, _, _)| seq + 1)
+                    .max()
+                    .unwrap_or(0)
+                    .max(record.entry_count);
                 if entry_count != record.entry_count {
                     record.entry_count = entry_count;
                     self.store.put_chat(id, &record)?;
@@ -96,13 +102,29 @@ impl Shared {
             }
             None => (self.draft_record(), ChatStatus::Draft),
         };
-        let chat = self.assistant.chats.write().unwrap().entry(id).or_insert_with(|| Arc::new(Chat::new(id, record, status))).clone();
+        let chat = self
+            .assistant
+            .chats
+            .write()
+            .unwrap()
+            .entry(id)
+            .or_insert_with(|| Arc::new(Chat::new(id, record, status)))
+            .clone();
         Ok(chat)
     }
 
     fn draft_record(&self) -> ChatRecord {
         let now = now_ms();
-        ChatRecord { title: String::new(), created_at_ms: now, updated_at_ms: now, options: self.default_options(), session: None, entry_count: 0, access: None, recap_floor: 0 }
+        ChatRecord {
+            title: String::new(),
+            created_at_ms: now,
+            updated_at_ms: now,
+            options: self.default_options(),
+            session: None,
+            entry_count: 0,
+            access: None,
+            recap_floor: 0,
+        }
     }
 
     fn default_options(&self) -> ChatOptions {
@@ -112,7 +134,13 @@ impl Shared {
         let p = provider(kind);
         let (asked_model, asked_effort) = cfg.map(|c| p.launch_choice(c)).unwrap_or_default();
         let models = self.providers.models(kind);
-        let newest = self.store.chats(1).ok().and_then(|chats| chats.into_iter().next()).map(|(_, record)| record.options).filter(|o| o.provider == kind);
+        let newest = self
+            .store
+            .chats(1)
+            .ok()
+            .and_then(|chats| chats.into_iter().next())
+            .map(|(_, record)| record.options)
+            .filter(|o| o.provider == kind);
         if asked_model.is_none()
             && asked_effort.is_none()
             && let (Some(prev), Some(models)) = (newest, models.as_deref())
@@ -124,7 +152,12 @@ impl Shared {
         let (model, effort) = match models.and_then(|models| models.into_iter().find(|m| m.recommended)) {
             Some(model) => {
                 let listed = |id: &str| model.efforts.iter().find(|e| e.id.0 == id);
-                let effort = asked_effort.as_ref().and_then(|a| listed(&a.0)).or_else(|| listed("high")).or(model.efforts.last()).map(|e| e.id.clone());
+                let effort = asked_effort
+                    .as_ref()
+                    .and_then(|a| listed(&a.0))
+                    .or_else(|| listed("high"))
+                    .or(model.efforts.last())
+                    .map(|e| e.id.clone());
                 (model.id, effort)
             }
             None => p.fallback_model(),
@@ -134,7 +167,10 @@ impl Shared {
 
     fn validate_options(&self, options: &ChatOptions) -> Result<(), ChatError> {
         let Some(models) = self.providers.models(options.provider) else { return Ok(()) };
-        let model = models.iter().find(|m| m.id == options.model).ok_or_else(|| ChatError::UnknownModel { model: options.model.clone() })?;
+        let model = models
+            .iter()
+            .find(|m| m.id == options.model)
+            .ok_or_else(|| ChatError::UnknownModel { model: options.model.clone() })?;
         if let Some(effort) = &options.effort
             && !model.efforts.iter().any(|e| e.id == *effort)
         {
@@ -148,7 +184,10 @@ impl Shared {
         let chat = self.chat(id).map_err(store_error)?;
         let inner = chat.inner.lock().unwrap();
         let stored = if inner.stored() { self.store.chat_entries(id).map_err(store_error)? } else { Vec::new() };
-        let mut entries: Vec<EntrySnapshot> = stored.into_iter().map(|(seq, turn, entry)| EntrySnapshot { chat_id: id, seq, rev: inner.rev, turn, entry }).collect();
+        let mut entries: Vec<EntrySnapshot> = stored
+            .into_iter()
+            .map(|(seq, turn, entry)| EntrySnapshot { chat_id: id, seq, rev: inner.rev, turn, entry })
+            .collect();
         for (seq, live) in &inner.live {
             match entries.iter_mut().find(|e| e.seq == *seq) {
                 Some(slot) => *slot = live.clone(),
@@ -167,7 +206,11 @@ impl Shared {
         Ok(chat.publish_state(self))
     }
 
-    pub(crate) async fn assistant_send(self: &Arc<Self>, id: ChatId, mut request: SendRequest) -> Result<TurnAccepted, SendError> {
+    pub(crate) async fn assistant_send(
+        self: &Arc<Self>,
+        id: ChatId,
+        mut request: SendRequest,
+    ) -> Result<TurnAccepted, SendError> {
         let text = request.text.trim().to_owned();
         if text.is_empty() {
             return Err(SendError::EmptyMessage);
@@ -175,7 +218,9 @@ impl Shared {
         let chat = self.chat(id).map_err(|e| SendError::Store { message: e.to_string() })?;
         let access_guard = self.access.lock();
         let access = *access_guard;
-        if access.mode == AssistantAccess::SchemaOnly && let Some(tab) = &mut request.tab {
+        if access.mode == AssistantAccess::SchemaOnly
+            && let Some(tab) = &mut request.tab
+        {
             tab.attach = None;
             tab.text.clear();
             tab.title.clear();
@@ -192,16 +237,25 @@ impl Shared {
             return Err(SendError::UnknownModel { model: options.model });
         }
         let attachment = match request.tab.as_ref().and_then(|t| t.attach.map(|r| (r, &t.title))) {
-            Some((result, title)) => Some(context::attachment(&*self.result_set(result).ok_or(SendError::AttachmentGone)?, title)),
+            Some((result, title)) => {
+                Some(context::attachment(&*self.result_set(result).ok_or(SendError::AttachmentGone)?, title))
+            }
             None => None,
         };
-        let connection_name = request.tab.as_ref().and_then(|t| t.db.as_ref()).and_then(|db| self.config(db.connection_id)).map(|c| c.name);
+        let connection_name = request
+            .tab
+            .as_ref()
+            .and_then(|t| t.db.as_ref())
+            .and_then(|db| self.config(db.connection_id))
+            .map(|c| c.name);
         let (seq, control_rx, closing) = {
             let Some(mut inner) = chat.unless_deleted() else { return Err(SendError::Busy) };
             if inner.turn.is_some() {
                 return Err(SendError::Busy);
             }
-            if inner.record.access != Some(access) || inner.record.session.as_ref().is_some_and(|s| s.access != Some(access)) {
+            if inner.record.access != Some(access)
+                || inner.record.session.as_ref().is_some_and(|s| s.access != Some(access))
+            {
                 inner.record.session = None;
                 inner.record.recap_floor = inner.record.entry_count;
                 inner.record.access = Some(access);
@@ -213,18 +267,29 @@ impl Shared {
             }
             let seq = inner.next_seq();
             let (control, control_rx) = mpsc::channel(4);
-            inner.turn = Some(ActiveTurn { db: request.tab.as_ref().and_then(|t| t.db.clone()), control, supervisor: None, abort: None });
+            inner.turn = Some(ActiveTurn {
+                db: request.tab.as_ref().and_then(|t| t.db.clone()),
+                control,
+                supervisor: None,
+                abort: None,
+            });
             inner.status = ChatStatus::Running { turn: seq, started_at_ms: now_ms(), phase: TurnPhase::Starting };
             inner.record.updated_at_ms = now_ms();
             (seq, control_rx, inner.closing.clone())
         };
         chat.store_record(self);
-        let context = request.tab.as_ref().map(|t| SentContext { database_kind: t.db.as_ref().and_then(|db| self.config(db.connection_id)).map(|c| c.database_kind), db: t.db.clone(), connection_name, tab_title: t.title.clone() });
+        let context = request.tab.as_ref().map(|t| SentContext {
+            database_kind: t.db.as_ref().and_then(|db| self.config(db.connection_id)).map(|c| c.database_kind),
+            db: t.db.clone(),
+            connection_name,
+            tab_title: t.title.clone(),
+        });
         let entry = Entry::User { at_ms: now_ms(), text: text.clone(), context, attachment };
         chat.store_entry(self, seq, seq, &entry);
         chat.publish_entry(self, seq, seq, entry);
         chat.publish_state(self);
-        let plan = TurnPlan { chat: chat.clone(), turn: seq, options, user_text: text, tab: request.tab, closing, access };
+        let plan =
+            TurnPlan { chat: chat.clone(), turn: seq, options, user_text: text, tab: request.tab, closing, access };
         let turn = self.spawn(turn::run_turn(self.clone(), plan, control_rx));
         let abort = turn.abort_handle();
         let supervisor = self.spawn(supervise(self.clone(), chat.clone(), turn));
@@ -260,7 +325,12 @@ impl Shared {
         }
     }
 
-    pub(crate) fn assistant_approve(&self, id: ChatId, approval: ApprovalId, decision: Decision) -> Result<(), ApproveError> {
+    pub(crate) fn assistant_approve(
+        &self,
+        id: ChatId,
+        approval: ApprovalId,
+        decision: Decision,
+    ) -> Result<(), ApproveError> {
         self.assistant.get(id).ok_or(ApproveError::NotPending)?.answer(approval, decision)
     }
 
@@ -294,7 +364,15 @@ impl Shared {
         }
         self.assistant.chats.write().unwrap().remove(&id);
         let record = record.unwrap_or_else(|| self.draft_record());
-        self.emit(AppEvent::ChatChanged(ChatState { id, rev: self.next_chat_rev(), title: record.title, updated_at_ms: record.updated_at_ms, options: record.options, status: ChatStatus::Deleted, entry_count: record.entry_count }));
+        self.emit(AppEvent::ChatChanged(ChatState {
+            id,
+            rev: self.next_chat_rev(),
+            title: record.title,
+            updated_at_ms: record.updated_at_ms,
+            options: record.options,
+            status: ChatStatus::Deleted,
+            entry_count: record.entry_count,
+        }));
     }
 
     pub(crate) async fn shutdown(&self) {
@@ -309,7 +387,8 @@ impl Shared {
         }
         let deadline = tokio::time::Instant::now() + SHUTDOWN_WAIT;
         let _ = tokio::time::timeout_at(deadline, drain(&mut tasks)).await;
-        let closing: Vec<Closing> = self.assistant.all().iter().filter_map(|chat| chat.inner.lock().unwrap().closing.clone()).collect();
+        let closing: Vec<Closing> =
+            self.assistant.all().iter().filter_map(|chat| chat.inner.lock().unwrap().closing.clone()).collect();
         let _ = tokio::time::timeout_at(deadline, join_all(closing.into_iter().map(Closing::wait))).await;
         for abort in aborts {
             abort.abort();
@@ -349,7 +428,10 @@ mod tests {
         for (name, text) in sources() {
             let lower = text.to_lowercase();
             for word in ["claude", "mcp__", "stream-json", "--resume"] {
-                assert!(!lower.contains(word), "{name} contains {word:?}; provider-specific text belongs in provider/<name>.rs behind the Codec and Provider traits");
+                assert!(
+                    !lower.contains(word),
+                    "{name} contains {word:?}; provider-specific text belongs in provider/<name>.rs behind the Codec and Provider traits"
+                );
             }
         }
     }
@@ -361,7 +443,10 @@ mod tests {
                 assert!(text.contains("session.query("), "tools.rs is where queries run");
                 continue;
             }
-            assert!(!text.contains("session.query("), "{name} reaches a session's query stream; database access belongs in tools.rs, on its own read-only session");
+            assert!(
+                !text.contains("session.query("),
+                "{name} reaches a session's query stream; database access belongs in tools.rs, on its own read-only session"
+            );
         }
     }
 }

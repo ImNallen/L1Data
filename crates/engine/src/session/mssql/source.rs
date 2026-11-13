@@ -113,7 +113,11 @@ fn storage(r: &[Option<String>], at: usize) -> Result<ddl::Storage, DetailError>
         compression_delay: r[at + 9].as_deref().and_then(|d| d.parse().ok()),
         disabled: bit(r, at + 10)?,
         place: place(r, at + 11),
-        unscripted: ddl::Unscripted { incremental: bit(r, at + 13)?, suppress_dup_key_messages: bit(r, at + 14)?, mixed_compression: bit(r, at + 15)? },
+        unscripted: ddl::Unscripted {
+            incremental: bit(r, at + 13)?,
+            suppress_dup_key_messages: bit(r, at + 14)?,
+            mixed_compression: bit(r, at + 15)?,
+        },
     })
 }
 
@@ -134,9 +138,19 @@ impl MsSession {
         let f = self.features().await?;
         match target {
             ScriptTarget::Relation { oid } => self.relation_script(native_object_id(*oid), &f).await,
-            ScriptTarget::Routine { oid } => self.module_script(&format!("o.object_id={}", native_object_id(*oid)), f).await,
+            ScriptTarget::Routine { oid } => {
+                self.module_script(&format!("o.object_id={}", native_object_id(*oid)), f).await
+            }
             ScriptTarget::Trigger { relation_oid, name } => {
-                self.module_script(&format!("o.parent_object_id={} AND o.type IN ('TR','TA') AND o.name={}", native_object_id(*relation_oid), quote_literal(name)), f).await
+                self.module_script(
+                    &format!(
+                        "o.parent_object_id={} AND o.type IN ('TR','TA') AND o.name={}",
+                        native_object_id(*relation_oid),
+                        quote_literal(name)
+                    ),
+                    f,
+                )
+                .await
             }
             ScriptTarget::Index { relation_oid, name } => {
                 let oid = native_object_id(*relation_oid);
@@ -156,7 +170,9 @@ impl MsSession {
                 let indexes = indexes_from(&sets[indexes])?;
                 let index = indexes.first().ok_or(DetailError::Gone)?;
                 if index.unreadable_filter {
-                    return Err(refused(format!("SQL Server hides the filter of {name} from this login, which lacks VIEW DEFINITION permission.")));
+                    return Err(refused(format!(
+                        "SQL Server hides the filter of {name} from this login, which lacks VIEW DEFINITION permission."
+                    )));
                 }
                 let ddl = ddl::index(index, &table, &props).ok_or_else(|| refused(format!("Only clustered, nonclustered, and columnstore indexes can be scripted, and {name} is none of these.")))?;
                 Ok(script::object_script(name, ddl))
@@ -223,12 +239,7 @@ impl MsSession {
         let ddl = ddl::sequence_script(&ddl::SequenceScript {
             schema: text(row, 0)?,
             name: name.clone(),
-            type_name: display(
-                &type_name,
-                0,
-                number(row, 3).map_err(failed)?,
-                number(row, 4).map_err(failed)?,
-            ),
+            type_name: display(&type_name, 0, number(row, 3).map_err(failed)?, number(row, 4).map_err(failed)?),
             start: text(row, 5)?,
             increment: text(row, 6)?,
             min: text(row, 7)?,
@@ -308,17 +319,11 @@ impl MsSession {
                 } else {
                     "index"
                 };
-                extra.push(format!(
-                    "{kind} {} on {qualified}",
-                    quote_ident(&text(index, 0)?)
-                ));
+                extra.push(format!("{kind} {} on {qualified}", quote_ident(&text(index, 0)?)));
             }
             let checks = self.rows(&format!("SELECT cc.name FROM sys.check_constraints cc JOIN sys.types t ON t.type_table_object_id=cc.parent_object_id WHERE t.user_type_id={oid} ORDER BY cc.name")).await.map_err(failed)?;
             for check in &checks {
-                extra.push(format!(
-                    "check constraint {} on {qualified}",
-                    quote_ident(&text(check, 0)?)
-                ));
+                extra.push(format!("check constraint {} on {qualified}", quote_ident(&text(check, 0)?)));
             }
             return Ok(script::object_script(
                 &name,
@@ -332,10 +337,7 @@ impl MsSession {
             number(row, 6).map_err(failed)?,
             number(row, 7).map_err(failed)?,
         );
-        Ok(script::object_script(
-            &name,
-            ddl::alias_type(&schema, &name, &base, bit(row, 3)?, &privileges, &omitted),
-        ))
+        Ok(script::object_script(&name, ddl::alias_type(&schema, &name, &base, bit(row, 3)?, &privileges, &omitted)))
     }
 
     async fn features(&mut self) -> Result<Features, DetailError> {
@@ -351,7 +353,11 @@ impl MsSession {
     async fn run_batch(&mut self, batch: Batch) -> Result<Vec<Vec<Row>>, DetailError> {
         let sets = self.results(&batch.0.join(";\n")).await.map_err(failed)?;
         if sets.len() != batch.0.len() {
-            return Err(refused(format!("SQL Server returned {} result sets for {} queries.", sets.len(), batch.0.len())));
+            return Err(refused(format!(
+                "SQL Server returned {} result sets for {} queries.",
+                sets.len(),
+                batch.0.len()
+            )));
         }
         Ok(sets)
     }
@@ -360,8 +366,12 @@ impl MsSession {
         let mut batch = Batch::default();
         let relation = batch.add(relation_query(oid, f));
         let view = batch.add(modules_sql(&format!("o.object_id={oid}")));
-        let omitted = batch.add(omitted_sql(&format!("o.object_id={oid} OR (o.parent_object_id={oid} AND o.type IN ('TR','TA'))")));
-        let heap = batch.add(format!("SELECT {} FROM sys.indexes i {STORAGE_JOINS} WHERE i.object_id={oid} AND i.index_id=0", storage_columns(f)));
+        let omitted = batch
+            .add(omitted_sql(&format!("o.object_id={oid} OR (o.parent_object_id={oid} AND o.type IN ('TR','TA'))")));
+        let heap = batch.add(format!(
+            "SELECT {} FROM sys.indexes i {STORAGE_JOINS} WHERE i.object_id={oid} AND i.index_id=0",
+            storage_columns(f)
+        ));
         let columns = batch.add(columns_sql(oid));
         let keys = batch.add(keys_sql(oid, "1=1", f));
         let foreign_keys = batch.add(foreign_keys_sql(oid));
@@ -382,7 +392,14 @@ impl MsSession {
                 let (_, module) = modules(&sets[view], &omitted)?.into_iter().next().ok_or(DetailError::Gone)?;
                 let mut module = module.text()?;
                 module.omitted.extend(unseen(&sets[visibility], false)?);
-                let view = ddl::View { indexes: indexes_from(&sets[indexes])?, statistics: statistics_from(&sets[statistics])?, triggers: triggers_from(&sets[triggers], &omitted)?, properties: properties(&sets[props])?, privileges: privileges_from(&sets[privileges])?, module };
+                let view = ddl::View {
+                    indexes: indexes_from(&sets[indexes])?,
+                    statistics: statistics_from(&sets[statistics])?,
+                    triggers: triggers_from(&sets[triggers], &omitted)?,
+                    properties: properties(&sets[props])?,
+                    privileges: privileges_from(&sets[privileges])?,
+                    module,
+                };
                 Ok(script::object_script(&view.module.name, ddl::view(&view)))
             }
             "U" => {
@@ -408,7 +425,10 @@ impl MsSession {
                     columns: columns_from(&sets[columns])?,
                     keys: keys_from(&sets[keys])?,
                     foreign_keys: foreign_keys_from(&sets[foreign_keys])?,
-                    checks: sets[checks].iter().map(|r| Ok(ddl::Check { name: text(r, 0)?, definition: r[1].clone(), state: state(r, 2)? })).collect::<Result<_, DetailError>>()?,
+                    checks: sets[checks]
+                        .iter()
+                        .map(|r| Ok(ddl::Check { name: text(r, 0)?, definition: r[1].clone(), state: state(r, 2)? }))
+                        .collect::<Result<_, DetailError>>()?,
                     indexes: indexes_from(&sets[indexes])?,
                     statistics: statistics_from(&sets[statistics])?,
                     triggers: triggers_from(&sets[triggers], &omitted)?,
@@ -424,7 +444,12 @@ impl MsSession {
                     properties: properties(&sets[props])?,
                     classifications: classifications.map_or(Ok(vec![]), |at| classifications_from(&sets[at]))?,
                     privileges: privileges_from(&sets[privileges])?,
-                    omitted: omitted.into_iter().filter(|(of, _)| *of == oid).map(|(_, o)| o).chain(unseen(&sets[visibility], classifications.is_some())?).collect(),
+                    omitted: omitted
+                        .into_iter()
+                        .filter(|(of, _)| *of == oid)
+                        .map(|(_, o)| o)
+                        .chain(unseen(&sets[visibility], classifications.is_some())?)
+                        .collect(),
                 };
                 Ok(script::object_script(&name, ddl::table(&table)))
             }
@@ -436,11 +461,14 @@ impl MsSession {
         let mut batch = Batch::default();
         let found = batch.add(modules_sql(filter));
         let omitted = batch.add(omitted_sql(filter));
-        let props = batch.add(properties_sql(&format!("ep.class IN (1,2) AND ep.major_id IN (SELECT o.object_id FROM sys.objects o WHERE {filter})")));
+        let props = batch.add(properties_sql(&format!(
+            "ep.class IN (1,2) AND ep.major_id IN (SELECT o.object_id FROM sys.objects o WHERE {filter})"
+        )));
         let privileges = batch.add(privileges_sql(filter));
         let visibility = batch.add(visibility_sql(&f));
         let sets = self.run_batch(batch).await?;
-        let (_, module) = modules(&sets[found], &omitted_from(&sets[omitted])?)?.into_iter().next().ok_or(DetailError::Gone)?;
+        let (_, module) =
+            modules(&sets[found], &omitted_from(&sets[omitted])?)?.into_iter().next().ok_or(DetailError::Gone)?;
         let mut module = module.text()?;
         module.properties = properties(&sets[props])?;
         module.privileges = privileges_from(&sets[privileges])?;
@@ -515,9 +543,26 @@ fn modules(rows: &[Row], omitted: &[(i32, ddl::Omitted)]) -> Result<Vec<(i32, Fo
                 _ => None,
             };
             let parent = r[6].clone().zip(r[7].clone()).filter(|_| matches!(required(r, 9).map(str::trim), Ok("TR")));
-            let order = r[10].as_deref().map_or(vec![], |o| o.split(',').filter_map(|e| e.split_once(' ')).map(|(when, event)| (when.to_owned(), event.to_owned())).collect());
+            let order = r[10].as_deref().map_or(vec![], |o| {
+                o.split(',')
+                    .filter_map(|e| e.split_once(' '))
+                    .map(|(when, event)| (when.to_owned(), event.to_owned()))
+                    .collect()
+            });
             let omitted = omitted.iter().filter(|(of, _)| *of == oid).map(|(_, o)| o.clone()).collect();
-            let module = ddl::Module { schema, name, definition, ansi_nulls: bit(r, 3)?, quoted_identifier: bit(r, 4)?, disabled_on, order, parent, properties: vec![], privileges: vec![], omitted };
+            let module = ddl::Module {
+                schema,
+                name,
+                definition,
+                ansi_nulls: bit(r, 3)?,
+                quoted_identifier: bit(r, 4)?,
+                disabled_on,
+                order,
+                parent,
+                properties: vec![],
+                privileges: vec![],
+                omitted,
+            };
             Ok((oid, Found::Text(module)))
         })
         .collect()
@@ -582,7 +627,12 @@ fn privileges_from(rows: &[Row]) -> Result<Vec<Privilege>, DetailError> {
                 "R" => Change::Revoked,
                 _ => Change::Granted,
             };
-            Ok(Privilege { name: text(r, 0)?, column: r[1].as_deref().map(quote_ident), grantee: quote_ident(&text(r, 2)?), change })
+            Ok(Privilege {
+                name: text(r, 0)?,
+                column: r[1].as_deref().map(quote_ident),
+                grantee: quote_ident(&text(r, 2)?),
+                change,
+            })
         })
         .collect()
 }
@@ -590,7 +640,11 @@ fn privileges_from(rows: &[Row]) -> Result<Vec<Privilege>, DetailError> {
 /// Grants to a principal this login cannot see, and every classification without VIEW ANY
 /// SENSITIVITY CLASSIFICATION, are missing from the catalog views with no sign that they are.
 fn visibility_sql(f: &Features) -> String {
-    let classifications = if f.classifications.is_some() { "HAS_PERMS_BY_NAME(DB_NAME(),'DATABASE','VIEW ANY SENSITIVITY CLASSIFICATION')" } else { "1" };
+    let classifications = if f.classifications.is_some() {
+        "HAS_PERMS_BY_NAME(DB_NAME(),'DATABASE','VIEW ANY SENSITIVITY CLASSIFICATION')"
+    } else {
+        "1"
+    };
     format!("SELECT HAS_PERMS_BY_NAME(DB_NAME(),'DATABASE','VIEW DEFINITION'),{classifications}")
 }
 
@@ -616,7 +670,16 @@ fn classifications_sql(oid: i32, rank: &str) -> String {
 
 fn classifications_from(rows: &[Row]) -> Result<Vec<ddl::Classification>, DetailError> {
     rows.iter()
-        .map(|r| Ok(ddl::Classification { column: text(r, 0)?, label: r[1].clone(), label_id: r[2].clone(), information_type: r[3].clone(), information_type_id: r[4].clone(), rank: r[5].clone() }))
+        .map(|r| {
+            Ok(ddl::Classification {
+                column: text(r, 0)?,
+                label: r[1].clone(),
+                label_id: r[2].clone(),
+                information_type: r[3].clone(),
+                information_type_id: r[4].clone(),
+                rank: r[5].clone(),
+            })
+        })
         .collect()
 }
 
@@ -646,9 +709,18 @@ fn columns_from(rows: &[Row]) -> Result<Vec<ddl::Column>, DetailError> {
     rows.iter()
         .map(|r| {
             let type_name = match (&r[26], &r[27]) {
-                (Some(schema), Some(collection)) => format!("xml({} {})", if bit(r, 28)? { "DOCUMENT" } else { "CONTENT" }, ddl::qualified(schema, collection)),
+                (Some(schema), Some(collection)) => format!(
+                    "xml({} {})",
+                    if bit(r, 28)? { "DOCUMENT" } else { "CONTENT" },
+                    ddl::qualified(schema, collection)
+                ),
                 _ if bit(r, 2)? => ddl::qualified(&text(r, 3)?, &text(r, 4)?),
-                _ => display(required(r, 1).map_err(failed)?, number(r, 5).map_err(failed)?, number(r, 6).map_err(failed)?, number(r, 7).map_err(failed)?),
+                _ => display(
+                    required(r, 1).map_err(failed)?,
+                    number(r, 5).map_err(failed)?,
+                    number(r, 6).map_err(failed)?,
+                    number(r, 7).map_err(failed)?,
+                ),
             };
             let computed = match &r[12] {
                 Some(definition) => Some(ddl::Computed { definition: definition.clone(), persisted: bit(r, 13)? }),
@@ -875,7 +947,10 @@ impl Found {
     fn text(self) -> Result<ddl::Module, DetailError> {
         match self {
             Found::Text(module) => Ok(module),
-            Found::Clr { schema, name } => Err(refused(format!("{} runs CLR code, so SQL Server keeps no T-SQL text for it.", ddl::qualified(&schema, &name)))),
+            Found::Clr { schema, name } => Err(refused(format!(
+                "{} runs CLR code, so SQL Server keeps no T-SQL text for it.",
+                ddl::qualified(&schema, &name)
+            ))),
             Found::Unreadable { schema, name } => Err(refused(format!(
                 "SQL Server has no readable definition for {}. The module is encrypted, or this login lacks VIEW DEFINITION permission.",
                 ddl::qualified(&schema, &name)
@@ -899,8 +974,23 @@ mod tests {
         assert!(!query.contains("history_retention_period"), "{query}");
         assert!(query.contains("h.name,NULL,NULL,\n"), "{query}");
         assert!(!query.contains("ledger_type") && !query.contains("is_node"), "{query}");
-        let sql2022 = Features::from_lengths(&[Some("1".into()), Some("4".into()), Some("1".into()), Some("1".into()), Some("1".into()), Some("4".into()), Some("1".into()), Some("256".into()), Some("4".into()), Some("1".into()), Some("1".into())]);
-        assert!(relation_query(7, &sql2022).contains("h.name,t.history_retention_period,t.history_retention_period_unit_desc,\n"));
+        let sql2022 = Features::from_lengths(&[
+            Some("1".into()),
+            Some("4".into()),
+            Some("1".into()),
+            Some("1".into()),
+            Some("1".into()),
+            Some("4".into()),
+            Some("1".into()),
+            Some("256".into()),
+            Some("4".into()),
+            Some("1".into()),
+            Some("1".into()),
+        ]);
+        assert!(
+            relation_query(7, &sql2022)
+                .contains("h.name,t.history_retention_period,t.history_retention_period_unit_desc,\n")
+        );
         assert_eq!(Features::from_lengths(&[]), sql2016);
     }
 }

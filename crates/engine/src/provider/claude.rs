@@ -5,9 +5,15 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::agent::Exchange;
-use super::{AgentEvent, BlockKey, BoxFuture, Codec, Handshake, HostEnv, LaunchSpec, ModelResult, Open, Provider, Quick, ReplyTo, SessionStart, Step, agent, capitalize, limits};
+use super::{
+    AgentEvent, BlockKey, BoxFuture, Codec, Handshake, HostEnv, LaunchSpec, ModelResult, Open, Provider, Quick,
+    ReplyTo, SessionStart, Step, agent, capitalize, limits,
+};
 use crate::Shared;
-use crate::model::{AgentError, Decision, EffortId, EffortOption, LimitWindow, LimitsOutcome, ModelId, ModelOption, ProbeOutcome, ProviderConfig, ProviderInfo, ToolCallId, TurnOutcome};
+use crate::model::{
+    AgentError, Decision, EffortId, EffortOption, LimitWindow, LimitsOutcome, ModelId, ModelOption, ProbeOutcome,
+    ProviderConfig, ProviderInfo, ToolCallId, TurnOutcome,
+};
 
 pub(crate) struct Claude;
 
@@ -82,19 +88,31 @@ impl Provider for Claude {
 
     fn session_lost(&self, error: &AgentError) -> bool {
         match error {
-            AgentError::Provider { message } | AgentError::Exited { detail: message, .. } => message.contains(SESSION_LOST),
+            AgentError::Provider { message } | AgentError::Exited { detail: message, .. } => {
+                message.contains(SESSION_LOST)
+            }
             AgentError::NotFound { .. } | AgentError::SignedOut => false,
         }
     }
 
-    fn quick_probe<'a>(&'a self, cfg: &'a ProviderConfig, host: &'a HostEnv) -> BoxFuture<'a, Result<Quick, ProbeOutcome>> {
+    fn quick_probe<'a>(
+        &'a self,
+        cfg: &'a ProviderConfig,
+        host: &'a HostEnv,
+    ) -> BoxFuture<'a, Result<Quick, ProbeOutcome>> {
         Box::pin(quick_probe(cfg, host))
     }
 
     fn launch(&self, cfg: &ProviderConfig, host: &HostEnv, start: &SessionStart) -> Result<LaunchSpec, AgentError> {
         let program = host.resolve(&cfg.binary_path, "claude").map_err(|binary| AgentError::NotFound { binary })?;
         let (env_set, env_remove) = env(cfg, host, std::env::vars_os());
-        Ok(LaunchSpec { program, args: argv(start, &parse_launch_args(&cfg.launch_args)), env_set, env_remove, cwd: host.cwd.clone() })
+        Ok(LaunchSpec {
+            program,
+            args: argv(start, &parse_launch_args(&cfg.launch_args)),
+            env_set,
+            env_remove,
+            cwd: host.cwd.clone(),
+        })
     }
 
     fn codec(&self, cfg: &ProviderConfig, open: Open) -> Box<dyn Codec> {
@@ -130,12 +148,22 @@ async fn quick_probe(cfg: &ProviderConfig, host: &HostEnv) -> Result<Quick, Prob
     let version = match (version_out.status.success(), parse_version(&version_text)) {
         (true, Some(version)) => version,
         (true, None) => return Err(broken(None, format!("--version printed {:?}", version_text.trim()))),
-        (false, _) => return Err(broken(None, format!("--version exited with {}: {}", version_out.status, String::from_utf8_lossy(&version_out.stderr).trim()))),
+        (false, _) => {
+            return Err(broken(
+                None,
+                format!(
+                    "--version exited with {}: {}",
+                    version_out.status,
+                    String::from_utf8_lossy(&version_out.stderr).trim()
+                ),
+            ));
+        }
     };
     // Signed out, the CLI still prints its JSON and exits 1, so the exit code is not read.
     let auth_out = run(&["auth", "status"], AUTH_TIMEOUT).await.map_err(|m| broken(Some(version.clone()), m))?;
     let auth_text = String::from_utf8_lossy(&auth_out.stdout);
-    let (signed_in, plan) = parse_auth_status(&auth_text).ok_or_else(|| broken(Some(version.clone()), format!("auth status printed {:?}", auth_text.trim())))?;
+    let (signed_in, plan) = parse_auth_status(&auth_text)
+        .ok_or_else(|| broken(Some(version.clone()), format!("auth status printed {:?}", auth_text.trim())))?;
     Ok(Quick { version, signed_in, plan })
 }
 
@@ -143,7 +171,9 @@ pub(crate) fn parse_version(output: &str) -> Option<String> {
     output
         .split(|c: char| c.is_whitespace() || c == '(' || c == ')')
         .map(|w| w.trim_start_matches('v'))
-        .find(|w| w.split('.').count() == 3 && w.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())))
+        .find(|w| {
+            w.split('.').count() == 3 && w.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+        })
         .map(str::to_owned)
 }
 
@@ -156,7 +186,11 @@ pub(crate) fn parse_auth_status(stdout: &str) -> Option<(bool, Option<String>)> 
 
 /// "Claude Max", "Claude Pro", "API key", "Amazon Bedrock". The CLI spells a plan `max` in `auth
 /// status` and `Claude Max` in `initialize`, so only the letters are compared.
-pub(crate) fn plan_label(subscription: Option<&str>, api_provider: Option<&str>, auth_method: Option<&str>) -> Option<String> {
+pub(crate) fn plan_label(
+    subscription: Option<&str>,
+    api_provider: Option<&str>,
+    auth_method: Option<&str>,
+) -> Option<String> {
     match api_provider.map(str::to_ascii_lowercase).as_deref() {
         Some("bedrock") => return Some("Amazon Bedrock".into()),
         Some("vertex") => return Some("Google Vertex".into()),
@@ -212,7 +246,13 @@ pub(crate) fn models(raw: &[Value], prefer: Option<&str>) -> Vec<ModelOption> {
                 label: m["displayName"].as_str().unwrap_or(id).to_owned(),
                 description: m["description"].as_str().unwrap_or_default().to_owned(),
                 efforts: if m["supportsEffort"].as_bool().unwrap_or(false) {
-                    m["supportedEffortLevels"].as_array().into_iter().flatten().filter_map(Value::as_str).map(|e| EffortOption { id: EffortId(e.to_owned()), label: effort_label(e) }).collect()
+                    m["supportedEffortLevels"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_str)
+                        .map(|e| EffortOption { id: EffortId(e.to_owned()), label: effort_label(e) })
+                        .collect()
                 } else {
                     Vec::new()
                 },
@@ -301,7 +341,21 @@ fn split_args(text: &str) -> Vec<String> {
 /// makes permission asks reach the host.
 pub(crate) fn argv(start: &SessionStart, args: &LaunchArgs) -> Vec<String> {
     let mut argv: Vec<String> = args.passthrough.clone();
-    argv.extend(["--output-format", "stream-json", "--verbose", "--input-format", "stream-json", "--setting-sources=", "--strict-mcp-config", "--tools=", "--permission-prompt-tool=stdio", "--permission-mode=default"].map(str::to_owned));
+    argv.extend(
+        [
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--input-format",
+            "stream-json",
+            "--setting-sources=",
+            "--strict-mcp-config",
+            "--tools=",
+            "--permission-prompt-tool=stdio",
+            "--permission-mode=default",
+        ]
+        .map(str::to_owned),
+    );
     if let Some(model) = start.model.as_ref().map(|m| m.0.clone()).or_else(|| args.model.clone()) {
         argv.extend(["--model".into(), model]);
     }
@@ -317,12 +371,25 @@ pub(crate) fn argv(start: &SessionStart, args: &LaunchArgs) -> Vec<String> {
 
 /// Starts from the engine's env, drops what leaks in from whatever launched the app (another
 /// Claude Code session, a different login), and sets what the SDK sets.
-pub(crate) fn env(cfg: &ProviderConfig, host: &HostEnv, parent: impl Iterator<Item = (OsString, OsString)>) -> (Vec<(OsString, OsString)>, Vec<OsString>) {
+pub(crate) fn env(
+    cfg: &ProviderConfig,
+    host: &HostEnv,
+    parent: impl Iterator<Item = (OsString, OsString)>,
+) -> (Vec<(OsString, OsString)>, Vec<OsString>) {
     let remove: Vec<OsString> = parent
         .map(|(k, _)| k)
         .filter(|k| {
             let k = k.to_string_lossy();
-            k == "CLAUDECODE" || k.starts_with("CLAUDE_CODE_") || ["CLAUDE_EFFORT", "CLAUDE_AGENT_SDK_VERSION", "NODE_OPTIONS", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"].contains(&k.as_ref())
+            k == "CLAUDECODE"
+                || k.starts_with("CLAUDE_CODE_")
+                || [
+                    "CLAUDE_EFFORT",
+                    "CLAUDE_AGENT_SDK_VERSION",
+                    "NODE_OPTIONS",
+                    "ANTHROPIC_API_KEY",
+                    "ANTHROPIC_AUTH_TOKEN",
+                ]
+                .contains(&k.as_ref())
         })
         .collect();
     let mut set: Vec<(OsString, OsString)> = vec![("PATH".into(), host.path.clone())];
@@ -331,8 +398,14 @@ pub(crate) fn env(cfg: &ProviderConfig, host: &HostEnv, parent: impl Iterator<It
         set.push(("CLAUDE_CONFIG_DIR".into(), host.expand_home(config_dir).into_os_string()));
     }
     set.extend(
-        [("CLAUDE_CODE_ENTRYPOINT", "sdk-ts"), ("CLAUDE_CODE_SDK_READS_SESSION_STATE", "1"), ("ENABLE_CLAUDEAI_MCP_SERVERS", "false"), ("CLAUDE_CODE_AUTO_CONNECT_IDE", "0"), ("CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL", "1")]
-            .map(|(k, v)| (OsString::from(k), OsString::from(v))),
+        [
+            ("CLAUDE_CODE_ENTRYPOINT", "sdk-ts"),
+            ("CLAUDE_CODE_SDK_READS_SESSION_STATE", "1"),
+            ("ENABLE_CLAUDEAI_MCP_SERVERS", "false"),
+            ("CLAUDE_CODE_AUTO_CONNECT_IDE", "0"),
+            ("CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL", "1"),
+        ]
+        .map(|(k, v)| (OsString::from(k), OsString::from(v))),
     );
     (set, remove)
 }
@@ -355,7 +428,16 @@ pub(crate) struct ClaudeCodec {
 
 impl ClaudeCodec {
     pub(crate) fn new(prefer_model: Option<String>, open: Open) -> Self {
-        Self { next_request: 0, pending: HashMap::new(), prefer_model, open, message: 0, text_blocks: HashSet::new(), calls_by_rpc_id: HashMap::new(), interrupted: false }
+        Self {
+            next_request: 0,
+            pending: HashMap::new(),
+            prefer_model,
+            open,
+            message: 0,
+            text_blocks: HashSet::new(),
+            calls_by_rpc_id: HashMap::new(),
+            interrupted: false,
+        }
     }
 
     fn request(&mut self, kind: HostRequest, body: Value) -> String {
@@ -376,7 +458,10 @@ impl ClaudeCodec {
 
     fn mcp(&mut self, request_id: &str, message: &Value) -> Step {
         let rpc_id = message.get("id").cloned().unwrap_or(json!(0));
-        let reply = |result: Value| Step { replies: vec![mcp_reply(request_id, json!({ "jsonrpc": "2.0", "id": rpc_id, "result": result }))], events: Vec::new() };
+        let reply = |result: Value| Step {
+            replies: vec![mcp_reply(request_id, json!({ "jsonrpc": "2.0", "id": rpc_id, "result": result }))],
+            events: Vec::new(),
+        };
         match message["method"].as_str() {
             Some("initialize") => reply(json!({
                 "protocolVersion": message["params"]["protocolVersion"],
@@ -388,7 +473,11 @@ impl ClaudeCodec {
             })),
             Some("tools/call") => {
                 let params = &message["params"];
-                let call = ToolCallId(params["_meta"]["claudecode/toolUseId"].as_str().map_or_else(|| format!("rpc-{rpc_id}"), str::to_owned));
+                let call = ToolCallId(
+                    params["_meta"]["claudecode/toolUseId"]
+                        .as_str()
+                        .map_or_else(|| format!("rpc-{rpc_id}"), str::to_owned),
+                );
                 self.calls_by_rpc_id.insert(rpc_id.to_string(), call.clone());
                 Step {
                     replies: Vec::new(),
@@ -401,7 +490,10 @@ impl ClaudeCodec {
                 }
             }
             Some("notifications/cancelled") => {
-                let cancelled = message["params"]["requestId"].as_str().map(str::to_owned).or_else(|| message["params"]["requestId"].as_u64().map(|n| n.to_string()));
+                let cancelled = message["params"]["requestId"]
+                    .as_str()
+                    .map(str::to_owned)
+                    .or_else(|| message["params"]["requestId"].as_u64().map(|n| n.to_string()));
                 let mut step = reply(json!({}));
                 if let Some(call) = cancelled.and_then(|id| self.calls_by_rpc_id.remove(&id)) {
                     step.events.push(AgentEvent::ToolCancelled { call });
@@ -410,7 +502,10 @@ impl ClaudeCodec {
             }
             Some(method) if method.starts_with("notifications/") => reply(json!({})),
             _ => Step {
-                replies: vec![mcp_reply(request_id, json!({ "jsonrpc": "2.0", "id": rpc_id, "error": { "code": -32601, "message": "method not found" } }))],
+                replies: vec![mcp_reply(
+                    request_id,
+                    json!({ "jsonrpc": "2.0", "id": rpc_id, "error": { "code": -32601, "message": "method not found" } }),
+                )],
                 events: Vec::new(),
             },
         }
@@ -432,7 +527,9 @@ impl ClaudeCodec {
             .map(str::to_owned)
             .or_else(|| v["result"].as_str().filter(|s| !s.is_empty()).map(str::to_owned))
             .unwrap_or_else(|| v["subtype"].as_str().unwrap_or("error").to_owned());
-        let signed_out = v["api_error_status"].as_u64() == Some(401) || message.contains("/login") || message.contains("Not logged in");
+        let signed_out = v["api_error_status"].as_u64() == Some(401)
+            || message.contains("/login")
+            || message.contains("Not logged in");
         TurnOutcome::Failed { error: if signed_out { AgentError::SignedOut } else { AgentError::Provider { message } } }
     }
 }
@@ -442,7 +539,8 @@ fn mcp_reply(request_id: &str, rpc: Value) -> String {
 }
 
 fn control_error(request_id: &str, error: &str) -> String {
-    json!({ "type": "control_response", "response": { "subtype": "error", "request_id": request_id, "error": error } }).to_string()
+    json!({ "type": "control_response", "response": { "subtype": "error", "request_id": request_id, "error": error } })
+        .to_string()
 }
 
 fn tool_name(name: &str) -> String {
@@ -451,7 +549,10 @@ fn tool_name(name: &str) -> String {
 
 impl Codec for ClaudeCodec {
     fn open(&mut self) -> Vec<String> {
-        vec![self.request(HostRequest::Initialize, json!({ "subtype": "initialize", "systemPrompt": self.open.system_prompt, "sdkMcpServers": [SERVER] }))]
+        vec![self.request(
+            HostRequest::Initialize,
+            json!({ "subtype": "initialize", "systemPrompt": self.open.system_prompt, "sdkMcpServers": [SERVER] }),
+        )]
     }
 
     fn user_turn(&mut self, text: &str) -> Vec<String> {
@@ -479,7 +580,10 @@ impl Codec for ClaudeCodec {
         if result.is_error {
             body["isError"] = json!(true);
         }
-        vec![mcp_reply(reply.field("request_id").as_str().unwrap_or_default(), json!({ "jsonrpc": "2.0", "id": rpc_id, "result": body }))]
+        vec![mcp_reply(
+            reply.field("request_id").as_str().unwrap_or_default(),
+            json!({ "jsonrpc": "2.0", "id": rpc_id, "result": body }),
+        )]
     }
 
     fn read(&mut self, line: &str) -> Step {
@@ -488,9 +592,13 @@ impl Codec for ClaudeCodec {
         match v["type"].as_str() {
             Some("control_response") => {
                 let response = &v["response"];
-                let Some(kind) = response["request_id"].as_str().and_then(|id| self.pending.remove(id)) else { return Step::default() };
+                let Some(kind) = response["request_id"].as_str().and_then(|id| self.pending.remove(id)) else {
+                    return Step::default();
+                };
                 match kind {
-                    HostRequest::Initialize if response["subtype"] == "success" => event(AgentEvent::Ready(self.handshake(&response["response"]))),
+                    HostRequest::Initialize if response["subtype"] == "success" => {
+                        event(AgentEvent::Ready(self.handshake(&response["response"])))
+                    }
                     HostRequest::Initialize => {
                         let message = response["error"].as_str().unwrap_or("initialize failed").to_owned();
                         event(AgentEvent::TurnEnded(TurnOutcome::Failed { error: AgentError::Provider { message } }))
@@ -502,7 +610,9 @@ impl Codec for ClaudeCodec {
                 let request_id = v["request_id"].as_str().unwrap_or_default().to_owned();
                 let request = &v["request"];
                 match request["subtype"].as_str() {
-                    Some("mcp_message") if request["server_name"] == SERVER => self.mcp(&request_id, &request["message"]),
+                    Some("mcp_message") if request["server_name"] == SERVER => {
+                        self.mcp(&request_id, &request["message"])
+                    }
                     Some("can_use_tool") => event(AgentEvent::Permission {
                         reply: ReplyTo::new(json!({ "request_id": request_id, "tool_use_id": request["tool_use_id"] })),
                         call: ToolCallId(request["tool_use_id"].as_str().unwrap_or_default().to_owned()),
@@ -512,7 +622,9 @@ impl Codec for ClaudeCodec {
                     _ => Step { replies: vec![control_error(&request_id, "unsupported")], events: Vec::new() },
                 }
             }
-            Some("system") if v["subtype"] == "init" => event(AgentEvent::TurnStarted { session_id: v["session_id"].as_str().unwrap_or_default().to_owned() }),
+            Some("system") if v["subtype"] == "init" => {
+                event(AgentEvent::TurnStarted { session_id: v["session_id"].as_str().unwrap_or_default().to_owned() })
+            }
             Some("stream_event") if v["parent_tool_use_id"].is_null() => {
                 let ev = &v["event"];
                 let key = |index: &Value| BlockKey { message: self.message, index: index.as_u64().unwrap_or(0) as u32 };
@@ -524,9 +636,14 @@ impl Codec for ClaudeCodec {
                     Some("content_block_delta") if ev["delta"]["type"] == "text_delta" => {
                         let block = key(&ev["index"]);
                         self.text_blocks.insert(block);
-                        event(AgentEvent::Text { block, delta: ev["delta"]["text"].as_str().unwrap_or_default().to_owned() })
+                        event(AgentEvent::Text {
+                            block,
+                            delta: ev["delta"]["text"].as_str().unwrap_or_default().to_owned(),
+                        })
                     }
-                    Some("content_block_stop") if self.text_blocks.remove(&key(&ev["index"])) => event(AgentEvent::TextDone { block: key(&ev["index"]) }),
+                    Some("content_block_stop") if self.text_blocks.remove(&key(&ev["index"])) => {
+                        event(AgentEvent::TextDone { block: key(&ev["index"]) })
+                    }
                     _ => Step::default(),
                 }
             }
@@ -567,7 +684,11 @@ impl Exchange for UsageExchange {
         if v["type"] != "control_response" || response["request_id"] != USAGE_REQUEST_ID {
             return None;
         }
-        Some(if response["subtype"] == "success" { parse_usage(&response["response"]) } else { Err(response["error"].as_str().unwrap_or("get_usage failed").to_owned()) })
+        Some(if response["subtype"] == "success" {
+            parse_usage(&response["response"])
+        } else {
+            Err(response["error"].as_str().unwrap_or("get_usage failed").to_owned())
+        })
     }
 }
 
@@ -578,7 +699,8 @@ pub(crate) enum ClaudeUsage {
 }
 
 pub(crate) fn parse_usage(response: &Value) -> Result<ClaudeUsage, String> {
-    let plan = plan_label(response["subscription_type"].as_str(), None, None).map(|p| p.strip_prefix("Claude ").map(str::to_owned).unwrap_or(p));
+    let plan = plan_label(response["subscription_type"].as_str(), None, None)
+        .map(|p| p.strip_prefix("Claude ").map(str::to_owned).unwrap_or(p));
     let rate_limits = &response["rate_limits"];
     if response["rate_limits_available"] != true || rate_limits.is_null() {
         return Ok(ClaudeUsage::NoRateLimits { plan });
@@ -600,8 +722,17 @@ fn usage_window(entry: &Value) -> Option<LimitWindow> {
         Some(scope) => (format!("{kind}:{scope}"), format!("{base} · {scope}")),
         None => (kind.to_owned(), base),
     };
-    let resets_at_ms = entry["resets_at"].as_str().and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok()).map(|at| at.timestamp_millis());
-    Some(LimitWindow { id, label, left_percent, resets_at_ms, level: limits::level(left_percent, entry["severity"].as_str()) })
+    let resets_at_ms = entry["resets_at"]
+        .as_str()
+        .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
+        .map(|at| at.timestamp_millis());
+    Some(LimitWindow {
+        id,
+        label,
+        left_percent,
+        resets_at_ms,
+        level: limits::level(left_percent, entry["severity"].as_str()),
+    })
 }
 
 pub(crate) async fn read_limits(shared: &Shared, cfg: &ProviderConfig, host: &HostEnv) -> LimitsOutcome {
@@ -626,7 +757,9 @@ pub(crate) async fn read_limits(shared: &Shared, cfg: &ProviderConfig, host: &Ho
 fn usage_outcome(usage: ClaudeUsage, signed_in: Option<bool>) -> LimitsOutcome {
     match usage {
         ClaudeUsage::Limited { plan, windows } => LimitsOutcome::Ready { plan, windows },
-        ClaudeUsage::NoRateLimits { .. } if signed_in == Some(false) => LimitsOutcome::SignedOut { sign_in_command: SIGN_IN_COMMAND.into() },
+        ClaudeUsage::NoRateLimits { .. } if signed_in == Some(false) => {
+            LimitsOutcome::SignedOut { sign_in_command: SIGN_IN_COMMAND.into() }
+        }
         ClaudeUsage::NoRateLimits { plan } => LimitsOutcome::NoLimits { plan },
     }
 }
@@ -645,11 +778,18 @@ mod tests {
     const RESUME: &str = include_str!("../../tests/fixtures/claude/resume.jsonl");
 
     fn frames(fixture: &str) -> Vec<Value> {
-        fixture.lines().filter(|l| !l.trim().is_empty()).map(|l| serde_json::from_str(l).unwrap_or_else(|e| panic!("{e}: {l}"))).collect()
+        fixture
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str(l).unwrap_or_else(|e| panic!("{e}: {l}")))
+            .collect()
     }
 
     fn frame(fixture: &str, pick: impl Fn(&Value) -> bool) -> &str {
-        fixture.lines().find(|l| !l.trim().is_empty() && pick(&serde_json::from_str::<Value>(l).unwrap())).expect("a frame matching the predicate")
+        fixture
+            .lines()
+            .find(|l| !l.trim().is_empty() && pick(&serde_json::from_str::<Value>(l).unwrap()))
+            .expect("a frame matching the predicate")
     }
 
     fn json(line: &str) -> Value {
@@ -659,7 +799,10 @@ mod tests {
     fn opened() -> ClaudeCodec {
         let mut codec = ClaudeCodec::new(None, Open { system_prompt: "You are the assistant.", tools: &TOOLS });
         let lines = codec.open();
-        assert_eq!(json(&lines[0])["request"], json!({ "subtype": "initialize", "systemPrompt": "You are the assistant.", "sdkMcpServers": ["l1"] }));
+        assert_eq!(
+            json(&lines[0])["request"],
+            json!({ "subtype": "initialize", "systemPrompt": "You are the assistant.", "sdkMcpServers": ["l1"] })
+        );
         codec
     }
 
@@ -686,10 +829,14 @@ mod tests {
         let ids: Vec<&str> = handshake.models.iter().map(|m| m.id.0.as_str()).collect();
         assert_eq!(ids[..5], ["opus", "fable", "sonnet", "haiku", "claude-haiku-4-5-20251001"]);
         assert_eq!(handshake.models.len(), 12, "13 captured minus the default alias");
-        let recommended: Vec<&str> = handshake.models.iter().filter(|m| m.recommended).map(|m| m.id.0.as_str()).collect();
+        let recommended: Vec<&str> =
+            handshake.models.iter().filter(|m| m.recommended).map(|m| m.id.0.as_str()).collect();
         assert_eq!(recommended, ["opus"]);
         assert_eq!(handshake.models[0].label, "Opus 5.5");
-        assert_eq!(handshake.models[0].efforts.iter().map(|e| format!("{}={}", e.id.0, e.label)).collect::<Vec<_>>(), ["low=Low", "medium=Medium", "high=High", "xhigh=Extra high", "max=Max"]);
+        assert_eq!(
+            handshake.models[0].efforts.iter().map(|e| format!("{}={}", e.id.0, e.label)).collect::<Vec<_>>(),
+            ["low=Low", "medium=Medium", "high=High", "xhigh=Extra high", "max=Max"]
+        );
         assert!(handshake.models[4].efforts.is_empty(), "a model without effort support lists none");
         assert_eq!(handshake.models.iter().find(|m| m.id.0 == "claude-opus-4-6").unwrap().efforts.len(), 4);
         assert_eq!(codec.read(&initialize_response()), Step::default(), "an answer to an unknown request is ignored");
@@ -698,7 +845,10 @@ mod tests {
     #[test]
     fn a_launch_argument_model_names_the_recommended_one_by_value_or_by_resolved_model() {
         let recommended_with = |launch_args: &str| {
-            let cfg = ProviderConfig { launch_args: launch_args.into(), ..crate::model::default_config(crate::model::ProviderKind::Claude) };
+            let cfg = ProviderConfig {
+                launch_args: launch_args.into(),
+                ..crate::model::default_config(crate::model::ProviderKind::Claude)
+            };
             let mut codec = Claude.codec(&cfg, Open::PROBE);
             codec.open();
             let step = codec.read(&initialize_response());
@@ -706,7 +856,11 @@ mod tests {
             handshake.models.iter().filter(|m| m.recommended).map(|m| m.id.0.clone()).collect::<Vec<_>>()
         };
         assert_eq!(recommended_with("--model claude-opus-5-5"), ["opus"]);
-        assert_eq!(recommended_with("--model claude-sonnet-5-5"), ["sonnet"], "a resolved model that is not the default's");
+        assert_eq!(
+            recommended_with("--model claude-sonnet-5-5"),
+            ["sonnet"],
+            "a resolved model that is not the default's"
+        );
         assert_eq!(recommended_with("--model sonnet"), ["sonnet"]);
         assert_eq!(recommended_with("--model nope"), ["opus"], "an unknown model falls back to the default's model");
     }
@@ -716,13 +870,28 @@ mod tests {
         let owned = Claude.info().owned_flags;
         for flag in &owned {
             let args = parse_launch_args(&format!("{flag} x"));
-            assert_eq!((args.passthrough, args.model, args.effort, args.ignored), (vec![], None, None, vec![flag.clone()]), "{flag}");
+            assert_eq!(
+                (args.passthrough, args.model, args.effort, args.ignored),
+                (vec![], None, None, vec![flag.clone()]),
+                "{flag}"
+            );
         }
-        for flag in ["--permission-mode", "--plugin-dir", "--agents", "--append-system-prompt-file", "--no-session-persistence", "--mcp-config", "--settings"] {
+        for flag in [
+            "--permission-mode",
+            "--plugin-dir",
+            "--agents",
+            "--append-system-prompt-file",
+            "--no-session-persistence",
+            "--mcp-config",
+            "--settings",
+        ] {
             assert!(owned.contains(&flag.to_owned()), "{flag} is not owned");
         }
         assert!(!owned.iter().any(|f| f == "--model" || f == "--effort"), "{owned:?}");
-        let cfg = ProviderConfig { launch_args: "--verbose --verbose --betas x --settings=/s".into(), ..crate::model::default_config(crate::model::ProviderKind::Claude) };
+        let cfg = ProviderConfig {
+            launch_args: "--verbose --verbose --betas x --settings=/s".into(),
+            ..crate::model::default_config(crate::model::ProviderKind::Claude)
+        };
         assert_eq!(Claude.ignored_flags(&cfg), ["--verbose", "--settings"], "as typed, each once, in order");
     }
 
@@ -730,7 +899,9 @@ mod tests {
     fn a_lost_session_is_the_no_conversation_found_text_in_the_result_or_on_stderr() {
         let lost = "No conversation found with session ID: 11111111-2222-4333-8444-555555555555";
         assert!(Claude.session_lost(&AgentError::Provider { message: lost.into() }));
-        assert!(Claude.session_lost(&AgentError::Exited { code: Some(1), detail: format!("warn: something\n{lost}\n") }));
+        assert!(
+            Claude.session_lost(&AgentError::Exited { code: Some(1), detail: format!("warn: something\n{lost}\n") })
+        );
         assert!(!Claude.session_lost(&AgentError::Provider { message: "Overloaded".into() }));
         assert!(!Claude.session_lost(&AgentError::Exited { code: Some(1), detail: "killed".into() }));
         assert!(!Claude.session_lost(&AgentError::SignedOut));
@@ -745,7 +916,8 @@ mod tests {
         let init = codec.read(&requests[0].to_string());
         assert!(init.events.is_empty());
         let mut mine = json(&init.replies[0]);
-        mine["response"]["response"]["mcp_response"]["result"]["serverInfo"]["version"] = answers[0]["response"]["response"]["mcp_response"]["result"]["serverInfo"]["version"].clone();
+        mine["response"]["response"]["mcp_response"]["result"]["serverInfo"]["version"] =
+            answers[0]["response"]["response"]["mcp_response"]["result"]["serverInfo"]["version"].clone();
         assert_eq!(mine, *answers[0]);
         let initialized = codec.read(&requests[1].to_string());
         assert_eq!(json(&initialized.replies[0]), *answers[1], "a notification gets the SDK's dummy reply");
@@ -760,10 +932,18 @@ mod tests {
         let call = frames.iter().find(|f| f["request"]["message"]["method"] == "tools/call").unwrap();
         let step = codec.read(&call.to_string());
         assert!(step.replies.is_empty());
-        let [AgentEvent::ToolCall { reply, call: id, name, input }] = step.events.as_slice() else { panic!("{:?}", step.events) };
-        assert_eq!((id.0.as_str(), name.as_str(), input), ("toolu_01VWceXctBsdrbyvCTabAGKN", "get_secret_word", &json!({})));
+        let [AgentEvent::ToolCall { reply, call: id, name, input }] = step.events.as_slice() else {
+            panic!("{:?}", step.events)
+        };
+        assert_eq!(
+            (id.0.as_str(), name.as_str(), input),
+            ("toolu_01VWceXctBsdrbyvCTabAGKN", "get_secret_word", &json!({}))
+        );
         let answer = codec.tool_result(reply, &ModelResult { text: "pineapple".into(), is_error: false });
-        let captured = frames.iter().find(|f| f["response"]["response"]["mcp_response"]["result"]["content"][0]["text"] == "pineapple").unwrap();
+        let captured = frames
+            .iter()
+            .find(|f| f["response"]["response"]["mcp_response"]["result"]["content"][0]["text"] == "pineapple")
+            .unwrap();
         assert_eq!(json(&answer[0]), *captured);
         let error = codec.tool_result(reply, &ModelResult { text: "boom".into(), is_error: true });
         assert_eq!(json(&error[0])["response"]["response"]["mcp_response"]["result"]["isError"], json!(true));
@@ -778,7 +958,10 @@ mod tests {
         codec.read(&call.to_string());
         let cancel = json!({ "type": "control_request", "request_id": "c1", "request": { "subtype": "mcp_message", "server_name": "l1", "message": { "jsonrpc": "2.0", "method": "notifications/cancelled", "params": { "requestId": 2 } } } });
         let step = codec.read(&cancel.to_string());
-        assert_eq!(step.events, vec![AgentEvent::ToolCancelled { call: ToolCallId("toolu_01VWceXctBsdrbyvCTabAGKN".into()) }]);
+        assert_eq!(
+            step.events,
+            vec![AgentEvent::ToolCancelled { call: ToolCallId("toolu_01VWceXctBsdrbyvCTabAGKN".into()) }]
+        );
         assert_eq!(json(&step.replies[0])["response"]["response"]["mcp_response"]["result"], json!({}));
     }
 
@@ -787,17 +970,32 @@ mod tests {
         let mut codec = opened();
         let ask = frame(PERMISSIONS, |v| v["request"]["tool_name"] == "mcp__l1__get_secret_word");
         let step = codec.read(ask);
-        let [AgentEvent::Permission { reply, call, name, input }] = step.events.as_slice() else { panic!("{:?}", step.events) };
-        assert_eq!((call.0.as_str(), name.as_str(), input), ("toolu_01VWceXctBsdrbyvCTabAGKN", "get_secret_word", &json!({})));
+        let [AgentEvent::Permission { reply, call, name, input }] = step.events.as_slice() else {
+            panic!("{:?}", step.events)
+        };
+        assert_eq!(
+            (call.0.as_str(), name.as_str(), input),
+            ("toolu_01VWceXctBsdrbyvCTabAGKN", "get_secret_word", &json!({}))
+        );
         let allow = codec.permission(reply, Decision::Run, input, "");
         assert_eq!(json(&allow[0]), json(frame(PERMISSIONS, |v| v["response"]["response"]["behavior"] == "allow")));
         let deny = json(&codec.permission(reply, Decision::Deny, input, "The user declined this tool call.")[0]);
         let captured = json(frame(PERMISSIONS, |v| v["response"]["response"]["behavior"] == "deny"));
         assert_eq!(deny["response"]["response"]["message"], captured["response"]["response"]["message"]);
         let keys = |v: &Value| v["response"]["response"].as_object().unwrap().keys().cloned().collect::<Vec<_>>();
-        assert_eq!(keys(&deny), keys(&captured), "the deny answer has the captured keys; the captured one denied another call");
-        let other = codec.read(&json!({ "type": "control_request", "request_id": "h1", "request": { "subtype": "hook_callback" } }).to_string());
-        assert_eq!(json(&other.replies[0])["response"], json!({ "subtype": "error", "request_id": "h1", "error": "unsupported" }));
+        assert_eq!(
+            keys(&deny),
+            keys(&captured),
+            "the deny answer has the captured keys; the captured one denied another call"
+        );
+        let other = codec.read(
+            &json!({ "type": "control_request", "request_id": "h1", "request": { "subtype": "hook_callback" } })
+                .to_string(),
+        );
+        assert_eq!(
+            json(&other.replies[0])["response"],
+            json!({ "subtype": "error", "request_id": "h1", "error": "unsupported" })
+        );
     }
 
     #[test]
@@ -821,7 +1019,11 @@ mod tests {
         let second = codec.read(frame(TURN, |v| v["event"]["type"] == "message_start"));
         assert!(second.events.is_empty());
         let delta = codec.read(frame(TURN, |v| v["event"]["delta"]["type"] == "text_delta"));
-        assert_eq!(delta.events, vec![AgentEvent::Text { block: BlockKey { message: 2, index: 0 }, delta: "391".into() }], "the next message restarts the block index under a new message number");
+        assert_eq!(
+            delta.events,
+            vec![AgentEvent::Text { block: BlockKey { message: 2, index: 0 }, delta: "391".into() }],
+            "the next message restarts the block index under a new message number"
+        );
         let stop_without_text = codec.read(&json!({ "type": "stream_event", "event": { "type": "content_block_stop", "index": 3 }, "parent_tool_use_id": null }).to_string());
         assert_eq!(stop_without_text, Step::default(), "a stop for a block that streamed no text is not a TextDone");
     }
@@ -830,7 +1032,14 @@ mod tests {
     fn an_assistant_frame_with_a_tool_use_block_becomes_one_tool_use_event() {
         let mut codec = opened();
         let step = codec.read(frame(MCP, |v| v["type"] == "assistant"));
-        assert_eq!(step.events, vec![AgentEvent::ToolUse { call: ToolCallId("toolu_01VWceXctBsdrbyvCTabAGKN".into()), name: "get_secret_word".into(), input: json!({}) }]);
+        assert_eq!(
+            step.events,
+            vec![AgentEvent::ToolUse {
+                call: ToolCallId("toolu_01VWceXctBsdrbyvCTabAGKN".into()),
+                name: "get_secret_word".into(),
+                input: json!({})
+            }]
+        );
         let text_only = codec.read(frame(TURN, |v| v["type"] == "assistant"));
         assert_eq!(text_only, Step::default());
     }
@@ -841,19 +1050,33 @@ mod tests {
         let success = frame(TURN, |v| v["type"] == "result");
         assert_eq!(codec.read(success).events, vec![AgentEvent::TurnEnded(TurnOutcome::Completed)]);
         let denied = frame(PERMISSIONS, |v| v["type"] == "result");
-        assert_eq!(codec.read(denied).events, vec![AgentEvent::TurnEnded(TurnOutcome::Completed)], "a denied tool is not a failed turn");
+        assert_eq!(
+            codec.read(denied).events,
+            vec![AgentEvent::TurnEnded(TurnOutcome::Completed)],
+            "a denied tool is not a failed turn"
+        );
         let lost = frame(RESUME, |v| v["type"] == "result" && v["is_error"] == true);
         assert_eq!(
             codec.read(lost).events,
-            vec![AgentEvent::TurnEnded(TurnOutcome::Failed { error: AgentError::Provider { message: "No conversation found with session ID: 11111111-2222-4333-8444-555555555555".into() } })]
+            vec![AgentEvent::TurnEnded(TurnOutcome::Failed {
+                error: AgentError::Provider {
+                    message: "No conversation found with session ID: 11111111-2222-4333-8444-555555555555".into()
+                }
+            })]
         );
         let mut unauthorized = json(lost);
         unauthorized["api_error_status"] = json!(401);
-        assert_eq!(codec.read(&unauthorized.to_string()).events, vec![AgentEvent::TurnEnded(TurnOutcome::Failed { error: AgentError::SignedOut })]);
+        assert_eq!(
+            codec.read(&unauthorized.to_string()).events,
+            vec![AgentEvent::TurnEnded(TurnOutcome::Failed { error: AgentError::SignedOut })]
+        );
         let mut login = json(lost);
         login["errors"] = json!([]);
         login["result"] = json!("Not logged in · Please run /login");
-        assert_eq!(codec.read(&login.to_string()).events, vec![AgentEvent::TurnEnded(TurnOutcome::Failed { error: AgentError::SignedOut })]);
+        assert_eq!(
+            codec.read(&login.to_string()).events,
+            vec![AgentEvent::TurnEnded(TurnOutcome::Failed { error: AgentError::SignedOut })]
+        );
     }
 
     #[test]
@@ -866,7 +1089,10 @@ mod tests {
         let mut response = json(response);
         response["response"]["request_id"] = json!("req_2");
         assert_eq!(codec.read(&response.to_string()), Step::default());
-        assert_eq!(codec.read(frame(INTERRUPT, |v| v["type"] == "result")).events, vec![AgentEvent::TurnEnded(TurnOutcome::Stopped)]);
+        assert_eq!(
+            codec.read(frame(INTERRUPT, |v| v["type"] == "result")).events,
+            vec![AgentEvent::TurnEnded(TurnOutcome::Stopped)]
+        );
     }
 
     #[test]
@@ -881,9 +1107,13 @@ mod tests {
         let mut codec = opened();
         for line in TURN.lines().chain(INTERRUPT.lines()).chain(RESUME.lines()).filter(|l| !l.trim().is_empty()) {
             let v = json(line);
-            let known = ["control_response", "control_request", "result"].contains(&v["type"].as_str().unwrap_or_default())
+            let known = ["control_response", "control_request", "result"]
+                .contains(&v["type"].as_str().unwrap_or_default())
                 || (v["type"] == "system" && v["subtype"] == "init")
-                || (v["type"] == "stream_event" && (v["event"]["type"] == "message_start" || v["event"]["delta"]["type"] == "text_delta" || v["event"]["type"] == "content_block_stop"));
+                || (v["type"] == "stream_event"
+                    && (v["event"]["type"] == "message_start"
+                        || v["event"]["delta"]["type"] == "text_delta"
+                        || v["event"]["type"] == "content_block_stop"));
             if known {
                 continue;
             }
@@ -900,13 +1130,24 @@ mod tests {
 
     #[test]
     fn the_usage_request_is_one_get_usage_control_request() {
-        assert_eq!(UsageExchange.open().iter().map(|l| json(l)).collect::<Vec<_>>(), [json!({ "type": "control_request", "request_id": "l1-usage", "request": { "subtype": "get_usage", "skip_behaviors": true } })]);
+        assert_eq!(
+            UsageExchange.open().iter().map(|l| json(l)).collect::<Vec<_>>(),
+            [
+                json!({ "type": "control_request", "request_id": "l1-usage", "request": { "subtype": "get_usage", "skip_behaviors": true } })
+            ]
+        );
     }
 
     #[test]
     fn the_captured_usage_reads_three_windows_from_the_limits_list_alone() {
         let Some(Ok(usage)) = UsageExchange.read(USAGE.trim()) else { panic!("the captured reply is the answer") };
-        let window = |id: &str, label: &str, left_percent: u8, resets_at_ms: i64| LimitWindow { id: id.into(), label: label.into(), left_percent, resets_at_ms: Some(resets_at_ms), level: LimitLevel::Normal };
+        let window = |id: &str, label: &str, left_percent: u8, resets_at_ms: i64| LimitWindow {
+            id: id.into(),
+            label: label.into(),
+            left_percent,
+            resets_at_ms: Some(resets_at_ms),
+            level: LimitLevel::Normal,
+        };
         assert_eq!(
             usage,
             ClaudeUsage::Limited {
@@ -923,19 +1164,33 @@ mod tests {
     #[test]
     fn signed_out_the_reply_succeeds_with_no_rate_limits() {
         assert_eq!(UsageExchange.read(USAGE_SIGNED_OUT.trim()), Some(Ok(ClaudeUsage::NoRateLimits { plan: None })));
-        let unavailable = json!({ "subscription_type": "pro", "rate_limits_available": false, "rate_limits": { "limits": [] } });
+        let unavailable =
+            json!({ "subscription_type": "pro", "rate_limits_available": false, "rate_limits": { "limits": [] } });
         assert_eq!(parse_usage(&unavailable), Ok(ClaudeUsage::NoRateLimits { plan: Some("Pro".into()) }));
-        assert_eq!(parse_usage(&json!({ "rate_limits_available": true, "rate_limits": {} })), Err("get_usage answered with no rate_limits.limits list".into()));
+        assert_eq!(
+            parse_usage(&json!({ "rate_limits_available": true, "rate_limits": {} })),
+            Err("get_usage answered with no rate_limits.limits list".into())
+        );
     }
 
     #[test]
     fn no_rate_limits_read_as_signed_out_only_when_auth_status_says_so() {
         let none = || ClaudeUsage::NoRateLimits { plan: None };
-        assert_eq!(usage_outcome(none(), Some(false)), LimitsOutcome::SignedOut { sign_in_command: "claude auth login".into() });
+        assert_eq!(
+            usage_outcome(none(), Some(false)),
+            LimitsOutcome::SignedOut { sign_in_command: "claude auth login".into() }
+        );
         assert_eq!(usage_outcome(none(), Some(true)), LimitsOutcome::NoLimits { plan: None });
-        assert_eq!(usage_outcome(none(), None), LimitsOutcome::NoLimits { plan: None }, "an auth status that failed claims nothing");
+        assert_eq!(
+            usage_outcome(none(), None),
+            LimitsOutcome::NoLimits { plan: None },
+            "an auth status that failed claims nothing"
+        );
         let limited = ClaudeUsage::Limited { plan: Some("Max".into()), windows: Vec::new() };
-        assert_eq!(usage_outcome(limited, None), LimitsOutcome::Ready { plan: Some("Max".into()), windows: Vec::new() });
+        assert_eq!(
+            usage_outcome(limited, None),
+            LimitsOutcome::Ready { plan: Some("Max".into()), windows: Vec::new() }
+        );
     }
 
     #[test]
@@ -949,8 +1204,20 @@ mod tests {
         assert_eq!(
             windows,
             [
-                LimitWindow { id: "session".into(), label: "Session".into(), left_percent: 0, resets_at_ms: Some(1_792_198_800_000), level: LimitLevel::Exhausted },
-                LimitWindow { id: "monthly_scoped:Opus".into(), label: "Monthly · Opus".into(), left_percent: 15, resets_at_ms: None, level: LimitLevel::Low },
+                LimitWindow {
+                    id: "session".into(),
+                    label: "Session".into(),
+                    left_percent: 0,
+                    resets_at_ms: Some(1_792_198_800_000),
+                    level: LimitLevel::Exhausted
+                },
+                LimitWindow {
+                    id: "monthly_scoped:Opus".into(),
+                    label: "Monthly · Opus".into(),
+                    left_percent: 15,
+                    resets_at_ms: None,
+                    level: LimitLevel::Low
+                },
             ]
         );
     }
@@ -958,7 +1225,12 @@ mod tests {
     #[test]
     fn the_usage_exchange_skips_other_frames_and_reports_an_error_reply() {
         assert_eq!(UsageExchange.read(r#"{"type":"system","subtype":"init"}"#), None);
-        assert_eq!(UsageExchange.read(r#"{"type":"control_response","response":{"subtype":"success","request_id":"req_1","response":{}}}"#), None);
+        assert_eq!(
+            UsageExchange.read(
+                r#"{"type":"control_response","response":{"subtype":"success","request_id":"req_1","response":{}}}"#
+            ),
+            None
+        );
         assert_eq!(UsageExchange.read("not json"), None);
         assert_eq!(UsageExchange.read(r#"{"type":"control_response","response":{"subtype":"error","request_id":"l1-usage","error":"Unknown subtype"}}"#), Some(Err("Unknown subtype".into())));
     }
@@ -996,7 +1268,9 @@ mod tests {
 
     #[test]
     fn launch_arguments_drop_engine_flags_and_lift_model_and_effort() {
-        let args = parse_launch_args("--model claude-opus-5-5 --effort=low --debug-file '/tmp/my log' --permission-mode=plan --verbose -p hello --betas x --dangerously-skip-permissions");
+        let args = parse_launch_args(
+            "--model claude-opus-5-5 --effort=low --debug-file '/tmp/my log' --permission-mode=plan --verbose -p hello --betas x --dangerously-skip-permissions",
+        );
         assert_eq!(args.passthrough, ["--debug-file", "/tmp/my log", "--betas", "x"]);
         assert_eq!((args.model.as_deref(), args.effort.as_deref()), (Some("claude-opus-5-5"), Some("low")));
         assert_eq!(args.ignored, ["--permission-mode", "--verbose", "--dangerously-skip-permissions"]);
@@ -1006,7 +1280,11 @@ mod tests {
 
     #[test]
     fn argv_is_the_verified_isolated_one_plus_model_effort_resume_and_passthrough() {
-        let start = SessionStart { model: Some(ModelId("opus".into())), effort: Some(EffortId("high".into())), resume: Some("abc".into()) };
+        let start = SessionStart {
+            model: Some(ModelId("opus".into())),
+            effort: Some(EffortId("high".into())),
+            resume: Some("abc".into()),
+        };
         let argv = argv(&start, &parse_launch_args("--model x --debug-file /tmp/l"));
         assert_eq!(
             argv.join(" "),
@@ -1016,7 +1294,11 @@ mod tests {
         let probe = argv_for(&SessionStart { model: None, effort: None, resume: None }, "");
         assert!(!probe.iter().any(|a| a == "--model" || a == "--effort" || a == "--resume"), "{probe:?}");
         let preferred = argv_for(&SessionStart { model: None, effort: None, resume: None }, "--model sonnet");
-        assert_eq!(preferred.iter().position(|a| a == "--model").map(|i| preferred[i + 1].as_str()), Some("sonnet"), "the probe runs the launch arguments' model");
+        assert_eq!(
+            preferred.iter().position(|a| a == "--model").map(|i| preferred[i + 1].as_str()),
+            Some("sonnet"),
+            "the probe runs the launch arguments' model"
+        );
     }
 
     fn argv_for(start: &SessionStart, launch_args: &str) -> Vec<String> {
@@ -1025,13 +1307,43 @@ mod tests {
 
     #[test]
     fn the_child_env_drops_what_leaks_in_and_sets_what_the_sdk_sets() {
-        let host = HostEnv { path: "/usr/bin:/opt/homebrew/bin".into(), home: "/Users/a".into(), cwd: "/data/assistant".into() };
-        let parent = [("HOME", "/Users/a"), ("CLAUDECODE", "1"), ("CLAUDE_CODE_ENTRYPOINT", "cli"), ("CLAUDE_EFFORT", "max"), ("ANTHROPIC_API_KEY", "sk"), ("ANTHROPIC_AUTH_TOKEN", "t"), ("NODE_OPTIONS", "--inspect"), ("LANG", "C")]
-            .map(|(k, v)| (OsString::from(k), OsString::from(v)));
-        let cfg = ProviderConfig { provider: crate::model::ProviderKind::Claude, enabled: true, display_name: "Claude".into(), binary_path: String::new(), config_dir: "~/.claude-work".into(), launch_args: String::new() };
+        let host = HostEnv {
+            path: "/usr/bin:/opt/homebrew/bin".into(),
+            home: "/Users/a".into(),
+            cwd: "/data/assistant".into(),
+        };
+        let parent = [
+            ("HOME", "/Users/a"),
+            ("CLAUDECODE", "1"),
+            ("CLAUDE_CODE_ENTRYPOINT", "cli"),
+            ("CLAUDE_EFFORT", "max"),
+            ("ANTHROPIC_API_KEY", "sk"),
+            ("ANTHROPIC_AUTH_TOKEN", "t"),
+            ("NODE_OPTIONS", "--inspect"),
+            ("LANG", "C"),
+        ]
+        .map(|(k, v)| (OsString::from(k), OsString::from(v)));
+        let cfg = ProviderConfig {
+            provider: crate::model::ProviderKind::Claude,
+            enabled: true,
+            display_name: "Claude".into(),
+            binary_path: String::new(),
+            config_dir: "~/.claude-work".into(),
+            launch_args: String::new(),
+        };
         let (set, remove) = env(&cfg, &host, parent.into_iter());
         let removed: Vec<String> = remove.iter().map(|k| k.to_string_lossy().into_owned()).collect();
-        assert_eq!(removed, ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_EFFORT", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "NODE_OPTIONS"]);
+        assert_eq!(
+            removed,
+            [
+                "CLAUDECODE",
+                "CLAUDE_CODE_ENTRYPOINT",
+                "CLAUDE_EFFORT",
+                "ANTHROPIC_API_KEY",
+                "ANTHROPIC_AUTH_TOKEN",
+                "NODE_OPTIONS"
+            ]
+        );
         let get = |k: &str| set.iter().find(|(n, _)| n == k).map(|(_, v)| v.to_string_lossy().into_owned());
         assert_eq!(get("PATH").as_deref(), Some("/usr/bin:/opt/homebrew/bin"));
         assert_eq!(get("CLAUDE_CONFIG_DIR").as_deref(), Some("/Users/a/.claude-work"));
@@ -1039,7 +1351,10 @@ mod tests {
         assert_eq!(get("ENABLE_CLAUDEAI_MCP_SERVERS").as_deref(), Some("false"));
         assert_eq!(get("HOME"), None, "HOME is inherited untouched");
         let inherited = env(&ProviderConfig { config_dir: String::new(), ..cfg }, &host, std::iter::empty()).0;
-        assert!(!inherited.iter().any(|(k, _)| k == "CLAUDE_CONFIG_DIR"), "an empty config dir leaves the variable to the environment");
+        assert!(
+            !inherited.iter().any(|(k, _)| k == "CLAUDE_CONFIG_DIR"),
+            "an empty config dir leaves the variable to the environment"
+        );
     }
 
     #[cfg(unix)]
@@ -1052,12 +1367,23 @@ mod tests {
         let claude = bin.join("claude");
         std::fs::write(&claude, "#!/bin/sh\n").unwrap();
         std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let host = HostEnv { path: std::env::join_paths([bin.clone(), std::path::PathBuf::from("/nonexistent")]).unwrap(), home: dir.path().to_owned(), cwd: dir.path().join("assistant") };
+        let host = HostEnv {
+            path: std::env::join_paths([bin.clone(), std::path::PathBuf::from("/nonexistent")]).unwrap(),
+            home: dir.path().to_owned(),
+            cwd: dir.path().join("assistant"),
+        };
         assert_eq!(host.resolve("", "claude").unwrap(), claude);
         assert_eq!(host.resolve("~/bin/claude", "claude").unwrap(), claude);
         assert_eq!(host.resolve("/nope", "claude").unwrap_err(), "/nope");
-        assert_eq!(host.resolve("missing", "claude").unwrap_err(), format!("missing on PATH ({}:/nonexistent)", bin.display()));
+        assert_eq!(
+            host.resolve("missing", "claude").unwrap_err(),
+            format!("missing on PATH ({}:/nonexistent)", bin.display())
+        );
         let here = std::env::current_dir().unwrap();
-        assert_eq!(host.resolve("nope/claude", "claude").unwrap_err(), here.join("nope/claude").display().to_string(), "a relative path is taken against the engine's own directory");
+        assert_eq!(
+            host.resolve("nope/claude", "claude").unwrap_err(),
+            here.join("nope/claude").display().to_string(),
+            "a relative path is taken against the engine's own directory"
+        );
     }
 }

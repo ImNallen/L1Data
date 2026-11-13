@@ -52,20 +52,14 @@ impl<R: Read> Parser<R> {
     }
 
     fn fail(&self, message: &str) -> ImportError {
-        ImportError::Csv {
-            line: self.line,
-            record: self.record,
-            message: message.into(),
-        }
+        ImportError::Csv { line: self.line, record: self.record, message: message.into() }
     }
 
     fn field(&self, bytes: Vec<u8>, quoted: bool) -> Result<Option<String>, ImportError> {
         if bytes.is_empty() && !quoted {
             return Ok(None);
         }
-        String::from_utf8(bytes)
-            .map(Some)
-            .map_err(|_| self.fail("Invalid UTF-8"))
+        String::from_utf8(bytes).map(Some).map_err(|_| self.fail("Invalid UTF-8"))
     }
 
     pub fn next(&mut self, stop: &AtomicBool) -> Result<Option<Record>, ImportError> {
@@ -90,12 +84,7 @@ impl<R: Read> Parser<R> {
                 }
                 fields.push(self.field(field, quoted)?);
                 self.record += 1;
-                return Ok(Some(Record {
-                    fields,
-                    bytes: self.bytes,
-                    line,
-                    number,
-                }));
+                return Ok(Some(Record { fields, bytes: self.bytes, line, number }));
             };
             self.reader.consume(1);
             self.bytes += 1;
@@ -143,12 +132,7 @@ impl<R: Read> Parser<R> {
                     fields.push(self.field(field, quoted)?);
                     self.line += 1;
                     self.record += 1;
-                    return Ok(Some(Record {
-                        fields,
-                        bytes: self.bytes,
-                        line,
-                        number,
-                    }));
+                    return Ok(Some(Record { fields, bytes: self.bytes, line, number }));
                 }
                 (State::Closed, _) => return Err(self.fail("Unexpected text after closing quote")),
                 (_, b'"') => return Err(self.fail("Quote inside an unquoted field")),
@@ -186,9 +170,7 @@ pub fn encode(fields: &[Option<String>], mapping: &[Option<String>], out: &mut V
 }
 
 pub fn io(error: std::io::Error) -> ImportError {
-    ImportError::Io {
-        message: error.to_string(),
-    }
+    ImportError::Io { message: error.to_string() }
 }
 
 #[cfg(test)]
@@ -204,24 +186,11 @@ mod tests {
     }
     #[test]
     fn preserves_text_nulls_and_quote_provenance() {
-        let rows = parse(
-            "\u{feff}a,b,c\r\n\"x,y\",\"a\"\"b\n雪\r\nz\",\r\n,\"\",9007199254740993".as_bytes(),
-        )
-        .unwrap();
-        assert_eq!(
-            rows[1],
-            vec![Some("x,y".into()), Some("a\"b\n雪\r\nz".into()), None]
-        );
-        assert_eq!(
-            rows[2],
-            vec![None, Some("".into()), Some("9007199254740993".into())]
-        );
+        let rows = parse("\u{feff}a,b,c\r\n\"x,y\",\"a\"\"b\n雪\r\nz\",\r\n,\"\",9007199254740993".as_bytes()).unwrap();
+        assert_eq!(rows[1], vec![Some("x,y".into()), Some("a\"b\n雪\r\nz".into()), None]);
+        assert_eq!(rows[2], vec![None, Some("".into()), Some("9007199254740993".into())]);
         let mut encoded = Vec::new();
-        encode(
-            &rows[2],
-            &[Some("a".into()), Some("b".into()), Some("c".into())],
-            &mut encoded,
-        );
+        encode(&rows[2], &[Some("a".into()), Some("b".into()), Some("c".into())], &mut encoded);
         assert_eq!(parse(&encoded).unwrap(), vec![rows[2].clone()]);
     }
     #[test]
@@ -234,11 +203,7 @@ mod tests {
         }
         let mut parser = Parser::new(One("\u{feff}\"a\"\"b\r\nc\",\"\"\r\nx,".as_bytes())).unwrap();
         assert_eq!(
-            parser
-                .next(&AtomicBool::new(false))
-                .unwrap()
-                .unwrap()
-                .fields,
+            parser.next(&AtomicBool::new(false)).unwrap().unwrap().fields,
             vec![Some("a\"b\r\nc".into()), Some("".into())]
         );
         let last = parser.next(&AtomicBool::new(false)).unwrap().unwrap();
@@ -247,18 +212,8 @@ mod tests {
     }
     #[test]
     fn rejects_invalid_and_unbounded_input() {
-        for bytes in [
-            b"a\"b".as_slice(),
-            b"\"open",
-            b"\"a\"x",
-            b"a\0b",
-            b"\xff",
-            b"a\rb",
-        ] {
-            assert!(
-                matches!(parse(bytes), Err(ImportError::Csv { .. })),
-                "{bytes:?}"
-            );
+        for bytes in [b"a\"b".as_slice(), b"\"open", b"\"a\"x", b"a\0b", b"\xff", b"a\rb"] {
+            assert!(matches!(parse(bytes), Err(ImportError::Csv { .. })), "{bytes:?}");
         }
         assert!(parse(&vec![b','; MAX_FIELDS]).is_err());
         assert!(parse(&vec![b'x'; MAX_RECORD + 1]).is_err());

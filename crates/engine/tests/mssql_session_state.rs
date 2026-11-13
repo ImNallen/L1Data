@@ -39,9 +39,11 @@ async fn raw(user: &str, password: &str, database: &str) -> Client {
 
 async fn raw_rows(client: &mut Client, sql: &str) -> Result<Rows, tiberius::error::Error> {
     let sets = client.simple_query(sql).await?.into_results().await?;
-    Ok(sets.into_iter().flatten().map(|row| {
-        (0..row.len()).map(|i| row.get::<&str, _>(i).map(str::to_owned)).collect()
-    }).collect())
+    Ok(sets
+        .into_iter()
+        .flatten()
+        .map(|row| (0..row.len()).map(|i| row.get::<&str, _>(i).map(str::to_owned)).collect())
+        .collect())
 }
 
 struct Harness {
@@ -61,18 +63,42 @@ impl Harness {
             az_binary: None,
             user_known_hosts: None,
             updates: Arc::new(engine::ScriptedTransport::named("off").unwrap()),
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
         let (host, port) = address();
-        let connection = engine.save_connection(ConnectionDraft {
-            id: None, database_kind: DatabaseKind::SqlServer, name: "Native state regression".into(),
-            host, port, database: database.into(), user: user.into(), password: PasswordInput::Set(password.into()),
-            ssl_mode: SslMode::Require, ca_cert_path: None, color: None, ssh: None, environment: None,
-            sql_server_auth: None,
-        }).await.unwrap();
+        let connection = engine
+            .save_connection(ConnectionDraft {
+                id: None,
+                database_kind: DatabaseKind::SqlServer,
+                name: "Native state regression".into(),
+                host,
+                port,
+                database: database.into(),
+                user: user.into(),
+                password: PasswordInput::Set(password.into()),
+                ssl_mode: SslMode::Require,
+                ca_cert_path: None,
+                color: None,
+                ssh: None,
+                environment: None,
+                sql_server_auth: None,
+            })
+            .await
+            .unwrap();
         let tab = TabId(uuid::Uuid::new_v4());
-        engine.console_configure(tab, ConsoleConfig {
-            connection_id: connection.id, database: database.into(), schema: None, mode: TxnMode::AutoCommit,
-        }).await.unwrap();
+        engine
+            .console_configure(
+                tab,
+                ConsoleConfig {
+                    connection_id: connection.id,
+                    database: database.into(),
+                    schema: None,
+                    mode: TxnMode::AutoCommit,
+                },
+            )
+            .await
+            .unwrap();
         Self { engine, tab, control: raw(user, password, database).await, _dir: dir }
     }
 
@@ -84,20 +110,43 @@ impl Harness {
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 let state = self.state();
-                if matches!(state.run, RunState::Finished { run_id, .. } if run_id == id) { return state; }
+                if matches!(state.run, RunState::Finished { run_id, .. } if run_id == id) {
+                    return state;
+                }
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
-        }).await.expect("Native state regression timed out")
+        })
+        .await
+        .expect("Native state regression timed out")
     }
 
     async fn run(&self, sql: &str) -> (ConsoleState, Rows) {
-        let accepted = self.engine.console_run(self.tab, RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await.unwrap();
+        let accepted = self
+            .engine
+            .console_run(
+                self.tab,
+                RunRequest::Script {
+                    text: sql.into(),
+                    target: RunTarget::All,
+                    mode: RunMode::Run,
+                    params: Vec::new(),
+                    cells: Vec::new(),
+                },
+                None,
+            )
+            .await
+            .unwrap();
         let state = self.finish(accepted.run_id).await;
         let RunState::Finished { statements, .. } = &state.run else { unreachable!() };
-        let rows = statements.iter().flat_map(|s| &s.outputs).filter_map(|output| match output {
-            RunOutput::Rows { result, .. } => Some(self.engine.result_page(result.r#ref, 0, 100).unwrap().rows),
-            _ => None,
-        }).flatten().collect();
+        let rows = statements
+            .iter()
+            .flat_map(|s| &s.outputs)
+            .filter_map(|output| match output {
+                RunOutput::Rows { result, .. } => Some(self.engine.result_page(result.r#ref, 0, 100).unwrap().rows),
+                _ => None,
+            })
+            .flatten()
+            .collect();
         (state, rows)
     }
 
@@ -128,7 +177,9 @@ async fn check(test: impl for<'a> FnOnce(&'a mut Harness) -> BoxFuture<'a, ()>) 
     let mut h = Harness::open("sa", &password(), "shop").await;
     let result = AssertUnwindSafe(test(&mut h)).catch_unwind().await;
     h.cleanup().await;
-    if let Err(panic) = result { std::panic::resume_unwind(panic); }
+    if let Err(panic) = result {
+        std::panic::resume_unwind(panic);
+    }
 }
 
 const SETUP: &str = "DROP TABLE IF EXISTS #l1_native_state; CREATE TABLE #l1_native_state(id int PRIMARY KEY, n int); INSERT #l1_native_state VALUES(1,10),(2,20)";
@@ -140,21 +191,32 @@ fn transaction(state: &ConsoleState, open: bool) {
 
 #[tokio::test]
 async fn startup_and_protocol_reads_preserve_native_state() {
-    check(|h| async move {
-        let login = h.control.session_state().unwrap();
-        assert_eq!(login.database, "shop");
-        assert!(!login.has_transaction);
-        let pid = login.server_process_id;
-        let version = login.server_version;
-        for _ in 0..3 { h.control.session_state().unwrap(); }
-        transaction(&h.same(EFFECTS).await, false);
-        let actual = raw_rows(&mut h.control, "SELECT CONVERT(nvarchar(20),@@SPID), CONVERT(nvarchar(128),SERVERPROPERTY('ProductVersion'))").await.unwrap();
-        assert_eq!(actual[0][0], Some(pid.to_string()));
-        assert!(actual[0][1].as_ref().unwrap().starts_with(&format!("{}.{}.{}.", version.0, version.1, version.2)));
-        let (state, rows) = h.run("SELECT CONVERT(nvarchar(20),@@SPID)").await;
-        let SessionState::Open { backend_pid } = state.session else { panic!("Expected native session") };
-        assert_eq!(rows, vec![vec![Some(backend_pid.to_string())]]);
-    }.boxed()).await;
+    check(|h| {
+        async move {
+            let login = h.control.session_state().unwrap();
+            assert_eq!(login.database, "shop");
+            assert!(!login.has_transaction);
+            let pid = login.server_process_id;
+            let version = login.server_version;
+            for _ in 0..3 {
+                h.control.session_state().unwrap();
+            }
+            transaction(&h.same(EFFECTS).await, false);
+            let actual = raw_rows(
+                &mut h.control,
+                "SELECT CONVERT(nvarchar(20),@@SPID), CONVERT(nvarchar(128),SERVERPROPERTY('ProductVersion'))",
+            )
+            .await
+            .unwrap();
+            assert_eq!(actual[0][0], Some(pid.to_string()));
+            assert!(actual[0][1].as_ref().unwrap().starts_with(&format!("{}.{}.{}.", version.0, version.1, version.2)));
+            let (state, rows) = h.run("SELECT CONVERT(nvarchar(20),@@SPID)").await;
+            let SessionState::Open { backend_pid } = state.session else { panic!("Expected native session") };
+            assert_eq!(rows, vec![vec![Some(backend_pid.to_string())]]);
+        }
+        .boxed()
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -216,24 +278,28 @@ async fn server_errors_preserve_error_number_and_recover_without_observation_sql
 
 #[tokio::test]
 async fn native_buttons_keep_nesting_semantics_and_do_not_run_a_followup_probe() {
-    check(|h| async move {
-        h.same(SETUP).await;
-        transaction(&h.same("BEGIN TRANSACTION; BEGIN TRANSACTION; UPDATE #l1_native_state SET n=99").await, true);
-        transaction(&h.same("COMMIT TRANSACTION").await, true);
-        raw_rows(&mut h.control, "WHILE @@TRANCOUNT > 0 COMMIT TRANSACTION").await.unwrap();
-        h.engine.console_commit(h.tab, None).await.unwrap();
-        transaction(&h.state(), false);
-        h.same(EFFECTS).await;
-        h.same("SELECT CONVERT(nvarchar(20),SUM(n)) FROM #l1_native_state").await;
-        transaction(&h.same("BEGIN TRANSACTION; BEGIN TRANSACTION; UPDATE #l1_native_state SET n=7").await, true);
-        raw_rows(&mut h.control, "IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION").await.unwrap();
-        h.engine.console_rollback(h.tab).await.unwrap();
-        transaction(&h.state(), false);
-        h.same(EFFECTS).await;
-        h.same("SELECT CONVERT(nvarchar(20),SUM(n)) FROM #l1_native_state").await;
-        transaction(&h.same("SET IMPLICIT_TRANSACTIONS ON; UPDATE #l1_native_state SET n=8").await, true);
-        h.same("ROLLBACK TRANSACTION; SET IMPLICIT_TRANSACTIONS OFF").await;
-    }.boxed()).await;
+    check(|h| {
+        async move {
+            h.same(SETUP).await;
+            transaction(&h.same("BEGIN TRANSACTION; BEGIN TRANSACTION; UPDATE #l1_native_state SET n=99").await, true);
+            transaction(&h.same("COMMIT TRANSACTION").await, true);
+            raw_rows(&mut h.control, "WHILE @@TRANCOUNT > 0 COMMIT TRANSACTION").await.unwrap();
+            h.engine.console_commit(h.tab, None).await.unwrap();
+            transaction(&h.state(), false);
+            h.same(EFFECTS).await;
+            h.same("SELECT CONVERT(nvarchar(20),SUM(n)) FROM #l1_native_state").await;
+            transaction(&h.same("BEGIN TRANSACTION; BEGIN TRANSACTION; UPDATE #l1_native_state SET n=7").await, true);
+            raw_rows(&mut h.control, "IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION").await.unwrap();
+            h.engine.console_rollback(h.tab).await.unwrap();
+            transaction(&h.state(), false);
+            h.same(EFFECTS).await;
+            h.same("SELECT CONVERT(nvarchar(20),SUM(n)) FROM #l1_native_state").await;
+            transaction(&h.same("SET IMPLICIT_TRANSACTIONS ON; UPDATE #l1_native_state SET n=8").await, true);
+            h.same("ROLLBACK TRANSACTION; SET IMPLICIT_TRANSACTIONS OFF").await;
+        }
+        .boxed()
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -256,7 +322,9 @@ async fn a_login_without_server_state_permission_preserves_native_effects() {
     let mut admin = raw("sa", &password(), "master").await;
     let login = format!("l1_state_{}", uuid::Uuid::new_v4().simple());
     let secret = format!("L1_test_{}!", uuid::Uuid::new_v4().simple());
-    raw_rows(&mut admin, &format!("CREATE LOGIN [{login}] WITH PASSWORD=N'{secret}', DEFAULT_DATABASE=master")).await.unwrap();
+    raw_rows(&mut admin, &format!("CREATE LOGIN [{login}] WITH PASSWORD=N'{secret}', DEFAULT_DATABASE=master"))
+        .await
+        .unwrap();
     let result = AssertUnwindSafe(async {
         let mut h = Harness::open(&login, &secret, "master").await;
         let test = AssertUnwindSafe(async {
@@ -284,42 +352,95 @@ async fn a_login_without_server_state_permission_preserves_native_effects() {
     }).catch_unwind().await;
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            let sessions = raw_rows(&mut admin, &format!("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM sys.dm_exec_sessions WHERE login_name=N'{login}'")).await.unwrap();
-            if sessions == vec![vec![Some("0".into())]] { break; }
+            let sessions = raw_rows(
+                &mut admin,
+                &format!("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM sys.dm_exec_sessions WHERE login_name=N'{login}'"),
+            )
+            .await
+            .unwrap();
+            if sessions == vec![vec![Some("0".into())]] {
+                break;
+            }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
-    }).await.expect("Disposable login sessions did not close");
+    })
+    .await
+    .expect("Disposable login sessions did not close");
     raw_rows(&mut admin, &format!("DROP LOGIN [{login}]")).await.unwrap();
-    assert_eq!(raw_rows(&mut admin, &format!("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM sys.server_principals WHERE name=N'{login}'")).await.unwrap(), vec![vec![Some("0".into())]]);
+    assert_eq!(
+        raw_rows(
+            &mut admin,
+            &format!("SELECT CONVERT(nvarchar(20),COUNT(*)) FROM sys.server_principals WHERE name=N'{login}'")
+        )
+        .await
+        .unwrap(),
+        vec![vec![Some("0".into())]]
+    );
     admin.close().await.unwrap();
-    if let Err(panic) = result { std::panic::resume_unwind(panic); }
+    if let Err(panic) = result {
+        std::panic::resume_unwind(panic);
+    }
 }
 
 #[tokio::test]
 async fn cancel_retires_the_moved_session_and_transaction_buttons_remain_busy() {
-    check(|h| async move {
-        h.same(SETUP).await;
-        h.same("BEGIN TRANSACTION; UPDATE #l1_native_state SET n=9").await;
-        let accepted = h.engine.console_run(h.tab, RunRequest::Script {
-            text: "SELECT N'started'; RAISERROR(N'flush',0,1) WITH NOWAIT; WAITFOR DELAY '00:00:30'".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(),
-            cells: Vec::new(),
-        }, None).await.unwrap();
-        tokio::time::timeout(Duration::from_secs(3), async {
-            loop {
-                if let RunState::Running { ref statements, .. } = h.state().run {
-                    if statements.iter().flat_map(|s| &s.outputs).any(|o| matches!(o, RunOutput::Rows { .. })) { break; }
+    check(|h| {
+        async move {
+            h.same(SETUP).await;
+            h.same("BEGIN TRANSACTION; UPDATE #l1_native_state SET n=9").await;
+            let accepted = h
+                .engine
+                .console_run(
+                    h.tab,
+                    RunRequest::Script {
+                        text: "SELECT N'started'; RAISERROR(N'flush',0,1) WITH NOWAIT; WAITFOR DELAY '00:00:30'".into(),
+                        target: RunTarget::All,
+                        mode: RunMode::Run,
+                        params: Vec::new(),
+                        cells: Vec::new(),
+                    },
+                    None,
+                )
+                .await
+                .unwrap();
+            tokio::time::timeout(Duration::from_secs(3), async {
+                loop {
+                    if let RunState::Running { ref statements, .. } = h.state().run {
+                        if statements.iter().flat_map(|s| &s.outputs).any(|o| matches!(o, RunOutput::Rows { .. })) {
+                            break;
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
                 }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        }).await.expect("First result did not stream before WAITFOR");
-        assert!(matches!(h.engine.console_commit(h.tab, None).await, Err(TxnError::Busy)));
-        assert!(matches!(h.engine.console_rollback(h.tab).await, Err(TxnError::Busy)));
-        assert!(matches!(h.engine.console_run(h.tab, RunRequest::Script { text: "SELECT 1".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }, None).await, Err(RunError::Busy)));
-        h.engine.console_cancel(h.tab).await;
-        let state = h.finish(accepted.run_id).await;
-        assert!(matches!(state.run, RunState::Finished { outcome: RunOutcome::Cancelled, .. }));
-        assert!(matches!(state.session, SessionState::Lost { transaction: TransactionLoss::Unknown, .. }));
-        let (_, rows) = h.run("SELECT CONVERT(nvarchar(20),OBJECT_ID('tempdb..#l1_native_state'))").await;
-        assert_eq!(rows, vec![vec![None]]);
-    }.boxed()).await;
+            })
+            .await
+            .expect("First result did not stream before WAITFOR");
+            assert!(matches!(h.engine.console_commit(h.tab, None).await, Err(TxnError::Busy)));
+            assert!(matches!(h.engine.console_rollback(h.tab).await, Err(TxnError::Busy)));
+            assert!(matches!(
+                h.engine
+                    .console_run(
+                        h.tab,
+                        RunRequest::Script {
+                            text: "SELECT 1".into(),
+                            target: RunTarget::All,
+                            mode: RunMode::Run,
+                            params: Vec::new(),
+                            cells: Vec::new()
+                        },
+                        None
+                    )
+                    .await,
+                Err(RunError::Busy)
+            ));
+            h.engine.console_cancel(h.tab).await;
+            let state = h.finish(accepted.run_id).await;
+            assert!(matches!(state.run, RunState::Finished { outcome: RunOutcome::Cancelled, .. }));
+            assert!(matches!(state.session, SessionState::Lost { transaction: TransactionLoss::Unknown, .. }));
+            let (_, rows) = h.run("SELECT CONVERT(nvarchar(20),OBJECT_ID('tempdb..#l1_native_state'))").await;
+            assert_eq!(rows, vec![vec![None]]);
+        }
+        .boxed()
+    })
+    .await;
 }

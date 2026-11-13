@@ -17,13 +17,26 @@ fn action(n: u8) -> Result<FkAction, QueryError> {
 }
 
 impl MsSession {
-    pub(in crate::session) async fn detail(&mut self, db: DatabaseRef, oid: u32, version: u64) -> Result<Option<RelationDetail>, QueryError> {
+    pub(in crate::session) async fn detail(
+        &mut self,
+        db: DatabaseRef,
+        oid: u32,
+        version: u64,
+    ) -> Result<Option<RelationDetail>, QueryError> {
         let object_id = oid;
         let oid = native_object_id(oid);
         if self.rows(&format!("SELECT 1 FROM sys.all_objects WHERE object_id={oid}")).await?.is_empty() {
             return Ok(None);
         }
-        let mut detail = RelationDetail { db, oid: object_id, catalog_version: version, defaults: vec![], keys: vec![], indexes: vec![], triggers: vec![] };
+        let mut detail = RelationDetail {
+            db,
+            oid: object_id,
+            catalog_version: version,
+            defaults: vec![],
+            keys: vec![],
+            indexes: vec![],
+            triggers: vec![],
+        };
         let rows = self.rows(&format!("SELECT c.name,c.is_identity,c.is_computed,dc.definition,cc.definition FROM sys.columns c LEFT JOIN sys.default_constraints dc ON dc.object_id=c.default_object_id LEFT JOIN sys.computed_columns cc ON cc.object_id=c.object_id AND cc.column_id=c.column_id WHERE c.object_id={oid} AND (c.is_identity=1 OR c.is_computed=1 OR c.default_object_id<>0) ORDER BY c.column_id")).await?;
         for r in rows {
             let column = required(&r, 0)?.into();
@@ -45,7 +58,11 @@ impl MsSession {
             if let Some(k) = detail.keys.iter_mut().find(|k| k.name == name) {
                 k.columns.push(col);
             } else {
-                detail.keys.push(KeyInfo { name, columns: vec![col], kind: if required(&r, 1)?.trim() == "PK" { KeyKind::Primary } else { KeyKind::Unique } });
+                detail.keys.push(KeyInfo {
+                    name,
+                    columns: vec![col],
+                    kind: if required(&r, 1)?.trim() == "PK" { KeyKind::Primary } else { KeyKind::Unique },
+                });
             }
         }
         let rows = self.rows(&format!("SELECT fk.name,c.name,rs.name,ro.name,rc.name,fk.delete_referential_action,fk.update_referential_action FROM sys.foreign_keys fk JOIN sys.foreign_key_columns fc ON fc.constraint_object_id=fk.object_id JOIN sys.columns c ON c.object_id=fc.parent_object_id AND c.column_id=fc.parent_column_id JOIN sys.objects ro ON ro.object_id=fc.referenced_object_id JOIN sys.schemas rs ON rs.schema_id=ro.schema_id JOIN sys.columns rc ON rc.object_id=fc.referenced_object_id AND rc.column_id=fc.referenced_column_id WHERE fk.parent_object_id={oid} ORDER BY fk.name,fc.constraint_column_id")).await?;
@@ -76,7 +93,11 @@ impl MsSession {
         for r in rows {
             let name = required(&r, 0)?.into();
             let Some(definition) = &r[2] else { continue };
-            detail.keys.push(KeyInfo { name, columns: r[1].clone().into_iter().collect(), kind: KeyKind::Check { definition: definition.clone() } });
+            detail.keys.push(KeyInfo {
+                name,
+                columns: r[1].clone().into_iter().collect(),
+                kind: KeyKind::Check { definition: definition.clone() },
+            });
         }
         detail.keys.sort_by_key(|k| {
             (
@@ -114,7 +135,11 @@ impl MsSession {
             }
         }
         for (index, (_, keys, include)) in detail.indexes.iter_mut().zip(index_columns) {
-            index.keys = format!("({}){}", keys.join(", "), if include.is_empty() { String::new() } else { format!(" INCLUDE ({})", include.join(", ")) });
+            index.keys = format!(
+                "({}){}",
+                keys.join(", "),
+                if include.is_empty() { String::new() } else { format!(" INCLUDE ({})", include.join(", ")) }
+            );
         }
         let rows = self.rows(&format!("SELECT t.name,t.is_instead_of_trigger,t.is_disabled,m.definition,e.type_desc FROM sys.triggers t LEFT JOIN sys.sql_modules m ON m.object_id=t.object_id LEFT JOIN sys.trigger_events e ON e.object_id=t.object_id WHERE t.parent_id={oid} ORDER BY t.name,e.type")).await?;
         for r in rows {

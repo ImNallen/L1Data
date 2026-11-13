@@ -17,10 +17,16 @@ struct Harness {
 impl Harness {
     async fn open() -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let engine =
-            Engine::open(EngineConfig { data_dir: dir.path().into(), keys: Arc::new(MemoryKeyStore::default()), agent_path: AgentPath::Fixed("".into()), az_binary: None, user_known_hosts: None, updates: Arc::new(engine::ScriptedTransport::named("off").unwrap()) })
-                .await
-                .unwrap();
+        let engine = Engine::open(EngineConfig {
+            data_dir: dir.path().into(),
+            keys: Arc::new(MemoryKeyStore::default()),
+            agent_path: AgentPath::Fixed("".into()),
+            az_binary: None,
+            user_known_hosts: None,
+            updates: Arc::new(engine::ScriptedTransport::named("off").unwrap()),
+        })
+        .await
+        .unwrap();
         Self { engine, _dir: dir }
     }
 
@@ -50,7 +56,13 @@ impl Harness {
     async fn connect(&self, connection_id: ConnectionId) -> TabId {
         self.engine.connect(connection_id).await.unwrap();
         let tab = TabId(uuid::Uuid::new_v4());
-        self.engine.console_configure(tab, ConsoleConfig { connection_id, database: "shop".into(), schema: None, mode: TxnMode::AutoCommit }).await.unwrap();
+        self.engine
+            .console_configure(
+                tab,
+                ConsoleConfig { connection_id, database: "shop".into(), schema: None, mode: TxnMode::AutoCommit },
+            )
+            .await
+            .unwrap();
         tab
     }
 
@@ -86,7 +98,20 @@ impl Harness {
     }
 
     async fn sql(&self, tab: TabId, sql: &str) -> Rows {
-        self.rows(&self.request(tab, RunRequest::Script { text: sql.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }).await)
+        self.rows(
+            &self
+                .request(
+                    tab,
+                    RunRequest::Script {
+                        text: sql.into(),
+                        target: RunTarget::All,
+                        mode: RunMode::Run,
+                        params: Vec::new(),
+                        cells: Vec::new(),
+                    },
+                )
+                .await,
+        )
     }
 }
 
@@ -106,7 +131,8 @@ async fn executable_procedure_with_hidden_alias_parameters_does_not_fail_catalog
 
 async fn check_visibility(executable: bool) {
     let h = Harness::open().await;
-    let owner = h.save("sa", std::env::var("L1_DATA_TEST_MSSQL_PASSWORD").unwrap_or_else(|_| "L1Data_dev_Str0ng".into())).await;
+    let owner =
+        h.save("sa", std::env::var("L1_DATA_TEST_MSSQL_PASSWORD").unwrap_or_else(|_| "L1Data_dev_Str0ng".into())).await;
     let owner_tab = h.connect(owner).await;
     let stem = format!("l1_alias_{}", uuid::Uuid::new_v4().simple());
     let table = format!("{stem}_table");
@@ -291,7 +317,9 @@ async fn check_visibility(executable: bool) {
     }
     let sessions = AssertUnwindSafe(tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let rows = h.sql(owner_tab, &format!("SELECT COUNT(*) FROM sys.dm_exec_sessions WHERE login_name=N'{login}'")).await;
+            let rows = h
+                .sql(owner_tab, &format!("SELECT COUNT(*) FROM sys.dm_exec_sessions WHERE login_name=N'{login}'"))
+                .await;
             if rows == vec![vec![Some("0".into())]] {
                 break;
             }

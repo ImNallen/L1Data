@@ -107,11 +107,16 @@ fn lexeme_at(sql: &str, i: usize, strings: Strings) -> (LexKind, usize) {
             let word = &sql[i..end];
             match at(end) {
                 Some(b'\'') if matches!(word, "e" | "E" | "b" | "B" | "x" | "X" | "n" | "N") => {
-                    let escapes = word.eq_ignore_ascii_case("e") || (word.eq_ignore_ascii_case("n") && strings == Strings::Escaped);
+                    let escapes = word.eq_ignore_ascii_case("e")
+                        || (word.eq_ignore_ascii_case("n") && strings == Strings::Escaped);
                     (String, skip_string(bytes, end, escapes))
                 }
                 Some(b'&') if word.eq_ignore_ascii_case("u") && matches!(at(end + 1), Some(b'"' | b'\'')) => {
-                    if bytes[end + 1] == b'"' { (QuotedIdent, skip_quoted(bytes, end + 1, b'"', false)) } else { (String, skip_string(bytes, end + 1, false)) }
+                    if bytes[end + 1] == b'"' {
+                        (QuotedIdent, skip_quoted(bytes, end + 1, b'"', false))
+                    } else {
+                        (String, skip_string(bytes, end + 1, false))
+                    }
                 }
                 _ => (Word, end),
             }
@@ -174,7 +179,10 @@ fn junk(bytes: &[u8], j: usize) -> usize {
         return j;
     }
     let end = run(bytes, j, is_ident_cont);
-    let unicode_escape = end == j + 1 && matches!(bytes[j], b'u' | b'U') && bytes.get(end) == Some(&b'&') && matches!(bytes.get(end + 1), Some(b'\'' | b'"'));
+    let unicode_escape = end == j + 1
+        && matches!(bytes[j], b'u' | b'U')
+        && bytes.get(end) == Some(&b'&')
+        && matches!(bytes.get(end + 1), Some(b'\'' | b'"'));
     if unicode_escape { j } else { end }
 }
 
@@ -278,21 +286,44 @@ mod tests {
         }
         assert_eq!(
             numbers("1_000.5 1_000.25e-3 0x1F 0b1010 0o17 1. .5 1.e5 1_000e1_0 0x_1F"),
-            ["1_000.5", "1_000.25e-3", "0x1F", "0b1010", "0o17", "1.", ".5", "1.e5", "1_000e1_0", "0x_1F"].map(|n| (Number, n))
+            ["1_000.5", "1_000.25e-3", "0x1F", "0b1010", "0o17", "1.", ".5", "1.e5", "1_000e1_0", "0x_1F"]
+                .map(|n| (Number, n))
         );
         assert_eq!(numbers("1..2"), vec![(Number, "1"), (Other, ".."), (Number, "2")]);
         assert_eq!(numbers("0x1F.5 1.5.3"), vec![(Number, "0x1F"), (Number, ".5"), (Number, "1.5"), (Number, ".3")]);
-        assert_eq!(numbers("1_000_ 0b102 0x 1._5 1e+x"), vec![(Number, "1_000_"), (Number, "0b102"), (Number, "0x"), (Number, "1._5"), (Number, "1e"), (Operator, "+"), (Word, "x")]);
+        assert_eq!(
+            numbers("1_000_ 0b102 0x 1._5 1e+x"),
+            vec![
+                (Number, "1_000_"),
+                (Number, "0b102"),
+                (Number, "0x"),
+                (Number, "1._5"),
+                (Number, "1e"),
+                (Operator, "+"),
+                (Word, "x")
+            ]
+        );
     }
 
     #[test]
     fn a_string_continued_across_a_newline_is_one_lexeme() {
-        assert_eq!(kinds("E'it\\'s'\n'\\'  two  spaces' x"), vec![(String, "E'it\\'s'\n'\\'  two  spaces'"), (Space, " "), (Word, "x")]);
+        assert_eq!(
+            kinds("E'it\\'s'\n'\\'  two  spaces' x"),
+            vec![(String, "E'it\\'s'\n'\\'  two  spaces'"), (Space, " "), (Word, "x")]
+        );
         assert_eq!(kinds("'a' -- c\n  'b'\n-- d\n'c'"), vec![(String, "'a' -- c\n  'b'\n-- d\n'c'")]);
         assert_eq!(kinds("'a'\r'b'"), vec![(String, "'a'\r'b'")]);
         assert_eq!(
             kinds("B'01'\n'10' X'1F'\n'F' U&'a'\n'b' N'a'\n'b'"),
-            vec![(String, "B'01'\n'10'"), (Space, " "), (String, "X'1F'\n'F'"), (Space, " "), (String, "U&'a'\n'b'"), (Space, " "), (String, "N'a'\n'b'")]
+            vec![
+                (String, "B'01'\n'10'"),
+                (Space, " "),
+                (String, "X'1F'\n'F'"),
+                (Space, " "),
+                (String, "U&'a'\n'b'"),
+                (Space, " "),
+                (String, "N'a'\n'b'")
+            ]
         );
     }
 
@@ -304,8 +335,14 @@ mod tests {
     #[test]
     fn strings_without_a_newline_between_them_stay_apart() {
         assert_eq!(kinds("'a' 'b'"), vec![(String, "'a'"), (Space, " "), (String, "'b'")]);
-        assert_eq!(kinds("'a' /* c */\n'b'"), vec![(String, "'a'"), (Space, " "), (BlockComment, "/* c */"), (Space, "\n"), (String, "'b'")]);
-        assert_eq!(kinds("'a'\n/* c */ 'b'"), vec![(String, "'a'"), (Space, "\n"), (BlockComment, "/* c */"), (Space, " "), (String, "'b'")]);
+        assert_eq!(
+            kinds("'a' /* c */\n'b'"),
+            vec![(String, "'a'"), (Space, " "), (BlockComment, "/* c */"), (Space, "\n"), (String, "'b'")]
+        );
+        assert_eq!(
+            kinds("'a'\n/* c */ 'b'"),
+            vec![(String, "'a'"), (Space, "\n"), (BlockComment, "/* c */"), (Space, " "), (String, "'b'")]
+        );
         assert_eq!(kinds("'a' -- c"), vec![(String, "'a'"), (Space, " "), (LineComment, "-- c")]);
         assert_eq!(kinds("\"a\"\n\"b\""), vec![(QuotedIdent, "\"a\""), (Space, "\n"), (QuotedIdent, "\"b\"")]);
     }
@@ -314,7 +351,13 @@ mod tests {
     fn a_dollar_quote_tag_may_hold_non_ascii_letters() {
         assert_eq!(
             kinds("$é$select x$é$ $ü1$a$ü1$ $1é"),
-            vec![(DollarString, "$é$select x$é$"), (Space, " "), (DollarString, "$ü1$a$ü1$"), (Space, " "), (Param, "$1é")]
+            vec![
+                (DollarString, "$é$select x$é$"),
+                (Space, " "),
+                (DollarString, "$ü1$a$ü1$"),
+                (Space, " "),
+                (Param, "$1é")
+            ]
         );
     }
 
@@ -354,6 +397,17 @@ mod tests {
                 (LineComment, "--c"),
             ]
         );
-        assert_eq!(kinds("a[1:2];"), vec![(Word, "a"), (OpenBracket, "["), (Number, "1"), (Other, ":"), (Number, "2"), (CloseBracket, "]"), (Semicolon, ";")]);
+        assert_eq!(
+            kinds("a[1:2];"),
+            vec![
+                (Word, "a"),
+                (OpenBracket, "["),
+                (Number, "1"),
+                (Other, ":"),
+                (Number, "2"),
+                (CloseBracket, "]"),
+                (Semicolon, ";")
+            ]
+        );
     }
 }

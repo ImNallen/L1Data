@@ -29,7 +29,12 @@ pub(crate) async fn search_path(agent_path: &AgentPath, home: &Path) -> OsString
             let inherited = std::env::var_os("PATH").unwrap_or_default();
             let shell_path = login_shell_path().await.unwrap_or_default();
             let mut dirs: Vec<PathBuf> = dirs(&shell_path).into_iter().chain(dirs(&inherited)).collect();
-            for extra in [home.join(".local/bin"), home.join(".claude/local"), PathBuf::from("/opt/homebrew/bin"), PathBuf::from("/usr/local/bin")] {
+            for extra in [
+                home.join(".local/bin"),
+                home.join(".claude/local"),
+                PathBuf::from("/opt/homebrew/bin"),
+                PathBuf::from("/usr/local/bin"),
+            ] {
                 if extra.is_absolute() && !dirs.contains(&extra) {
                     dirs.push(extra);
                 }
@@ -60,7 +65,8 @@ pub(crate) fn executable(path: &Path) -> Option<PathBuf> {
 }
 
 fn executable_with(path: &Path, extensions: &[&str]) -> Option<PathBuf> {
-    let has_extension = path.extension().and_then(|e| e.to_str()).is_some_and(|e| extensions.iter().any(|x| x.eq_ignore_ascii_case(e)));
+    let has_extension =
+        path.extension().and_then(|e| e.to_str()).is_some_and(|e| extensions.iter().any(|x| x.eq_ignore_ascii_case(e)));
     if extensions.is_empty() || has_extension {
         return is_executable(path).then(|| path.to_owned());
     }
@@ -102,7 +108,13 @@ async fn login_shell_path() -> Option<OsString> {
         return None;
     }
     let shell = std::env::var_os("SHELL")?;
-    let output = tokio::time::timeout(LOGIN_SHELL_TIMEOUT, tokio::process::Command::new(shell).args(["-lc", "printf %s \"$PATH\""]).kill_on_drop(true).output()).await.ok()?.ok()?;
+    let output = tokio::time::timeout(
+        LOGIN_SHELL_TIMEOUT,
+        tokio::process::Command::new(shell).args(["-lc", "printf %s \"$PATH\""]).kill_on_drop(true).output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
     if !output.status.success() {
         return None;
     }
@@ -122,7 +134,8 @@ mod tests {
     #[tokio::test]
     async fn a_child_gets_and_searches_only_absolute_path_entries() {
         let (opt, usr) = (absolute("opt/bin"), absolute("usr/bin"));
-        let path = std::env::join_paths([opt.clone(), ".".into(), "".into(), "node_modules/.bin".into(), usr.clone()]).unwrap();
+        let path = std::env::join_paths([opt.clone(), ".".into(), "".into(), "node_modules/.bin".into(), usr.clone()])
+            .unwrap();
         let child = search_path(&AgentPath::Fixed(path), &absolute("home/a")).await;
         assert_eq!(child, std::env::join_paths([&opt, &usr]).unwrap());
         assert_eq!(dirs(&child), [opt, usr]);
@@ -145,12 +158,24 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let claude = dir.path().join("claude");
         program(&claude);
-        assert_eq!(executable_with(&claude, WINDOWS_EXTENSIONS), None, "npm's extensionless shim is not a program on Windows");
+        assert_eq!(
+            executable_with(&claude, WINDOWS_EXTENSIONS),
+            None,
+            "npm's extensionless shim is not a program on Windows"
+        );
         program(&dir.path().join("claude.cmd"));
         assert_eq!(executable_with(&claude, WINDOWS_EXTENSIONS), Some(dir.path().join("claude.cmd")));
         program(&dir.path().join("claude.exe"));
-        assert_eq!(executable_with(&claude, WINDOWS_EXTENSIONS), Some(dir.path().join("claude.exe")), "the native installer's exe wins over npm's cmd");
-        assert_eq!(executable_with(&dir.path().join("claude.cmd"), WINDOWS_EXTENSIONS), Some(dir.path().join("claude.cmd")), "a named extension is taken as given");
+        assert_eq!(
+            executable_with(&claude, WINDOWS_EXTENSIONS),
+            Some(dir.path().join("claude.exe")),
+            "the native installer's exe wins over npm's cmd"
+        );
+        assert_eq!(
+            executable_with(&dir.path().join("claude.cmd"), WINDOWS_EXTENSIONS),
+            Some(dir.path().join("claude.cmd")),
+            "a named extension is taken as given"
+        );
         assert_eq!(executable_with(&claude, &[]), Some(claude.clone()), "elsewhere the name is the file");
     }
 

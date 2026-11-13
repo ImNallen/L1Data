@@ -7,9 +7,9 @@ pub(crate) use expression::validate_expression;
 pub(crate) use format::format;
 pub(crate) use table::{browse_sql, count_sql, format_order_by, parse_order_by};
 
-pub(super) use around::statement_around;
 use super::scope::{Class, Lexeme};
 use super::{ByteTarget, DmlVerb, Invalidates, StmtKind, StmtSpan, relations::NameRef};
+pub(super) use around::statement_around;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
@@ -59,12 +59,18 @@ impl Token<'_> {
 pub(crate) fn param_occurrences(text: &str) -> Result<Vec<std::ops::Range<usize>>, String> {
     let tokens: Vec<_> = lex(text)?.into_iter().filter(|t| !t.comment()).collect();
     let mut code = tokens.iter().filter(|t| t.code());
-    let routine = code.clone().take(5).any(|t| t.word("procedure") || t.word("proc") || t.word("function") || t.word("trigger") || t.word("rule"))
-        && code.next().is_some_and(|t| t.word("create") || t.word("alter"));
-    if routine { return Ok(Vec::new()); }
+    let routine =
+        code.clone().take(5).any(|t| {
+            t.word("procedure") || t.word("proc") || t.word("function") || t.word("trigger") || t.word("rule")
+        }) && code.next().is_some_and(|t| t.word("create") || t.word("alter"));
+    if routine {
+        return Ok(Vec::new());
+    }
     let mut declared = std::collections::HashSet::new();
     for (i, token) in tokens.iter().enumerate() {
-        if !token.word("declare") { continue; }
+        if !token.word("declare") {
+            continue;
+        }
         let mut at = i + 1;
         while let Some(variable) = tokens.get(at).filter(|t| t.kind == Kind::Variable) {
             declared.insert(variable.text.to_lowercase());
@@ -72,10 +78,41 @@ pub(crate) fn param_occurrences(text: &str) -> Result<Vec<std::ops::Range<usize>
             let mut depth = 0usize;
             while let Some(next) = tokens.get(at) {
                 if depth == 0 {
-                    if next.text == "," && tokens.get(at + 1).is_some_and(|t| t.kind == Kind::Variable) { at += 1; break; }
-                    if next.text == ";" || ["select", "set", "declare", "insert", "update", "delete", "exec", "execute", "print", "if", "while", "open", "fetch", "close", "deallocate", "begin", "return"].iter().any(|word| next.word(word)) { break; }
+                    if next.text == "," && tokens.get(at + 1).is_some_and(|t| t.kind == Kind::Variable) {
+                        at += 1;
+                        break;
+                    }
+                    if next.text == ";"
+                        || [
+                            "select",
+                            "set",
+                            "declare",
+                            "insert",
+                            "update",
+                            "delete",
+                            "exec",
+                            "execute",
+                            "print",
+                            "if",
+                            "while",
+                            "open",
+                            "fetch",
+                            "close",
+                            "deallocate",
+                            "begin",
+                            "return",
+                        ]
+                        .iter()
+                        .any(|word| next.word(word))
+                    {
+                        break;
+                    }
                 }
-                match next.text { "(" => depth += 1, ")" => depth = depth.saturating_sub(1), _ => {} }
+                match next.text {
+                    "(" => depth += 1,
+                    ")" => depth = depth.saturating_sub(1),
+                    _ => {}
+                }
                 at += 1;
             }
         }
@@ -83,11 +120,25 @@ pub(crate) fn param_occurrences(text: &str) -> Result<Vec<std::ops::Range<usize>
     let mut exec = implicit_execution(&tokens);
     let mut out = Vec::new();
     for (i, token) in tokens.iter().enumerate() {
-        if token.word("exec") || token.word("execute") { exec = true; }
-        else if token.text == ";" || ["select", "set", "declare", "insert", "update", "delete", "print", "if", "while", "begin", "return"].iter().any(|word| token.word(word)) { exec = false; }
-        if token.kind == Kind::Variable && !token.text.starts_with("@@") && !declared.contains(&token.text.to_lowercase()) {
-            if exec && tokens.get(i + 1).is_some_and(|t| t.text == "=") { continue; }
-            if token.text.len() == 1 { return Err("Invalid parameter @. Use a variable name such as @id.".into()); }
+        if token.word("exec") || token.word("execute") {
+            exec = true;
+        } else if token.text == ";"
+            || ["select", "set", "declare", "insert", "update", "delete", "print", "if", "while", "begin", "return"]
+                .iter()
+                .any(|word| token.word(word))
+        {
+            exec = false;
+        }
+        if token.kind == Kind::Variable
+            && !token.text.starts_with("@@")
+            && !declared.contains(&token.text.to_lowercase())
+        {
+            if exec && tokens.get(i + 1).is_some_and(|t| t.text == "=") {
+                continue;
+            }
+            if token.text.len() == 1 {
+                return Err("Invalid parameter @. Use a variable name such as @id.".into());
+            }
             out.push(token.start..token.end);
         }
     }
@@ -347,7 +398,10 @@ pub(crate) fn pick(text: &str, target: ByteTarget) -> Result<Vec<StmtSpan>, Stri
             if from > to || !valid(from) || !valid(to) {
                 return Err("Invalid T-SQL selection byte range".into());
             }
-            Ok(split_batches(&text[from..to])?.into_iter().map(|s| StmtSpan { start: s.start + from, end: s.end + from }).collect())
+            Ok(split_batches(&text[from..to])?
+                .into_iter()
+                .map(|s| StmtSpan { start: s.start + from, end: s.end + from })
+                .collect())
         }
         ByteTarget::Selection { from, .. } | ByteTarget::Cursor(from) => {
             if !valid(from) {
@@ -411,9 +465,15 @@ fn ddl_at(tokens: &[Token<'_>], at: usize) -> Option<StmtKind> {
     if !["CREATE", "ALTER", "DROP", "TRUNCATE", "GRANT", "DENY", "REVOKE"].iter().any(|w| token.word(w)) {
         return None;
     }
-    let object = tokens[at + 1..].iter().find(|t| !["OR", "ALTER", "UNIQUE", "CLUSTERED", "NONCLUSTERED"].iter().any(|w| t.word(w)));
+    let object = tokens[at + 1..]
+        .iter()
+        .find(|t| !["OR", "ALTER", "UNIQUE", "CLUSTERED", "NONCLUSTERED"].iter().any(|w| t.word(w)));
     let verb = token.text.to_ascii_uppercase();
-    Some(StmtKind::Ddl(object.filter(|t| t.kind == Kind::Word).map_or(verb.clone(), |t| format!("{verb} {}", t.text.to_ascii_uppercase()))))
+    Some(StmtKind::Ddl(
+        object
+            .filter(|t| t.kind == Kind::Word)
+            .map_or(verb.clone(), |t| format!("{verb} {}", t.text.to_ascii_uppercase())),
+    ))
 }
 
 fn batch_schema_change(tokens: &[Token<'_>]) -> Option<StmtKind> {
@@ -426,9 +486,10 @@ fn batch_schema_change(tokens: &[Token<'_>]) -> Option<StmtKind> {
 }
 
 fn implicit_execution(tokens: &[Token<'_>]) -> bool {
-    tokens.iter().find(|t| t.code()).is_some_and(|t| {
-        matches!(t.kind, Kind::Word | Kind::Ident) && !STATEMENT_WORDS.iter().any(|w| t.word(w))
-    })
+    tokens
+        .iter()
+        .find(|t| t.code())
+        .is_some_and(|t| matches!(t.kind, Kind::Word | Kind::Ident) && !STATEMENT_WORDS.iter().any(|w| t.word(w)))
 }
 
 fn opaque_execution(tokens: &[Token<'_>]) -> bool {
@@ -440,7 +501,9 @@ fn selects_into(tokens: &[Token<'_>]) -> bool {
     for token in tokens {
         match token.text {
             "(" => selecting.push(false),
-            ")" if selecting.len() > 1 => { selecting.pop(); }
+            ")" if selecting.len() > 1 => {
+                selecting.pop();
+            }
             ";" => *selecting.last_mut().unwrap() = false,
             _ if token.word("SELECT") => *selecting.last_mut().unwrap() = true,
             _ if ["INSERT", "UPDATE", "DELETE", "MERGE"].iter().any(|word| token.word(word)) => {
@@ -488,7 +551,12 @@ pub(crate) fn classify(text: &str) -> StmtKind {
     if let Some(kind) = transaction_at(&tokens, first) {
         return kind;
     }
-    for (word, verb) in [("INSERT", DmlVerb::Insert), ("UPDATE", DmlVerb::Update), ("DELETE", DmlVerb::Delete), ("MERGE", DmlVerb::Merge)] {
+    for (word, verb) in [
+        ("INSERT", DmlVerb::Insert),
+        ("UPDATE", DmlVerb::Update),
+        ("DELETE", DmlVerb::Delete),
+        ("MERGE", DmlVerb::Merge),
+    ] {
         if tokens.iter().any(|t| t.word(word)) {
             return StmtKind::Dml(verb);
         }
@@ -496,7 +564,9 @@ pub(crate) fn classify(text: &str) -> StmtKind {
     if tokens.iter().any(|t| t.word("SELECT")) {
         return StmtKind::Query;
     }
-    StmtKind::Other(tokens.get(first).filter(|t| t.kind == Kind::Word).map_or(String::new(), |t| t.text.to_ascii_uppercase()))
+    StmtKind::Other(
+        tokens.get(first).filter(|t| t.kind == Kind::Word).map_or(String::new(), |t| t.text.to_ascii_uppercase()),
+    )
 }
 
 pub(crate) fn is_write(text: &str) -> bool {
@@ -504,8 +574,8 @@ pub(crate) fn is_write(text: &str) -> bool {
         opaque_execution(&tokens)
             || tokens.iter().any(|t| {
                 [
-                    "INSERT", "UPDATE", "DELETE", "MERGE", "INTO", "CREATE", "ALTER", "DROP", "TRUNCATE", "GRANT", "DENY", "REVOKE",
-                    "DBCC", "BULK", "BACKUP", "RESTORE",
+                    "INSERT", "UPDATE", "DELETE", "MERGE", "INTO", "CREATE", "ALTER", "DROP", "TRUNCATE", "GRANT",
+                    "DENY", "REVOKE", "DBCC", "BULK", "BACKUP", "RESTORE",
                 ]
                 .iter()
                 .any(|w| t.word(w))
@@ -535,7 +605,9 @@ pub(crate) fn rerun_refusal(text: &str) -> Option<&'static str> {
         Some("The batch begins or ends a transaction, so it does not run again.")
     } else if tokens.iter().any(|t| t.word("IMPLICIT_TRANSACTIONS")) {
         Some("The batch turns on implicit transactions, so it does not run again.")
-    } else if (0..tokens.len()).any(|i| tokens[i].word("NEXT") && word_at(&tokens, i + 1, "VALUE") && word_at(&tokens, i + 2, "FOR")) {
+    } else if (0..tokens.len())
+        .any(|i| tokens[i].word("NEXT") && word_at(&tokens, i + 1, "VALUE") && word_at(&tokens, i + 2, "FOR"))
+    {
         Some("The batch advances a sequence, so it does not run again.")
     } else if tokens.iter().any(|t| ["OPENQUERY", "OPENROWSET", "OPENDATASOURCE"].iter().any(|w| t.word(w))) {
         Some("The batch reads from another server, so it does not run again.")
@@ -613,9 +685,22 @@ pub(crate) fn relation_names(text: &str) -> Vec<NameRef> {
                 expect = Expect::From;
             }
             _ if ["INTO", "UPDATE", "TABLE", "MERGE"].iter().any(|w| t.word(w)) => expect = Expect::Target,
-            _ if ["WHERE", "ON", "SET", "GROUP", "ORDER", "HAVING", "UNION", "EXCEPT", "INTERSECT", "VALUES", "OUTPUT", "OPTION"]
-                .iter()
-                .any(|w| t.word(w)) =>
+            _ if [
+                "WHERE",
+                "ON",
+                "SET",
+                "GROUP",
+                "ORDER",
+                "HAVING",
+                "UNION",
+                "EXCEPT",
+                "INTERSECT",
+                "VALUES",
+                "OUTPUT",
+                "OPTION",
+            ]
+            .iter()
+            .any(|w| t.word(w)) =>
             {
                 *from_levels.last_mut().unwrap() = false;
                 expect = Expect::None;
@@ -624,7 +709,9 @@ pub(crate) fn relation_names(text: &str) -> Vec<NameRef> {
                 let context = expect;
                 expect = Expect::None;
                 if let Some((names, after)) = name_path(&tokens, i) {
-                    if names.len() <= 2 && !(context == Expect::From && tokens.get(after).is_some_and(|t| t.text == "(")) {
+                    if names.len() <= 2
+                        && !(context == Expect::From && tokens.get(after).is_some_and(|t| t.text == "("))
+                    {
                         let name = NameRef {
                             schema: if names.len() == 2 { Some(names[0].clone()) } else { None },
                             name: names.last().unwrap().clone(),
@@ -711,20 +798,190 @@ pub(crate) fn quote_literal(value: &str) -> String {
 
 /// SQL Server's reserved keywords, which a name must bracket. From "Reserved keywords (Transact-SQL)".
 pub(crate) const RESERVED: &[&str] = &[
-    "ADD", "ALL", "ALTER", "AND", "ANY", "AS", "ASC", "AUTHORIZATION", "BACKUP", "BEGIN", "BETWEEN", "BREAK", "BROWSE", "BULK", "BY", "CASCADE",
-    "CASE", "CHECK", "CHECKPOINT", "CLOSE", "CLUSTERED", "COALESCE", "COLLATE", "COLUMN", "COMMIT", "COMPUTE", "CONSTRAINT", "CONTAINS",
-    "CONTAINSTABLE", "CONTINUE", "CONVERT", "CREATE", "CROSS", "CURRENT", "CURRENT_DATE", "CURRENT_TIME", "CURRENT_TIMESTAMP", "CURRENT_USER",
-    "CURSOR", "DATABASE", "DBCC", "DEALLOCATE", "DECLARE", "DEFAULT", "DELETE", "DENY", "DESC", "DISK", "DISTINCT", "DISTRIBUTED", "DOUBLE", "DROP",
-    "DUMP", "ELSE", "END", "ERRLVL", "ESCAPE", "EXCEPT", "EXEC", "EXECUTE", "EXISTS", "EXIT", "EXTERNAL", "FETCH", "FILE", "FILLFACTOR", "FOR",
-    "FOREIGN", "FREETEXT", "FREETEXTTABLE", "FROM", "FULL", "FUNCTION", "GOTO", "GRANT", "GROUP", "HAVING", "HOLDLOCK", "IDENTITY", "IDENTITYCOL",
-    "IDENTITY_INSERT", "IF", "IN", "INDEX", "INNER", "INSERT", "INTERSECT", "INTO", "IS", "JOIN", "KEY", "KILL", "LEFT", "LIKE", "LINENO", "LOAD",
-    "MERGE", "NATIONAL", "NOCHECK", "NONCLUSTERED", "NOT", "NULL", "NULLIF", "OF", "OFF", "OFFSETS", "ON", "OPEN", "OPENDATASOURCE", "OPENQUERY",
-    "OPENROWSET", "OPENXML", "OPTION", "OR", "ORDER", "OUTER", "OVER", "PERCENT", "PIVOT", "PLAN", "PRECISION", "PRIMARY", "PRINT", "PROC",
-    "PROCEDURE", "PUBLIC", "RAISERROR", "READ", "READTEXT", "RECONFIGURE", "REFERENCES", "REPLICATION", "RESTORE", "RESTRICT", "RETURN", "REVERT",
-    "REVOKE", "RIGHT", "ROLLBACK", "ROWCOUNT", "ROWGUIDCOL", "RULE", "SAVE", "SCHEMA", "SECURITYAUDIT", "SELECT", "SEMANTICKEYPHRASETABLE",
-    "SEMANTICSIMILARITYDETAILSTABLE", "SEMANTICSIMILARITYTABLE", "SESSION_USER", "SET", "SETUSER", "SHUTDOWN", "SOME", "STATISTICS", "SYSTEM_USER",
-    "TABLE", "TABLESAMPLE", "TEXTSIZE", "THEN", "TO", "TOP", "TRAN", "TRANSACTION", "TRIGGER", "TRUNCATE", "TRY_CONVERT", "TSEQUAL", "UNION",
-    "UNIQUE", "UNPIVOT", "UPDATE", "UPDATETEXT", "USE", "USER", "VALUES", "VARYING", "VIEW", "WAITFOR", "WHEN", "WHERE", "WHILE", "WITH", "WRITETEXT",
+    "ADD",
+    "ALL",
+    "ALTER",
+    "AND",
+    "ANY",
+    "AS",
+    "ASC",
+    "AUTHORIZATION",
+    "BACKUP",
+    "BEGIN",
+    "BETWEEN",
+    "BREAK",
+    "BROWSE",
+    "BULK",
+    "BY",
+    "CASCADE",
+    "CASE",
+    "CHECK",
+    "CHECKPOINT",
+    "CLOSE",
+    "CLUSTERED",
+    "COALESCE",
+    "COLLATE",
+    "COLUMN",
+    "COMMIT",
+    "COMPUTE",
+    "CONSTRAINT",
+    "CONTAINS",
+    "CONTAINSTABLE",
+    "CONTINUE",
+    "CONVERT",
+    "CREATE",
+    "CROSS",
+    "CURRENT",
+    "CURRENT_DATE",
+    "CURRENT_TIME",
+    "CURRENT_TIMESTAMP",
+    "CURRENT_USER",
+    "CURSOR",
+    "DATABASE",
+    "DBCC",
+    "DEALLOCATE",
+    "DECLARE",
+    "DEFAULT",
+    "DELETE",
+    "DENY",
+    "DESC",
+    "DISK",
+    "DISTINCT",
+    "DISTRIBUTED",
+    "DOUBLE",
+    "DROP",
+    "DUMP",
+    "ELSE",
+    "END",
+    "ERRLVL",
+    "ESCAPE",
+    "EXCEPT",
+    "EXEC",
+    "EXECUTE",
+    "EXISTS",
+    "EXIT",
+    "EXTERNAL",
+    "FETCH",
+    "FILE",
+    "FILLFACTOR",
+    "FOR",
+    "FOREIGN",
+    "FREETEXT",
+    "FREETEXTTABLE",
+    "FROM",
+    "FULL",
+    "FUNCTION",
+    "GOTO",
+    "GRANT",
+    "GROUP",
+    "HAVING",
+    "HOLDLOCK",
+    "IDENTITY",
+    "IDENTITYCOL",
+    "IDENTITY_INSERT",
+    "IF",
+    "IN",
+    "INDEX",
+    "INNER",
+    "INSERT",
+    "INTERSECT",
+    "INTO",
+    "IS",
+    "JOIN",
+    "KEY",
+    "KILL",
+    "LEFT",
+    "LIKE",
+    "LINENO",
+    "LOAD",
+    "MERGE",
+    "NATIONAL",
+    "NOCHECK",
+    "NONCLUSTERED",
+    "NOT",
+    "NULL",
+    "NULLIF",
+    "OF",
+    "OFF",
+    "OFFSETS",
+    "ON",
+    "OPEN",
+    "OPENDATASOURCE",
+    "OPENQUERY",
+    "OPENROWSET",
+    "OPENXML",
+    "OPTION",
+    "OR",
+    "ORDER",
+    "OUTER",
+    "OVER",
+    "PERCENT",
+    "PIVOT",
+    "PLAN",
+    "PRECISION",
+    "PRIMARY",
+    "PRINT",
+    "PROC",
+    "PROCEDURE",
+    "PUBLIC",
+    "RAISERROR",
+    "READ",
+    "READTEXT",
+    "RECONFIGURE",
+    "REFERENCES",
+    "REPLICATION",
+    "RESTORE",
+    "RESTRICT",
+    "RETURN",
+    "REVERT",
+    "REVOKE",
+    "RIGHT",
+    "ROLLBACK",
+    "ROWCOUNT",
+    "ROWGUIDCOL",
+    "RULE",
+    "SAVE",
+    "SCHEMA",
+    "SECURITYAUDIT",
+    "SELECT",
+    "SEMANTICKEYPHRASETABLE",
+    "SEMANTICSIMILARITYDETAILSTABLE",
+    "SEMANTICSIMILARITYTABLE",
+    "SESSION_USER",
+    "SET",
+    "SETUSER",
+    "SHUTDOWN",
+    "SOME",
+    "STATISTICS",
+    "SYSTEM_USER",
+    "TABLE",
+    "TABLESAMPLE",
+    "TEXTSIZE",
+    "THEN",
+    "TO",
+    "TOP",
+    "TRAN",
+    "TRANSACTION",
+    "TRIGGER",
+    "TRUNCATE",
+    "TRY_CONVERT",
+    "TSEQUAL",
+    "UNION",
+    "UNIQUE",
+    "UNPIVOT",
+    "UPDATE",
+    "UPDATETEXT",
+    "USE",
+    "USER",
+    "VALUES",
+    "VARYING",
+    "VIEW",
+    "WAITFOR",
+    "WHEN",
+    "WHERE",
+    "WHILE",
+    "WITH",
+    "WRITETEXT",
 ];
 
 const STATEMENT_WORDS: &[&str] = &[
@@ -856,7 +1113,10 @@ mod tests {
             let text = format!("SELECT 1\nGO\n{tail}");
             assert!(split_batches(&text).is_err(), "accepted {tail:?}");
         }
-        assert_eq!(batches("SELECT N':r file', [$(name)], 'GO 2' -- !!\n"), ["SELECT N':r file', [$(name)], 'GO 2' -- !!"]);
+        assert_eq!(
+            batches("SELECT N':r file', [$(name)], 'GO 2' -- !!\n"),
+            ["SELECT N':r file', [$(name)], 'GO 2' -- !!"]
+        );
     }
 
     #[test]
@@ -880,7 +1140,8 @@ mod tests {
 
     #[test]
     fn cursor_picks_the_batch_but_not_the_trivia_between_batches() {
-        let text = "-- header\nDECLARE @x int;\n\nSELECT @x;\n-- footer\n\nGO -- split\n\n/* header */\nSELECT 2;\n-- end\n";
+        let text =
+            "-- header\nDECLARE @x int;\n\nSELECT @x;\n-- footer\n\nGO -- split\n\n/* header */\nSELECT 2;\n-- end\n";
         let spans = split_batches(text).unwrap();
         for needle in ["DECLARE", "\n\nSELECT", "SELECT @x"] {
             assert_eq!(pick(text, ByteTarget::Cursor(text.find(needle).unwrap())).unwrap(), [spans[0]], "{needle}");
@@ -912,9 +1173,11 @@ mod tests {
         ] {
             assert!(validate_batch(text).is_err(), "accepted {text:?}");
         }
-        for text in
-            ["SELECT N'USE master', [USE], \"USE\", @USE, #USE", "SELECT useful FROM reuse", "/* USE master */ SELECT 1 -- USE tempdb"]
-        {
+        for text in [
+            "SELECT N'USE master', [USE], \"USE\", @USE, #USE",
+            "SELECT useful FROM reuse",
+            "/* USE master */ SELECT 1 -- USE tempdb",
+        ] {
             assert!(validate_batch(text).is_ok(), "{text:?}");
         }
     }
@@ -960,7 +1223,10 @@ mod tests {
     fn advisory_classification_accounts_for_writes_and_ddl_later_in_a_batch() {
         assert_eq!(classify("DECLARE @x int = 1; SELECT @x"), StmtKind::Query);
         assert_eq!(classify("WITH c AS (SELECT 1 AS id) UPDATE t SET id = 1"), StmtKind::Dml(DmlVerb::Update));
-        assert_eq!(classify("SELECT 1; CREATE OR ALTER PROCEDURE p AS SELECT 2"), StmtKind::Ddl("CREATE PROCEDURE".into()));
+        assert_eq!(
+            classify("SELECT 1; CREATE OR ALTER PROCEDURE p AS SELECT 2"),
+            StmtKind::Ddl("CREATE PROCEDURE".into())
+        );
         assert_eq!(invalidates("SELECT 1; ALTER TABLE t ADD x int"), Invalidates::Catalog);
         assert_eq!(invalidates("CREATE TABLE t (id int); DROP DATABASE d"), Invalidates::Both);
         assert!(is_write("SELECT 1; INSERT INTO t VALUES (1)"));
@@ -1086,7 +1352,10 @@ mod tests {
     fn relation_names_preserve_case_quoting_temp_tables_and_cte_exclusions() {
         assert_eq!(
             relation_names("SELECT * FROM [Å].[旅]]人] JOIN \"Sales\".\"Order\" ON 1=1"),
-            [NameRef { schema: Some("Å".into()), name: "旅]人".into() }, NameRef { schema: Some("Sales".into()), name: "Order".into() },]
+            [
+                NameRef { schema: Some("Å".into()), name: "旅]人".into() },
+                NameRef { schema: Some("Sales".into()), name: "Order".into() },
+            ]
         );
         assert_eq!(
             relation_names("INSERT INTO [dbo].[T] ([id]) SELECT id FROM #Temp"),
@@ -1094,7 +1363,10 @@ mod tests {
         );
         assert_eq!(
             relation_names("WITH C (id) AS (SELECT id FROM dbo.Source) SELECT * FROM C, dbo.Other JOIN dbo.f() ON 1=1"),
-            [NameRef { schema: Some("dbo".into()), name: "Source".into() }, NameRef { schema: Some("dbo".into()), name: "Other".into() },]
+            [
+                NameRef { schema: Some("dbo".into()), name: "Source".into() },
+                NameRef { schema: Some("dbo".into()), name: "Other".into() },
+            ]
         );
         assert!(relation_names("SELECT N'FROM bad' -- FROM worse\n").is_empty());
         assert!(relation_names("SELECT * FROM OtherDb.dbo.T").is_empty());
@@ -1112,7 +1384,9 @@ mod tests {
     #[test]
     fn unicode_boundaries_cannot_hide_statement_tokens_or_panic_the_lexer() {
         for whitespace in ['\u{a0}', '\u{2003}', '\u{2028}', '\u{feff}'] {
-            for fragment in [format!("id{whitespace}DESC{whitespace}DELETE{whitespace}t"), format!("id=1{whitespace}COMMIT")] {
+            for fragment in
+                [format!("id{whitespace}DESC{whitespace}DELETE{whitespace}t"), format!("id=1{whitespace}COMMIT")]
+            {
                 assert!(validate_expression(&fragment, true).is_err(), "{fragment:?}");
             }
         }
@@ -1127,17 +1401,38 @@ mod tests {
     fn module_name_finds_the_created_name_past_comments() {
         let name = |text: &'static str| module_name(text).map(|n| (n.parts, &text[n.span]));
         let parts = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
-        assert_eq!(name("-- note\n/* CREATE VIEW x */ CREATE PROCEDURE oldname AS SELECT 1"), Some((parts(&["oldname"]), "oldname")));
-        assert_eq!(name("CREATE OR ALTER PROC [we]]ird s].[p]]q] AS SELECT 1"), Some((parts(&["we]ird s", "p]q"]), "[we]]ird s].[p]]q]")));
-        assert_eq!(name("create function \"a\"\"b\" . \"c\" () RETURNS int AS BEGIN RETURN 1 END"), Some((parts(&["a\"b", "c"]), "\"a\"\"b\" . \"c\"")));
-        assert_eq!(name("CREATE TRIGGER dbo.t ON dbo.x AFTER INSERT AS SELECT 1"), Some((parts(&["dbo", "t"]), "dbo.t")));
+        assert_eq!(
+            name("-- note\n/* CREATE VIEW x */ CREATE PROCEDURE oldname AS SELECT 1"),
+            Some((parts(&["oldname"]), "oldname"))
+        );
+        assert_eq!(
+            name("CREATE OR ALTER PROC [we]]ird s].[p]]q] AS SELECT 1"),
+            Some((parts(&["we]ird s", "p]q"]), "[we]]ird s].[p]]q]"))
+        );
+        assert_eq!(
+            name("create function \"a\"\"b\" . \"c\" () RETURNS int AS BEGIN RETURN 1 END"),
+            Some((parts(&["a\"b", "c"]), "\"a\"\"b\" . \"c\""))
+        );
+        assert_eq!(
+            name("CREATE TRIGGER dbo.t ON dbo.x AFTER INSERT AS SELECT 1"),
+            Some((parts(&["dbo", "t"]), "dbo.t"))
+        );
         let text = "CREATE TRIGGER t ON /* x */ [old t] AFTER INSERT AS SELECT 1";
         let on = module_name(text).unwrap().on.unwrap();
         assert_eq!((on.0, &text[on.1]), (parts(&["old t"]), "[old t]"));
-        assert_eq!(module_name("CREATE TRIGGER t ON DATABASE FOR CREATE_TABLE AS SELECT 1").unwrap().on.unwrap().0, parts(&["DATABASE"]));
+        assert_eq!(
+            module_name("CREATE TRIGGER t ON DATABASE FOR CREATE_TABLE AS SELECT 1").unwrap().on.unwrap().0,
+            parts(&["DATABASE"])
+        );
         assert_eq!(module_name("CREATE PROCEDURE p AS SELECT 1").unwrap().on, None);
         assert_eq!(name("CREATE VIEW dbo./* gap */v AS SELECT 1"), Some((parts(&["dbo", "v"]), "dbo./* gap */v")));
-        for text in ["ALTER VIEW dbo.v AS SELECT 1", "CREATE TABLE dbo.t (a int)", "CREATE PROCEDURE a.b.c AS SELECT 1", "CREATE PROCEDURE 'x' AS SELECT 1", "CREATE PROCEDURE p AS SELECT 'unclosed"] {
+        for text in [
+            "ALTER VIEW dbo.v AS SELECT 1",
+            "CREATE TABLE dbo.t (a int)",
+            "CREATE PROCEDURE a.b.c AS SELECT 1",
+            "CREATE PROCEDURE 'x' AS SELECT 1",
+            "CREATE PROCEDURE p AS SELECT 'unclosed",
+        ] {
             assert_eq!(module_name(text), None, "{text}");
         }
     }

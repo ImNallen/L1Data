@@ -61,8 +61,38 @@ impl<'de> Deserialize<'de> for ConnectionConfig {
             #[serde(default)]
             sql_server_auth: Option<SqlServerAuth>,
         }
-        let Stored { database_kind, id, name, host, port, database, user, ssl_mode, ca_cert_path, has_password, color, ssh, environment, sql_server_auth } = Stored::deserialize(d)?;
-        Ok(Self { database_kind, id, name, host, port, database, user, ssl_mode, ca_cert_path, has_password, color, ssh, environment, sql_server_auth })
+        let Stored {
+            database_kind,
+            id,
+            name,
+            host,
+            port,
+            database,
+            user,
+            ssl_mode,
+            ca_cert_path,
+            has_password,
+            color,
+            ssh,
+            environment,
+            sql_server_auth,
+        } = Stored::deserialize(d)?;
+        Ok(Self {
+            database_kind,
+            id,
+            name,
+            host,
+            port,
+            database,
+            user,
+            ssl_mode,
+            ca_cert_path,
+            has_password,
+            color,
+            ssh,
+            environment,
+            sql_server_auth,
+        })
     }
 }
 
@@ -141,9 +171,13 @@ pub struct SshTunnel {
 pub enum SshAuth {
     Password,
     /// An OpenSSH private key file, read at each dial. A leading `~` is the home directory.
-    Key { path: String },
+    Key {
+        path: String,
+    },
     /// `None` is the agent at `SSH_AUTH_SOCK`, or the OpenSSH agent pipe on Windows.
-    Agent { socket: Option<String> },
+    Agent {
+        socket: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -210,10 +244,17 @@ pub enum ConnStatus {
     Connecting,
     /// The home session is open and `pg_database` was read. Catalogs load after this, each with
     /// its own `CatalogStatus`, so one unreachable database never fails the instance.
-    Connected { server: ServerInfo, instance: InstanceState },
-    Failed { error: ConnectError },
+    Connected {
+        server: ServerInfo,
+        instance: InstanceState,
+    },
+    Failed {
+        error: ConnectError,
+    },
     /// The home database's metadata session died after being `Connected`.
-    Lost { reason: String },
+    Lost {
+        reason: String,
+    },
 }
 
 /// Every database of the instance, with the state of its catalog. The connection snapshot is the
@@ -256,9 +297,13 @@ pub struct DatabaseState {
 pub enum SchemaCount {
     Unknown,
     Probing,
-    Known { count: u32 },
+    Known {
+        count: u32,
+    },
     /// The probe session failed; `message` is the server's or the transport's text.
-    Unavailable { message: String },
+    Unavailable {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
@@ -296,36 +341,76 @@ pub struct ConnectionState {
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(tag = "kind", rename_all_fields = "camelCase")]
 pub enum ConnectError {
-    Network { message: String },
-    Tls { message: String },
-    Auth { message: String },
+    Network {
+        message: String,
+    },
+    Tls {
+        message: String,
+    },
+    Auth {
+        message: String,
+    },
     MissingPassword,
     Server(QueryError),
-    Keychain { message: String },
+    Keychain {
+        message: String,
+    },
     /// The SSH tunnel failed before the database was reached. The variants above are the database's.
-    Ssh { error: SshError },
+    Ssh {
+        error: SshError,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(tag = "kind", rename_all_fields = "camelCase")]
 pub enum SshError {
-    Network { message: String },
+    Network {
+        message: String,
+    },
     /// No known_hosts file knows this server. `trust` names the key the engine saw, for
     /// `ssh_trust_host_key`; it expires after ten minutes.
-    HostKeyUnknown { host: String, port: u16, algorithm: String, fingerprint: String, trust: HostKeyId },
+    HostKeyUnknown {
+        host: String,
+        port: u16,
+        algorithm: String,
+        fingerprint: String,
+        trust: HostKeyId,
+    },
     /// No known_hosts file holds this key, but one holds another key of its algorithm for the server, at `file:line`.
-    HostKeyChanged { host: String, port: u16, algorithm: String, fingerprint: String, known_at: String },
+    HostKeyChanged {
+        host: String,
+        port: u16,
+        algorithm: String,
+        fingerprint: String,
+        known_at: String,
+    },
     /// The key is on an `@revoked` line, at `file:line`.
-    HostKeyRevoked { host: String, port: u16, algorithm: String, fingerprint: String, revoked_at: String },
+    HostKeyRevoked {
+        host: String,
+        port: u16,
+        algorithm: String,
+        fingerprint: String,
+        revoked_at: String,
+    },
     /// A known_hosts file exists but cannot be read or parsed, so the key cannot be checked.
-    KnownHosts { message: String },
-    Auth { message: String },
+    KnownHosts {
+        message: String,
+    },
+    Auth {
+        message: String,
+    },
     /// Password auth with no saved password, or an encrypted key with no passphrase.
     MissingSecret,
-    Key { message: String },
-    Agent { message: String },
+    Key {
+        message: String,
+    },
+    Agent {
+        message: String,
+    },
     /// The SSH server refused or failed to open the connection to the database.
-    Forward { message: String },
+    Forward {
+        message: String,
+    },
 }
 
 /// Engine-wide monotonic. Names one host key the engine observed and is holding for a trust decision.
@@ -677,9 +762,17 @@ pub struct KeyInfo {
 pub enum KeyKind {
     Primary,
     Unique,
-    Foreign { ref_schema: String, ref_table: String, ref_columns: Vec<String>, on_delete: FkAction, on_update: FkAction },
+    Foreign {
+        ref_schema: String,
+        ref_table: String,
+        ref_columns: Vec<String>,
+        on_delete: FkAction,
+        on_update: FkAction,
+    },
     /// `definition` is `pg_get_constraintdef`: `CHECK ((qty > 0))`.
-    Check { definition: String },
+    Check {
+        definition: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
@@ -842,17 +935,8 @@ impl ConsoleConfigView {
 #[serde(tag = "kind", rename_all_fields = "camelCase")]
 pub enum RunState {
     Idle,
-    Running {
-        run_id: RunId,
-        started_at_ms: i64,
-        statements: Vec<StatementRun>,
-    },
-    Finished {
-        run_id: RunId,
-        elapsed_ms: u32,
-        statements: Vec<StatementRun>,
-        outcome: RunOutcome,
-    },
+    Running { run_id: RunId, started_at_ms: i64, statements: Vec<StatementRun> },
+    Finished { run_id: RunId, elapsed_ms: u32, statements: Vec<StatementRun>, outcome: RunOutcome },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
@@ -878,7 +962,9 @@ pub enum StmtStatus {
     Preparing,
     Running,
     Finished,
-    Failed { error: QueryError },
+    Failed {
+        error: QueryError,
+    },
     Cancelled,
     /// An earlier statement failed or was cancelled.
     Skipped,
@@ -899,19 +985,33 @@ pub enum RunOutput {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
-pub enum RowsState { Streaming, Complete, Failed, Cancelled }
+pub enum RowsState {
+    Streaming,
+    Complete,
+    Failed,
+    Cancelled,
+}
 
 #[derive(Debug, Clone, Deserialize, Type)]
 #[serde(tag = "kind", rename_all_fields = "camelCase")]
-pub enum TableOrderEdit { Inspect, Cycle { column: String, additive: bool } }
+pub enum TableOrderEdit {
+    Inspect,
+    Cycle { column: String, additive: bool },
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct TableSortKey { pub column: String, pub desc: bool }
+pub struct TableSortKey {
+    pub column: String,
+    pub desc: bool,
+}
 
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct TableOrderView { pub sql: String, pub keys: Option<Vec<TableSortKey>> }
+pub struct TableOrderView {
+    pub sql: String,
+    pub keys: Option<Vec<TableSortKey>>,
+}
 
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -1140,7 +1240,10 @@ pub struct FormatEdit {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
-pub enum ExecutionUnitKind { Statement, Batch }
+pub enum ExecutionUnitKind {
+    Statement,
+    Batch,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
 #[serde(tag = "kind")]
@@ -1324,7 +1427,10 @@ pub enum DrillPoint {
     Probe,
     /// A stored row of the result, which is the chart's point at that index. `title` names the
     /// result's tab in the comment the SQL starts with.
-    Row { row: u32, title: String },
+    Row {
+        row: u32,
+        title: String,
+    },
 }
 
 /// The SQL behind a chart point, with the database and schema the result was read from. The new cell
@@ -1346,7 +1452,9 @@ pub enum DrillError {
     /// The result's SQL is not a `SELECT` with `FROM` and `GROUP BY`, so a point stands for no group of rows.
     Ungrouped,
     /// The result's SQL cannot be rewritten to read exactly the rows behind a point.
-    Unsupported { reason: String },
+    Unsupported {
+        reason: String,
+    },
 }
 
 /// What one stored column holds. Every stored row is read.
@@ -1652,10 +1760,14 @@ pub struct SaveQueryReply {
 pub enum SavedQueryError {
     /// The cursor is on no statement, or the selection or the edited SQL is blank.
     NothingToSave,
-    TooLong { limit_bytes: u32 },
+    TooLong {
+        limit_bytes: u32,
+    },
     /// An edit of an id that no longer exists. Delete and use never return it.
     NotFound,
-    Store { message: String },
+    Store {
+        message: String,
+    },
 }
 
 /// Owned by the frontend, stored verbatim by the engine (single writer: the UI).
@@ -1692,9 +1804,15 @@ impl<'de> Deserialize<'de> for Workspace {
         let Saved { tabs, active, layout, notebooks, shown } = Saved::deserialize(d)?;
         let notebooks = notebooks
             .into_iter()
-            .filter_map(|n| serde_json::from_value(n).inspect_err(|e| eprintln!("dropped a notebook this build cannot read: {e}")).ok())
+            .filter_map(|n| {
+                serde_json::from_value(n)
+                    .inspect_err(|e| eprintln!("dropped a notebook this build cannot read: {e}"))
+                    .ok()
+            })
             .collect();
-        let shown = serde_json::from_value(shown).inspect_err(|e| eprintln!("dropped a shown notebook this build cannot read: {e}")).unwrap_or(None);
+        let shown = serde_json::from_value(shown)
+            .inspect_err(|e| eprintln!("dropped a shown notebook this build cannot read: {e}"))
+            .unwrap_or(None);
         Ok(Self { tabs, active, layout, notebooks, shown })
     }
 }
@@ -1737,7 +1855,9 @@ impl<'de> Deserialize<'de> for NotebookSnapshot {
         }
         let Saved { id, title, db, cells, active, shown_at_ms, file } = Saved::deserialize(d)?;
         let file = file.and_then(|f| {
-            serde_json::from_value(f).inspect_err(|e| eprintln!("dropped a notebook's file binding this build cannot read: {e}")).ok()
+            serde_json::from_value(f)
+                .inspect_err(|e| eprintln!("dropped a notebook's file binding this build cannot read: {e}"))
+                .ok()
         });
         Ok(Self { id, title, db, cells, active, shown_at_ms, file })
     }
@@ -1843,7 +1963,12 @@ impl<'de> Deserialize<'de> for TabSnapshot {
                 id,
                 title: table.clone(),
                 text: None,
-                console: ConsoleConfigSnapshot { connection_id: Some(connection_id), database, schema: None, mode: TxnMode::AutoCommit },
+                console: ConsoleConfigSnapshot {
+                    connection_id: Some(connection_id),
+                    database,
+                    schema: None,
+                    mode: TxnMode::AutoCommit,
+                },
                 table: Some(TableSnapshot { schema, table, page, query }),
                 file: None,
                 collapsed: false,
@@ -1862,7 +1987,9 @@ pub struct FileSnapshot {
 
 impl FileSnapshot {
     fn lenient(value: serde_json::Value) -> Option<Self> {
-        serde_json::from_value(value).inspect_err(|e| eprintln!("dropped a tab's file binding this build cannot read: {e}")).ok()
+        serde_json::from_value(value)
+            .inspect_err(|e| eprintln!("dropped a tab's file binding this build cannot read: {e}"))
+            .ok()
     }
 }
 
@@ -2252,20 +2379,39 @@ pub struct UpdateState {
 #[serde(tag = "kind", rename_all_fields = "camelCase")]
 pub enum UpdateStatus {
     /// Nothing checks. The track can still be chosen.
-    Disabled { reason: UpdatesOff },
+    Disabled {
+        reason: UpdatesOff,
+    },
     Idle,
     Checking,
     UpToDate,
     /// `downgrade` means the release is older than the running build, which happens only for a
     /// nightly build on the Stable track. `changes` lists each release after the running build up
     /// to `version`, newest first.
-    Available { version: String, downgrade: bool, changes: Vec<ReleaseChanges> },
+    Available {
+        version: String,
+        downgrade: bool,
+        changes: Vec<ReleaseChanges>,
+    },
     /// `percent` is `None` while the server sends no length.
-    Downloading { version: String, downgrade: bool, percent: Option<u8>, changes: Vec<ReleaseChanges> },
+    Downloading {
+        version: String,
+        downgrade: bool,
+        percent: Option<u8>,
+        changes: Vec<ReleaseChanges>,
+    },
     /// Verified against the built-in key. The engine holds the bytes.
-    Downloaded { version: String, downgrade: bool, changes: Vec<ReleaseChanges> },
-    Installing { version: String },
-    Failed { failure: UpdateFailure },
+    Downloaded {
+        version: String,
+        downgrade: bool,
+        changes: Vec<ReleaseChanges>,
+    },
+    Installing {
+        version: String,
+    },
+    Failed {
+        failure: UpdateFailure,
+    },
 }
 
 /// What one release changed, as the feed lists it. Display only.
@@ -2301,7 +2447,9 @@ pub enum UpdateFailure {
     /// A mounted disk image or a translocated app cannot replace itself.
     ReadOnlyLocation,
     PermissionDenied,
-    Other { message: String },
+    Other {
+        message: String,
+    },
 }
 
 /// Everything a restart would end, as of the call. The frontend sends it back as what the user
@@ -2320,7 +2468,9 @@ pub struct RestartImpact {
 #[serde(tag = "kind", rename_all_fields = "camelCase")]
 pub enum InstallReply {
     /// Nothing was installed. Show `impact`, then call again with it as the acceptance.
-    Confirm { impact: RestartImpact },
+    Confirm {
+        impact: RestartImpact,
+    },
     Restarting,
 }
 
@@ -2338,21 +2488,31 @@ pub enum UpdateError {
 pub enum CatalogError {
     NotConnected,
     /// Not in `pg_database` as last read.
-    UnknownDatabase { database: String },
+    UnknownDatabase {
+        database: String,
+    },
     /// Neither the home database, a shown database, nor the database of a console. Consoles get
     /// their catalog through the console path, so a frontend bug cannot open a session per database.
-    NotShown { database: String },
+    NotShown {
+        database: String,
+    },
     /// The metadata session or the load failed. `CatalogStatus::Failed` carries the same message.
-    Failed { message: String },
+    Failed {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(tag = "kind", rename_all_fields = "camelCase")]
 pub enum DetailError {
-    Catalog { error: CatalogError },
+    Catalog {
+        error: CatalogError,
+    },
     /// The object was dropped after the catalog the caller holds was read.
     Gone,
-    Failed { message: String },
+    Failed {
+        message: String,
+    },
 }
 
 /// One edit to a connection's stored view, sent by the pickers. Each is an intent that the engine
@@ -2361,15 +2521,32 @@ pub enum DetailError {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Type)]
 #[serde(tag = "kind", rename_all_fields = "camelCase")]
 pub enum ViewEdit {
-    Databases { preset: Preset },
+    Databases {
+        preset: Preset,
+    },
     /// One checkbox of the database picker. Showing a database whose stored schema selection
     /// resolves to no schema resets that selection to `DefaultOnly`.
-    Database { name: String, shown: bool },
-    ShowSystemDatabases { show: bool },
-    Schemas { database: String, preset: Preset },
+    Database {
+        name: String,
+        shown: bool,
+    },
+    ShowSystemDatabases {
+        show: bool,
+    },
+    Schemas {
+        database: String,
+        preset: Preset,
+    },
     /// One checkbox of the schema picker.
-    Schema { database: String, name: String, shown: bool },
-    ShowSystemSchemas { database: String, show: bool },
+    Schema {
+        database: String,
+        name: String,
+        shown: bool,
+    },
+    ShowSystemSchemas {
+        database: String,
+        show: bool,
+    },
 }
 
 /// The quick actions of a picker. `None` is an explicit empty selection.
@@ -2387,7 +2564,9 @@ pub enum ConfigureError {
     TransactionOpen,
     Busy,
     UnknownConnection,
-    Unsupported { what: String },
+    Unsupported {
+        what: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -2397,13 +2576,21 @@ pub enum RunError {
     NoStatement,
     NotConfigured,
     /// `what` names the construct, e.g. `"COPY FROM STDIN"`.
-    Unsupported { what: String },
-    Connect { error: ConnectError },
+    Unsupported {
+        what: String,
+    },
+    Connect {
+        error: ConnectError,
+    },
     /// WHERE or ORDER BY isn't a single expression, e.g. it smuggles in a second statement.
     BadFilter,
-    ConfirmWrites { confirmation: WriteConfirmation },
+    ConfirmWrites {
+        confirmation: WriteConfirmation,
+    },
     /// A `{{name}}` cannot expand. `message` is one sentence that names the cell.
-    Reference { message: String },
+    Reference {
+        message: String,
+    },
 }
 
 /// Opaque. It names the exact statements a guarded action sends, the connection both as saved and as the tab's
@@ -2451,7 +2638,9 @@ pub enum TxnError {
     RolledBack,
     Query(QueryError),
     /// Commit would keep writes that ran before the tab's session counted as Production. Nothing was sent.
-    ConfirmWrites { confirmation: WriteConfirmation },
+    ConfirmWrites {
+        confirmation: WriteConfirmation,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -2574,19 +2763,35 @@ pub struct ApplySummary {
 pub enum ApplyError {
     Busy,
     NotConfigured,
-    Unsupported { what: String },
-    Connect { error: ConnectError },
+    Unsupported {
+        what: String,
+    },
+    Connect {
+        error: ConnectError,
+    },
     /// The tab's transaction already failed; roll it back first.
     TransactionAborted,
     /// Updates and deletes need the table's full primary key.
     NoPrimaryKey,
-    Failed { change: ChangeRef, error: QueryError },
+    Failed {
+        change: ChangeRef,
+        error: QueryError,
+    },
     /// An update or delete matched `rows` rows instead of one, so the row changed underneath.
-    RowMismatch { change: ChangeRef, rows: u64 },
+    RowMismatch {
+        change: ChangeRef,
+        rows: u64,
+    },
     /// Opening or committing the transaction failed.
-    Transaction { error: QueryError },
-    OutcomeUnknown { error: QueryError },
-    ConfirmWrites { confirmation: WriteConfirmation },
+    Transaction {
+        error: QueryError,
+    },
+    OutcomeUnknown {
+        error: QueryError,
+    },
+    ConfirmWrites {
+        confirmation: WriteConfirmation,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -2603,7 +2808,9 @@ pub enum ExportError {
     /// A newer run replaced the result, or its tab closed.
     Gone,
     /// The file could not be created, written, synced, or moved into place.
-    Io { message: String },
+    Io {
+        message: String,
+    },
     /// `All` for a result whose `allRows` is `Refused`.
     NotRerunnable,
     /// The tab's session is held by a run, a count, a transaction command, an edit, or another export.
@@ -2612,9 +2819,13 @@ pub enum ExportError {
     TargetChanged,
     /// The tab's transaction failed; only a rollback runs until it ends.
     TransactionAborted,
-    Connect { error: ConnectError },
+    Connect {
+        error: ConnectError,
+    },
     /// The source failed on the server when it ran again.
-    Query { error: QueryError },
+    Query {
+        error: QueryError,
+    },
     /// The source returned other columns, or fewer result sets, than when it first ran.
     ShapeChanged,
     /// Esc stopped the export before the file was in place.
@@ -2712,23 +2923,36 @@ pub enum FileReadError {
     NotAFile,
     PermissionDenied,
     /// `offset` counts from the start of the file, BOM included.
-    NotUtf8 { offset: u64 },
-    TooLarge { bytes: u64, limit: u64 },
-    Io { message: String },
+    NotUtf8 {
+        offset: u64,
+    },
+    TooLarge {
+        bytes: u64,
+        limit: u64,
+    },
+    Io {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(tag = "kind", rename_all_fields = "camelCase")]
 pub enum FileWriteError {
     /// The file changed on disk; nothing was written. `disk` is the stamp of what is there now.
-    Changed { disk: FileStamp },
+    Changed {
+        disk: FileStamp,
+    },
     /// The folder the file goes in does not exist.
     NotFound,
     NotAFile,
     PermissionDenied,
     /// `path` is the other notebook's, which may name the file differently: a symlink, a hard link, another case.
-    OpenInAnotherNotebook { path: String },
-    Io { message: String },
+    OpenInAnotherNotebook {
+        path: String,
+    },
+    Io {
+        message: String,
+    },
 }
 
 /// A notebook as its file holds it. Only `notebook_file` reads or writes the file's text.
@@ -2924,11 +3148,22 @@ pub struct ProviderState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(tag = "kind", rename_all_fields = "camelCase")]
 pub enum ProbeOutcome {
-    Ready { version: String, plan: Option<String>, models: Vec<ModelOption> },
-    SignedOut { version: String },
-    NotFound { binary: String },
+    Ready {
+        version: String,
+        plan: Option<String>,
+        models: Vec<ModelOption>,
+    },
+    SignedOut {
+        version: String,
+    },
+    NotFound {
+        binary: String,
+    },
     /// Found, but the version check, the sign-in check, or the handshake failed or timed out.
-    Broken { version: Option<String>, message: String },
+    Broken {
+        version: Option<String>,
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
@@ -2972,13 +3207,24 @@ pub struct SourceLimits {
 #[serde(tag = "kind", rename_all_fields = "camelCase")]
 pub enum LimitsOutcome {
     /// `plan` is the short tier the header shows after the name: "Max".
-    Ready { plan: Option<String>, windows: Vec<LimitWindow> },
+    Ready {
+        plan: Option<String>,
+        windows: Vec<LimitWindow>,
+    },
     /// Signed in with no subscription limits: an API key, Bedrock, Vertex.
-    NoLimits { plan: Option<String> },
-    SignedOut { sign_in_command: String },
-    NotFound { binary: String },
+    NoLimits {
+        plan: Option<String>,
+    },
+    SignedOut {
+        sign_in_command: String,
+    },
+    NotFound {
+        binary: String,
+    },
     /// The CLI started but the exchange failed, timed out, or returned a shape we cannot read.
-    Failed { message: String },
+    Failed {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
@@ -3041,7 +3287,11 @@ pub enum ChatStatus {
     Draft,
     Idle,
     /// `turn` is the seq of the user entry that started it.
-    Running { turn: u32, started_at_ms: i64, phase: TurnPhase },
+    Running {
+        turn: u32,
+        started_at_ms: i64,
+        phase: TurnPhase,
+    },
     /// A tombstone, so the live store drops the chat by the same keep-higher rule.
     Deleted,
 }
@@ -3076,13 +3326,31 @@ pub struct EntrySnapshot {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "kind", rename_all_fields = "camelCase")]
 pub enum Entry {
-    User { at_ms: i64, text: String, context: Option<SentContext>, attachment: Option<Attachment> },
-    Text { blocks: Vec<ReplyBlock>, done: bool },
-    Tool { call: ToolCallId, tool: ToolUse, status: ToolStatus },
+    User {
+        at_ms: i64,
+        text: String,
+        context: Option<SentContext>,
+        attachment: Option<Attachment>,
+    },
+    Text {
+        blocks: Vec<ReplyBlock>,
+        done: bool,
+    },
+    Tool {
+        call: ToolCallId,
+        tool: ToolUse,
+        status: ToolStatus,
+    },
     /// Shown when the engine had to change course, such as a lost provider session.
-    Notice { text: String },
+    Notice {
+        text: String,
+    },
     /// Closes every turn.
-    End { at_ms: i64, outcome: TurnOutcome, suggestions: Vec<String> },
+    End {
+        at_ms: i64,
+        outcome: TurnOutcome,
+        suggestions: Vec<String>,
+    },
     Unreadable,
 }
 
@@ -3107,7 +3375,12 @@ impl<'de> Deserialize<'de> for SentContext {
             tab_title: String,
         }
         let Stored { database_kind, db, connection_name, tab_title } = Stored::deserialize(d)?;
-        Ok(Self { database_kind: database_kind.or(db.as_ref().map(|_| DatabaseKind::Postgres)), db, connection_name, tab_title })
+        Ok(Self {
+            database_kind: database_kind.or(db.as_ref().map(|_| DatabaseKind::Postgres)),
+            db,
+            connection_name,
+            tab_title,
+        })
     }
 }
 
@@ -3124,31 +3397,57 @@ pub struct Attachment {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "kind", rename_all_fields = "camelCase")]
 pub enum ReplyBlock {
-    Markdown { text: String },
+    Markdown {
+        text: String,
+    },
     /// A fenced SQL block. `relations` and `vetted` are filled when the fence closes.
-    Sql { sql: String, relations: Vec<String>, vetted: bool, complete: bool },
+    Sql {
+        sql: String,
+        relations: Vec<String>,
+        vetted: bool,
+        complete: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "kind", rename_all_fields = "camelCase")]
 pub enum ToolUse {
-    DescribeTables { tables: Vec<String> },
-    SearchCatalog { query: String },
-    RunQuery { sql: String, purpose: String, relations: Vec<String> },
+    DescribeTables {
+        tables: Vec<String>,
+    },
+    SearchCatalog {
+        query: String,
+    },
+    RunQuery {
+        sql: String,
+        purpose: String,
+        relations: Vec<String>,
+    },
     /// A tool the engine does not serve. Always refused.
-    Other { name: String },
+    Other {
+        name: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "kind", rename_all_fields = "camelCase")]
 pub enum ToolStatus {
     Running,
-    AwaitingApproval { approval: ApprovalId, reason: ApprovalReason },
-    Done { result: ToolResult },
+    AwaitingApproval {
+        approval: ApprovalId,
+        reason: ApprovalReason,
+    },
+    Done {
+        result: ToolResult,
+    },
     /// `message` is what the model got.
-    Failed { message: String },
+    Failed {
+        message: String,
+    },
     /// `stopped` is true when Stop denied it, false when the user pressed Deny.
-    Denied { stopped: bool },
+    Denied {
+        stopped: bool,
+    },
     /// The turn ended before an answer.
     Expired,
 }
@@ -3159,16 +3458,28 @@ pub enum ApprovalReason {
     AskFirst,
     /// The query uses what the engine cannot vouch for as read-only: the called functions off
     /// its allowlist, as written, plus `U& escape` or `SELECT INTO`. Auto asks for these too.
-    Unvetted { functions: Vec<String> },
+    Unvetted {
+        functions: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "kind", rename_all_fields = "camelCase")]
 pub enum ToolResult {
-    Described { found: Vec<String>, missing: Vec<String> },
-    Found { matches: u16 },
+    Described {
+        found: Vec<String>,
+        missing: Vec<String>,
+    },
+    Found {
+        matches: u16,
+    },
     /// The preview the model saw. `more` is true when the query had more rows.
-    Rows { columns: Vec<String>, rows: Vec<Vec<Option<String>>>, more: bool, elapsed_ms: u32 },
+    Rows {
+        columns: Vec<String>,
+        rows: Vec<Vec<Option<String>>>,
+        more: bool,
+        elapsed_ms: u32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -3178,18 +3489,27 @@ pub enum TurnOutcome {
     Stopped,
     /// The app quit or crashed mid-turn. Written when the chat next opens.
     Lost,
-    Failed { error: AgentError },
+    Failed {
+        error: AgentError,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "kind", rename_all_fields = "camelCase")]
 pub enum AgentError {
-    NotFound { binary: String },
+    NotFound {
+        binary: String,
+    },
     SignedOut,
     /// `detail` is the end of its stderr.
-    Exited { code: Option<i32>, detail: String },
+    Exited {
+        code: Option<i32>,
+        detail: String,
+    },
     /// An API failure, a rate limit, an overload.
-    Provider { message: String },
+    Provider {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize, Type)]
@@ -3231,12 +3551,18 @@ pub enum Decision {
 pub enum SendError {
     Busy,
     EmptyMessage,
-    ProviderOff { provider: ProviderKind },
+    ProviderOff {
+        provider: ProviderKind,
+    },
     /// The chat's model left the provider's list since it was picked.
-    UnknownModel { model: ModelId },
+    UnknownModel {
+        model: ModelId,
+    },
     /// A newer run replaced the attached result.
     AttachmentGone,
-    Store { message: String },
+    Store {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
@@ -3275,8 +3601,10 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(tab.console.database, None);
-        let console: ConsoleConfigSnapshot =
-            serde_json::from_value(json!({ "connectionId": "00000000-0000-0000-0000-000000000002", "schema": null, "mode": "Manual" })).unwrap();
+        let console: ConsoleConfigSnapshot = serde_json::from_value(
+            json!({ "connectionId": "00000000-0000-0000-0000-000000000002", "schema": null, "mode": "Manual" }),
+        )
+        .unwrap();
         assert_eq!((console.database, console.mode), (None, TxnMode::Manual));
     }
 
@@ -3387,13 +3715,19 @@ mod tests {
     fn a_file_binding_this_build_cannot_read_drops_to_scratch_and_keeps_the_tab() {
         for file in [json!({ "binding": { "path": 3 } }), json!("x")] {
             let tab: TabSnapshot = serde_json::from_value(file_tab(file.clone())).unwrap();
-            assert_eq!((tab.title.as_str(), tab.text.as_deref(), tab.file), ("report.sql", Some("select 1;\n"), None), "{file}");
+            assert_eq!(
+                (tab.title.as_str(), tab.text.as_deref(), tab.file),
+                ("report.sql", Some("select 1;\n"), None),
+                "{file}"
+            );
         }
         let good = file_tab(json!({ "binding": binding_json(), "dirty": false }));
         let mut bad = file_tab(json!("x"));
         bad["id"] = json!(CONN);
-        let workspace: Workspace =
-            serde_json::from_value(json!({ "tabs": [bad, good], "active": TAB, "layout": serde_json::to_value(Layout::default()).unwrap() })).unwrap();
+        let workspace: Workspace = serde_json::from_value(
+            json!({ "tabs": [bad, good], "active": TAB, "layout": serde_json::to_value(Layout::default()).unwrap() }),
+        )
+        .unwrap();
         let files: Vec<_> = workspace.tabs.iter().map(|t| t.file.as_ref().map(|f| f.binding.path.as_str())).collect();
         assert_eq!(files, vec![None, Some("/Users/a/report.sql")]);
     }
@@ -3402,7 +3736,8 @@ mod tests {
     fn a_file_binding_with_fields_from_a_later_build_still_loads() {
         let mut binding = binding_json();
         binding["format"]["encoding"] = json!("utf-16");
-        let tab: TabSnapshot = serde_json::from_value(file_tab(json!({ "binding": binding, "dirty": false, "watched": true }))).unwrap();
+        let tab: TabSnapshot =
+            serde_json::from_value(file_tab(json!({ "binding": binding, "dirty": false, "watched": true }))).unwrap();
         let file = tab.file.expect("the binding survives fields this build does not know");
         assert_eq!((file.binding.format, file.dirty), (FileFormat { bom: true, crlf: false }, false));
     }
@@ -3455,13 +3790,21 @@ mod tests {
         let file = n.file.clone().expect("the file binding loads");
         let pair = |key: &str, value: &str| MetaPair { key: key.into(), value: value.into() };
         assert_eq!((file.binding.path.as_str(), file.dirty, file.plain), ("/Users/a/report.sql", true, false));
-        assert_eq!(file.unknown, UnknownKeys { header: vec![pair("theme", "dark")], cells: HashMap::from([(TabId(uuid(TAB)), vec![pair("chart", "bar")])]) });
+        assert_eq!(
+            file.unknown,
+            UnknownKeys {
+                header: vec![pair("theme", "dark")],
+                cells: HashMap::from([(TabId(uuid(TAB)), vec![pair("chart", "bar")])])
+            }
+        );
         assert_eq!(serde_json::to_value(&n).unwrap(), value);
     }
 
     #[test]
     fn a_notebook_file_this_build_cannot_read_drops_the_binding_and_keeps_the_notebook() {
-        for file in [json!({ "binding": { "path": 3 } }), json!("x"), json!({ "binding": binding_json(), "dirty": false })] {
+        for file in
+            [json!({ "binding": { "path": 3 } }), json!("x"), json!({ "binding": binding_json(), "dirty": false })]
+        {
             let mut value = notebook_json();
             value["file"] = file.clone();
             let n: NotebookSnapshot = serde_json::from_value(value).unwrap();
@@ -3492,7 +3835,10 @@ mod tests {
         value["file"] = notebook_file_json();
         let n: NotebookSnapshot = serde_json::from_value(value).unwrap();
         let before: BeforeFilesNotebook = serde_json::from_value(serde_json::to_value(&n).unwrap()).unwrap();
-        assert_eq!((before.id, before.cells, before.shown_at_ms), (NotebookId(uuid(NOTEBOOK)), vec![TabId(uuid(TAB))], 1_700_000_000_000));
+        assert_eq!(
+            (before.id, before.cells, before.shown_at_ms),
+            (NotebookId(uuid(NOTEBOOK)), vec![TabId(uuid(TAB))], 1_700_000_000_000)
+        );
     }
 
     fn workspace_json(notebooks: serde_json::Value, shown: serde_json::Value) -> serde_json::Value {
@@ -3528,7 +3874,9 @@ mod tests {
     #[test]
     fn a_notebook_or_shown_this_build_cannot_read_is_dropped_and_the_cells_stay() {
         let later = json!({ "id": "00000000-0000-0000-0000-000000000004", "title": "file", "db": { "path": "/q/a.sql" }, "cells": [TAB], "active": null });
-        let w: Workspace = serde_json::from_value(workspace_json(json!([later, notebook_json(), 7]), json!({ "kind": "File" }))).unwrap();
+        let w: Workspace =
+            serde_json::from_value(workspace_json(json!([later, notebook_json(), 7]), json!({ "kind": "File" })))
+                .unwrap();
         assert_eq!(w.notebooks.iter().map(|n| n.id).collect::<Vec<_>>(), [NotebookId(uuid(NOTEBOOK))]);
         assert_eq!((w.tabs.len(), w.shown), (1, None));
     }
@@ -3539,18 +3887,33 @@ mod tests {
         let mut notebook = notebook_json();
         notebook["file"] = notebook_file_json();
         let notebooks = vec![serde_json::from_value(notebook).unwrap()];
-        let workspace = Workspace { tabs: vec![tab], active: Some(TabId(uuid(TAB))), notebooks, shown: Some(NotebookId(uuid(NOTEBOOK))), ..Workspace::default() };
+        let workspace = Workspace {
+            tabs: vec![tab],
+            active: Some(TabId(uuid(TAB))),
+            notebooks,
+            shown: Some(NotebookId(uuid(NOTEBOOK))),
+            ..Workspace::default()
+        };
         let stable: StableWorkspace = serde_json::from_value(serde_json::to_value(&workspace).unwrap()).unwrap();
         let tab = &stable.tabs[0];
-        assert_eq!((tab.id, tab.title.as_str(), tab.text.as_deref()), (TabId(uuid(TAB)), "report.sql", Some("select 1;\n")));
+        assert_eq!(
+            (tab.id, tab.title.as_str(), tab.text.as_deref()),
+            (TabId(uuid(TAB)), "report.sql", Some("select 1;\n"))
+        );
         assert_eq!((tab.console.connection_id, &tab.table), (Some(ConnectionId(uuid(CONN))), &None));
         assert_eq!((stable.active, stable.layout.sidebar), (Some(TabId(uuid(TAB))), true));
     }
 
     #[test]
     fn file_errors_are_tagged_by_kind_with_camel_case_fields() {
-        assert_eq!(serde_json::to_value(FileReadError::TooLarge { bytes: 5, limit: 4 }).unwrap(), json!({ "kind": "TooLarge", "bytes": 5, "limit": 4 }));
-        assert_eq!(serde_json::to_value(FileReadError::NotUtf8 { offset: 3 }).unwrap(), json!({ "kind": "NotUtf8", "offset": 3 }));
+        assert_eq!(
+            serde_json::to_value(FileReadError::TooLarge { bytes: 5, limit: 4 }).unwrap(),
+            json!({ "kind": "TooLarge", "bytes": 5, "limit": 4 })
+        );
+        assert_eq!(
+            serde_json::to_value(FileReadError::NotUtf8 { offset: 3 }).unwrap(),
+            json!({ "kind": "NotUtf8", "offset": 3 })
+        );
         let changed = FileWriteError::Changed { disk: FileStamp("1:ab".into()) };
         assert_eq!(serde_json::to_value(changed).unwrap(), json!({ "kind": "Changed", "disk": "1:ab" }));
         assert_eq!(serde_json::to_value(FileWriteError::NotFound).unwrap(), json!({ "kind": "NotFound" }));
@@ -3560,12 +3923,25 @@ mod tests {
 
     #[test]
     fn save_targets_deserialize_from_the_wire() {
-        let bound: SaveTarget = serde_json::from_value(json!({ "kind": "Bound", "binding": binding_json(), "overwrite": null })).unwrap();
-        assert!(matches!(&bound, SaveTarget::Bound { binding, overwrite: None } if binding.path == "/Users/a/report.sql" && binding.format.bom), "{bound:?}");
-        let consent: SaveTarget = serde_json::from_value(json!({ "kind": "Bound", "binding": binding_json(), "overwrite": "2:cd" })).unwrap();
-        assert!(matches!(&consent, SaveTarget::Bound { overwrite: Some(FileStamp(disk)), .. } if disk == "2:cd"), "{consent:?}");
-        let new: SaveTarget = serde_json::from_value(json!({ "kind": "New", "path": "/a.sql", "format": null, "taken": ["/b.sql"] })).unwrap();
-        assert!(matches!(&new, SaveTarget::New { path, format: None, taken } if path == "/a.sql" && taken == &["/b.sql"]), "{new:?}");
+        let bound: SaveTarget =
+            serde_json::from_value(json!({ "kind": "Bound", "binding": binding_json(), "overwrite": null })).unwrap();
+        assert!(
+            matches!(&bound, SaveTarget::Bound { binding, overwrite: None } if binding.path == "/Users/a/report.sql" && binding.format.bom),
+            "{bound:?}"
+        );
+        let consent: SaveTarget =
+            serde_json::from_value(json!({ "kind": "Bound", "binding": binding_json(), "overwrite": "2:cd" })).unwrap();
+        assert!(
+            matches!(&consent, SaveTarget::Bound { overwrite: Some(FileStamp(disk)), .. } if disk == "2:cd"),
+            "{consent:?}"
+        );
+        let new: SaveTarget =
+            serde_json::from_value(json!({ "kind": "New", "path": "/a.sql", "format": null, "taken": ["/b.sql"] }))
+                .unwrap();
+        assert!(
+            matches!(&new, SaveTarget::New { path, format: None, taken } if path == "/a.sql" && taken == &["/b.sql"]),
+            "{new:?}"
+        );
     }
 
     #[test]
@@ -3574,7 +3950,10 @@ mod tests {
             "maxRows": 10, "maxResultBytes": 20, "tablePageSize": 30, "stopOnError": false
         }))
         .unwrap();
-        assert_eq!((s.max_rows, s.table_page_size, s.stop_on_error, s.color_scheme), (10, 30, false, ColorScheme::System));
+        assert_eq!(
+            (s.max_rows, s.table_page_size, s.stop_on_error, s.color_scheme),
+            (10, 30, false, ColorScheme::System)
+        );
         assert_eq!((s.light_theme.as_str(), s.dark_theme.as_str(), s.custom_themes.len()), ("l1-light", "l1-dark", 0));
         assert_eq!(
             (s.interface_font, s.code_font, s.density, s.panel_motion_ms),
@@ -3610,7 +3989,10 @@ mod tests {
         assert_eq!((value["density"].clone(), value["panelMotionMs"].clone()), (json!("Compact"), json!(0)));
         assert_eq!((value["reduceMotion"].clone(), value["tintConnections"].clone()), (json!("On"), json!(true)));
         let round: Settings = serde_json::from_value(value).unwrap();
-        assert_eq!((round.code_font, round.density, round.panel_motion_ms), (FontSetting { family: "Menlo".into(), size: 11 }, Density::Compact, 0));
+        assert_eq!(
+            (round.code_font, round.density, round.panel_motion_ms),
+            (FontSetting { family: "Menlo".into(), size: 11 }, Density::Compact, 0)
+        );
         assert_eq!(round.reduce_motion, ReduceMotion::On);
         assert!(round.tint_connections);
         let off: Settings = serde_json::from_value(json!({
@@ -3626,7 +4008,10 @@ mod tests {
             "maxRows": 10, "maxResultBytes": 20, "tablePageSize": 30, "stopOnError": false, "theme": "Dark"
         }))
         .unwrap();
-        assert_eq!((s.color_scheme, s.light_theme.as_str(), s.dark_theme.as_str()), (ColorScheme::Dark, "l1-light", "l1-dark"));
+        assert_eq!(
+            (s.color_scheme, s.light_theme.as_str(), s.dark_theme.as_str()),
+            (ColorScheme::Dark, "l1-light", "l1-dark")
+        );
     }
 
     #[test]
@@ -3640,17 +4025,31 @@ mod tests {
         let custom = CustomTheme {
             id: "custom-1".into(),
             name: "Dusk".into(),
-            variants: vec![variant("custom-1-0", "Dusk Day", Appearance::Light, "#fafafa"), variant("custom-1-1", "Dusk Night", Appearance::Dark, "#101018")],
+            variants: vec![
+                variant("custom-1-0", "Dusk Day", Appearance::Light, "#fafafa"),
+                variant("custom-1-1", "Dusk Night", Appearance::Dark, "#101018"),
+            ],
         };
-        let s = Settings { color_scheme: ColorScheme::Light, dark_theme: "custom-1-1".into(), custom_themes: vec![custom.clone()], ..Settings::default() };
+        let s = Settings {
+            color_scheme: ColorScheme::Light,
+            dark_theme: "custom-1-1".into(),
+            custom_themes: vec![custom.clone()],
+            ..Settings::default()
+        };
         let value = serde_json::to_value(&s).unwrap();
         assert_eq!(value["customThemes"][0]["name"], json!("Dusk"));
-        assert_eq!(value["customThemes"][0]["variants"][1], json!({
-            "id": "custom-1-1", "name": "Dusk Night", "appearance": "dark", "colors": { "accent": "#e0a040", "background": "#101018" }
-        }));
+        assert_eq!(
+            value["customThemes"][0]["variants"][1],
+            json!({
+                "id": "custom-1-1", "name": "Dusk Night", "appearance": "dark", "colors": { "accent": "#e0a040", "background": "#101018" }
+            })
+        );
         assert_eq!(value["colorScheme"], json!("Light"));
         let round: Settings = serde_json::from_value(value).unwrap();
-        assert_eq!((round.color_scheme, round.dark_theme.as_str(), round.custom_themes), (ColorScheme::Light, "custom-1-1", vec![custom]));
+        assert_eq!(
+            (round.color_scheme, round.dark_theme.as_str(), round.custom_themes),
+            (ColorScheme::Light, "custom-1-1", vec![custom])
+        );
     }
 
     #[test]
@@ -3661,16 +4060,13 @@ mod tests {
         .unwrap();
         assert!(matches!(req, RunRequest::TablePage { page: 2, .. }));
 
-        let target: RunTarget =
-            serde_json::from_value(json!({ "kind": "cursor", "offset": 7 })).unwrap();
+        let target: RunTarget = serde_json::from_value(json!({ "kind": "cursor", "offset": 7 })).unwrap();
         assert!(matches!(target, RunTarget::Cursor { offset: DocOffset(7) }));
     }
 
     #[test]
     fn nested_connect_error_keeps_its_own_tag() {
-        let err = RunError::Connect {
-            error: ConnectError::MissingPassword,
-        };
+        let err = RunError::Connect { error: ConnectError::MissingPassword };
         assert_eq!(
             serde_json::to_value(err).unwrap(),
             json!({ "kind": "Connect", "error": { "kind": "MissingPassword" } })
@@ -3679,12 +4075,24 @@ mod tests {
 
     #[test]
     fn ssh_errors_keep_their_own_tag_inside_a_connect_error() {
-        let unknown = SshError::HostKeyUnknown { host: "bastion".into(), port: 22, algorithm: "ssh-ed25519".into(), fingerprint: "SHA256:x".into(), trust: HostKeyId(3) };
+        let unknown = SshError::HostKeyUnknown {
+            host: "bastion".into(),
+            port: 22,
+            algorithm: "ssh-ed25519".into(),
+            fingerprint: "SHA256:x".into(),
+            trust: HostKeyId(3),
+        };
         assert_eq!(
             serde_json::to_value(RunError::Connect { error: ConnectError::Ssh { error: unknown } }).unwrap(),
             json!({ "kind": "Connect", "error": { "kind": "Ssh", "error": { "kind": "HostKeyUnknown", "host": "bastion", "port": 22, "algorithm": "ssh-ed25519", "fingerprint": "SHA256:x", "trust": 3 } } })
         );
-        let changed = SshError::HostKeyChanged { host: "b".into(), port: 2222, algorithm: "ssh-rsa".into(), fingerprint: "SHA256:y".into(), known_at: "/k:4".into() };
+        let changed = SshError::HostKeyChanged {
+            host: "b".into(),
+            port: 2222,
+            algorithm: "ssh-rsa".into(),
+            fingerprint: "SHA256:y".into(),
+            known_at: "/k:4".into(),
+        };
         assert_eq!(serde_json::to_value(changed).unwrap()["knownAt"], "/k:4");
     }
 
@@ -3705,7 +4113,10 @@ mod tests {
         assert!(!layout.sidebar);
         assert!(!layout.results);
         assert_eq!(layout.right_panel, Some(RightPanel::Assistant), "a removed panel opens the assistant");
-        let schema: Layout = serde_json::from_value(json!({ "sidebar": true, "results": true, "rightPanel": "Schema", "resultsHeight": 280 })).unwrap();
+        let schema: Layout = serde_json::from_value(
+            json!({ "sidebar": true, "results": true, "rightPanel": "Schema", "resultsHeight": 280 }),
+        )
+        .unwrap();
         assert_eq!(schema.right_panel, Some(RightPanel::Assistant));
         assert_eq!(layout.results_height, 280);
         assert_eq!(layout.sidebar_width, 280);
@@ -3726,7 +4137,13 @@ mod tests {
         assert_eq!(layout.assistant_chat, Some(ChatId(uuid(CHAT))));
     }
 
-    fn claude(enabled: bool, display_name: &str, binary_path: &str, config_dir: &str, launch_args: &str) -> ProviderConfig {
+    fn claude(
+        enabled: bool,
+        display_name: &str,
+        binary_path: &str,
+        config_dir: &str,
+        launch_args: &str,
+    ) -> ProviderConfig {
         ProviderConfig {
             provider: ProviderKind::Claude,
             enabled,
@@ -3804,14 +4221,24 @@ mod tests {
 
     #[test]
     fn update_changed_keeps_its_own_tag() {
-        let state = |status| UpdateState { rev: 3, track: UpdateTrack::Nightly, current_version: "0.1.1-nightly.20261023.5".into(), status, checked_at_ms: Some(1700) };
+        let state = |status| UpdateState {
+            rev: 3,
+            track: UpdateTrack::Nightly,
+            current_version: "0.1.1-nightly.20261023.5".into(),
+            status,
+            checked_at_ms: Some(1700),
+        };
         assert_eq!(
             serde_json::to_value(AppEvent::UpdateChanged(state(UpdateStatus::Downloading {
                 version: "0.1.0".into(),
                 downgrade: true,
                 percent: Some(40),
-                changes: vec![ReleaseChanges { version: "0.1.0".into(), items: vec![ChangeItem { title: "fix(ui): x".into(), author: None, pr: Some(7) }] }],
-            }))).unwrap(),
+                changes: vec![ReleaseChanges {
+                    version: "0.1.0".into(),
+                    items: vec![ChangeItem { title: "fix(ui): x".into(), author: None, pr: Some(7) }]
+                }],
+            })))
+            .unwrap(),
             json!({
                 "kind": "UpdateChanged", "rev": 3, "track": "Nightly", "currentVersion": "0.1.1-nightly.20261023.5", "checkedAtMs": 1700,
                 "status": {
@@ -3821,7 +4248,10 @@ mod tests {
             })
         );
         assert_eq!(
-            serde_json::to_value(state(UpdateStatus::Failed { failure: UpdateFailure::Other { message: "disk full".into() } })).unwrap()["status"],
+            serde_json::to_value(state(UpdateStatus::Failed {
+                failure: UpdateFailure::Other { message: "disk full".into() }
+            }))
+            .unwrap()["status"],
             json!({ "kind": "Failed", "failure": { "kind": "Other", "message": "disk full" } })
         );
     }
@@ -3829,9 +4259,16 @@ mod tests {
     #[test]
     fn a_restart_impact_round_trips_as_the_acceptance() {
         let tab = TabId(Uuid::from_u128(1));
-        let impact = RestartImpact { running: vec![tab], transactions: vec![OpenTxn { tab_id: tab, has_writes: true }], chats: vec![ChatId(Uuid::from_u128(2))] };
+        let impact = RestartImpact {
+            running: vec![tab],
+            transactions: vec![OpenTxn { tab_id: tab, has_writes: true }],
+            chats: vec![ChatId(Uuid::from_u128(2))],
+        };
         let value = serde_json::to_value(&impact).unwrap();
-        assert_eq!(value["transactions"], json!([{ "tabId": "00000000-0000-0000-0000-000000000001", "hasWrites": true }]));
+        assert_eq!(
+            value["transactions"],
+            json!([{ "tabId": "00000000-0000-0000-0000-000000000001", "hasWrites": true }])
+        );
         assert_eq!(serde_json::from_value::<RestartImpact>(value).unwrap(), impact);
     }
 
@@ -3848,7 +4285,10 @@ mod tests {
             Entry::Tool {
                 call: ToolCallId("toolu_01".into()),
                 tool: ToolUse::RunQuery { sql: "select pg_sleep(1)".into(), purpose: "wait".into(), relations: vec![] },
-                status: ToolStatus::AwaitingApproval { approval: ApprovalId(7), reason: ApprovalReason::Unvetted { functions: vec!["pg_sleep".into()] } },
+                status: ToolStatus::AwaitingApproval {
+                    approval: ApprovalId(7),
+                    reason: ApprovalReason::Unvetted { functions: vec!["pg_sleep".into()] }
+                },
             }
         );
         assert_eq!(serde_json::to_value(&entry).unwrap(), value);
@@ -3866,13 +4306,19 @@ mod database_compatibility_tests {
         assert_eq!(config.database_kind, DatabaseKind::Postgres);
         assert_eq!(serde_json::to_value(&config).unwrap()["databaseKind"], "Postgres");
         saved["databaseKind"] = serde_json::json!("SqlServer");
-        assert_eq!(serde_json::from_value::<ConnectionConfig>(saved.clone()).unwrap().database_kind, DatabaseKind::SqlServer);
+        assert_eq!(
+            serde_json::from_value::<ConnectionConfig>(saved.clone()).unwrap().database_kind,
+            DatabaseKind::SqlServer
+        );
         saved["databaseKind"] = serde_json::json!("unknown");
         assert!(serde_json::from_value::<ConnectionConfig>(saved).is_err());
         let sent: SentContext = serde_json::from_value(serde_json::json!({"db":{"connectionId":Uuid::nil(),"database":"shop"},"connectionName":"old", "tabTitle":"query"})).unwrap();
         assert_eq!(sent.database_kind, Some(DatabaseKind::Postgres));
         let entry: Entry = serde_json::from_value(serde_json::json!({"kind":"User", "atMs":0,"text":"question","context":{"db":{"connectionId":Uuid::nil(),"database":"shop"},"connectionName":"old", "tabTitle":"query"}})).unwrap();
-        assert!(matches!(entry, Entry::User { context: Some(SentContext { database_kind: Some(DatabaseKind::Postgres), .. }), .. }));
+        assert!(matches!(
+            entry,
+            Entry::User { context: Some(SentContext { database_kind: Some(DatabaseKind::Postgres), .. }), .. }
+        ));
     }
 
     #[test]
@@ -3880,9 +4326,18 @@ mod database_compatibility_tests {
         let saved = serde_json::json!({"databaseKind":"Postgres", "id":Uuid::nil(), "name":"legacy", "host":"localhost", "port":5432, "database":"shop", "user":"reader", "sslMode":"Prefer", "caCertPath":null, "hasPassword":true, "color":null});
         let config: ConnectionConfig = serde_json::from_value(saved).unwrap();
         assert_eq!(config.ssh, None);
-        let tunnel = SshTunnel { host: "bastion".into(), port: 2222, user: "tunnel".into(), auth: SshAuth::Key { path: "~/.ssh/id_ed25519".into() }, has_secret: true };
+        let tunnel = SshTunnel {
+            host: "bastion".into(),
+            port: 2222,
+            user: "tunnel".into(),
+            auth: SshAuth::Key { path: "~/.ssh/id_ed25519".into() },
+            has_secret: true,
+        };
         let stored = serde_json::to_value(ConnectionConfig { ssh: Some(tunnel.clone()), ..config }).unwrap();
-        assert_eq!(stored["ssh"], serde_json::json!({"host":"bastion", "port":2222, "user":"tunnel", "auth":{"kind":"Key", "path":"~/.ssh/id_ed25519"}, "hasSecret":true}));
+        assert_eq!(
+            stored["ssh"],
+            serde_json::json!({"host":"bastion", "port":2222, "user":"tunnel", "auth":{"kind":"Key", "path":"~/.ssh/id_ed25519"}, "hasSecret":true})
+        );
         assert_eq!(serde_json::from_value::<ConnectionConfig>(stored).unwrap().ssh, Some(tunnel));
     }
 
@@ -3911,15 +4366,27 @@ mod database_compatibility_tests {
     #[test]
     fn each_sql_server_auth_round_trips_and_a_newer_one_loads_as_unknown() {
         let mut saved = serde_json::json!({"databaseKind":"SqlServer", "id":Uuid::nil(), "name":"azure", "host":"db.example.net", "port":1433, "database":"shop", "user":"", "sslMode":"VerifyFull", "caCertPath":null, "hasPassword":false, "color":null, "ssh":null, "environment":null, "sqlServerAuth":null});
-        for (wire, auth) in [(serde_json::Value::Null, None), ("SqlLogin".into(), Some(SqlServerAuth::SqlLogin)), ("EntraAzureCli".into(), Some(SqlServerAuth::EntraAzureCli))] {
+        for (wire, auth) in [
+            (serde_json::Value::Null, None),
+            ("SqlLogin".into(), Some(SqlServerAuth::SqlLogin)),
+            ("EntraAzureCli".into(), Some(SqlServerAuth::EntraAzureCli)),
+        ] {
             saved["sqlServerAuth"] = wire;
             let config: ConnectionConfig = serde_json::from_value(saved.clone()).unwrap();
             assert_eq!(config.sql_server_auth, auth);
             assert_eq!(serde_json::to_value(&config).unwrap(), saved);
         }
-        for newer in [serde_json::json!("EntraDeviceCode"), serde_json::json!({"EntraServicePrincipal":{"clientId":"x"}}), serde_json::json!(7)] {
+        for newer in [
+            serde_json::json!("EntraDeviceCode"),
+            serde_json::json!({"EntraServicePrincipal":{"clientId":"x"}}),
+            serde_json::json!(7),
+        ] {
             saved["sqlServerAuth"] = newer.clone();
-            assert_eq!(serde_json::from_value::<ConnectionConfig>(saved.clone()).unwrap().sql_server_auth, Some(SqlServerAuth::Unknown), "{newer}");
+            assert_eq!(
+                serde_json::from_value::<ConnectionConfig>(saved.clone()).unwrap().sql_server_auth,
+                Some(SqlServerAuth::Unknown),
+                "{newer}"
+            );
         }
     }
 
@@ -3928,14 +4395,32 @@ mod database_compatibility_tests {
     fn bindings_require_the_fields_old_rows_default() {
         let bindings = include_str!("../../../src/ipc/bindings.ts");
         let block = |name: &str| {
-            let start = bindings.find(&format!("export type {name} = {{")).unwrap_or_else(|| panic!("{name} is not in bindings.ts"));
+            let start = bindings
+                .find(&format!("export type {name} = {{"))
+                .unwrap_or_else(|| panic!("{name} is not in bindings.ts"));
             &bindings[start..start + bindings[start..].find("};").unwrap()]
         };
         assert!(block("ConnectionConfig").contains("\tssh: SshTunnel | null,"), "{}", block("ConnectionConfig"));
         assert!(block("ConnectionDraft").contains("\tssh: SshTunnelDraft | null,"), "{}", block("ConnectionDraft"));
-        assert!(block("ConnectionConfig").contains("\tenvironment: Environment | null,"), "{}", block("ConnectionConfig"));
-        assert!(block("ConnectionDraft").contains("\tenvironment: Environment | null,"), "{}", block("ConnectionDraft"));
-        assert!(block("ConnectionConfig").contains("\tsqlServerAuth: SqlServerAuth | null,"), "{}", block("ConnectionConfig"));
-        assert!(block("ConnectionDraft").contains("\tsqlServerAuth: SqlServerAuth | null,"), "{}", block("ConnectionDraft"));
+        assert!(
+            block("ConnectionConfig").contains("\tenvironment: Environment | null,"),
+            "{}",
+            block("ConnectionConfig")
+        );
+        assert!(
+            block("ConnectionDraft").contains("\tenvironment: Environment | null,"),
+            "{}",
+            block("ConnectionDraft")
+        );
+        assert!(
+            block("ConnectionConfig").contains("\tsqlServerAuth: SqlServerAuth | null,"),
+            "{}",
+            block("ConnectionConfig")
+        );
+        assert!(
+            block("ConnectionDraft").contains("\tsqlServerAuth: SqlServerAuth | null,"),
+            "{}",
+            block("ConnectionDraft")
+        );
     }
 }

@@ -3,8 +3,9 @@ use std::time::Instant;
 
 use crate::aggregate::ColumnText;
 use crate::model::{
-    AllRows, ChartSeries, ColSpan, ColumnMeta, ConnectionId, DatabaseKind, DatabaseRef, PlanFormat, QueryError, ResultCell, ResultError, ResultFind, ResultFindDirection,
-    ResultFindTarget, ResultMeta, ResultRef, RowPage, RowSpan, RunId, RunOutput, TabId, TruncateReason,
+    AllRows, ChartSeries, ColSpan, ColumnMeta, ConnectionId, DatabaseKind, DatabaseRef, PlanFormat, QueryError,
+    ResultCell, ResultError, ResultFind, ResultFindDirection, ResultFindTarget, ResultMeta, ResultRef, RowPage,
+    RowSpan, RunId, RunOutput, TabId, TruncateReason,
 };
 
 pub const CELL_CHAR_LIMIT: usize = 2_000;
@@ -76,7 +77,13 @@ pub struct Caps {
 }
 
 impl ResultSet {
-    pub fn new(r#ref: ResultRef, db: DatabaseRef, database_kind: DatabaseKind, columns: Vec<ColumnMeta>, origin: Origin) -> Self {
+    pub fn new(
+        r#ref: ResultRef,
+        db: DatabaseRef,
+        database_kind: DatabaseKind,
+        columns: Vec<ColumnMeta>,
+        origin: Origin,
+    ) -> Self {
         let ncols = columns.len();
         Self {
             database_kind,
@@ -189,18 +196,12 @@ impl ResultSet {
         let ncols = self.columns.len();
         let anchor = match direction {
             ResultFindDirection::First => None,
-            ResultFindDirection::Next { anchor } | ResultFindDirection::Previous { anchor } => {
-                Some(anchor)
-            }
+            ResultFindDirection::Next { anchor } | ResultFindDirection::Previous { anchor } => Some(anchor),
         };
         if anchor.is_some_and(|c| c.row >= row_count || c.col as usize >= ncols) {
             return Err(ResultError::OutOfRange);
         }
-        let mut found = ResultFind {
-            count: 0,
-            target: None,
-            row_count,
-        };
+        let mut found = ResultFind { count: 0, target: None, row_count };
         if query.is_empty() {
             return Ok(found);
         }
@@ -215,14 +216,8 @@ impl ResultSet {
                     continue;
                 }
                 found.count += 1;
-                let cell = ResultCell {
-                    row,
-                    col: col as u16,
-                };
-                let target = || ResultFindTarget {
-                    cell,
-                    ordinal: found.count,
-                };
+                let cell = ResultCell { row, col: col as u16 };
+                let target = || ResultFindTarget { cell, ordinal: found.count };
                 if first.is_none() {
                     first = Some(target());
                 }
@@ -231,9 +226,7 @@ impl ResultSet {
                     let before = (cell.row, cell.col) < (anchor.row, anchor.col);
                     let after = (cell.row, cell.col) > (anchor.row, anchor.col);
                     match direction {
-                        ResultFindDirection::Next { .. } if after && relative.is_none() => {
-                            relative = Some(target())
-                        }
+                        ResultFindDirection::Next { .. } if after && relative.is_none() => relative = Some(target()),
                         ResultFindDirection::Previous { .. } if before => relative = Some(target()),
                         _ => (),
                     }
@@ -256,9 +249,7 @@ impl ResultSet {
         query: &str,
         current: impl Fn() -> bool,
     ) -> Result<bool, ResultError> {
-        if cell.row >= self.data.read().unwrap().row_count()
-            || cell.col as usize >= self.columns.len()
-        {
+        if cell.row >= self.data.read().unwrap().row_count() || cell.col as usize >= self.columns.len() {
             return Err(ResultError::OutOfRange);
         }
         if query.is_empty() {
@@ -337,7 +328,8 @@ impl ResultSet {
     /// Every stored cell of one column, whole.
     pub(crate) fn column(&self, col: u16) -> Result<ColumnText, ResultError> {
         let a = self.data.read().unwrap();
-        let meta = self.columns.get(col as usize).filter(|_| (col as usize) < a.ncols).ok_or(ResultError::OutOfRange)?;
+        let meta =
+            self.columns.get(col as usize).filter(|_| (col as usize) < a.ncols).ok_or(ResultError::OutOfRange)?;
         let cells = (0..a.row_count() as usize).map(|r| a.cell(r, col as usize).map(str::to_owned)).collect();
         Ok(ColumnText { display: meta.r#type.display.clone(), category: meta.r#type.category, cells })
     }
@@ -443,7 +435,7 @@ impl Arena {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{ConnectionId, DatabaseRef, SqlTypeRef, RunId, TabId, TypeCategory};
+    use crate::model::{ConnectionId, DatabaseRef, RunId, SqlTypeRef, TabId, TypeCategory};
 
     fn set(ncols: usize) -> ResultSet {
         let columns = (0..ncols)
@@ -455,7 +447,13 @@ mod tests {
             .collect();
         let db = DatabaseRef { connection_id: ConnectionId(uuid::Uuid::nil()), database: "shop".into() };
         let origin = Origin { rerun: Rerun::Ready("select".into()), nth: 0, schema: None, page: false };
-        ResultSet::new(ResultRef { tab_id: TabId(uuid::Uuid::nil()), run_id: RunId(1), index: 0 }, db, DatabaseKind::Postgres, columns, origin)
+        ResultSet::new(
+            ResultRef { tab_id: TabId(uuid::Uuid::nil()), run_id: RunId(1), index: 0 },
+            db,
+            DatabaseKind::Postgres,
+            columns,
+            origin,
+        )
     }
 
     const NO_CAPS: Caps = Caps { max_rows: u32::MAX, max_bytes: u64::MAX };
@@ -469,44 +467,17 @@ mod tests {
         assert_eq!(first.count, 3);
         assert_eq!(first.row_count, 2);
         assert_eq!(first.target.unwrap().cell, ResultCell { row: 0, col: 0 });
-        let next = rs
-            .find(
-                "foo",
-                ResultFindDirection::Next {
-                    anchor: ResultCell { row: 1, col: 1 },
-                },
-                || true,
-            )
-            .unwrap();
+        let next =
+            rs.find("foo", ResultFindDirection::Next { anchor: ResultCell { row: 1, col: 1 } }, || true).unwrap();
         assert_eq!(next.target.unwrap().ordinal, 1);
-        let previous = rs
-            .find(
-                "foo",
-                ResultFindDirection::Previous {
-                    anchor: ResultCell { row: 0, col: 0 },
-                },
-                || true,
-            )
-            .unwrap();
+        let previous =
+            rs.find("foo", ResultFindDirection::Previous { anchor: ResultCell { row: 0, col: 0 } }, || true).unwrap();
         assert_eq!(previous.target.unwrap().ordinal, 3);
-        let next = rs
-            .find(
-                "foo",
-                ResultFindDirection::Next {
-                    anchor: ResultCell { row: 0, col: 1 },
-                },
-                || true,
-            )
-            .unwrap();
+        let next =
+            rs.find("foo", ResultFindDirection::Next { anchor: ResultCell { row: 0, col: 1 } }, || true).unwrap();
         assert_eq!(next.target.unwrap().cell, ResultCell { row: 1, col: 0 });
         assert!(matches!(
-            rs.find(
-                "x",
-                ResultFindDirection::Next {
-                    anchor: ResultCell { row: 2, col: 0 }
-                },
-                || true
-            ),
+            rs.find("x", ResultFindDirection::Next { anchor: ResultCell { row: 2, col: 0 } }, || true),
             Err(ResultError::OutOfRange)
         ));
     }
@@ -519,30 +490,10 @@ mod tests {
         assert!(rs.cell_matches(ResultCell { row: 0, col: 0 }, "éİ尾", || true).unwrap());
         assert!(!rs.cell_matches(ResultCell { row: 0, col: 1 }, "NULL", || true).unwrap());
         assert!(matches!(rs.cell_matches(ResultCell { row: 1, col: 0 }, "x", || true), Err(ResultError::OutOfRange)));
-        assert_eq!(
-            rs.find("éİ尾", ResultFindDirection::First, || true)
-                .unwrap()
-                .count,
-            1
-        );
-        assert_eq!(
-            rs.find("NULL", ResultFindDirection::First, || true)
-                .unwrap()
-                .count,
-            0
-        );
-        assert_eq!(
-            rs.find("", ResultFindDirection::First, || panic!(
-                "empty query must not scan"
-            ))
-            .unwrap()
-            .count,
-            0
-        );
-        assert!(matches!(
-            rs.find("x", ResultFindDirection::First, || false),
-            Err(ResultError::Gone)
-        ));
+        assert_eq!(rs.find("éİ尾", ResultFindDirection::First, || true).unwrap().count, 1);
+        assert_eq!(rs.find("NULL", ResultFindDirection::First, || true).unwrap().count, 0);
+        assert_eq!(rs.find("", ResultFindDirection::First, || panic!("empty query must not scan")).unwrap().count, 0);
+        assert!(matches!(rs.find("x", ResultFindDirection::First, || false), Err(ResultError::Gone)));
     }
 
     #[test]
@@ -571,7 +522,10 @@ mod tests {
         rs.push_row([Some("x"), Some("y")].into_iter(), &NO_CAPS);
         let page = rs.page(1, 10).unwrap();
         assert_eq!(page.start, 1);
-        assert_eq!(page.rows, vec![vec![Some("".to_owned()), Some("b,c".to_owned())], vec![Some("x".into()), Some("y".into())]]);
+        assert_eq!(
+            page.rows,
+            vec![vec![Some("".to_owned()), Some("b,c".to_owned())], vec![Some("x".into()), Some("y".into())]]
+        );
         assert_eq!(rs.page(0, 1).unwrap().rows, vec![vec![Some("a".to_owned()), None]]);
         assert_eq!(rs.page(3, 5).unwrap().rows.len(), 0);
         assert!(rs.page(4, 5).is_none());
@@ -606,10 +560,22 @@ mod tests {
         assert_eq!(copied[0].cells, vec![Some("1.50".into()), Some("".into())]);
         assert_eq!(copied[1].cells[0], None);
         assert_eq!(copied[1].cells[1].as_deref(), Some(long.as_str()));
-        assert!(matches!(rs.copy_rect(RowSpan { start: 1, end: 0 }, ColSpan { start: 0, end: 0 }), Err(ResultError::OutOfRange)));
-        assert!(matches!(rs.copy_rect(RowSpan { start: 0, end: 2 }, ColSpan { start: 0, end: 0 }), Err(ResultError::OutOfRange)));
-        assert!(matches!(rs.copy_rect(RowSpan { start: 0, end: 1 }, ColSpan { start: 1, end: 0 }), Err(ResultError::OutOfRange)));
-        assert!(matches!(rs.copy_rect(RowSpan { start: 0, end: 1 }, ColSpan { start: 0, end: 2 }), Err(ResultError::OutOfRange)));
+        assert!(matches!(
+            rs.copy_rect(RowSpan { start: 1, end: 0 }, ColSpan { start: 0, end: 0 }),
+            Err(ResultError::OutOfRange)
+        ));
+        assert!(matches!(
+            rs.copy_rect(RowSpan { start: 0, end: 2 }, ColSpan { start: 0, end: 0 }),
+            Err(ResultError::OutOfRange)
+        ));
+        assert!(matches!(
+            rs.copy_rect(RowSpan { start: 0, end: 1 }, ColSpan { start: 1, end: 0 }),
+            Err(ResultError::OutOfRange)
+        ));
+        assert!(matches!(
+            rs.copy_rect(RowSpan { start: 0, end: 1 }, ColSpan { start: 0, end: 2 }),
+            Err(ResultError::OutOfRange)
+        ));
     }
 
     #[test]
@@ -650,7 +616,9 @@ mod tests {
     #[test]
     fn series_values_are_none_for_null_text_and_non_finite_numbers() {
         let rs = set(1);
-        for v in [None, Some("abc"), Some(""), Some("NaN"), Some("Infinity"), Some("-inf"), Some("1e400"), Some("-1.5e3")] {
+        for v in
+            [None, Some("abc"), Some(""), Some("NaN"), Some("Infinity"), Some("-inf"), Some("1e400"), Some("-1.5e3")]
+        {
             rs.push_row([v].into_iter(), &NO_CAPS);
         }
         let series = rs.series(None, 0, 100).unwrap();

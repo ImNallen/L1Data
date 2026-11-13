@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::aggregate::{aggregate, ColumnText};
+use crate::aggregate::{ColumnText, aggregate};
 use crate::model::{CellAggregate, ColumnProfile, HistogramBin, ProfileSummary, ValueCount};
 use crate::results::CELL_CHAR_LIMIT;
 
@@ -18,24 +18,29 @@ pub(crate) fn profile(column: &ColumnText) -> ColumnProfile {
         }
     }
     let summary = match aggregate(std::slice::from_ref(column)) {
-        CellAggregate::Numeric { min, avg, max, .. } => ProfileSummary::Numeric { min, mean: avg, max, histogram: histogram(column) },
+        CellAggregate::Numeric { min, avg, max, .. } => {
+            ProfileSummary::Numeric { min, mean: avg, max, histogram: histogram(column) }
+        }
         CellAggregate::Counts { .. } => ProfileSummary::Values { top: top(&seen) },
     };
     ColumnProfile { rows: column.cells.len() as u64, nulls, distinct: seen.len() as u64, summary }
 }
 
 fn histogram(column: &ColumnText) -> Vec<HistogramBin> {
-    let values: Vec<f64> = column.cells.iter().flatten().filter_map(|text| text.parse::<f64>().ok()).filter(|v| v.is_finite()).collect();
+    let values: Vec<f64> =
+        column.cells.iter().flatten().filter_map(|text| text.parse::<f64>().ok()).filter(|v| v.is_finite()).collect();
     let Some(min) = values.iter().copied().reduce(f64::min) else { return Vec::new() };
     let max = values.iter().copied().fold(min, f64::max);
     if min == max {
         return vec![HistogramBin { lo: min, hi: max, count: values.len() as u64 }];
     }
     // Interpolated so the edges stay finite even when `max - min` overflows.
-    let edges: Vec<f64> = (0..=BINS).map(|i| {
-        let t = i as f64 / BINS as f64;
-        min * (1.0 - t) + max * t
-    }).collect();
+    let edges: Vec<f64> = (0..=BINS)
+        .map(|i| {
+            let t = i as f64 / BINS as f64;
+            min * (1.0 - t) + max * t
+        })
+        .collect();
     let mut counts = [0u64; BINS];
     for v in values {
         counts[edges[1..BINS].partition_point(|&edge| edge <= v)] += 1;
@@ -44,7 +49,8 @@ fn histogram(column: &ColumnText) -> Vec<HistogramBin> {
 }
 
 fn top(seen: &HashMap<&str, (u64, usize)>) -> Vec<ValueCount> {
-    let mut ranked: Vec<(&str, u64, usize)> = seen.iter().map(|(text, &(count, first))| (*text, count, first)).collect();
+    let mut ranked: Vec<(&str, u64, usize)> =
+        seen.iter().map(|(text, &(count, first))| (*text, count, first)).collect();
     ranked.sort_unstable_by(|a, b| b.1.cmp(&a.1).then(a.2.cmp(&b.2)));
     ranked
         .into_iter()
@@ -88,7 +94,8 @@ mod tests {
 
     #[test]
     fn numeric_column_has_exact_stats_and_bins_that_hold_every_finite_value() {
-        let cells: Vec<String> = std::iter::once(0).chain((1..24).step_by(2)).chain([24]).map(|i| format!("{i}.00")).collect();
+        let cells: Vec<String> =
+            std::iter::once(0).chain((1..24).step_by(2)).chain([24]).map(|i| format!("{i}.00")).collect();
         let mut column: Vec<Option<&str>> = cells.iter().map(|c| Some(c.as_str())).collect();
         column.push(None);
         let p = profile(&numeric(&column));
@@ -104,26 +111,35 @@ mod tests {
 
     #[test]
     fn the_maximum_lands_in_the_last_bin() {
-        let ProfileSummary::Numeric { histogram, .. } = profile(&numeric(&[Some("0"), Some("12")])).summary else { panic!("values") };
+        let ProfileSummary::Numeric { histogram, .. } = profile(&numeric(&[Some("0"), Some("12")])).summary else {
+            panic!("values")
+        };
         assert_eq!(histogram[0].count, 1);
         assert_eq!(histogram[11].count, 1);
     }
 
     #[test]
     fn non_finite_values_are_left_out_of_the_bins() {
-        let ProfileSummary::Numeric { min, max, histogram, .. } = profile(&numeric(&[Some("1"), Some("Infinity"), Some("3")])).summary else {
+        let ProfileSummary::Numeric { min, max, histogram, .. } =
+            profile(&numeric(&[Some("1"), Some("Infinity"), Some("3")])).summary
+        else {
             panic!("values")
         };
         assert_eq!((min.as_str(), max.as_str()), ("1", "Infinity"));
         assert_eq!((histogram[0].lo, histogram[11].hi), (1.0, 3.0));
         assert_eq!(histogram.iter().map(|b| b.count).sum::<u64>(), 2);
-        let ProfileSummary::Numeric { histogram, .. } = profile(&numeric(&[Some("NaN")])).summary else { panic!("values") };
+        let ProfileSummary::Numeric { histogram, .. } = profile(&numeric(&[Some("NaN")])).summary else {
+            panic!("values")
+        };
         assert!(histogram.is_empty());
     }
 
     #[test]
     fn edges_stay_finite_when_the_range_overflows() {
-        let ProfileSummary::Numeric { histogram, .. } = profile(&numeric(&[Some("-1e308"), Some("1e308")])).summary else { panic!("values") };
+        let ProfileSummary::Numeric { histogram, .. } = profile(&numeric(&[Some("-1e308"), Some("1e308")])).summary
+        else {
+            panic!("values")
+        };
         assert!(histogram.iter().all(|b| b.lo.is_finite() && b.hi.is_finite()));
         assert_eq!(histogram.iter().map(|b| b.count).sum::<u64>(), 2);
     }
@@ -147,7 +163,20 @@ mod tests {
 
     #[test]
     fn top_values_rank_by_count_then_first_appearance_and_skip_null() {
-        let p = profile(&text(&[Some("e"), None, Some("d"), Some("c"), Some("c"), Some("b"), Some("a"), Some("f"), Some("a"), None, None, Some("g")]));
+        let p = profile(&text(&[
+            Some("e"),
+            None,
+            Some("d"),
+            Some("c"),
+            Some("c"),
+            Some("b"),
+            Some("a"),
+            Some("f"),
+            Some("a"),
+            None,
+            None,
+            Some("g"),
+        ]));
         assert_eq!(top_of(&p), vec![("c", 2), ("a", 2), ("e", 1), ("d", 1), ("b", 1)]);
     }
 

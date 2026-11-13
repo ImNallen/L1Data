@@ -54,15 +54,20 @@ impl HostKeys {
     }
 
     pub fn check(&self, host: &str, port: u16, key: &PublicKey) -> Result<(), SshError> {
-        let (host, algorithm, fingerprint) = (host.to_owned(), key.algorithm().as_str().to_owned(), key.fingerprint(HashAlg::Sha256).to_string());
+        let (host, algorithm, fingerprint) =
+            (host.to_owned(), key.algorithm().as_str().to_owned(), key.fingerprint(HashAlg::Sha256).to_string());
         match self.verdict(&host, port, key) {
             Ok(Verdict::Trusted) => Ok(()),
             Ok(Verdict::Unknown) => {
                 let trust = self.hold(&host, port, key);
                 Err(SshError::HostKeyUnknown { host, port, algorithm, fingerprint, trust })
             }
-            Ok(Verdict::Changed(known_at)) => Err(SshError::HostKeyChanged { host, port, algorithm, fingerprint, known_at }),
-            Ok(Verdict::Revoked(revoked_at)) => Err(SshError::HostKeyRevoked { host, port, algorithm, fingerprint, revoked_at }),
+            Ok(Verdict::Changed(known_at)) => {
+                Err(SshError::HostKeyChanged { host, port, algorithm, fingerprint, known_at })
+            }
+            Ok(Verdict::Revoked(revoked_at)) => {
+                Err(SshError::HostKeyRevoked { host, port, algorithm, fingerprint, revoked_at })
+            }
             Err(message) => Err(SshError::KnownHosts { message }),
         }
     }
@@ -119,9 +124,14 @@ impl HostKeys {
     pub fn trust(&self, id: HostKeyId) -> Result<(), String> {
         let mut pending = self.pending.lock().unwrap();
         pending.prune();
-        let index = pending.keys.iter().position(|o| o.id == id).ok_or("That host key is no longer waiting to be trusted. Connect again to see it.")?;
+        let index = pending
+            .keys
+            .iter()
+            .position(|o| o.id == id)
+            .ok_or("That host key is no longer waiting to be trusted. Connect again to see it.")?;
         let observed = &pending.keys[index];
-        learn_known_hosts_path(&observed.host, observed.port, &observed.key, &self.app).map_err(|e| format!("cannot write {}: {e}", self.app.display()))?;
+        learn_known_hosts_path(&observed.host, observed.port, &observed.key, &self.app)
+            .map_err(|e| format!("cannot write {}: {e}", self.app.display()))?;
         pending.keys.remove(index);
         Ok(())
     }
@@ -135,5 +145,9 @@ fn revokes(line: &str, blob: &str) -> bool {
 
 /// russh numbers a match among the lines that do not start with `#`. This is its line in the file.
 fn file_line(text: &str, counted: usize) -> usize {
-    text.lines().enumerate().filter(|(_, l)| !l.starts_with('#')).nth(counted.saturating_sub(1)).map_or(counted, |(i, _)| i + 1)
+    text.lines()
+        .enumerate()
+        .filter(|(_, l)| !l.starts_with('#'))
+        .nth(counted.saturating_sub(1))
+        .map_or(counted, |(i, _)| i + 1)
 }

@@ -38,8 +38,30 @@ const COMMENT_CHARS: usize = 80;
 
 /// Words before a trailing word that make it an operand rather than an alias.
 const OPERAND_AFTER: &[&str] = &[
-    "and", "or", "not", "is", "in", "like", "ilike", "similar", "to", "between", "symmetric", "asymmetric", "distinct", "from", "as",
-    "case", "when", "then", "else", "escape", "collate", "zone", "overlaps", "unique",
+    "and",
+    "or",
+    "not",
+    "is",
+    "in",
+    "like",
+    "ilike",
+    "similar",
+    "to",
+    "between",
+    "symmetric",
+    "asymmetric",
+    "distinct",
+    "from",
+    "as",
+    "case",
+    "when",
+    "then",
+    "else",
+    "escape",
+    "collate",
+    "zone",
+    "overlaps",
+    "unique",
 ];
 /// Trailing words that end an expression instead of naming it.
 const NEVER_ALIAS: &[&str] = &["end", "isnull", "notnull"];
@@ -68,8 +90,14 @@ struct Key {
 enum Item {
     Star,
     /// `alias` is the index of the alias token.
-    Expr { expr: Range<usize>, alias: Option<usize> },
-    Unsure { with: Range<usize>, without: Range<usize> },
+    Expr {
+        expr: Range<usize>,
+        alias: Option<usize>,
+    },
+    Unsure {
+        with: Range<usize>,
+        without: Range<usize>,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -127,7 +155,15 @@ impl Tokens<'_> {
     }
     /// How PostgreSQL compares names: an unquoted word in lower case, a quoted one byte for byte.
     fn normalized(&self, r: &Range<usize>) -> Vec<String> {
-        r.clone().map(|i| if self.t[i].kind == LexKind::Word { self.text(i).to_ascii_lowercase() } else { self.text(i).to_owned() }).collect()
+        r.clone()
+            .map(|i| {
+                if self.t[i].kind == LexKind::Word {
+                    self.text(i).to_ascii_lowercase()
+                } else {
+                    self.text(i).to_owned()
+                }
+            })
+            .collect()
     }
     fn folded(&self, i: usize) -> String {
         let text = self.text(i);
@@ -143,7 +179,9 @@ impl Tokens<'_> {
                 if (i - r.start) % 2 == 1 {
                     self.t[i].kind == LexKind::Dot
                 } else {
-                    self.t[i].kind == LexKind::QuotedIdent || (self.t[i].kind == LexKind::Word && !RESERVED.contains(&self.text(i).to_ascii_lowercase().as_str()))
+                    self.t[i].kind == LexKind::QuotedIdent
+                        || (self.t[i].kind == LexKind::Word
+                            && !RESERVED.contains(&self.text(i).to_ascii_lowercase().as_str()))
                 }
             })
     }
@@ -262,7 +300,10 @@ fn tokens(sql: &str) -> Result<Tokens<'_>, Refusal> {
     if !closed(sql) {
         return Err(UNCLOSED);
     }
-    let mut t: Vec<Lexeme> = lexemes.into_iter().filter(|l| !matches!(l.kind, LexKind::Space | LexKind::LineComment | LexKind::BlockComment)).collect();
+    let mut t: Vec<Lexeme> = lexemes
+        .into_iter()
+        .filter(|l| !matches!(l.kind, LexKind::Space | LexKind::LineComment | LexKind::BlockComment))
+        .collect();
     if t.last().is_some_and(|l| l.kind == LexKind::Semicolon) {
         t.pop();
     }
@@ -283,7 +324,9 @@ fn tokens(sql: &str) -> Result<Tokens<'_>, Refusal> {
             _ => {}
         }
         match l.kind {
-            LexKind::OpenBracket => brackets.push(i > 0 && t[i - 1].kind == LexKind::Word && sql[t[i - 1].span.clone()].eq_ignore_ascii_case("array")),
+            LexKind::OpenBracket => brackets.push(
+                i > 0 && t[i - 1].kind == LexKind::Word && sql[t[i - 1].span.clone()].eq_ignore_ascii_case("array"),
+            ),
             LexKind::CloseBracket => {
                 brackets.pop();
             }
@@ -311,7 +354,8 @@ pub(crate) fn plan(sql: &str) -> Result<Drill<'_>, Refusal> {
     if (0..len).any(|i| tk.depth[i] == 0 && tk.clause(i) == Some(Clause::SetOp)) {
         return Err(SET_OP);
     }
-    let clauses: Vec<(Clause, usize)> = (main + 1..len).filter(|&i| tk.depth[i] == 0).filter_map(|i| tk.clause(i).map(|c| (c, i))).collect();
+    let clauses: Vec<(Clause, usize)> =
+        (main + 1..len).filter(|&i| tk.depth[i] == 0).filter_map(|i| tk.clause(i).map(|c| (c, i))).collect();
     for (clause, refusal) in [(Clause::Into, INTO), (Clause::Locking, LOCKS), (Clause::Window, WINDOW)] {
         if clauses.iter().any(|(c, _)| *c == clause) {
             return Err(refusal);
@@ -345,7 +389,11 @@ pub(crate) fn plan(sql: &str) -> Result<Drill<'_>, Refusal> {
         return Err(NO_GROUP_BY);
     }
 
-    let items: Vec<Item> = tk.list(items_start..from_at).into_iter().map(|r| if r.is_empty() { Item::Expr { expr: r, alias: None } } else { tk.item(r) }).collect();
+    let items: Vec<Item> = tk
+        .list(items_start..from_at)
+        .into_iter()
+        .map(|r| if r.is_empty() { Item::Expr { expr: r, alias: None } } else { tk.item(r) })
+        .collect();
     let mut keys: Vec<Key> = Vec::new();
     for key in tk.list(keys_start..keys_end) {
         let (column, expr) = match_key(&tk, &items, key)?;
@@ -363,11 +411,17 @@ pub(crate) fn plan(sql: &str) -> Result<Drill<'_>, Refusal> {
 /// The select item a `GROUP BY` key names, and the expression to compare: the same expression, the
 /// item at a 1-based position, or a column the key names bare.
 fn match_key(tk: &Tokens<'_>, items: &[Item], key: Range<usize>) -> Result<(usize, Range<usize>), Refusal> {
-    if key.is_empty() || tk.word_in(key.start, &["ROLLUP", "CUBE"]) || (tk.word(key.start, "GROUPING") && tk.word(key.start + 1, "SETS")) {
+    if key.is_empty()
+        || tk.word_in(key.start, &["ROLLUP", "CUBE"])
+        || (tk.word(key.start, "GROUPING") && tk.word(key.start + 1, "SETS"))
+    {
         return Err(GROUPING_SETS);
     }
     let first = key.start;
-    if tk.kind(first) == Some(LexKind::Open) && tk.close(first) == Some(key.end - 1) && (key.len() == 2 || tk.list(first + 1..key.end - 1).len() > 1) {
+    if tk.kind(first) == Some(LexKind::Open)
+        && tk.close(first) == Some(key.end - 1)
+        && (key.len() == 2 || tk.list(first + 1..key.end - 1).len() > 1)
+    {
         return Err(GROUPING_SETS);
     }
     if key.len() == 1 && tk.kind(first) == Some(LexKind::Number) && tk.text(first).bytes().all(|b| b.is_ascii_digit()) {
@@ -453,7 +507,8 @@ impl Drill<'_> {
 
 /// Text that cannot end the comment it goes in: control characters and line breaks become spaces.
 fn one_line(text: &str) -> String {
-    let words: Vec<&str> = text.split(|c: char| c.is_whitespace() || c.is_control()).filter(|w| !w.is_empty()).collect();
+    let words: Vec<&str> =
+        text.split(|c: char| c.is_whitespace() || c.is_control()).filter(|w| !w.is_empty()).collect();
     let line = words.join(" ");
     match line.char_indices().nth(COMMENT_CHARS) {
         Some((cut, _)) => format!("{}…", &line[..cut]),
@@ -536,9 +591,16 @@ mod tests {
     fn every_group_key_picks_the_rows() {
         let sql = "SELECT a, b, count(*) FROM t GROUP BY a, b";
         assert_eq!(columns(sql), [0, 1]);
-        assert_eq!(drill(sql, &[Some("x"), None]).unwrap(), "-- Rows behind x, NULL in Untitled-1.sql\nSELECT *\nFROM t\nWHERE (a) = 'x'\n  AND (b) IS NULL");
+        assert_eq!(
+            drill(sql, &[Some("x"), None]).unwrap(),
+            "-- Rows behind x, NULL in Untitled-1.sql\nSELECT *\nFROM t\nWHERE (a) = 'x'\n  AND (b) IS NULL"
+        );
         assert_eq!(columns("SELECT count(*), b, a FROM t GROUP BY a, b, a"), [2, 1], "a repeated key compares once");
-        assert_eq!(columns("SELECT sum(x) total, upper(name) up FROM t GROUP BY upper(NAME)"), [1], "words compare in lower case");
+        assert_eq!(
+            columns("SELECT sum(x) total, upper(name) up FROM t GROUP BY upper(NAME)"),
+            [1],
+            "words compare in lower case"
+        );
         assert_eq!(columns("SELECT t.\"Region\" r, count(*) FROM t GROUP BY \"Region\""), [0]);
     }
 
@@ -565,8 +627,14 @@ mod tests {
             ("SELECT region r, count(*) FROM t GROUP BY 1", "(region)"),
             ("SELECT count(*) n, c.region r FROM t GROUP BY 2", "(c.region)"),
             ("SELECT x::int y, count(*) FROM t GROUP BY x::int", "(x::int)"),
-            ("SELECT x::timestamp with time zone, count(*) FROM t GROUP BY x::timestamp with time zone", "(x::timestamp with time zone)"),
-            ("SELECT CASE WHEN a THEN 'y' ELSE 'n' END, count(*) FROM t GROUP BY 1", "(CASE WHEN a THEN 'y' ELSE 'n' END)"),
+            (
+                "SELECT x::timestamp with time zone, count(*) FROM t GROUP BY x::timestamp with time zone",
+                "(x::timestamp with time zone)",
+            ),
+            (
+                "SELECT CASE WHEN a THEN 'y' ELSE 'n' END, count(*) FROM t GROUP BY 1",
+                "(CASE WHEN a THEN 'y' ELSE 'n' END)",
+            ),
             ("SELECT CASE WHEN a THEN 'y' END bucket, count(*) FROM t GROUP BY 1", "(CASE WHEN a THEN 'y' END)"),
             ("SELECT a IS NULL, count(*) FROM t GROUP BY 1", "(a IS NULL)"),
             ("SELECT a IS NULL missing, count(*) FROM t GROUP BY 1", "(a IS NULL)"),
@@ -580,10 +648,17 @@ mod tests {
             let out = drill(sql, &[Some("v")]).unwrap_or_else(|e| panic!("{sql}: {e}"));
             assert!(out.ends_with(&format!("{want} = 'v'")), "{sql}\n{out}");
         }
-        for sql in ["SELECT x::double precision, count(*) FROM t GROUP BY 1", "SELECT interval '1' day, count(*) FROM t GROUP BY 1"] {
+        for sql in [
+            "SELECT x::double precision, count(*) FROM t GROUP BY 1",
+            "SELECT interval '1' day, count(*) FROM t GROUP BY 1",
+        ] {
             assert_eq!(plan(sql).map(|_| ()), Err(UNSURE_ALIAS), "{sql}");
         }
-        assert_eq!(columns("SELECT interval '1' day, count(*) FROM t GROUP BY interval '1' day"), [0], "the key itself settles which reading it is");
+        assert_eq!(
+            columns("SELECT interval '1' day, count(*) FROM t GROUP BY interval '1' day"),
+            [0],
+            "the key itself settles which reading it is"
+        );
     }
 
     #[test]
@@ -624,7 +699,10 @@ mod tests {
             ("SELECT a, count(*) FROM t WHERE a = 'open GROUP BY a", UNCLOSED),
             ("SELECT a, count(*) FROM t GROUP BY a /* open", UNCLOSED),
             ("SELECT a, count(*) FROM t WHERE a = 'it\\' GROUP BY a --'", STRINGS),
-            ("WITH RECURSIVE r(n) AS (SELECT 1) SEARCH DEPTH FIRST BY n SET o SELECT n, count(*) FROM r GROUP BY n", SEARCH_CYCLE),
+            (
+                "WITH RECURSIVE r(n) AS (SELECT 1) SEARCH DEPTH FIRST BY n SET o SELECT n, count(*) FROM r GROUP BY n",
+                SEARCH_CYCLE,
+            ),
             ("VALUES (1)", NOT_SELECT),
             ("(SELECT a, count(*) FROM t GROUP BY a)", NOT_SELECT),
             ("", NOT_SELECT),
@@ -636,7 +714,11 @@ mod tests {
 
     #[test]
     fn the_keys_come_from_group_by_whatever_column_the_chart_labels_with() {
-        assert_eq!(plan("SELECT count(*) FROM orders GROUP BY status").map(|_| ()), Err(NOT_SELECTED), "only the aggregate is selected");
+        assert_eq!(
+            plan("SELECT count(*) FROM orders GROUP BY status").map(|_| ()),
+            Err(NOT_SELECTED),
+            "only the aggregate is selected"
+        );
         assert_eq!(columns("SELECT count(*) AS n, sum(total), status FROM orders GROUP BY status"), [2]);
     }
 

@@ -29,10 +29,11 @@ pub(crate) fn input_sql(native: &str, value: &str) -> Result<String, String> {
             Ok(format!("CONVERT(varbinary(max), {expression}, 1)"))
         }
         "date" => Ok(format!("CONVERT({native}, {expression}, 23)")),
-        "time" | "datetime" | "smalldatetime" | "datetime2" | "datetimeoffset" => Ok(format!("CONVERT({native}, {expression}, 121)")),
-        "tinyint" | "smallint" | "int" | "bigint" | "decimal" | "numeric" | "money" | "smallmoney" | "float" | "real" | "bit" | "uniqueidentifier" | "xml" => {
-            Ok(format!("CONVERT({native}, {expression})"))
+        "time" | "datetime" | "smalldatetime" | "datetime2" | "datetimeoffset" => {
+            Ok(format!("CONVERT({native}, {expression}, 121)"))
         }
+        "tinyint" | "smallint" | "int" | "bigint" | "decimal" | "numeric" | "money" | "smallmoney" | "float"
+        | "real" | "bit" | "uniqueidentifier" | "xml" => Ok(format!("CONVERT({native}, {expression})")),
         _ => Err(format!("Canonical input for SQL Server type {native} is unsupported")),
     }
 }
@@ -56,13 +57,19 @@ pub(crate) fn display_sql(column: &ColumnInfo, expression: &str) -> Result<Strin
         "datetime" => format!("CONVERT(nvarchar(max), {expression}, 121)"),
         "time" => format!("CONVERT(nvarchar(max), CONVERT(time(7), {expression}), 121)"),
         "datetime2" => format!("CONVERT(nvarchar(max), CONVERT(datetime2(7), {expression}), 121)"),
-        "datetimeoffset" => format!("CONVERT(nvarchar(max), CONVERT(datetime2(7), {expression}), 121) + DATENAME(TZOFFSET, {expression})"),
+        "datetimeoffset" => format!(
+            "CONVERT(nvarchar(max), CONVERT(datetime2(7), {expression}), 121) + DATENAME(TZOFFSET, {expression})"
+        ),
         "money" | "smallmoney" => format!("CONVERT(nvarchar(max), CONVERT(decimal(19,4), {expression}))"),
         "uniqueidentifier" => format!("LOWER(CONVERT(nvarchar(max), {expression}))"),
-        "float" | "real" => return Err(format!(
-            "Text search cannot reproduce the canonical display of SQL Server {}. Use a typed comparison or an explicit SQL conversion.", column.type_display
-        )),
-        "char" | "varchar" | "nchar" | "nvarchar" | "text" | "ntext" | "xml" | "tinyint" | "smallint" | "int" | "bigint" | "decimal" | "numeric" | "bit" => {
+        "float" | "real" => {
+            return Err(format!(
+                "Text search cannot reproduce the canonical display of SQL Server {}. Use a typed comparison or an explicit SQL conversion.",
+                column.type_display
+            ));
+        }
+        "char" | "varchar" | "nchar" | "nvarchar" | "text" | "ntext" | "xml" | "tinyint" | "smallint" | "int"
+        | "bigint" | "decimal" | "numeric" | "bit" => {
             format!("CONVERT(nvarchar(max), {expression})")
         }
         native => return Err(format!("Text search for SQL Server type {native} is unsupported")),
@@ -129,7 +136,10 @@ mod tests {
         .catch_unwind()
         .await;
         session.batch(&format!("DROP TABLE IF EXISTS dbo.[{table}]")).await.unwrap();
-        assert_eq!(session.count(&format!("SELECT COUNT_BIG(*) FROM sys.tables WHERE name=N'{table}'")).await.unwrap(), 0);
+        assert_eq!(
+            session.count(&format!("SELECT COUNT_BIG(*) FROM sys.tables WHERE name=N'{table}'")).await.unwrap(),
+            0
+        );
         if let Err(panic) = outcome {
             std::panic::resume_unwind(panic);
         }

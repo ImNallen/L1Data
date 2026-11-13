@@ -3,7 +3,12 @@ use super::*;
 async fn import_request(h: &Harness, table: &str, text: &str) -> ImportRequest {
     h.engine.refresh_catalog(h.db()).await.unwrap();
     let catalog = h.engine.catalog(h.db()).await.unwrap();
-    let target = ImportTarget { db: h.db(), schema: "dbo".into(), table: table.into(), oid: catalog.relation("dbo", table).unwrap().oid };
+    let target = ImportTarget {
+        db: h.db(),
+        schema: "dbo".into(),
+        table: table.into(),
+        oid: catalog.relation("dbo", table).unwrap().oid,
+    };
     let path = h._dir.path().join("input.csv");
     std::fs::write(&path, text).unwrap();
     let source = h.engine.table_import_prepare(h.tab, target, path.to_string_lossy().into()).await.unwrap();
@@ -63,18 +68,33 @@ async fn csv_import_refuses_unsafe_and_stale_targets_and_native_transactions() {
     h.ok(&format!("CREATE TABLE dbo.[{table}] (n int)")).await;
     let request = import_request(&h, &table, "n\n1\n").await;
     h.ok("BEGIN TRANSACTION").await;
-    assert!(matches!(h.engine.table_import(h.tab, request.clone(), None).await, Err(ImportError::Query { .. } | ImportError::TransactionAborted)));
+    assert!(matches!(
+        h.engine.table_import(h.tab, request.clone(), None).await,
+        Err(ImportError::Query { .. } | ImportError::TransactionAborted)
+    ));
     h.ok("ROLLBACK TRANSACTION").await;
     h.ok(&format!("DROP TABLE dbo.[{table}]; CREATE TABLE dbo.[{table}] (n int)")).await;
-    assert!(matches!(h.engine.table_import(h.tab, request, None).await, Err(ImportError::TargetChanged | ImportError::Query { .. })));
+    assert!(matches!(
+        h.engine.table_import(h.tab, request, None).await,
+        Err(ImportError::TargetChanged | ImportError::Query { .. })
+    ));
     for ddl in [
-        format!("CREATE TRIGGER dbo.[tr_{table}] ON dbo.[{table}] AFTER INSERT AS BEGIN COMMIT; INSERT dbo.[{table}] VALUES(99); END"),
-        format!("DROP TRIGGER dbo.[tr_{table}]; CREATE UNIQUE INDEX [uq_{table}] ON dbo.[{table}](n) WITH (IGNORE_DUP_KEY=ON)"),
+        format!(
+            "CREATE TRIGGER dbo.[tr_{table}] ON dbo.[{table}] AFTER INSERT AS BEGIN COMMIT; INSERT dbo.[{table}] VALUES(99); END"
+        ),
+        format!(
+            "DROP TRIGGER dbo.[tr_{table}]; CREATE UNIQUE INDEX [uq_{table}] ON dbo.[{table}](n) WITH (IGNORE_DUP_KEY=ON)"
+        ),
     ] {
         h.ok(&ddl).await;
         h.engine.refresh_catalog(h.db()).await.unwrap();
         let catalog = h.engine.catalog(h.db()).await.unwrap();
-        let target = ImportTarget { db: h.db(), schema: "dbo".into(), table: table.clone(), oid: catalog.relation("dbo", &table).unwrap().oid };
+        let target = ImportTarget {
+            db: h.db(),
+            schema: "dbo".into(),
+            table: table.clone(),
+            oid: catalog.relation("dbo", &table).unwrap().oid,
+        };
         let path = h._dir.path().join("refuse.csv");
         std::fs::write(&path, "n\n1").unwrap();
         let source = h.engine.table_import_prepare(h.tab, target, path.to_string_lossy().into()).await.unwrap();
@@ -192,25 +212,53 @@ async fn csv_import_production_approval_binds_mapping_header_and_snapshot() {
     h.ok(&format!("CREATE TABLE dbo.[{table}](a nvarchar(100), b nvarchar(100))")).await;
     set_environment(&h, Some(Environment::Production)).await;
     let request = import_request(&h, &table, "a,b\nleft,right\n").await;
-    let Err(ImportError::ConfirmWrites { confirmation }) = h.engine.table_import(h.tab, request.clone(), None).await else { panic!("Production must ask") };
+    let Err(ImportError::ConfirmWrites { confirmation }) = h.engine.table_import(h.tab, request.clone(), None).await
+    else {
+        panic!("Production must ask")
+    };
     let mut changed = request.clone();
     changed.mapping.reverse();
-    assert!(matches!(h.engine.table_import(h.tab, changed, Some(confirmation.digest.clone())).await, Err(ImportError::ConfirmWrites { .. })));
+    assert!(matches!(
+        h.engine.table_import(h.tab, changed, Some(confirmation.digest.clone())).await,
+        Err(ImportError::ConfirmWrites { .. })
+    ));
     let mut changed = request.clone();
     changed.header = false;
-    assert!(matches!(h.engine.table_import(h.tab, changed, Some(confirmation.digest.clone())).await, Err(ImportError::ConfirmWrites { .. })));
+    assert!(matches!(
+        h.engine.table_import(h.tab, changed, Some(confirmation.digest.clone())).await,
+        Err(ImportError::ConfirmWrites { .. })
+    ));
     std::fs::write(h._dir.path().join("input.csv"), "a,b\naltered,file").unwrap();
     assert_eq!(h.engine.table_import(h.tab, request, Some(confirmation.digest)).await.unwrap().rows, 1);
     let state = h.ok(&format!("SELECT a,b FROM dbo.[{table}]")).await;
     assert_eq!(h.rows(Harness::rowsets(&state)[0])[0], vec![Some("left".into()), Some("right".into())]);
     let request = import_request(&h, &table, "a,b\nnew,source").await;
-    let Err(ImportError::ConfirmWrites { confirmation }) = h.engine.table_import(h.tab, request, None).await else { panic!("Production must ask") };
+    let Err(ImportError::ConfirmWrites { confirmation }) = h.engine.table_import(h.tab, request, None).await else {
+        panic!("Production must ask")
+    };
     let request = import_request(&h, &table, "a,b\nother,source").await;
-    assert!(matches!(h.engine.table_import(h.tab, request, Some(confirmation.digest)).await, Err(ImportError::ConfirmWrites { .. })));
+    assert!(matches!(
+        h.engine.table_import(h.tab, request, Some(confirmation.digest)).await,
+        Err(ImportError::ConfirmWrites { .. })
+    ));
     let sql = format!("DROP TABLE dbo.[{table}]");
     let confirmation = asked_to_run(&h, &sql, None).await;
-    let id =
-        h.engine.console_run(h.tab, RunRequest::Script { text: sql, target: RunTarget::All, mode: RunMode::Run, params: vec![], cells: Vec::new() }, Some(confirmation.digest)).await.unwrap().run_id;
+    let id = h
+        .engine
+        .console_run(
+            h.tab,
+            RunRequest::Script {
+                text: sql,
+                target: RunTarget::All,
+                mode: RunMode::Run,
+                params: vec![],
+                cells: Vec::new(),
+            },
+            Some(confirmation.digest),
+        )
+        .await
+        .unwrap()
+        .run_id;
     h.finish(id).await;
 }
 

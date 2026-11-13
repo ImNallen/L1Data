@@ -12,7 +12,11 @@ pub(crate) fn parse(text: &str) -> NotebookText {
     let mut lines: Vec<&str> = text.split('\n').collect();
     let header = lines.first().and_then(|line| header_rest(line));
     if header.is_none() && !lines.iter().any(|line| marker_rest(line).is_some()) {
-        return NotebookText { plain: true, header: NotebookHeader::default(), cells: vec![NotebookCell { text: text.to_owned(), meta: CellMeta::default() }] };
+        return NotebookText {
+            plain: true,
+            header: NotebookHeader::default(),
+            cells: vec![NotebookCell { text: text.to_owned(), meta: CellMeta::default() }],
+        };
     }
     if text.ends_with('\n') {
         lines.pop();
@@ -29,7 +33,9 @@ pub(crate) fn parse(text: &str) -> NotebookText {
         // Text before the first marker is a cell only when it holds something.
         match meta.take() {
             Some(meta) => cells.push(NotebookCell { text: cell.join("\n"), meta }),
-            None if cell.iter().any(|l| !l.trim().is_empty()) => cells.push(NotebookCell { text: cell.join("\n"), meta: CellMeta::default() }),
+            None if cell.iter().any(|l| !l.trim().is_empty()) => {
+                cells.push(NotebookCell { text: cell.join("\n"), meta: CellMeta::default() })
+            }
             None => {}
         }
         cell.clear();
@@ -37,7 +43,9 @@ pub(crate) fn parse(text: &str) -> NotebookText {
     }
     match meta {
         Some(meta) => cells.push(NotebookCell { text: cell.join("\n"), meta }),
-        None if cell.iter().any(|l| !l.trim().is_empty()) => cells.push(NotebookCell { text: cell.join("\n"), meta: CellMeta::default() }),
+        None if cell.iter().any(|l| !l.trim().is_empty()) => {
+            cells.push(NotebookCell { text: cell.join("\n"), meta: CellMeta::default() })
+        }
         None => {}
     }
     if cells.is_empty() {
@@ -57,13 +65,22 @@ pub(crate) fn print(notebook: &NotebookText) -> (String, bool) {
         DatabaseKind::Postgres => "postgres",
         DatabaseKind::SqlServer => "sqlserver",
     });
-    write_pairs(&mut out, &[("connection", h.connection.as_deref()), ("kind", kind), ("database", h.database.as_deref())], &h.unknown);
+    write_pairs(
+        &mut out,
+        &[("connection", h.connection.as_deref()), ("kind", kind), ("database", h.database.as_deref())],
+        &h.unknown,
+    );
     out.push('\n');
     for cell in &notebook.cells {
         let m = &cell.meta;
         let table = m.table.as_ref().map(|t| format!("{}.{}", quote_name(&t.schema), quote_name(&t.table)));
         out.push_str(MARKER);
-        let known = [("title", m.title.as_deref()), ("schema", m.schema.as_deref()), ("table", table.as_deref()), ("mode", m.manual.then_some("manual"))];
+        let known = [
+            ("title", m.title.as_deref()),
+            ("schema", m.schema.as_deref()),
+            ("table", table.as_deref()),
+            ("mode", m.manual.then_some("manual")),
+        ];
         write_pairs(&mut out, &known, &m.unknown);
         out.push('\n');
         for line in cell.text.split('\n') {
@@ -85,7 +102,8 @@ pub(crate) fn print(notebook: &NotebookText) -> (String, bool) {
 fn plain_text(notebook: &NotebookText) -> Option<&str> {
     let [cell] = notebook.cells.as_slice() else { return None };
     let text = cell.text.as_str();
-    let structured = text.split('\n').next().is_some_and(|first| header_rest(first).is_some()) || text.split('\n').any(|line| marker_rest(line).is_some());
+    let structured = text.split('\n').next().is_some_and(|first| header_rest(first).is_some())
+        || text.split('\n').any(|line| marker_rest(line).is_some());
     (notebook.plain && cell.meta == CellMeta::default() && !structured).then_some(text)
 }
 
@@ -197,7 +215,8 @@ fn pair(s: &str) -> Option<(MetaPair, &str)> {
 fn write_pairs(out: &mut String, known: &[(&str, Option<&str>)], unknown: &[MetaPair]) {
     let written: Vec<&str> = known.iter().filter_map(|&(key, value)| value.map(|_| key)).collect();
     let known = known.iter().filter_map(|&(key, value)| Some((key, value?)));
-    let unknown = unknown.iter().filter(|p| !written.contains(&p.key.as_str())).map(|p| (p.key.as_str(), p.value.as_str()));
+    let unknown =
+        unknown.iter().filter(|p| !written.contains(&p.key.as_str())).map(|p| (p.key.as_str(), p.value.as_str()));
     for (key, value) in known.chain(unknown) {
         out.push(' ');
         out.push_str(key);
@@ -217,7 +236,8 @@ fn write_pairs(out: &mut String, known: &[(&str, Option<&str>)], unknown: &[Meta
 
 /// Double-quoted as SQL quotes an identifier unless it is a plain word, which keeps its case.
 fn quote_name(name: &str) -> String {
-    let plain = name.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$'));
+    let plain = name.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$'));
     if plain { name.to_owned() } else { format!("\"{}\"", name.replace('"', "\"\"")) }
 }
 
@@ -264,7 +284,12 @@ mod tests {
     }
 
     fn shop() -> NotebookHeader {
-        NotebookHeader { connection: Some("localhost / shop".into()), kind: Some(DatabaseKind::Postgres), database: Some("shop".into()), unknown: vec![] }
+        NotebookHeader {
+            connection: Some("localhost / shop".into()),
+            kind: Some(DatabaseKind::Postgres),
+            database: Some("shop".into()),
+            unknown: vec![],
+        }
     }
 
     /// The bytes a plain file holds after it is opened and saved unchanged.
@@ -297,8 +322,18 @@ mod tests {
     #[test]
     fn a_plain_file_is_one_cell_with_its_whole_text() {
         let text = "-- monthly revenue\nselect 1;\n-- \\%% not a marker\n";
-        assert_eq!(parse(text), NotebookText { plain: true, header: NotebookHeader::default(), cells: vec![cell(text, CellMeta::default())] });
-        assert_eq!(parse(""), NotebookText { plain: true, header: NotebookHeader::default(), cells: vec![cell("", CellMeta::default())] });
+        assert_eq!(
+            parse(text),
+            NotebookText {
+                plain: true,
+                header: NotebookHeader::default(),
+                cells: vec![cell(text, CellMeta::default())]
+            }
+        );
+        assert_eq!(
+            parse(""),
+            NotebookText { plain: true, header: NotebookHeader::default(), cells: vec![cell("", CellMeta::default())] }
+        );
     }
 
     const REVENUE: &str = "\
@@ -313,11 +348,17 @@ SELECT * FROM \"public\".\"orders\"
 
     fn revenue() -> NotebookText {
         let first = CellMeta { schema: Some("public".into()), ..titled("Revenue by region") };
-        let second = CellMeta { table: Some(CellTable { schema: "public".into(), table: "orders".into() }), ..CellMeta::default() };
+        let second = CellMeta {
+            table: Some(CellTable { schema: "public".into(), table: "orders".into() }),
+            ..CellMeta::default()
+        };
         NotebookText {
             plain: false,
             header: shop(),
-            cells: vec![cell("SELECT region, sum(total)\nFROM orders\nGROUP BY 1;", first), cell("SELECT * FROM \"public\".\"orders\"", second)],
+            cells: vec![
+                cell("SELECT region, sum(total)\nFROM orders\nGROUP BY 1;", first),
+                cell("SELECT * FROM \"public\".\"orders\"", second),
+            ],
         }
     }
 
@@ -334,10 +375,22 @@ SELECT * FROM \"public\".\"orders\"
         let manual = CellMeta { manual: true, unknown: vec![pair("chart", "bar")], ..titled("Totals") };
         let notebooks = [
             revenue(),
-            NotebookText { plain: false, header: NotebookHeader::default(), cells: vec![cell("", CellMeta::default())] },
-            NotebookText { plain: false, header: shop(), cells: vec![cell("", CellMeta::default()), cell("\n", CellMeta::default()), cell("a\n\nb\n", manual)] },
+            NotebookText {
+                plain: false,
+                header: NotebookHeader::default(),
+                cells: vec![cell("", CellMeta::default())],
+            },
+            NotebookText {
+                plain: false,
+                header: shop(),
+                cells: vec![cell("", CellMeta::default()), cell("\n", CellMeta::default()), cell("a\n\nb\n", manual)],
+            },
             NotebookText { plain: true, header: shop(), cells: vec![cell("select 1;", titled("named"))] },
-            NotebookText { plain: true, header: NotebookHeader::default(), cells: vec![cell("a", CellMeta::default()), cell("b", CellMeta::default())] },
+            NotebookText {
+                plain: true,
+                header: NotebookHeader::default(),
+                cells: vec![cell("a", CellMeta::default()), cell("b", CellMeta::default())],
+            },
         ];
         for notebook in notebooks {
             let (text, plain) = print(&notebook);
@@ -348,25 +401,50 @@ SELECT * FROM \"public\".\"orders\"
 
     #[test]
     fn a_plain_notebook_edited_past_one_bare_cell_prints_the_header_and_markers() {
-        let two = NotebookText { plain: true, header: shop(), cells: vec![cell("select 1;", CellMeta::default()), cell("select 2;", CellMeta::default())] };
+        let two = NotebookText {
+            plain: true,
+            header: shop(),
+            cells: vec![cell("select 1;", CellMeta::default()), cell("select 2;", CellMeta::default())],
+        };
         assert_eq!(
             print(&two).0,
             "-- l1 notebook: connection=\"localhost / shop\" kind=\"postgres\" database=\"shop\"\n-- %%\nselect 1;\n-- %%\nselect 2;\n"
         );
-        let manual = NotebookText { plain: true, header: shop(), cells: vec![cell("select 1;", CellMeta { manual: true, ..CellMeta::default() })] };
+        let manual = NotebookText {
+            plain: true,
+            header: shop(),
+            cells: vec![cell("select 1;", CellMeta { manual: true, ..CellMeta::default() })],
+        };
         assert!(print(&manual).0.contains("\n-- %% mode=\"manual\"\nselect 1;\n"));
     }
 
     #[test]
     fn the_header_is_optional_and_never_holds_more_than_names() {
         let headless = parse("-- %%\nselect 1;\n");
-        assert_eq!((headless.plain, headless.header, headless.cells), (false, NotebookHeader::default(), vec![cell("select 1;", CellMeta::default())]));
+        assert_eq!(
+            (headless.plain, headless.header, headless.cells),
+            (false, NotebookHeader::default(), vec![cell("select 1;", CellMeta::default())])
+        );
         let header_only = parse("-- l1 notebook: kind=\"sqlserver\" database=\"reporting\"\n");
-        assert_eq!(header_only.header, NotebookHeader { kind: Some(DatabaseKind::SqlServer), database: Some("reporting".into()), ..NotebookHeader::default() });
+        assert_eq!(
+            header_only.header,
+            NotebookHeader {
+                kind: Some(DatabaseKind::SqlServer),
+                database: Some("reporting".into()),
+                ..NotebookHeader::default()
+            }
+        );
         assert_eq!(header_only.cells, vec![cell("", CellMeta::default())], "a notebook always has a cell");
         let bare = parse("-- l1 notebook:\nselect 1;\n");
-        assert_eq!((bare.header, bare.cells), (NotebookHeader::default(), vec![cell("select 1;", CellMeta::default())]));
-        let no_connection = NotebookText { plain: false, header: NotebookHeader::default(), cells: vec![cell("select 1;", CellMeta::default())] };
+        assert_eq!(
+            (bare.header, bare.cells),
+            (NotebookHeader::default(), vec![cell("select 1;", CellMeta::default())])
+        );
+        let no_connection = NotebookText {
+            plain: false,
+            header: NotebookHeader::default(),
+            cells: vec![cell("select 1;", CellMeta::default())],
+        };
         assert_eq!(print(&no_connection).0, "-- l1 notebook:\n-- %%\nselect 1;\n");
     }
 
@@ -381,7 +459,10 @@ SELECT * FROM \"public\".\"orders\"
     #[test]
     fn empty_cells_keep_their_place() {
         let notebook = parse("-- %%\n-- %% title=\"b\"\n\n-- %%\n");
-        assert_eq!(notebook.cells, vec![cell("", CellMeta::default()), cell("", titled("b")), cell("", CellMeta::default())]);
+        assert_eq!(
+            notebook.cells,
+            vec![cell("", CellMeta::default()), cell("", titled("b")), cell("", CellMeta::default())]
+        );
     }
 
     #[test]
@@ -403,7 +484,12 @@ SELECT * FROM \"public\".\"orders\"
 
     #[test]
     fn table_names_are_quoted_only_when_they_need_it() {
-        let cases = [("public", "orders", "public.orders"), ("Sales", "Order$2", "Sales.Order$2"), ("public", "2024", "public.\"2024\""), ("dbo", "order lines", "dbo.\"order lines\"")];
+        let cases = [
+            ("public", "orders", "public.orders"),
+            ("Sales", "Order$2", "Sales.Order$2"),
+            ("public", "2024", "public.\"2024\""),
+            ("dbo", "order lines", "dbo.\"order lines\""),
+        ];
         for (schema, table, printed) in cases {
             assert_eq!(format!("{}.{}", quote_name(schema), quote_name(table)), printed);
             assert_eq!(table_of(printed), Some(CellTable { schema: schema.into(), table: table.into() }), "{printed}");
@@ -421,29 +507,61 @@ SELECT * FROM \"public\".\"orders\"
 select 1;
 ";
         let notebook = parse(text);
-        assert_eq!(notebook.header, NotebookHeader { connection: Some("c".into()), unknown: vec![pair("theme", "dark"), pair("kind", "mysql")], ..NotebookHeader::default() });
-        assert_eq!(notebook.cells[0].meta, CellMeta { unknown: vec![pair("chart", "bar"), pair("mode", "later"), pair("table", "orders")], ..titled("t") });
+        assert_eq!(
+            notebook.header,
+            NotebookHeader {
+                connection: Some("c".into()),
+                unknown: vec![pair("theme", "dark"), pair("kind", "mysql")],
+                ..NotebookHeader::default()
+            }
+        );
+        assert_eq!(
+            notebook.cells[0].meta,
+            CellMeta {
+                unknown: vec![pair("chart", "bar"), pair("mode", "later"), pair("table", "orders")],
+                ..titled("t")
+            }
+        );
         assert_eq!(
             print(&notebook).0,
             "-- l1 notebook: connection=\"c\" theme=\"dark\" kind=\"mysql\"\n-- %% title=\"t\" chart=\"bar\" mode=\"later\" table=\"orders\"\nselect 1;\n"
         );
         let mut known = notebook.clone();
         known.header.kind = Some(DatabaseKind::Postgres);
-        assert!(print(&known).0.starts_with("-- l1 notebook: connection=\"c\" kind=\"postgres\" theme=\"dark\"\n"), "a known value replaces the one it could not read");
+        assert!(
+            print(&known).0.starts_with("-- l1 notebook: connection=\"c\" kind=\"postgres\" theme=\"dark\"\n"),
+            "a known value replaces the one it could not read"
+        );
     }
 
     #[test]
     fn a_cell_line_that_looks_like_a_marker_is_escaped_and_reads_back() {
-        let tricky = "select 1;\n-- %% not a cell\n--%%\n-- \\%% already escaped\n  -- %% indented\n-- %%%\n-- l1 notebook: x";
-        let notebook = NotebookText { plain: false, header: NotebookHeader::default(), cells: vec![cell(tricky, CellMeta::default()), cell("b", CellMeta::default())] };
+        let tricky =
+            "select 1;\n-- %% not a cell\n--%%\n-- \\%% already escaped\n  -- %% indented\n-- %%%\n-- l1 notebook: x";
+        let notebook = NotebookText {
+            plain: false,
+            header: NotebookHeader::default(),
+            cells: vec![cell(tricky, CellMeta::default()), cell("b", CellMeta::default())],
+        };
         let (text, _) = print(&notebook);
-        assert!(text.contains("\n-- \\%% not a cell\n--\\%%\n-- \\\\%% already escaped\n  -- %% indented\n-- %%%\n"), "{text}");
+        assert!(
+            text.contains("\n-- \\%% not a cell\n--\\%%\n-- \\\\%% already escaped\n  -- %% indented\n-- %%%\n"),
+            "{text}"
+        );
         assert_eq!(parse(&text), notebook);
-        let plain = NotebookText { plain: true, header: NotebookHeader::default(), cells: vec![cell(tricky, CellMeta::default())] };
+        let plain = NotebookText {
+            plain: true,
+            header: NotebookHeader::default(),
+            cells: vec![cell(tricky, CellMeta::default())],
+        };
         let (text, as_plain) = print(&plain);
         assert!(!as_plain, "plain text with a marker line would read back as two cells");
         assert_eq!(parse(&text).cells, plain.cells);
-        let header_first = NotebookText { plain: true, header: NotebookHeader::default(), cells: vec![cell("-- l1 notebook: kind=\"postgres\"\nselect 1;", CellMeta::default())] };
+        let header_first = NotebookText {
+            plain: true,
+            header: NotebookHeader::default(),
+            cells: vec![cell("-- l1 notebook: kind=\"postgres\"\nselect 1;", CellMeta::default())],
+        };
         let (text, as_plain) = print(&header_first);
         assert!(!as_plain, "a first line that reads as a header is not plain");
         assert_eq!(parse(&text).cells, header_first.cells);
@@ -453,7 +571,14 @@ select 1;
     fn a_file_a_person_wrote_with_loose_spacing_reads() {
         let text = "--   l1 notebook:   kind = \"postgres\"   database=\"shop\"  \n--%%   title = \"first\"   schema=\"s\"  \nselect 1;\n--  %%\tSecond cell\nselect 2;\n-- %% Third  title=\"x\"\nselect 3;\n";
         let notebook = parse(text);
-        assert_eq!(notebook.header, NotebookHeader { kind: Some(DatabaseKind::Postgres), database: Some("shop".into()), ..NotebookHeader::default() });
+        assert_eq!(
+            notebook.header,
+            NotebookHeader {
+                kind: Some(DatabaseKind::Postgres),
+                database: Some("shop".into()),
+                ..NotebookHeader::default()
+            }
+        );
         assert_eq!(
             notebook.cells,
             vec![

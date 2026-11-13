@@ -12,8 +12,11 @@ use serde_json::Value;
 
 use crate::Shared;
 use crate::console::now_ms;
+use crate::model::{
+    AgentError, AppEvent, Decision, EffortId, ModelId, ModelOption, ProbeOutcome, ProviderConfig, ProviderInfo,
+    ProviderKind, ProviderState, ToolCallId, TurnOutcome,
+};
 use crate::shell_path::{self, AgentPath};
-use crate::model::{AgentError, AppEvent, Decision, EffortId, ModelId, ModelOption, ProbeOutcome, ProviderConfig, ProviderInfo, ProviderKind, ProviderState, ToolCallId, TurnOutcome};
 
 pub(crate) use crate::BoxFuture;
 
@@ -25,7 +28,11 @@ pub(crate) trait Provider: Send + Sync {
     fn launch_choice(&self, cfg: &ProviderConfig) -> (Option<ModelId>, Option<EffortId>);
     fn ignored_flags(&self, cfg: &ProviderConfig) -> Vec<String>;
     fn session_lost(&self, error: &AgentError) -> bool;
-    fn quick_probe<'a>(&'a self, cfg: &'a ProviderConfig, host: &'a HostEnv) -> BoxFuture<'a, Result<Quick, ProbeOutcome>>;
+    fn quick_probe<'a>(
+        &'a self,
+        cfg: &'a ProviderConfig,
+        host: &'a HostEnv,
+    ) -> BoxFuture<'a, Result<Quick, ProbeOutcome>>;
     fn launch(&self, cfg: &ProviderConfig, host: &HostEnv, start: &SessionStart) -> Result<LaunchSpec, AgentError>;
     fn codec(&self, cfg: &ProviderConfig, open: Open) -> Box<dyn Codec>;
 }
@@ -170,7 +177,11 @@ impl HostEnv {
         let name = if name.is_empty() { default } else { name };
         if name.contains(std::path::is_separator) || name.starts_with('~') {
             let path = self.expand_home(name);
-            let path = if path.is_absolute() { path } else { std::env::current_dir().map(|cwd| cwd.join(&path)).unwrap_or(path) };
+            let path = if path.is_absolute() {
+                path
+            } else {
+                std::env::current_dir().map(|cwd| cwd.join(&path)).unwrap_or(path)
+            };
             return shell_path::executable(&path).ok_or_else(|| path.display().to_string());
         }
         shell_path::find(&self.dirs(), name).ok_or_else(|| format!("{name} on PATH ({})", self.path.to_string_lossy()))
@@ -339,7 +350,11 @@ impl Shared {
             let entries = self.providers.entries.lock().unwrap();
             let entry = entries.get(&kind);
             let same_version = entry.and_then(ProviderEntry::version) == Some(quick.version.as_str());
-            if depth == ProbeDepth::Quick && same_version { entry.and_then(ProviderEntry::models).map(<[ModelOption]>::to_vec) } else { None }
+            if depth == ProbeDepth::Quick && same_version {
+                entry.and_then(ProviderEntry::models).map(<[ModelOption]>::to_vec)
+            } else {
+                None
+            }
         };
         if let Some(models) = kept {
             return ProbeOutcome::Ready { version: quick.version, plan: quick.plan, models };
@@ -351,12 +366,17 @@ impl Shared {
                 AgentError::SignedOut => "signed out".to_owned(),
                 AgentError::Exited { detail, .. } | AgentError::Provider { message: detail } => detail,
             })?;
-            let (agent, handshake) = agent::Agent::start(self, spec, p.codec(&cfg, Open::PROBE)).await.map_err(|e| e.to_string())?;
+            let (agent, handshake) =
+                agent::Agent::start(self, spec, p.codec(&cfg, Open::PROBE)).await.map_err(|e| e.to_string())?;
             agent.close().await;
             Ok::<_, String>(handshake)
         };
         match handshake.await {
-            Ok(h) => ProbeOutcome::Ready { version: h.version.unwrap_or(quick.version), plan: h.plan.or(quick.plan), models: h.models },
+            Ok(h) => ProbeOutcome::Ready {
+                version: h.version.unwrap_or(quick.version),
+                plan: h.plan.or(quick.plan),
+                models: h.models,
+            },
             Err(message) => ProbeOutcome::Broken { version: Some(quick.version), message },
         }
     }
@@ -364,7 +384,12 @@ impl Shared {
     pub(crate) fn reprobe_changed(self: &Arc<Self>, before: &[ProviderConfig], after: &[ProviderConfig]) {
         for cfg in after {
             let was = before.iter().find(|c| c.provider == cfg.provider);
-            let changed = was.is_none_or(|w| w.enabled != cfg.enabled || w.binary_path != cfg.binary_path || w.config_dir != cfg.config_dir || w.launch_args != cfg.launch_args);
+            let changed = was.is_none_or(|w| {
+                w.enabled != cfg.enabled
+                    || w.binary_path != cfg.binary_path
+                    || w.config_dir != cfg.config_dir
+                    || w.launch_args != cfg.launch_args
+            });
             if !changed {
                 continue;
             }

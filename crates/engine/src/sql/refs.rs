@@ -54,7 +54,8 @@ pub(crate) fn typing_at(text: &str, at: usize, kind: DatabaseKind) -> Option<usi
         .find(|&(i, l)| {
             line <= l.span.start
                 && l.span.start + 2 <= at
-                && (l.class == Class::Reference || brace(l) && lexemes.get(i + 1).is_some_and(|n| brace(n) && n.span.start == l.span.end))
+                && (l.class == Class::Reference
+                    || brace(l) && lexemes.get(i + 1).is_some_and(|n| brace(n) && n.span.start == l.span.end))
         })
         .map(|(_, l)| l.span.start)?;
     let typed = &text[open + 2..at];
@@ -70,12 +71,17 @@ const TSQL_VERBS: &[&str] = &["SELECT", "WITH", "INSERT", "UPDATE", "DELETE", "M
 const MAIN_VERBS: &[&str] = &["SELECT", "INSERT", "UPDATE", "DELETE", "MERGE", "VALUES", "TABLE"];
 const MODULE: &str = "A reference cannot go inside a view, procedure, function, or trigger definition.";
 const CONTROL: &str = "Put BEGIN and END around a statement after IF, ELSE, or WHILE to use a reference in it.";
-const STRINGS: &str = "The references read differently with standard_conforming_strings off. Write backslashes in E'...' strings.";
+const STRINGS: &str =
+    "The references read differently with standard_conforming_strings off. Write backslashes in E'...' strings.";
 
 /// Rewrites every statement or batch of `script` that holds a reference, and returns the cells it inlined in the order
 /// their CTEs first appear. `ranges` keep pointing at the user's document, and a rewritten unit counts as changed, so
 /// the server's error positions, which point into the rewritten SQL, are dropped.
-pub(crate) fn expand(script: ExecutableScript, cells: &[CellSource], kind: DatabaseKind) -> Result<(ExecutableScript, Vec<CellSource>), RunError> {
+pub(crate) fn expand(
+    script: ExecutableScript,
+    cells: &[CellSource],
+    kind: DatabaseKind,
+) -> Result<(ExecutableScript, Vec<CellSource>), RunError> {
     if !script.text.contains("{{") {
         return Ok((script, Vec::new()));
     }
@@ -157,7 +163,9 @@ impl Resolver<'_> {
 
 fn cycle(path: &[String]) -> String {
     match path {
-        [first, through @ ..] if !through.is_empty() => format!("{first} refers back to itself through {}.", and_list(through)),
+        [first, through @ ..] if !through.is_empty() => {
+            format!("{first} refers back to itself through {}.", and_list(through))
+        }
         _ => format!("{} refers back to itself.", path[0]),
     }
 }
@@ -171,7 +179,10 @@ fn and_list(names: &[String]) -> String {
 
 /// The lexemes of `text` other than comments.
 fn code(text: &str, kind: DatabaseKind) -> Vec<Lexeme> {
-    map_lexemes(text, kind).into_iter().filter(|l| !matches!(l.class, Class::LineComment | Class::BlockComment)).collect()
+    map_lexemes(text, kind)
+        .into_iter()
+        .filter(|l| !matches!(l.class, Class::LineComment | Class::BlockComment))
+        .collect()
 }
 
 /// A PostgreSQL tab may turn `standard_conforming_strings` off, and then a backslash can end a string where the
@@ -180,7 +191,13 @@ fn same_under_both_string_modes(text: &str, kind: DatabaseKind) -> Result<(), St
     if kind == DatabaseKind::SqlServer || !text.contains('\\') {
         return Ok(());
     }
-    let references = |strings| lex::lex_strings(text, strings).into_iter().filter(|l| l.kind == LexKind::Reference).map(|l| l.span).collect::<Vec<_>>();
+    let references = |strings| {
+        lex::lex_strings(text, strings)
+            .into_iter()
+            .filter(|l| l.kind == LexKind::Reference)
+            .map(|l| l.span)
+            .collect::<Vec<_>>()
+    };
     if references(Strings::Standard) == references(Strings::Escaped) { Ok(()) } else { Err(STRINGS.into()) }
 }
 
@@ -214,8 +231,14 @@ fn fold(kind: DatabaseKind, name: String) -> String {
 /// The unqualified relations `text` reads, folded. Names its own CTEs define are not among them.
 fn relations(kind: DatabaseKind, text: &str) -> HashSet<String> {
     match kind {
-        DatabaseKind::Postgres => super::relation_names(text).into_iter().filter(|r| r.schema.is_none()).map(|r| r.name).collect(),
-        DatabaseKind::SqlServer => tsql::relation_names(text).into_iter().filter(|r| r.schema.is_none()).map(|r| r.name.to_lowercase()).collect(),
+        DatabaseKind::Postgres => {
+            super::relation_names(text).into_iter().filter(|r| r.schema.is_none()).map(|r| r.name).collect()
+        }
+        DatabaseKind::SqlServer => tsql::relation_names(text)
+            .into_iter()
+            .filter(|r| r.schema.is_none())
+            .map(|r| r.name.to_lowercase())
+            .collect(),
     }
 }
 
@@ -256,7 +279,9 @@ fn render(text: &str, range: Range<usize>, edits: &[Edit]) -> String {
 fn reference_edit(text: &str, code: &[Lexeme], k: usize, kind: DatabaseKind) -> Edit {
     let title = title(&text[code[k].span.clone()]);
     let cte = quote_ident_in(kind, &cte_name(title));
-    let from_item = k.checked_sub(1).is_some_and(|p| code[p].class == Class::Comma || is_word(text, Some(&code[p]), &["FROM", "JOIN", "USING", "APPLY"]));
+    let from_item = k.checked_sub(1).is_some_and(|p| {
+        code[p].class == Class::Comma || is_word(text, Some(&code[p]), &["FROM", "JOIN", "USING", "APPLY"])
+    });
     let aliased = code.get(k + 1).is_some_and(|next| match next.class {
         Class::Name => true,
         Class::Word => {
@@ -320,13 +345,18 @@ fn with_list(text: &str, code: &[Lexeme], kind: DatabaseKind) -> WithList {
         while is_word(text, code.get(j), &["NOT", "MATERIALIZED"]) {
             j += 1;
         }
-        let Some(close) = code.get(j).filter(|l| l.class == Class::Open).and_then(|_| close_of(code, j)) else { break None };
+        let Some(close) = code.get(j).filter(|l| l.class == Class::Open).and_then(|_| close_of(code, j)) else {
+            break None;
+        };
         let Some(folded) = folded(text, name, kind) else { break None };
         entries.push((folded, name.span.start..code[close].span.end));
         j = close + 1;
         // PostgreSQL's SEARCH and CYCLE clauses follow an entry and hold commas of their own.
         if is_word(text, code.get(j), &["SEARCH", "CYCLE"]) {
-            while j < code.len() && !(code[j].class == Class::Comma && starts_entry(j + 1)) && !is_word(text, code.get(j), MAIN_VERBS) {
+            while j < code.len()
+                && !(code[j].class == Class::Comma && starts_entry(j + 1))
+                && !is_word(text, code.get(j), MAIN_VERBS)
+            {
                 j += 1;
             }
         }
@@ -409,7 +439,9 @@ fn body(cells: &[CellSource], title: &str, kind: DatabaseKind) -> Result<Body, S
         return Err(format!("{} cells are named {title}. Rename one so the reference is clear.", others + 1));
     }
     match kind {
-        DatabaseKind::Postgres if title.len() + 4 > 63 => return Err(format!("The title {title} is too long to reference. Keep it to 59 bytes.")),
+        DatabaseKind::Postgres if title.len() + 4 > 63 => {
+            return Err(format!("The title {title} is too long to reference. Keep it to 59 bytes."));
+        }
         DatabaseKind::SqlServer if title.encode_utf16().count() + 4 > 128 => {
             return Err(format!("The title {title} is too long to reference. Keep it to 124 characters."));
         }
@@ -421,8 +453,12 @@ fn body(cells: &[CellSource], title: &str, kind: DatabaseKind) -> Result<Body, S
     let code = code(sql, kind);
     let read = match kind {
         DatabaseKind::Postgres => {
-            let into = matches!(super::vet(sql), super::Vet::Unvetted(found) if found.iter().any(|f| f == "SELECT INTO"));
-            (code.first().is_some_and(|l| l.class == Class::Open) || is_word(sql, code.first(), &["SELECT", "WITH", "VALUES", "TABLE"])) && super::is_read_statement(sql) && !into
+            let into =
+                matches!(super::vet(sql), super::Vet::Unvetted(found) if found.iter().any(|f| f == "SELECT INTO"));
+            (code.first().is_some_and(|l| l.class == Class::Open)
+                || is_word(sql, code.first(), &["SELECT", "WITH", "VALUES", "TABLE"]))
+                && super::is_read_statement(sql)
+                && !into
         }
         DatabaseKind::SqlServer => is_word(sql, code.first(), &["SELECT", "WITH"]) && !tsql::is_write(sql),
     };
@@ -449,18 +485,28 @@ fn body(cells: &[CellSource], title: &str, kind: DatabaseKind) -> Result<Body, S
     let own = |body: String| format!("{} AS (\n{body}\n)", quote_ident_in(kind, &cte_name(title)));
     let relations = relations(kind, sql);
     if kind == DatabaseKind::Postgres {
-        return Ok(Body { cell, deps, entries: vec![own(render(sql, 0..sql.len(), &edits))], hoisted: Vec::new(), relations });
+        return Ok(Body {
+            cell,
+            deps,
+            entries: vec![own(render(sql, 0..sql.len(), &edits))],
+            hoisted: Vec::new(),
+            relations,
+        });
     }
     let (moved, main) = if is_word(sql, code.first(), &["WITH"]) {
         let list = with_list(sql, &code, kind);
-        let Some(main) = list.main.filter(|_| !list.entries.is_empty()) else { return Err(format!("{title} starts with a WITH list this app cannot read.")) };
+        let Some(main) = list.main.filter(|_| !list.entries.is_empty()) else {
+            return Err(format!("{title} starts with a WITH list this app cannot read."));
+        };
         (list.entries, main)
     } else {
         (Vec::new(), 0)
     };
     // An OPTION hint applies to a whole statement, so moving it out would change how the referencing statement runs.
     if top_level_word(sql, &code[main..], &["OPTION"]) {
-        return Err(format!("{title} ends with an OPTION hint, which SQL Server does not allow inside a CTE. Move the hint to the statement that references {title}."));
+        return Err(format!(
+            "{title} ends with an OPTION hint, which SQL Server does not allow inside a CTE. Move the hint to the statement that references {title}."
+        ));
     }
     if let Some(cut) = order_by_cut(sql, &code[main..]) {
         edits.retain(|e| e.range.end <= cut.start || cut.end <= e.range.start);
@@ -476,7 +522,8 @@ fn body(cells: &[CellSource], title: &str, kind: DatabaseKind) -> Result<Body, S
 fn rewrite(unit: &str, resolver: &mut Resolver<'_>, used: &mut Vec<String>) -> Result<Option<String>, String> {
     let kind = resolver.kind;
     let code = code(unit, kind);
-    let refs: Vec<usize> = code.iter().enumerate().filter(|(_, l)| l.class == Class::Reference).map(|(k, _)| k).collect();
+    let refs: Vec<usize> =
+        code.iter().enumerate().filter(|(_, l)| l.class == Class::Reference).map(|(k, _)| k).collect();
     if refs.is_empty() {
         return Ok(None);
     }
@@ -515,8 +562,13 @@ fn statement_edits(
     let kind = resolver.kind;
     let lead = &code[first];
     let (allowed, verbs) = match kind {
-        DatabaseKind::Postgres => (lead.class == Class::Open || is_word(unit, Some(lead), PG_VERBS), "SELECT, WITH, VALUES, TABLE, INSERT, UPDATE, DELETE, and MERGE"),
-        DatabaseKind::SqlServer => (is_word(unit, Some(lead), TSQL_VERBS), "SELECT, WITH, INSERT, UPDATE, DELETE, and MERGE"),
+        DatabaseKind::Postgres => (
+            lead.class == Class::Open || is_word(unit, Some(lead), PG_VERBS),
+            "SELECT, WITH, VALUES, TABLE, INSERT, UPDATE, DELETE, and MERGE",
+        ),
+        DatabaseKind::SqlServer => {
+            (is_word(unit, Some(lead), TSQL_VERBS), "SELECT, WITH, INSERT, UPDATE, DELETE, and MERGE")
+        }
     };
     if !allowed {
         return Err(format!("A reference works only in {verbs} statements."));
@@ -538,20 +590,27 @@ fn statement_edits(
     let reads = relations(kind, statement);
     for (i, (title, body)) in bodies.iter().enumerate() {
         for hoisted in &body.hoisted {
-            let elsewhere = bodies.iter().enumerate().any(|(j, (_, other))| j != i && (other.relations.contains(hoisted) || other.hoisted.contains(hoisted)));
+            let elsewhere = bodies.iter().enumerate().any(|(j, (_, other))| {
+                j != i && (other.relations.contains(hoisted) || other.hoisted.contains(hoisted))
+            });
             if elsewhere || reads.contains(hoisted) || own_ctes.contains(&hoisted.as_str()) {
-                return Err(format!("{title} defines the CTE {hoisted}, and this statement also reads or defines {hoisted}. Rename the CTE in {title}."));
+                return Err(format!(
+                    "{title} defines the CTE {hoisted}, and this statement also reads or defines {hoisted}. Rename the CTE in {title}."
+                ));
             }
         }
     }
-    let list = bodies.iter().flat_map(|(_, body)| body.entries.iter().map(String::as_str)).collect::<Vec<_>>().join(",\n");
+    let list =
+        bodies.iter().flat_map(|(_, body)| body.entries.iter().map(String::as_str)).collect::<Vec<_>>().join(",\n");
     let mut edits: Vec<Edit> = refs.iter().map(|&k| reference_edit(unit, code, k, kind)).collect();
     if let Some(with) = &with {
         for name in &own_ctes {
             if let Some(title) = order.iter().find(|t| fold(kind, cte_name(t)) == *name) {
                 return Err(format!("This statement already has a CTE named {}.", cte_name(title)));
             }
-            if with.recursive && let Some((title, _)) = bodies.iter().find(|(_, body)| body.relations.contains(*name)) {
+            if with.recursive
+                && let Some((title, _)) = bodies.iter().find(|(_, body)| body.relations.contains(*name))
+            {
                 return Err(format!("{title} reads {name}, which this WITH RECURSIVE also defines. Rename that CTE."));
             }
         }
@@ -571,7 +630,8 @@ fn statement_edits(
 /// A view, procedure, function, or trigger owns its whole batch.
 fn defines_module(unit: &str, code: &[Lexeme]) -> bool {
     let at = if is_word(unit, code.get(1), &["OR"]) && is_word(unit, code.get(2), &["ALTER"]) { 3 } else { 1 };
-    is_word(unit, code.first(), &["CREATE", "ALTER"]) && is_word(unit, code.get(at), &["PROC", "PROCEDURE", "FUNCTION", "VIEW", "TRIGGER"])
+    is_word(unit, code.first(), &["CREATE", "ALTER"])
+        && is_word(unit, code.get(at), &["PROC", "PROCEDURE", "FUNCTION", "VIEW", "TRIGGER"])
 }
 
 /// What a new WITH needs before it. T-SQL needs the statement before a CTE ended with `;`, and the one statement that
@@ -607,7 +667,10 @@ mod tests {
     fn run(kind: DatabaseKind, text: &str, pairs: &[(&str, &str)]) -> Result<(Vec<String>, Vec<String>), String> {
         let script = params::bind(text.into(), RunTarget::All, kind, Vec::new()).unwrap();
         match expand(script, &cells(pairs), kind) {
-            Ok((script, sources)) => Ok((script.spans.iter().map(|s| s.text(&script.text).to_owned()).collect(), sources.into_iter().map(|c| c.name).collect())),
+            Ok((script, sources)) => Ok((
+                script.spans.iter().map(|s| s.text(&script.text).to_owned()).collect(),
+                sources.into_iter().map(|c| c.name).collect(),
+            )),
             Err(RunError::Reference { message }) => Err(message),
             Err(other) => panic!("{other:?}"),
         }
@@ -629,7 +692,10 @@ mod tests {
 
     #[test]
     fn a_reference_is_a_title_in_double_braces() {
-        assert_eq!(titles(PG, "select * from {{ Untitled-1.sql }} join {{revenue by region}} using (id)"), ["Untitled-1.sql", "revenue by region"]);
+        assert_eq!(
+            titles(PG, "select * from {{ Untitled-1.sql }} join {{revenue by region}} using (id)"),
+            ["Untitled-1.sql", "revenue by region"]
+        );
         for text in ["{{}}", "{{   }}", "{{a\n}}", "{{a\r}}", "{a}", "{{a}", "{{a} }"] {
             assert_eq!(titles(PG, text), Vec::<&str>::new(), "{text:?}");
             assert_eq!(titles(MS, text), Vec::<&str>::new(), "{text:?}");
@@ -639,17 +705,32 @@ mod tests {
 
     #[test]
     fn strings_comments_quoted_names_and_dollar_quotes_hide_references() {
-        assert_eq!(titles(PG, "select '{{a}}', E'{{a}}', \"{{a}}\", $${{a}}$$, $t$ {{a}} $t$ -- {{a}}\n/* {{a}} */ from {{b}}"), ["b"]);
+        assert_eq!(
+            titles(
+                PG,
+                "select '{{a}}', E'{{a}}', \"{{a}}\", $${{a}}$$, $t$ {{a}} $t$ -- {{a}}\n/* {{a}} */ from {{b}}"
+            ),
+            ["b"]
+        );
         assert_eq!(titles(MS, "select N'{{a}}', '{{a}}', [{{a}}], \"{{a}}\" -- {{a}}\n/* {{a}} */ from {{b}}"), ["b"]);
-        assert_eq!(one(PG, "SELECT '{{a}}' AS label, n FROM {{a}} x", &[A]), "WITH \"{{a}}\" AS (\nSELECT 1 AS n\n)\nSELECT '{{a}}' AS label, n FROM \"{{a}}\" x");
+        assert_eq!(
+            one(PG, "SELECT '{{a}}' AS label, n FROM {{a}} x", &[A]),
+            "WITH \"{{a}}\" AS (\nSELECT 1 AS n\n)\nSELECT '{{a}}' AS label, n FROM \"{{a}}\" x"
+        );
     }
 
     #[test]
     fn a_title_may_hold_quotes_and_dashes_without_hiding_the_sql_after_it() {
         let cells = [("bob's -- rows", "SELECT 1 AS n")];
         let (units, _) = run(PG, "SELECT * FROM {{bob's -- rows}} x;\nSELECT 2", &cells).unwrap();
-        assert_eq!(units, ["WITH \"{{bob's -- rows}}\" AS (\nSELECT 1 AS n\n)\nSELECT * FROM \"{{bob's -- rows}}\" x", "SELECT 2"]);
-        assert_eq!(one(MS, "SELECT * FROM {{bob's -- rows}} x", &cells), "WITH [{{bob's -- rows}}] AS (\nSELECT 1 AS n\n)\nSELECT * FROM [{{bob's -- rows}}] x");
+        assert_eq!(
+            units,
+            ["WITH \"{{bob's -- rows}}\" AS (\nSELECT 1 AS n\n)\nSELECT * FROM \"{{bob's -- rows}}\" x", "SELECT 2"]
+        );
+        assert_eq!(
+            one(MS, "SELECT * FROM {{bob's -- rows}} x", &cells),
+            "WITH [{{bob's -- rows}}] AS (\nSELECT 1 AS n\n)\nSELECT * FROM [{{bob's -- rows}}] x"
+        );
         let found = params::discover("SELECT * FROM {{a :b $1}} WHERE n = :v", RunTarget::All, PG).unwrap();
         assert_eq!(found.into_iter().map(|p| p.name).collect::<Vec<_>>(), [":v"]);
         assert!(params::discover("SELECT * FROM {{@a}}", RunTarget::All, MS).unwrap().is_empty());
@@ -657,7 +738,10 @@ mod tests {
 
     #[test]
     fn a_reference_becomes_a_cte_named_after_its_braces() {
-        assert_eq!(one(PG, "SELECT * FROM {{a}} x WHERE x.n > 0", &[A]), "WITH \"{{a}}\" AS (\nSELECT 1 AS n\n)\nSELECT * FROM \"{{a}}\" x WHERE x.n > 0");
+        assert_eq!(
+            one(PG, "SELECT * FROM {{a}} x WHERE x.n > 0", &[A]),
+            "WITH \"{{a}}\" AS (\nSELECT 1 AS n\n)\nSELECT * FROM \"{{a}}\" x WHERE x.n > 0"
+        );
         assert_eq!(run(PG, "SELECT * FROM {{a}} x", &[A, ("b", "SELECT 2")]).unwrap().1, ["a"]);
     }
 
@@ -666,7 +750,10 @@ mod tests {
         let expanded = |text| one(PG, text, &[A]).split_once("\n)\n").unwrap().1.to_owned();
         assert_eq!(expanded("SELECT a.n FROM {{a}}"), "SELECT a.n FROM \"{{a}}\" AS \"a\"");
         assert_eq!(expanded("SELECT * FROM {{a}} WHERE n > 0"), "SELECT * FROM \"{{a}}\" AS \"a\" WHERE n > 0");
-        assert_eq!(expanded("SELECT * FROM t JOIN {{a}} ON true, {{ a }}"), "SELECT * FROM t JOIN \"{{a}}\" AS \"a\" ON true, \"{{a}}\" AS \"a\"");
+        assert_eq!(
+            expanded("SELECT * FROM t JOIN {{a}} ON true, {{ a }}"),
+            "SELECT * FROM t JOIN \"{{a}}\" AS \"a\" ON true, \"{{a}}\" AS \"a\""
+        );
         assert_eq!(expanded("SELECT * FROM {{a}} AS q"), "SELECT * FROM \"{{a}}\" AS q");
         assert_eq!(expanded("SELECT * FROM {{a}} \"Q\""), "SELECT * FROM \"{{a}}\" \"Q\"");
         assert_eq!(expanded("TABLE {{a}}"), "TABLE \"{{a}}\"");
@@ -684,14 +771,17 @@ mod tests {
         let (units, sources) = run(PG, "SELECT * FROM {{top}} t", &pairs).unwrap();
         assert_eq!(
             units,
-            ["WITH \"{{base}}\" AS (\nSELECT 1 AS n\n),\n\"{{left}}\" AS (\nSELECT n FROM \"{{base}}\" AS \"base\"\n),\n\"{{right}}\" AS (\nSELECT n FROM \"{{base}}\" AS \"base\" WHERE n > 0\n),\n\"{{top}}\" AS (\nSELECT * FROM \"{{left}}\" AS \"left\" JOIN \"{{right}}\" AS \"right\" USING (n)\n)\nSELECT * FROM \"{{top}}\" t"]
+            [
+                "WITH \"{{base}}\" AS (\nSELECT 1 AS n\n),\n\"{{left}}\" AS (\nSELECT n FROM \"{{base}}\" AS \"base\"\n),\n\"{{right}}\" AS (\nSELECT n FROM \"{{base}}\" AS \"base\" WHERE n > 0\n),\n\"{{top}}\" AS (\nSELECT * FROM \"{{left}}\" AS \"left\" JOIN \"{{right}}\" AS \"right\" USING (n)\n)\nSELECT * FROM \"{{top}}\" t"
+            ]
         );
         assert_eq!(sources, ["base", "left", "right", "top"]);
     }
 
     #[test]
     fn only_the_units_with_references_change() {
-        let script = params::bind("SELECT 1;\nSELECT * FROM {{a}} x;\nSELECT 3".into(), RunTarget::All, PG, Vec::new()).unwrap();
+        let script =
+            params::bind("SELECT 1;\nSELECT * FROM {{a}} x;\nSELECT 3".into(), RunTarget::All, PG, Vec::new()).unwrap();
         let ranges = script.ranges.clone();
         let (expanded, sources) = expand(script, &cells(&[A]), PG).unwrap();
         let units: Vec<&str> = expanded.spans.iter().map(|s| s.text(&expanded.text)).collect();
@@ -707,9 +797,18 @@ mod tests {
 
     #[test]
     fn parameters_bind_before_references_expand() {
-        let script = params::bind("SELECT * FROM {{a}} x WHERE x.n = :v".into(), RunTarget::All, PG, vec![ParamValue { name: ":v".into(), value: Some("1".into()) }]).unwrap();
+        let script = params::bind(
+            "SELECT * FROM {{a}} x WHERE x.n = :v".into(),
+            RunTarget::All,
+            PG,
+            vec![ParamValue { name: ":v".into(), value: Some("1".into()) }],
+        )
+        .unwrap();
         let (expanded, _) = expand(script, &cells(&[A]), PG).unwrap();
-        assert_eq!(expanded.spans[0].text(&expanded.text), "WITH \"{{a}}\" AS (\nSELECT 1 AS n\n)\nSELECT * FROM \"{{a}}\" x WHERE x.n = E'1'");
+        assert_eq!(
+            expanded.spans[0].text(&expanded.text),
+            "WITH \"{{a}}\" AS (\nSELECT 1 AS n\n)\nSELECT * FROM \"{{a}}\" x WHERE x.n = E'1'"
+        );
     }
 
     #[test]
@@ -719,7 +818,11 @@ mod tests {
             "WITH \"{{a}}\" AS (\nSELECT 1 AS n\n), t AS (SELECT * FROM \"{{a}}\" AS \"a\") SELECT * FROM t"
         );
         assert_eq!(
-            one(PG, "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT * FROM r JOIN {{a}} USING (n)", &[A]),
+            one(
+                PG,
+                "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT * FROM r JOIN {{a}} USING (n)",
+                &[A]
+            ),
             "WITH RECURSIVE \"{{a}}\" AS (\nSELECT 1 AS n\n), r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT * FROM r JOIN \"{{a}}\" AS \"a\" USING (n)"
         );
         assert_eq!(
@@ -730,13 +833,22 @@ mod tests {
 
     #[test]
     fn the_with_goes_before_the_first_token_after_leading_comments() {
-        assert_eq!(one(PG, "-- totals\n/* by region */ SELECT * FROM {{a}} x", &[A]), "-- totals\n/* by region */ WITH \"{{a}}\" AS (\nSELECT 1 AS n\n)\nSELECT * FROM \"{{a}}\" x");
+        assert_eq!(
+            one(PG, "-- totals\n/* by region */ SELECT * FROM {{a}} x", &[A]),
+            "-- totals\n/* by region */ WITH \"{{a}}\" AS (\nSELECT 1 AS n\n)\nSELECT * FROM \"{{a}}\" x"
+        );
     }
 
     #[test]
     fn a_body_that_ends_in_a_line_comment_cannot_swallow_the_closing_paren() {
-        assert!(one(PG, "SELECT * FROM {{a}} x", &[("a", "SELECT 1 AS n -- one row")]).starts_with("WITH \"{{a}}\" AS (\nSELECT 1 AS n -- one row\n)\n"));
-        assert!(one(MS, "SELECT * FROM {{a}} x", &[("a", "SELECT 1 AS n -- one row")]).starts_with("WITH [{{a}}] AS (\nSELECT 1 AS n\n)\n"));
+        assert!(
+            one(PG, "SELECT * FROM {{a}} x", &[("a", "SELECT 1 AS n -- one row")])
+                .starts_with("WITH \"{{a}}\" AS (\nSELECT 1 AS n -- one row\n)\n")
+        );
+        assert!(
+            one(MS, "SELECT * FROM {{a}} x", &[("a", "SELECT 1 AS n -- one row")])
+                .starts_with("WITH [{{a}}] AS (\nSELECT 1 AS n\n)\n")
+        );
     }
 
     #[test]
@@ -744,25 +856,44 @@ mod tests {
         let insert = one(PG, "INSERT INTO t SELECT * FROM {{a}}", &[A]);
         assert_eq!(insert, "WITH \"{{a}}\" AS (\nSELECT 1 AS n\n)\nINSERT INTO t SELECT * FROM \"{{a}}\" AS \"a\"");
         assert_eq!(super::super::classify(&insert), crate::sql::StmtKind::Dml(crate::sql::DmlVerb::Insert));
-        assert!(one(PG, "UPDATE t SET n = x.n FROM {{a}} x WHERE t.id = 1", &[A]).ends_with("\nUPDATE t SET n = x.n FROM \"{{a}}\" x WHERE t.id = 1"));
-        assert!(one(PG, "(SELECT * FROM {{a}} x) UNION ALL (SELECT 2)", &[A]).ends_with("\n(SELECT * FROM \"{{a}}\" x) UNION ALL (SELECT 2)"));
-        assert!(one(MS, "MERGE INTO t USING {{a}} s ON t.n = s.n WHEN MATCHED THEN DELETE;", &[A]).ends_with("\nMERGE INTO t USING [{{a}}] s ON t.n = s.n WHEN MATCHED THEN DELETE;"));
+        assert!(
+            one(PG, "UPDATE t SET n = x.n FROM {{a}} x WHERE t.id = 1", &[A])
+                .ends_with("\nUPDATE t SET n = x.n FROM \"{{a}}\" x WHERE t.id = 1")
+        );
+        assert!(
+            one(PG, "(SELECT * FROM {{a}} x) UNION ALL (SELECT 2)", &[A])
+                .ends_with("\n(SELECT * FROM \"{{a}}\" x) UNION ALL (SELECT 2)")
+        );
+        assert!(
+            one(MS, "MERGE INTO t USING {{a}} s ON t.n = s.n WHEN MATCHED THEN DELETE;", &[A])
+                .ends_with("\nMERGE INTO t USING [{{a}}] s ON t.n = s.n WHEN MATCHED THEN DELETE;")
+        );
     }
 
     #[test]
     fn a_reference_must_name_exactly_one_cell() {
         assert_eq!(refusal(PG, "SELECT * FROM {{nope}}", &[A]), "No cell is named nope.");
         assert_eq!(refusal(PG, "SELECT * FROM {{A}}", &[A]), "No cell is named A.");
-        assert_eq!(refusal(PG, "SELECT * FROM {{a}}", &[A, ("a", "SELECT 2")]), "2 cells are named a. Rename one so the reference is clear.");
+        assert_eq!(
+            refusal(PG, "SELECT * FROM {{a}}", &[A, ("a", "SELECT 2")]),
+            "2 cells are named a. Rename one so the reference is clear."
+        );
         assert_eq!(refusal(MS, "SELECT * FROM {{x}}", &[("y", "SELECT * FROM {{x}}")]), "No cell is named x.");
     }
 
     #[test]
     fn a_cycle_is_refused_with_its_path() {
         assert_eq!(refusal(PG, "SELECT * FROM {{a}}", &[("a", "SELECT * FROM {{a}}")]), "a refers back to itself.");
-        assert_eq!(refusal(PG, "SELECT * FROM {{a}}", &[("a", "SELECT * FROM {{b}}"), ("b", "SELECT * FROM {{a}}")]), "a refers back to itself through b.");
         assert_eq!(
-            refusal(MS, "SELECT * FROM {{a}}", &[("a", "SELECT * FROM {{b}}"), ("b", "SELECT * FROM {{c}}"), ("c", "SELECT * FROM {{a}}")]),
+            refusal(PG, "SELECT * FROM {{a}}", &[("a", "SELECT * FROM {{b}}"), ("b", "SELECT * FROM {{a}}")]),
+            "a refers back to itself through b."
+        );
+        assert_eq!(
+            refusal(
+                MS,
+                "SELECT * FROM {{a}}",
+                &[("a", "SELECT * FROM {{b}}"), ("b", "SELECT * FROM {{c}}"), ("c", "SELECT * FROM {{a}}")]
+            ),
             "a refers back to itself through b and c."
         );
     }
@@ -772,18 +903,37 @@ mod tests {
         let body = |kind, text| refusal(kind, "SELECT * FROM {{a}}", &[("a", text)]);
         assert_eq!(body(PG, "  -- nothing\n"), "a is empty.");
         assert_eq!(body(PG, "SELECT 1; SELECT 2"), "a holds 2 statements. A reference needs one query.");
-        for text in ["DELETE FROM t RETURNING *", "SHOW search_path", "EXPLAIN SELECT 1", "WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d", "SELECT * INTO u FROM t"] {
-            assert_eq!(body(PG, text), "a is not a query. A reference needs one SELECT, WITH, VALUES, or TABLE query.", "{text}");
+        for text in [
+            "DELETE FROM t RETURNING *",
+            "SHOW search_path",
+            "EXPLAIN SELECT 1",
+            "WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d",
+            "SELECT * INTO u FROM t",
+        ] {
+            assert_eq!(
+                body(PG, text),
+                "a is not a query. A reference needs one SELECT, WITH, VALUES, or TABLE query.",
+                "{text}"
+            );
         }
-        assert_eq!(body(PG, "SELECT * FROM t WHERE id = :id"), "a uses the parameter :id. A referenced cell cannot ask for values.");
-        assert_eq!(body(PG, "SELECT * FROM t WHERE id = $1"), "a uses the parameter $1. A referenced cell cannot ask for values.");
+        assert_eq!(
+            body(PG, "SELECT * FROM t WHERE id = :id"),
+            "a uses the parameter :id. A referenced cell cannot ask for values."
+        );
+        assert_eq!(
+            body(PG, "SELECT * FROM t WHERE id = $1"),
+            "a uses the parameter $1. A referenced cell cannot ask for values."
+        );
         assert_eq!(body(MS, ""), "a is empty.");
         assert_eq!(body(MS, "SELECT 1\nGO\nSELECT 2"), "a holds 2 batches. A reference needs one query.");
         assert_eq!(body(MS, "SELECT 1 SELECT 2"), "a holds more than one statement. A reference needs one query.");
         for text in ["UPDATE t SET n = 1", "SELECT n INTO #x FROM t", "EXEC sp_who", "VALUES (1)"] {
             assert_eq!(body(MS, text), "a is not a query. A reference needs one SELECT or WITH query.", "{text}");
         }
-        assert_eq!(body(MS, "SELECT * FROM t WHERE id = @id"), "a uses the parameter @id. A referenced cell cannot ask for values.");
+        assert_eq!(
+            body(MS, "SELECT * FROM t WHERE id = @id"),
+            "a uses the parameter @id. A referenced cell cannot ask for values."
+        );
         assert!(run(MS, "SELECT * FROM {{a}}", &[("a", "SELECT 1;")]).is_ok());
     }
 
@@ -792,30 +942,64 @@ mod tests {
         let fits = "x".repeat(59);
         assert!(run(PG, &format!("SELECT * FROM {{{{{fits}}}}}"), &[(&fits, "SELECT 1")]).is_ok());
         let long = "x".repeat(60);
-        assert_eq!(refusal(PG, &format!("SELECT * FROM {{{{{long}}}}}"), &[(&long, "SELECT 1")]), format!("The title {long} is too long to reference. Keep it to 59 bytes."));
+        assert_eq!(
+            refusal(PG, &format!("SELECT * FROM {{{{{long}}}}}"), &[(&long, "SELECT 1")]),
+            format!("The title {long} is too long to reference. Keep it to 59 bytes.")
+        );
         let long = "x".repeat(125);
-        assert_eq!(refusal(MS, &format!("SELECT * FROM {{{{{long}}}}}"), &[(&long, "SELECT 1")]), format!("The title {long} is too long to reference. Keep it to 124 characters."));
+        assert_eq!(
+            refusal(MS, &format!("SELECT * FROM {{{{{long}}}}}"), &[(&long, "SELECT 1")]),
+            format!("The title {long} is too long to reference. Keep it to 124 characters.")
+        );
     }
 
     #[test]
     fn only_queries_and_dml_can_hold_a_reference() {
-        for text in ["CREATE TABLE t AS SELECT * FROM {{a}}", "EXPLAIN SELECT * FROM {{a}}", "COPY (SELECT * FROM {{a}}) TO STDOUT"] {
-            assert_eq!(refusal(PG, text, &[A]), "A reference works only in SELECT, WITH, VALUES, TABLE, INSERT, UPDATE, DELETE, and MERGE statements.", "{text}");
+        for text in [
+            "CREATE TABLE t AS SELECT * FROM {{a}}",
+            "EXPLAIN SELECT * FROM {{a}}",
+            "COPY (SELECT * FROM {{a}}) TO STDOUT",
+        ] {
+            assert_eq!(
+                refusal(PG, text, &[A]),
+                "A reference works only in SELECT, WITH, VALUES, TABLE, INSERT, UPDATE, DELETE, and MERGE statements.",
+                "{text}"
+            );
         }
-        assert_eq!(refusal(MS, "DECLARE c CURSOR FOR SELECT * FROM {{a}}", &[A]), "A reference works only in SELECT, WITH, INSERT, UPDATE, DELETE, and MERGE statements.");
+        assert_eq!(
+            refusal(MS, "DECLARE c CURSOR FOR SELECT * FROM {{a}}", &[A]),
+            "A reference works only in SELECT, WITH, INSERT, UPDATE, DELETE, and MERGE statements."
+        );
         assert_eq!(refusal(MS, "CREATE VIEW v AS SELECT * FROM {{a}}", &[A]), MODULE);
         assert_eq!(refusal(MS, "CREATE OR ALTER PROCEDURE p AS SELECT * FROM {{a}}", &[A]), MODULE);
     }
 
     #[test]
     fn a_cte_name_the_statement_already_uses_is_refused() {
-        assert_eq!(refusal(PG, "WITH \"{{a}}\" AS (SELECT 2) SELECT * FROM {{a}} x", &[A]), "This statement already has a CTE named {{a}}.");
         assert_eq!(
-            refusal(PG, "WITH RECURSIVE orders AS (SELECT 1 AS n) SELECT * FROM orders, {{a}} x", &[("a", "SELECT * FROM Orders")]),
+            refusal(PG, "WITH \"{{a}}\" AS (SELECT 2) SELECT * FROM {{a}} x", &[A]),
+            "This statement already has a CTE named {{a}}."
+        );
+        assert_eq!(
+            refusal(
+                PG,
+                "WITH RECURSIVE orders AS (SELECT 1 AS n) SELECT * FROM orders, {{a}} x",
+                &[("a", "SELECT * FROM Orders")]
+            ),
             "a reads orders, which this WITH RECURSIVE also defines. Rename that CTE."
         );
-        assert!(run(PG, "WITH RECURSIVE orders AS (SELECT 1 AS n) SELECT * FROM orders, {{a}} x", &[("a", "SELECT o.orders FROM public.orders o")]).is_ok());
-        assert!(run(PG, "WITH orders AS (SELECT 1 AS n) SELECT * FROM orders, {{a}} x", &[("a", "SELECT * FROM orders")]).is_ok());
+        assert!(
+            run(
+                PG,
+                "WITH RECURSIVE orders AS (SELECT 1 AS n) SELECT * FROM orders, {{a}} x",
+                &[("a", "SELECT o.orders FROM public.orders o")]
+            )
+            .is_ok()
+        );
+        assert!(
+            run(PG, "WITH orders AS (SELECT 1 AS n) SELECT * FROM orders, {{a}} x", &[("a", "SELECT * FROM orders")])
+                .is_ok()
+        );
     }
 
     #[test]
@@ -830,7 +1014,10 @@ mod tests {
             one(MS, "DECLARE @n int = 1\nSELECT * FROM {{a}} x WHERE x.n = @n", &[A]),
             "DECLARE @n int = 1\n;WITH [{{a}}] AS (\nSELECT 1 AS n\n)\nSELECT * FROM [{{a}}] x WHERE x.n = @n"
         );
-        assert_eq!(one(MS, "SELECT 1;\nSELECT * FROM {{a}} x", &[A]), "SELECT 1;\nWITH [{{a}}] AS (\nSELECT 1 AS n\n)\nSELECT * FROM [{{a}}] x");
+        assert_eq!(
+            one(MS, "SELECT 1;\nSELECT * FROM {{a}} x", &[A]),
+            "SELECT 1;\nWITH [{{a}}] AS (\nSELECT 1 AS n\n)\nSELECT * FROM [{{a}}] x"
+        );
         assert_eq!(
             one(MS, "IF 1 = 1\nBEGIN\n  SELECT * FROM {{a}} x\nEND", &[A]),
             "IF 1 = 1\nBEGIN\n  ;WITH [{{a}}] AS (\nSELECT 1 AS n\n)\nSELECT * FROM [{{a}}] x\nEND"
@@ -839,12 +1026,19 @@ mod tests {
             one(MS, "SELECT * FROM {{a}} x\nSELECT * FROM {{b}} y", &[A, ("b", "SELECT 2 AS n")]),
             "WITH [{{a}}] AS (\nSELECT 1 AS n\n)\nSELECT * FROM [{{a}}] x\n;WITH [{{b}}] AS (\nSELECT 2 AS n\n)\nSELECT * FROM [{{b}}] y"
         );
-        assert!(one(MS, "SELECT 1\n;WITH t AS (SELECT * FROM {{a}}) SELECT * FROM t", &[A]).starts_with("SELECT 1\n;WITH [{{a}}] AS ("));
+        assert!(
+            one(MS, "SELECT 1\n;WITH t AS (SELECT * FROM {{a}}) SELECT * FROM t", &[A])
+                .starts_with("SELECT 1\n;WITH [{{a}}] AS (")
+        );
     }
 
     #[test]
     fn sql_server_refuses_a_reference_in_a_statement_that_if_else_or_while_governs() {
-        for text in ["IF 1 = 1 SELECT * FROM {{a}}", "IF 1 = 1 SELECT 1 ELSE SELECT * FROM {{a}}", "WHILE 1 = 0\n  INSERT INTO t SELECT * FROM {{a}}"] {
+        for text in [
+            "IF 1 = 1 SELECT * FROM {{a}}",
+            "IF 1 = 1 SELECT 1 ELSE SELECT * FROM {{a}}",
+            "WHILE 1 = 0\n  INSERT INTO t SELECT * FROM {{a}}",
+        ] {
             assert_eq!(refusal(MS, text, &[A]), CONTROL, "{text}");
         }
         assert!(run(MS, "IF 1 = 1 SELECT 1\nSELECT * FROM {{a}} x", &[A]).is_ok());
@@ -853,46 +1047,86 @@ mod tests {
     #[test]
     fn sql_server_hoists_a_body_with_list_ahead_of_its_cte() {
         let pairs = [("a", "WITH big AS (SELECT n FROM t WHERE n > 1) SELECT n FROM big;")];
-        assert_eq!(one(MS, "SELECT * FROM {{a}} x", &pairs), "WITH big AS (SELECT n FROM t WHERE n > 1),\n[{{a}}] AS (\nSELECT n FROM big\n)\nSELECT * FROM [{{a}}] x");
-        let pairs = [("a", "WITH t AS (SELECT 1 AS n) SELECT n FROM t"), ("b", "WITH t AS (SELECT 2 AS n) SELECT n FROM t")];
+        assert_eq!(
+            one(MS, "SELECT * FROM {{a}} x", &pairs),
+            "WITH big AS (SELECT n FROM t WHERE n > 1),\n[{{a}}] AS (\nSELECT n FROM big\n)\nSELECT * FROM [{{a}}] x"
+        );
+        let pairs =
+            [("a", "WITH t AS (SELECT 1 AS n) SELECT n FROM t"), ("b", "WITH t AS (SELECT 2 AS n) SELECT n FROM t")];
         let clash = "a defines the CTE t, and this statement also reads or defines t. Rename the CTE in a.";
         assert_eq!(refusal(MS, "SELECT * FROM {{a}} x JOIN dbo.u ON 1 = 1 JOIN T ON T.n = x.n", &pairs), clash);
         assert_eq!(refusal(MS, "SELECT * FROM {{a}} x, {{b}} y", &pairs), clash);
         assert_eq!(refusal(MS, "WITH t AS (SELECT 3 AS n) SELECT * FROM {{a}} x", &pairs), clash);
-        assert!(run(MS, "SELECT t.n, x.t FROM {{a}} t JOIN dbo.t x ON 1 = 1\nSELECT * FROM t", &pairs).is_ok(), "an alias, a qualified table, or another statement cannot be shadowed");
-        assert_eq!(refusal(MS, "SELECT * FROM {{a}} x", &[("a", "WITH XMLNAMESPACES ('urn:x' AS x) SELECT 1 AS n")]), "a starts with a WITH list this app cannot read.");
+        assert!(
+            run(MS, "SELECT t.n, x.t FROM {{a}} t JOIN dbo.t x ON 1 = 1\nSELECT * FROM t", &pairs).is_ok(),
+            "an alias, a qualified table, or another statement cannot be shadowed"
+        );
+        assert_eq!(
+            refusal(MS, "SELECT * FROM {{a}} x", &[("a", "WITH XMLNAMESPACES ('urn:x' AS x) SELECT 1 AS n")]),
+            "a starts with a WITH list this app cannot read."
+        );
     }
 
     #[test]
     fn sql_server_drops_a_body_order_by_that_means_nothing_in_a_cte() {
-        let body = |text: &str| one(MS, "SELECT * FROM {{a}} x", &[("a", text)]).split_once(" AS (\n").unwrap().1.split_once("\n)\n").unwrap().0.to_owned();
+        let body = |text: &str| {
+            one(MS, "SELECT * FROM {{a}} x", &[("a", text)])
+                .split_once(" AS (\n")
+                .unwrap()
+                .1
+                .split_once("\n)\n")
+                .unwrap()
+                .0
+                .to_owned()
+        };
         assert_eq!(body("SELECT n FROM t ORDER BY n DESC"), "SELECT n FROM t");
         assert_eq!(body("SELECT n FROM t UNION SELECT n FROM u ORDER BY 1;"), "SELECT n FROM t UNION SELECT n FROM u");
         assert_eq!(body("WITH b AS (SELECT TOP 1 n FROM t ORDER BY n) SELECT n FROM b ORDER BY n"), "SELECT n FROM b");
-        for kept in ["SELECT TOP 5 n FROM t ORDER BY n", "SELECT n FROM t ORDER BY n OFFSET 0 ROWS", "SELECT n FROM t ORDER BY n FOR XML PATH('')", "SELECT n, ROW_NUMBER() OVER (ORDER BY n) AS r FROM t"] {
+        for kept in [
+            "SELECT TOP 5 n FROM t ORDER BY n",
+            "SELECT n FROM t ORDER BY n OFFSET 0 ROWS",
+            "SELECT n FROM t ORDER BY n FOR XML PATH('')",
+            "SELECT n, ROW_NUMBER() OVER (ORDER BY n) AS r FROM t",
+        ] {
             assert_eq!(body(kept), kept);
         }
-        assert!(one(PG, "SELECT * FROM {{a}} x", &[("a", "SELECT n FROM t ORDER BY n")]).contains("SELECT n FROM t ORDER BY n\n)"));
+        assert!(
+            one(PG, "SELECT * FROM {{a}} x", &[("a", "SELECT n FROM t ORDER BY n")])
+                .contains("SELECT n FROM t ORDER BY n\n)")
+        );
     }
 
     #[test]
     fn sql_server_refuses_what_a_cte_cannot_hold_or_tell_apart() {
         let hint = "a ends with an OPTION hint, which SQL Server does not allow inside a CTE. Move the hint to the statement that references a.";
-        for text in ["SELECT n FROM t ORDER BY n OPTION (RECOMPILE)", "SELECT n FROM t OPTION (MAXDOP 1)", "WITH b AS (SELECT n FROM t) SELECT n FROM b OPTION (RECOMPILE)"] {
+        for text in [
+            "SELECT n FROM t ORDER BY n OPTION (RECOMPILE)",
+            "SELECT n FROM t OPTION (MAXDOP 1)",
+            "WITH b AS (SELECT n FROM t) SELECT n FROM b OPTION (RECOMPILE)",
+        ] {
             assert_eq!(refusal(MS, "SELECT * FROM {{a}} x", &[("a", text)]), hint, "{text}");
         }
-        assert!(run(MS, "SELECT * FROM {{a}} x OPTION (RECOMPILE)", &[("a", "SELECT n FROM t")]).is_ok(), "the referencing statement keeps its own hint");
+        assert!(
+            run(MS, "SELECT * FROM {{a}} x OPTION (RECOMPILE)", &[("a", "SELECT n FROM t")]).is_ok(),
+            "the referencing statement keeps its own hint"
+        );
         let cased = [("a", "SELECT 1 AS n"), ("A", "SELECT n FROM {{a}}")];
         let clash = "a and A differ only in case, which SQL Server can read as one name. Rename one.";
         assert_eq!(refusal(MS, "SELECT * FROM {{A}} x", &cased), clash);
-        assert_eq!(refusal(MS, "SELECT * FROM {{a}} x, {{A}} y", &[("a", "SELECT 1 AS n"), ("A", "SELECT 2 AS n")]), clash);
+        assert_eq!(
+            refusal(MS, "SELECT * FROM {{a}} x, {{A}} y", &[("a", "SELECT 1 AS n"), ("A", "SELECT 2 AS n")]),
+            clash
+        );
         assert!(run(PG, "SELECT * FROM {{A}} x", &cased).is_ok(), "PostgreSQL keeps quoted names apart by case");
     }
 
     #[test]
     fn formatting_keeps_a_reference_as_written() {
         let format = |kind, text| crate::text::format_edit(text, RunTarget::All, kind).unwrap().insert;
-        assert_eq!(format(PG, "select * from {{ revenue by region }} r where r.total > 10"), "SELECT *\nFROM {{ revenue by region }} r\nWHERE r.total > 10");
+        assert_eq!(
+            format(PG, "select * from {{ revenue by region }} r where r.total > 10"),
+            "SELECT *\nFROM {{ revenue by region }} r\nWHERE r.total > 10"
+        );
         assert!(format(MS, "select * from {{ revenue by region }} r").contains("from {{ revenue by region }} r"));
     }
 
@@ -916,7 +1150,14 @@ mod tests {
         assert_eq!(at(PG, "SELECT * FROM {{bob's", 21), reference(16));
         assert_eq!(at(PG, "SELECT 'é' FROM {{r", 19), reference(18));
         assert_eq!(at(MS, "SELECT * FROM {{rev", 19), reference(16));
-        for (kind, text, cursor) in [(PG, "SELECT * FROM {{revenue}} ", 26), (PG, "SELECT '{{rev", 13), (PG, "-- {{rev", 8), (PG, "{{a\nSELECT ", 11), (MS, "SELECT * FROM [{{rev", 20), (PG, "SELECT * FROM {", 15)] {
+        for (kind, text, cursor) in [
+            (PG, "SELECT * FROM {{revenue}} ", 26),
+            (PG, "SELECT '{{rev", 13),
+            (PG, "-- {{rev", 8),
+            (PG, "{{a\nSELECT ", 11),
+            (MS, "SELECT * FROM [{{rev", 20),
+            (PG, "SELECT * FROM {", 15),
+        ] {
             assert!(!matches!(at(kind, text, cursor), CompletionContext::Reference { .. }), "{text:?}");
         }
     }

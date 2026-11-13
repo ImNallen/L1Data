@@ -131,7 +131,10 @@ impl Expression<'_> {
             self.require(")")?;
         } else {
             let token = self.tokens.get(self.at).ok_or("Expected a T-SQL expression")?;
-            if matches!(token.kind, Kind::String | Kind::Number | Kind::Variable) || token.word("NULL") || token.word("CURRENT_TIMESTAMP") {
+            if matches!(token.kind, Kind::String | Kind::Number | Kind::Variable)
+                || token.word("NULL")
+                || token.word("CURRENT_TIMESTAMP")
+            {
                 self.at += 1;
             } else if expression_name(token) {
                 self.at += 1;
@@ -349,6 +352,8 @@ mod tests {
         assert!(validate_expression(&nested, false).is_err());
         assert!(validate_expression(&format!("{}id=1", "NOT ".repeat(66)), false).is_err());
         assert!(validate_expression(&"a".repeat(65_537), false).is_err());
-        assert!(validate_expression(&std::iter::repeat_n("id=1", 1500).collect::<Vec<_>>().join(" OR "), false).is_err());
+        assert!(
+            validate_expression(&std::iter::repeat_n("id=1", 1500).collect::<Vec<_>>().join(" OR "), false).is_err()
+        );
     }
 }

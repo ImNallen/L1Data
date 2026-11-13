@@ -2,12 +2,15 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Mutex;
 
-use rusqlite::{Connection, OptionalExtension, params};
 use rusqlite::functions::FunctionFlags;
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::model::{ChatId, ChatOptions, ConnectionConfig, ConnectionId, DatabaseKind, Entry, HistoryEntry, HistoryOutcome, HistoryPage, HistoryQuery, ProviderKind};
+use crate::model::{
+    ChatId, ChatOptions, ConnectionConfig, ConnectionId, DatabaseKind, Entry, HistoryEntry, HistoryOutcome,
+    HistoryPage, HistoryQuery, ProviderKind,
+};
 use crate::secrets::{Sealed, SecretSlot};
 use crate::view::ConnectionView;
 
@@ -132,9 +135,12 @@ pub struct HistoryInsert {
 impl Store {
     pub fn open(path: &Path) -> Result<Self, StoreError> {
         let conn = Connection::open(path)?;
-        conn.create_scalar_function("history_lower", 1, FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC, |ctx| {
-            Ok(ctx.get::<Option<String>>(0)?.map(|text| text.to_lowercase()))
-        })?;
+        conn.create_scalar_function(
+            "history_lower",
+            1,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            |ctx| Ok(ctx.get::<Option<String>>(0)?.map(|text| text.to_lowercase())),
+        )?;
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")?;
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         for (i, sql) in MIGRATIONS.iter().enumerate().skip(version as usize) {
@@ -154,7 +160,14 @@ impl Store {
             tx.pragma_update(None, "user_version", (i + 1) as i64)?;
             tx.commit()?;
         }
-        Ok(Self { state: Mutex::new(StoreState { conn, history_revision: 0, saved_revision: 1, unreadable_logged: HashSet::new() }) })
+        Ok(Self {
+            state: Mutex::new(StoreState {
+                conn,
+                history_revision: 0,
+                saved_revision: 1,
+                unreadable_logged: HashSet::new(),
+            }),
+        })
     }
 
     fn with<T>(&self, f: impl FnOnce(&Connection) -> Result<T, StoreError>) -> Result<T, StoreError> {
@@ -162,7 +175,10 @@ impl Store {
         f(&state.conn)
     }
 
-    pub(crate) fn with_history<T>(&self, f: impl FnOnce(&Connection, &mut u64) -> Result<T, StoreError>) -> Result<T, StoreError> {
+    pub(crate) fn with_history<T>(
+        &self,
+        f: impl FnOnce(&Connection, &mut u64) -> Result<T, StoreError>,
+    ) -> Result<T, StoreError> {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         let StoreState { conn, history_revision, .. } = &mut *state;
         f(conn, history_revision)
@@ -194,7 +210,8 @@ impl Store {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         let StoreState { conn, unreadable_logged, .. } = &mut *state;
         let id = id.0.to_string();
-        let json: Option<String> = conn.query_row("SELECT json FROM connections WHERE id = ?1", [&id], |r| r.get(0)).optional()?;
+        let json: Option<String> =
+            conn.query_row("SELECT json FROM connections WHERE id = ?1", [&id], |r| r.get(0)).optional()?;
         Ok(json.and_then(|json| parse_connection(unreadable_logged, id, &json)))
     }
 
@@ -225,8 +242,11 @@ impl Store {
     /// takes as the initial view: a bad row can hide the tree's extras, never the connection.
     pub fn view(&self, id: ConnectionId) -> Result<Option<ConnectionView>, StoreError> {
         self.with(|c| {
-            let json: Option<String> =
-                c.query_row("SELECT json FROM connection_views WHERE connection_id = ?1", [id.0.to_string()], |r| r.get(0)).optional()?;
+            let json: Option<String> = c
+                .query_row("SELECT json FROM connection_views WHERE connection_id = ?1", [id.0.to_string()], |r| {
+                    r.get(0)
+                })
+                .optional()?;
             Ok(json.and_then(|j| match serde_json::from_str(&j) {
                 Ok(view) => Some(view),
                 Err(e) => {
@@ -249,9 +269,11 @@ impl Store {
 
     pub fn secret(&self, id: ConnectionId, slot: SecretSlot) -> Result<Option<Sealed>, StoreError> {
         self.with(|c| {
-            Ok(c.query_row(&format!("SELECT nonce, ciphertext FROM {} WHERE connection_id = ?1", slot.table()), [id.0.to_string()], |r| {
-                Ok(Sealed { nonce: r.get(0)?, ciphertext: r.get(1)? })
-            })
+            Ok(c.query_row(
+                &format!("SELECT nonce, ciphertext FROM {} WHERE connection_id = ?1", slot.table()),
+                [id.0.to_string()],
+                |r| Ok(Sealed { nonce: r.get(0)?, ciphertext: r.get(1)? }),
+            )
             .optional()?)
         })
     }
@@ -418,7 +440,8 @@ impl Store {
 
     pub fn chat(&self, id: ChatId) -> Result<Option<ChatRecord>, StoreError> {
         self.with(|c| {
-            let json: Option<String> = c.query_row("SELECT json FROM chats WHERE id = ?1", [id.0.to_string()], |r| r.get(0)).optional()?;
+            let json: Option<String> =
+                c.query_row("SELECT json FROM chats WHERE id = ?1", [id.0.to_string()], |r| r.get(0)).optional()?;
             Ok(json.map(|j| serde_json::from_str(&j)).transpose()?)
         })
     }
@@ -426,7 +449,9 @@ impl Store {
     pub fn chat_entries(&self, id: ChatId) -> Result<Vec<(u32, u32, Entry)>, StoreError> {
         self.with(|c| {
             let mut stmt = c.prepare("SELECT seq, turn, json FROM chat_entries WHERE chat_id = ?1 ORDER BY seq")?;
-            let rows = stmt.query_map([id.0.to_string()], |r| Ok((r.get::<_, u32>(0)?, r.get::<_, u32>(1)?, r.get::<_, String>(2)?)))?;
+            let rows = stmt.query_map([id.0.to_string()], |r| {
+                Ok((r.get::<_, u32>(0)?, r.get::<_, u32>(1)?, r.get::<_, String>(2)?))
+            })?;
             rows.map(|row| {
                 let (seq, turn, json) = row?;
                 let entry = serde_json::from_str(&json).unwrap_or_else(|e| {
@@ -487,7 +512,8 @@ mod tests {
     }
 
     fn entry(sql: &str) -> HistoryInsert {
-        HistoryInsert { database_kind: crate::model::DatabaseKind::Postgres,
+        HistoryInsert {
+            database_kind: crate::model::DatabaseKind::Postgres,
             at_ms: 1,
             connection_id: ConnectionId(uuid::Uuid::nil()),
             connection_name: "dev".into(),
@@ -501,10 +527,28 @@ mod tests {
     #[test]
     fn a_connection_row_that_fails_to_parse_is_skipped_and_the_rest_load() {
         let (s, _dir) = store();
-        let config = |name: &str| ConnectionConfig { database_kind: crate::model::DatabaseKind::Postgres, id: ConnectionId(uuid::Uuid::new_v4()), name: name.into(), host: "localhost".into(), port: 5432, database: "shop".into(), user: "u".into(), ssl_mode: SslMode::Prefer, ca_cert_path: None, has_password: false, color: None, ssh: None, environment: None, sql_server_auth: None };
+        let config = |name: &str| ConnectionConfig {
+            database_kind: crate::model::DatabaseKind::Postgres,
+            id: ConnectionId(uuid::Uuid::new_v4()),
+            name: name.into(),
+            host: "localhost".into(),
+            port: 5432,
+            database: "shop".into(),
+            user: "u".into(),
+            ssl_mode: SslMode::Prefer,
+            ca_cert_path: None,
+            has_password: false,
+            color: None,
+            ssh: None,
+            environment: None,
+            sql_server_auth: None,
+        };
         let (first, last) = (config("first"), config("last"));
         s.upsert_connection(&first).unwrap();
-        s.with(|c| Ok(c.execute(r#"INSERT INTO connections (id, json) VALUES ('newer', '{"sslMode":"VerifyPinned"}')"#, [])?)).unwrap();
+        s.with(|c| {
+            Ok(c.execute(r#"INSERT INTO connections (id, json) VALUES ('newer', '{"sslMode":"VerifyPinned"}')"#, [])?)
+        })
+        .unwrap();
         s.upsert_connection(&last).unwrap();
         for _ in 0..2 {
             let saved = s.connections().unwrap();
@@ -519,7 +563,8 @@ mod tests {
     fn migrations_run_once_and_data_survives_reopen() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("t.sqlite3");
-        let config = ConnectionConfig { database_kind: crate::model::DatabaseKind::Postgres,
+        let config = ConnectionConfig {
+            database_kind: crate::model::DatabaseKind::Postgres,
             id: ConnectionId(uuid::Uuid::new_v4()),
             name: "dev".into(),
             host: "localhost".into(),
@@ -546,7 +591,12 @@ mod tests {
         assert_eq!((loaded[0].id, loaded[0].port), (config.id, 5433));
         assert_eq!(s.kv_get::<Settings>("settings").unwrap().unwrap().max_rows, 7);
         assert!(s.kv_get::<Settings>("missing").unwrap().is_none());
-        assert_eq!(s.history(&HistoryQuery { text: None, connection_id: None, before_id: None, limit: 10 }).unwrap().entries[0].sql, "select 1");
+        assert_eq!(
+            s.history(&HistoryQuery { text: None, connection_id: None, before_id: None, limit: 10 }).unwrap().entries
+                [0]
+            .sql,
+            "select 1"
+        );
         s.delete_connection(config.id).unwrap();
         assert!(s.connections().unwrap().configs.is_empty());
     }
@@ -562,7 +612,10 @@ mod tests {
         assert_eq!(s.secret(id, SecretSlot::Database).unwrap(), Some(sealed(1)));
         assert_eq!(s.secret(id, SecretSlot::Ssh).unwrap(), Some(sealed(2)));
         s.delete_secret(id, SecretSlot::Ssh).unwrap();
-        assert_eq!((s.secret(id, SecretSlot::Ssh).unwrap(), s.secret(id, SecretSlot::Database).unwrap()), (None, Some(sealed(1))));
+        assert_eq!(
+            (s.secret(id, SecretSlot::Ssh).unwrap(), s.secret(id, SecretSlot::Database).unwrap()),
+            (None, Some(sealed(1)))
+        );
         s.set_secret(id, SecretSlot::Ssh, &sealed(4)).unwrap();
         s.delete_connection(id).unwrap();
         assert_eq!((s.secret(id, SecretSlot::Database).unwrap(), s.secret(id, SecretSlot::Ssh).unwrap()), (None, None));
@@ -586,7 +639,10 @@ mod tests {
         assert_eq!(s.view(id).unwrap(), Some(view));
 
         s.with(|c| {
-            c.execute("UPDATE connection_views SET json = '{\"databases\": 7' WHERE connection_id = ?1", [id.0.to_string()])?;
+            c.execute(
+                "UPDATE connection_views SET json = '{\"databases\": 7' WHERE connection_id = ?1",
+                [id.0.to_string()],
+            )?;
             Ok(())
         })
         .unwrap();
@@ -610,19 +666,35 @@ mod tests {
         let page = s.history(&HistoryQuery { text: None, connection_id: None, before_id: None, limit: 2 }).unwrap();
         assert_eq!(page.entries.iter().map(|e| e.sql.as_str()).collect::<Vec<_>>(), ["select other", "select 4"]);
         assert!(page.has_more);
-        let next = s.history(&HistoryQuery { text: None, connection_id: None, before_id: Some(page.entries[1].id), limit: 10 }).unwrap();
+        let next = s
+            .history(&HistoryQuery { text: None, connection_id: None, before_id: Some(page.entries[1].id), limit: 10 })
+            .unwrap();
         assert_eq!(next.entries.len(), 4);
         assert!(!next.has_more);
 
-        let filtered = s.history(&HistoryQuery { text: Some("other".into()), connection_id: Some(other_id), before_id: None, limit: 10 }).unwrap();
+        let filtered = s
+            .history(&HistoryQuery {
+                text: Some("other".into()),
+                connection_id: Some(other_id),
+                before_id: None,
+                limit: 10,
+            })
+            .unwrap();
         assert_eq!(filtered.entries.len(), 1);
         assert_eq!(filtered.entries[0].connection_id, other_id);
         assert!(matches!(filtered.entries[0].outcome, HistoryOutcome::Rows { rows: 1 }));
-        let none = s.history(&HistoryQuery { text: Some("zzz".into()), connection_id: None, before_id: None, limit: 10 }).unwrap();
+        let none = s
+            .history(&HistoryQuery { text: Some("zzz".into()), connection_id: None, before_id: None, limit: 10 })
+            .unwrap();
         assert!(none.entries.is_empty());
 
         s.clear_history().unwrap();
-        assert!(s.history(&HistoryQuery { text: None, connection_id: None, before_id: None, limit: 10 }).unwrap().entries.is_empty());
+        assert!(
+            s.history(&HistoryQuery { text: None, connection_id: None, before_id: None, limit: 10 })
+                .unwrap()
+                .entries
+                .is_empty()
+        );
     }
 
     #[test]
@@ -633,7 +705,8 @@ mod tests {
         }
         let count: i64 = s.with(|c| Ok(c.query_row("SELECT count(*) FROM history", [], |r| r.get(0))?)).unwrap();
         assert_eq!(count, HISTORY_KEEP);
-        let all = s.history(&HistoryQuery { text: None, connection_id: None, before_id: None, limit: u16::MAX }).unwrap();
+        let all =
+            s.history(&HistoryQuery { text: None, connection_id: None, before_id: None, limit: u16::MAX }).unwrap();
         assert_eq!(all.entries.last().unwrap().sql, "q5", "the five oldest rows are gone");
     }
 
@@ -646,7 +719,12 @@ mod tests {
             title: title.into(),
             created_at_ms: 1,
             updated_at_ms,
-            options: ChatOptions { provider: ProviderKind::Claude, model: ModelId("opus".into()), effort: Some(EffortId("high".into())), permission: Permission::AskFirst },
+            options: ChatOptions {
+                provider: ProviderKind::Claude,
+                model: ModelId("opus".into()),
+                effort: Some(EffortId("high".into())),
+                permission: Permission::AskFirst,
+            },
             session: None,
             entry_count: 0,
             access: None,
@@ -703,7 +781,10 @@ mod tests {
         let s = Store::open(&path).unwrap();
         let version: i64 = s.with(|c| Ok(c.query_row("PRAGMA user_version", [], |r| r.get(0))?)).unwrap();
         assert_eq!(version, 8);
-        assert_eq!(crate::saved::snapshot(&s).unwrap().items.iter().map(|q| q.name.as_str()).collect::<Vec<_>>(), ["one"]);
+        assert_eq!(
+            crate::saved::snapshot(&s).unwrap().items.iter().map(|q| q.name.as_str()).collect::<Vec<_>>(),
+            ["one"]
+        );
         assert_eq!(s.kv_get::<serde_json::Value>("workspace").unwrap(), Some(serde_json::json!({})));
     }
 
@@ -717,7 +798,12 @@ mod tests {
         assert_eq!(s.chats(1).unwrap(), vec![(new, record("new", 20))]);
 
         let resumed = ChatRecord {
-            session: Some(ProviderSession { provider: ProviderKind::Claude, id: "4f1c".into(), config_dir: "~/.claude".into(), access: None }),
+            session: Some(ProviderSession {
+                provider: ProviderKind::Claude,
+                id: "4f1c".into(),
+                config_dir: "~/.claude".into(),
+                access: None,
+            }),
             entry_count: 3,
             ..record("old", 30)
         };
@@ -727,10 +813,21 @@ mod tests {
         assert_eq!(s.chat(chat_id(9)).unwrap(), None);
 
         let done = Entry::End { at_ms: 9, outcome: TurnOutcome::Completed, suggestions: vec!["Show totals".into()] };
-        s.put_entries(old, &[(2, 0, Entry::Text { blocks: vec![], done: false }), (0, 0, user("hi")), (1, 0, Entry::Notice { text: "restarted".into() })]).unwrap();
+        s.put_entries(
+            old,
+            &[
+                (2, 0, Entry::Text { blocks: vec![], done: false }),
+                (0, 0, user("hi")),
+                (1, 0, Entry::Notice { text: "restarted".into() }),
+            ],
+        )
+        .unwrap();
         s.put_entry(old, 2, 0, &done).unwrap();
         s.put_entry(new, 0, 0, &user("other chat")).unwrap();
-        assert_eq!(s.chat_entries(old).unwrap(), vec![(0, 0, user("hi")), (1, 0, Entry::Notice { text: "restarted".into() }), (2, 0, done)]);
+        assert_eq!(
+            s.chat_entries(old).unwrap(),
+            vec![(0, 0, user("hi")), (1, 0, Entry::Notice { text: "restarted".into() }), (2, 0, done)]
+        );
         assert!(s.put_entry(chat_id(9), 0, 0, &user("orphan")).is_err(), "an entry needs its chat row");
     }
 

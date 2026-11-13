@@ -67,16 +67,27 @@ impl server::Handler for Gate {
     }
 
     async fn auth_publickey(&mut self, user: &str, key: &PublicKey) -> Result<Auth, Self::Error> {
-        let authorized = ["keys/id_ed25519", "keys/id_ed25519_passphrase", "keys/id_rsa"].iter().any(|k| public(k).key_data() == key.key_data());
+        let authorized = ["keys/id_ed25519", "keys/id_ed25519_passphrase", "keys/id_rsa"]
+            .iter()
+            .any(|k| public(k).key_data() == key.key_data());
         Ok(self.accept(self.login != Login::Refuse && user == "tunnel" && authorized))
     }
 
-    async fn auth_keyboard_interactive<'a>(&'a mut self, user: &str, _: &str, response: Option<server::Response<'a>>) -> Result<Auth, Self::Error> {
+    async fn auth_keyboard_interactive<'a>(
+        &'a mut self,
+        user: &str,
+        _: &str,
+        response: Option<server::Response<'a>>,
+    ) -> Result<Auth, Self::Error> {
         if self.login != Login::KeyboardInteractive {
             return Ok(Auth::reject());
         }
         Ok(match response {
-            None => Auth::Partial { name: "".into(), instructions: "".into(), prompts: vec![("Password: ".into(), false)].into() },
+            None => Auth::Partial {
+                name: "".into(),
+                instructions: "".into(),
+                prompts: vec![("Password: ".into(), false)].into(),
+            },
             Some(mut answers) => {
                 let answer = answers.next();
                 self.accept(user == "tunnel" && answer.as_deref() == Some(b"tunnel".as_slice()))
@@ -145,7 +156,9 @@ impl Bastion {
             }
         });
         let methods = match login {
-            Login::KeyboardInteractive => MethodSet::from(&[MethodKind::PublicKey, MethodKind::KeyboardInteractive][..]),
+            Login::KeyboardInteractive => {
+                MethodSet::from(&[MethodKind::PublicKey, MethodKind::KeyboardInteractive][..])
+            }
             _ => MethodSet::from(&[MethodKind::Password, MethodKind::PublicKey][..]),
         };
         let config = Arc::new(server::Config {
@@ -285,7 +298,10 @@ async fn an_unknown_host_key_is_trusted_once_and_then_connects() {
     let rig = Rig::new(Login::Password).await;
     std::fs::write(rig.user_known_hosts(), user).unwrap();
     let route = rig.password("tunnel");
-    let SshError::HostKeyUnknown { host, port, algorithm, fingerprint, trust } = rig.refusal(route.clone()).await else { panic!("not unknown") };
+    let SshError::HostKeyUnknown { host, port, algorithm, fingerprint, trust } = rig.refusal(route.clone()).await
+    else {
+        panic!("not unknown")
+    };
     assert_eq!((host.as_str(), port, algorithm.as_str()), ("127.0.0.1", rig.bastion.port, "ssh-ed25519"));
     assert_eq!(fingerprint, public(HOST_KEY).fingerprint(HashAlg::Sha256).to_string());
     assert_eq!(rig.bastion.auths(), 0, "nothing authenticates to an unknown server");
@@ -293,7 +309,10 @@ async fn an_unknown_host_key_is_trusted_once_and_then_connects() {
     rig.tunnels.trust(trust).unwrap();
     assert!(rig.tunnels.trust(trust).is_err(), "a held key is trusted once");
     let trusted = std::fs::read_to_string(rig.app_known_hosts()).unwrap();
-    assert_eq!(trusted.lines().filter(|l| !l.is_empty()).collect::<Vec<_>>(), [rig.bastion.known_hosts_line().trim_end()]);
+    assert_eq!(
+        trusted.lines().filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        [rig.bastion.known_hosts_line().trim_end()]
+    );
     assert_eq!(std::fs::read_to_string(rig.user_known_hosts()).unwrap(), user, "the user's file is never written");
     rig.echo(&route).await;
 }
@@ -338,7 +357,11 @@ async fn a_changed_host_key_fails_at_its_line() {
 #[tokio::test]
 async fn a_revoked_host_key_fails_even_when_trusted() {
     let rig = Rig::trusted(Login::Password).await;
-    std::fs::write(rig.user_known_hosts(), format!("@revoked * ssh-ed25519 {}\n", public(HOST_KEY).public_key_base64())).unwrap();
+    std::fs::write(
+        rig.user_known_hosts(),
+        format!("@revoked * ssh-ed25519 {}\n", public(HOST_KEY).public_key_base64()),
+    )
+    .unwrap();
     let error = rig.refusal(rig.password("tunnel")).await;
     let SshError::HostKeyRevoked { revoked_at, .. } = error else { panic!("{error:?}") };
     assert_eq!(revoked_at, format!("{}:1", rig.user_known_hosts().display()));
@@ -361,7 +384,12 @@ async fn password_auth_takes_the_right_password_and_names_the_methods_for_a_wron
     let rig = Rig::trusted(Login::Password).await;
     rig.echo(&rig.password("tunnel")).await;
     let SshError::Auth { message } = rig.refusal(rig.password("wrong")).await else { panic!() };
-    assert!(message.contains("tunnel") && message.contains(&format!("127.0.0.1:{}", rig.bastion.port)) && message.contains("publickey"), "{message}");
+    assert!(
+        message.contains("tunnel")
+            && message.contains(&format!("127.0.0.1:{}", rig.bastion.port))
+            && message.contains("publickey"),
+        "{message}"
+    );
     let missing = rig.tunnels.route(Some(OWNER), rig.spec(SshAuth::Password, None));
     assert!(matches!(missing.unwrap_err(), ConnectError::Ssh { error: SshError::MissingSecret }));
     assert_eq!(rig.bastion.connections(), 2, "a missing password dials nothing");
@@ -382,9 +410,16 @@ async fn key_auth_takes_ed25519_rsa_and_a_passphrase() {
     rig.echo(&route(rig.key("keys/id_rsa"), None)).await;
     rig.echo(&route(rig.key("keys/id_ed25519_passphrase"), Some("l1data"))).await;
     assert_eq!(rig.refusal(route(rig.key("keys/id_ed25519_passphrase"), None)).await, SshError::MissingSecret);
-    assert!(matches!(rig.refusal(route(rig.key("keys/id_ed25519_passphrase"), Some("wrong"))).await, SshError::Key { message } if message.contains("passphrase")));
-    assert!(matches!(rig.refusal(route(rig.key(HOST_KEY), None)).await, SshError::Auth { .. }), "a key the server does not authorize");
-    assert!(matches!(rig.refusal(route(SshAuth::Key { path: "/nonexistent/id".into() }, None)).await, SshError::Key { message } if message.contains("/nonexistent/id")));
+    assert!(
+        matches!(rig.refusal(route(rig.key("keys/id_ed25519_passphrase"), Some("wrong"))).await, SshError::Key { message } if message.contains("passphrase"))
+    );
+    assert!(
+        matches!(rig.refusal(route(rig.key(HOST_KEY), None)).await, SshError::Auth { .. }),
+        "a key the server does not authorize"
+    );
+    assert!(
+        matches!(rig.refusal(route(SshAuth::Key { path: "/nonexistent/id".into() }, None)).await, SshError::Key { message } if message.contains("/nonexistent/id"))
+    );
 }
 
 #[cfg(unix)]
@@ -421,7 +456,8 @@ async fn concurrent_opens_share_one_connection_and_one_auth() {
         let route = rig.password("tunnel");
         async move { route.open("127.0.0.1", echo).await }
     });
-    let mut streams: Vec<TunnelStream> = futures_util::future::join_all(opens).await.into_iter().map(Result::unwrap).collect();
+    let mut streams: Vec<TunnelStream> =
+        futures_util::future::join_all(opens).await.into_iter().map(Result::unwrap).collect();
     for stream in &mut streams {
         assert_round_trip(stream).await;
     }
@@ -448,7 +484,8 @@ async fn a_dropped_connection_ends_its_streams_and_the_next_open_dials_again() {
     let mut stream = rig.echo(&route).await;
     rig.bastion.drop_connections().await;
     let mut rest = Vec::new();
-    let read = timeout(Duration::from_secs(5), stream.read_to_end(&mut rest)).await.expect("the stream ends within 5 s");
+    let read =
+        timeout(Duration::from_secs(5), stream.read_to_end(&mut rest)).await.expect("the stream ends within 5 s");
     assert!(read.is_err() || rest.is_empty(), "{read:?}");
     rig.echo(&route).await;
     assert_eq!(rig.bastion.connections(), 2);
@@ -491,7 +528,9 @@ async fn forget_makes_the_next_session_dial_and_spares_open_streams() {
 #[tokio::test]
 async fn a_refused_destination_is_a_forward_error() {
     let rig = Rig::trusted(Login::Password).await;
-    let SshError::Forward { message } = ssh_error(rig.password("tunnel").open("10.255.255.1", 5433).await) else { panic!() };
+    let SshError::Forward { message } = ssh_error(rig.password("tunnel").open("10.255.255.1", 5433).await) else {
+        panic!()
+    };
     assert!(message.contains("10.255.255.1:5433"), "{message}");
 }
 
@@ -512,6 +551,9 @@ async fn unread_data_on_one_stream_does_not_stall_another() {
     let route = rig.password("tunnel");
     let _parked = route.open("flood", 1).await.unwrap();
     eventually("the bastion sent the flood", || Counters::get(&rig.bastion.counters.flooded) == 1).await;
-    let mut other = timeout(Duration::from_secs(5), route.open("127.0.0.1", rig.bastion.echo)).await.expect("a second channel opens").unwrap();
+    let mut other = timeout(Duration::from_secs(5), route.open("127.0.0.1", rig.bastion.echo))
+        .await
+        .expect("a second channel opens")
+        .unwrap();
     assert_round_trip(&mut other).await;
 }

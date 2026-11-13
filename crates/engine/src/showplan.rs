@@ -16,8 +16,7 @@ use crate::sql::{self, StmtSpan};
 use crate::writes;
 
 const OFF_LOST: &str = "Plan settings stayed on after explain. The session was retired so the next batch returns rows.";
-const CANCEL_LOST: &str =
-    "Cancelled during explain. The session was retired so the next batch returns rows.";
+const CANCEL_LOST: &str = "Cancelled during explain. The session was retired so the next batch returns rows.";
 
 #[derive(Debug)]
 pub(crate) struct Prepared {
@@ -65,24 +64,13 @@ pub(crate) fn prepare(
     let checked = if !analyze {
         writes::admit(target, false)
     } else if sql::tsql::rerun_refusal(&batch).is_some() {
-        writes::ask(
-            target,
-            &[batch.as_str()],
-            &[on_sql, batch.as_str(), off_sql],
-            confirmed,
-        )
-        .map_err(|confirmation| RunError::ConfirmWrites { confirmation })?
+        writes::ask(target, &[batch.as_str()], &[on_sql, batch.as_str(), off_sql], confirmed)
+            .map_err(|confirmation| RunError::ConfirmWrites { confirmation })?
     } else {
         writes::check(target, &[batch.as_str()], confirmed)
             .map_err(|confirmation| RunError::ConfirmWrites { confirmation })?
     };
-    Ok(Prepared {
-        analyze,
-        batch,
-        on_sql,
-        off_sql,
-        checked,
-    })
+    Ok(Prepared { analyze, batch, on_sql, off_sql, checked })
 }
 
 pub(crate) fn launch(
@@ -95,13 +83,7 @@ pub(crate) fn launch(
     database: String,
     entered: TxnState,
 ) -> Result<Launch, RunError> {
-    let Prepared {
-        analyze,
-        batch,
-        on_sql,
-        off_sql,
-        checked,
-    } = prepared;
+    let Prepared { analyze, batch, on_sql, off_sql, checked } = prepared;
     let writes_stay_unasked = checked.writes_stay_unasked();
     let Some((session, stop)) = console.take_session(inner, run_id, Work::Run(checked)) else {
         return Err(RunError::Busy);
@@ -122,11 +104,7 @@ pub(crate) fn launch(
     })
 }
 
-pub(crate) async fn run(
-    console: Arc<Console>,
-    shared: Arc<Shared>,
-    launch: Launch,
-) -> Result<(), Orphaned> {
+pub(crate) async fn run(console: Arc<Console>, shared: Arc<Shared>, launch: Launch) -> Result<(), Orphaned> {
     let Launch {
         mut session,
         stop,
@@ -143,38 +121,18 @@ pub(crate) async fn run(
     } = launch;
     let started = Instant::now();
     let settings = shared.settings();
-    let caps = Caps {
-        max_rows: settings.max_rows,
-        max_bytes: settings.max_result_bytes,
-    };
+    let caps = Caps { max_rows: settings.max_rows, max_bytes: settings.max_result_bytes };
 
     if let Err(error) = session.batch(on_sql).await {
         let lost = session.closed_reason();
-        let end = if stop.load(Ordering::Relaxed) {
-            console::PlanEnd::Cancelled
-        } else {
-            console::PlanEnd::Failed(error)
-        };
-        return finish(
-            &console,
-            &shared,
-            session,
-            run_id,
-            &batch,
-            &connection,
-            &database,
-            started,
-            entered,
-            lost,
-            end,
-        )
-        .await;
+        let end =
+            if stop.load(Ordering::Relaxed) { console::PlanEnd::Cancelled } else { console::PlanEnd::Failed(error) };
+        return finish(&console, &shared, session, run_id, &batch, &connection, &database, started, entered, lost, end)
+            .await;
     }
     if analyze {
         console
-            .edit(&shared, run_id, |inner| {
-                inner.invalidate(DatabaseKind::SqlServer, sql::tsql::invalidates(&batch))
-            })
+            .edit(&shared, run_id, |inner| inner.invalidate(DatabaseKind::SqlServer, sql::tsql::invalidates(&batch)))
             .await?;
     }
     console.output(&shared, run_id, statement_line(0, &batch));
@@ -211,20 +169,8 @@ pub(crate) async fn run(
             Read::Ready { .. } => console::PlanEnd::Failed(error),
             Read::Cancelled => console::PlanEnd::Cancelled,
         };
-        return finish(
-            &console,
-            &shared,
-            session,
-            run_id,
-            &batch,
-            &connection,
-            &database,
-            started,
-            entered,
-            lost,
-            end,
-        )
-        .await;
+        return finish(&console, &shared, session, run_id, &batch, &connection, &database, started, entered, lost, end)
+            .await;
     }
     let txn = session.observed_txn().unwrap_or(entered);
     match read {
@@ -313,10 +259,7 @@ pub(crate) async fn run(
 }
 
 enum Read {
-    Ready {
-        cell: String,
-        columns: Vec<ColumnMeta>,
-    },
+    Ready { cell: String, columns: Vec<ColumnMeta> },
     Failed(QueryError),
     Cancelled,
 }
@@ -370,33 +313,18 @@ async fn read_showplan(session: &mut Session, sql: &str, stop: &AtomicBool) -> R
         return Read::Cancelled;
     }
     if let Some(error) = failure {
-        return if stop.load(Ordering::Relaxed) {
-            Read::Cancelled
-        } else {
-            Read::Failed(error)
-        };
+        return if stop.load(Ordering::Relaxed) { Read::Cancelled } else { Read::Failed(error) };
     }
     if kept.is_empty() {
         return Read::Failed(session::error("The result is not a plan."));
     }
     let column = kept.last().expect("kept is non-empty").1.clone();
-    let cell = kept
-        .into_iter()
-        .map(|(cell, _)| cell)
-        .collect::<Vec<_>>()
-        .join("\n");
-    Read::Ready {
-        cell,
-        columns: vec![column],
-    }
+    let cell = kept.into_iter().map(|(cell, _)| cell).collect::<Vec<_>>().join("\n");
+    Read::Ready { cell, columns: vec![column] }
 }
 
 fn plan_cell(columns: &[ColumnMeta], row: &[Option<String>]) -> Option<(String, usize)> {
-    if let Some((index, _)) = columns
-        .iter()
-        .enumerate()
-        .find(|(_, column)| column.name.contains("Showplan"))
-    {
+    if let Some((index, _)) = columns.iter().enumerate().find(|(_, column)| column.name.contains("Showplan")) {
         let cell = row.get(index).cloned().flatten()?;
         return Some((cell, index));
     }
@@ -424,15 +352,7 @@ async fn finish(
         shared,
         connection,
         database,
-        console::PlanFinish {
-            session,
-            run_id,
-            sql: sql.to_owned(),
-            started,
-            txn,
-            lost,
-            end,
-        },
+        console::PlanFinish { session, run_id, sql: sql.to_owned(), started, txn, lost, end },
     )
     .await
 }
@@ -488,16 +408,11 @@ fn element_tree(xml: &str) -> Result<Vec<XmlNode>, String> {
     let mut stack: Vec<XmlNode> = Vec::new();
     let mut roots = Vec::new();
     loop {
-        match reader
-            .read_event_into(&mut buf)
-            .map_err(|err| err.to_string())?
-        {
+        match reader.read_event_into(&mut buf).map_err(|err| err.to_string())? {
             Event::Start(event) => stack.push(node_from(&event)),
             Event::Empty(event) => push_node(&mut stack, &mut roots, node_from(&event)),
             Event::End(_) => {
-                let node = stack
-                    .pop()
-                    .ok_or_else(|| "The result is not a plan.".to_string())?;
+                let node = stack.pop().ok_or_else(|| "The result is not a plan.".to_string())?;
                 push_node(&mut stack, &mut roots, node);
             }
             Event::Eof => break,
@@ -519,10 +434,7 @@ fn node_from(event: &BytesStart<'_>) -> XmlNode {
             .flatten()
             .map(|attr| {
                 let name = String::from_utf8_lossy(attr.key.local_name().as_ref()).into_owned();
-                let value = attr
-                    .unescape_value()
-                    .map(|value| value.into_owned())
-                    .unwrap_or_default();
+                let value = attr.unescape_value().map(|value| value.into_owned()).unwrap_or_default();
                 (name, value)
             })
             .collect(),
@@ -539,19 +451,12 @@ fn push_node(stack: &mut Vec<XmlNode>, roots: &mut Vec<XmlNode>, node: XmlNode) 
 }
 
 fn is_statement(name: &str) -> bool {
-    matches!(
-        name,
-        "StmtSimple" | "StmtCond" | "StmtCursor" | "StmtReceive" | "StmtUse" | "StmtUseDb"
-    )
+    matches!(name, "StmtSimple" | "StmtCond" | "StmtCursor" | "StmtReceive" | "StmtUse" | "StmtUseDb")
 }
 
 fn collect_statements<'a>(node: &'a XmlNode, out: &mut Vec<&'a XmlNode>) {
     if node.name == "Statements" {
-        out.extend(
-            node.children
-                .iter()
-                .filter(|child| is_statement(&child.name)),
-        );
+        out.extend(node.children.iter().filter(|child| is_statement(&child.name)));
         return;
     }
     for child in &node.children {
@@ -567,10 +472,7 @@ struct Header {
 fn statement(node: &XmlNode) -> Result<StatementPlan, String> {
     let statement_text = attr(node, "StatementText").unwrap_or("").trim().to_owned();
     let statement_type = attr(node, "StatementType").unwrap_or("Statement");
-    let mut header = Header {
-        planning: None,
-        execution: None,
-    };
+    let mut header = Header { planning: None, execution: None };
     let mut relops = Vec::new();
     walk_operators(node, true, &mut header, &mut relops)?;
     let mut nested = Vec::new();
@@ -587,10 +489,7 @@ fn statement(node: &XmlNode) -> Result<StatementPlan, String> {
         .attrs
         .iter()
         .filter(|(name, _)| name != "StatementText")
-        .map(|(name, value)| PlanProperty {
-            name: name.clone(),
-            value: value.clone(),
-        })
+        .map(|(name, value)| PlanProperty { name: name.clone(), value: value.clone() })
         .collect();
     Ok(StatementPlan {
         planning_time_ms: header.planning,
@@ -601,12 +500,7 @@ fn statement(node: &XmlNode) -> Result<StatementPlan, String> {
     })
 }
 
-fn walk_operators(
-    node: &XmlNode,
-    root: bool,
-    header: &mut Header,
-    relops: &mut Vec<PlanNode>,
-) -> Result<(), String> {
+fn walk_operators(node: &XmlNode, root: bool, header: &mut Header, relops: &mut Vec<PlanNode>) -> Result<(), String> {
     if !root && is_statement(&node.name) {
         return Ok(());
     }
@@ -644,8 +538,7 @@ fn nested_roots(node: &XmlNode, root: bool, out: &mut Vec<PlanNode>) -> Result<(
 }
 
 fn relop_node(node: &XmlNode) -> Result<PlanNode, String> {
-    let physical =
-        attr(node, "PhysicalOp").ok_or_else(|| "a plan node has no PhysicalOp".to_string())?;
+    let physical = attr(node, "PhysicalOp").ok_or_else(|| "a plan node has no PhysicalOp".to_string())?;
     let logical = attr(node, "LogicalOp");
     let operation = match logical {
         Some(logical) if logical != physical => format!("{logical} {physical}"),
@@ -671,15 +564,9 @@ fn relop_node(node: &XmlNode) -> Result<PlanNode, String> {
             .attrs
             .iter()
             .filter(|(name, _)| {
-                !matches!(
-                    name.as_str(),
-                    "PhysicalOp" | "EstimateRows" | "EstimatedTotalSubtreeCost" | "NodeId"
-                )
+                !matches!(name.as_str(), "PhysicalOp" | "EstimateRows" | "EstimatedTotalSubtreeCost" | "NodeId")
             })
-            .map(|(name, value)| PlanProperty {
-                name: name.clone(),
-                value: value.clone(),
-            })
+            .map(|(name, value)| PlanProperty { name: name.clone(), value: value.clone() })
             .collect(),
         children,
     })
@@ -716,11 +603,7 @@ fn counters_of(relop: &XmlNode) -> Option<Counters> {
             return;
         }
         if node.name == "RunTimeCountersPerThread" {
-            let slot = found.get_or_insert(Counters {
-                rows: 0.0,
-                executions: 0.0,
-                elapsed: 0.0,
-            });
+            let slot = found.get_or_insert(Counters { rows: 0.0, executions: 0.0, elapsed: 0.0 });
             slot.rows += attr_f64(node, "ActualRows").unwrap_or(0.0);
             slot.executions += attr_f64(node, "ActualExecutions").unwrap_or(0.0);
             slot.elapsed += attr_f64(node, "ActualElapsedms").unwrap_or(0.0);
@@ -790,10 +673,7 @@ fn synthetic(operation: &str, children: Vec<PlanNode>) -> PlanNode {
 }
 
 fn attr<'a>(node: &'a XmlNode, name: &str) -> Option<&'a str> {
-    node.attrs
-        .iter()
-        .find(|(key, _)| key == name)
-        .map(|(_, value)| value.as_str())
+    node.attrs.iter().find(|(key, _)| key == name).map(|(_, value)| value.as_str())
 }
 
 fn attr_f64(node: &XmlNode, name: &str) -> Option<f64> {
@@ -912,7 +792,8 @@ mod tests {
     fn a_document_that_is_not_a_showplan_is_refused() {
         assert_eq!(parse("<orders/>").unwrap_err(), "The result is not a plan.");
         assert_eq!(
-            parse(r#"<ShowPlanXML><BatchSequence><Batch><Statements/></Batch></BatchSequence></ShowPlanXML>"#).unwrap_err(),
+            parse(r#"<ShowPlanXML><BatchSequence><Batch><Statements/></Batch></BatchSequence></ShowPlanXML>"#)
+                .unwrap_err(),
             "EXPLAIN returned no plan."
         );
     }
@@ -936,34 +817,24 @@ mod tests {
     fn column(name: &str) -> ColumnMeta {
         ColumnMeta {
             name: name.into(),
-            r#type: SqlTypeRef {
-                display: "xml".into(),
-                category: TypeCategory::Text,
-            },
+            r#type: SqlTypeRef { display: "xml".into(), category: TypeCategory::Text },
             source: None,
         }
     }
 
     #[test]
     fn the_showplan_column_is_the_plan_cell() {
-        let columns = vec![
-            column("note"),
-            column("Microsoft SQL Server 2005 XML Showplan"),
-        ];
+        let columns = vec![column("note"), column("Microsoft SQL Server 2005 XML Showplan")];
         let row = vec![Some("<orders/>".into()), Some("<ShowPlanXML/>".into())];
         let (cell, index) = plan_cell(&columns, &row).unwrap();
         assert_eq!((index, cell.as_str()), (1, "<ShowPlanXML/>"));
         assert!(plan_cell(&[column("note")], &[Some("<orders/>".into())]).is_none());
-        let (cell, index) =
-            plan_cell(&[column("xml")], &[Some("  <ShowPlanXML/>".into())]).unwrap();
+        let (cell, index) = plan_cell(&[column("xml")], &[Some("  <ShowPlanXML/>".into())]).unwrap();
         assert_eq!((index, cell.as_str()), (0, "  <ShowPlanXML/>"));
     }
 
     fn span_of(text: &str) -> StmtSpan {
-        StmtSpan {
-            start: 0,
-            end: text.len(),
-        }
+        StmtSpan { start: 0, end: text.len() }
     }
 
     struct TargetOwner {
@@ -1027,35 +898,17 @@ mod tests {
         let select = "select 1";
         assert!(prepare(false, select, &[span_of(select)], &target, None).is_ok());
         let update = "UPDATE dbo.orders SET status = status WHERE 1 = 0";
-        assert!(
-            prepare(false, update, &[span_of(update)], &target, None).is_ok(),
-            "plain explain does not ask"
-        );
+        assert!(prepare(false, update, &[span_of(update)], &target, None).is_ok(), "plain explain does not ask");
         let asked = prepare(true, update, &[span_of(update)], &target, None).unwrap_err();
         let RunError::ConfirmWrites { confirmation } = asked else {
             panic!("analyze update should ask, got {asked:?}")
         };
         assert!(!confirmation.on_production);
         assert_eq!(confirmation.sends.statements, [update]);
-        assert!(
-            prepare(
-                true,
-                update,
-                &[span_of(update)],
-                &target,
-                Some(&confirmation.digest)
-            )
-            .is_ok()
-        );
+        assert!(prepare(true, update, &[span_of(update)], &target, Some(&confirmation.digest)).is_ok());
         let changed = "UPDATE dbo.orders SET status = status WHERE 1 = 1";
         assert!(matches!(
-            prepare(
-                true,
-                changed,
-                &[span_of(changed)],
-                &target,
-                Some(&confirmation.digest)
-            ),
+            prepare(true, changed, &[span_of(changed)], &target, Some(&confirmation.digest)),
             Err(RunError::ConfirmWrites { .. })
         ));
         assert!(
@@ -1063,10 +916,7 @@ mod tests {
             "a safe analyze does not ask off Production"
         );
 
-        let two = [
-            StmtSpan { start: 0, end: 8 },
-            StmtSpan { start: 9, end: 17 },
-        ];
+        let two = [StmtSpan { start: 0, end: 8 }, StmtSpan { start: 9, end: 17 }];
         expect_unsupported(
             prepare(false, "select 1\nselect 2", &two, &target, None).unwrap_err(),
             "Explain one batch.",
@@ -1085,22 +935,9 @@ mod tests {
         assert!(prepare(false, commented, &[span_of(commented)], &target, None).is_ok());
         let quoted = "select 'SHOWPLAN_XML'";
         assert!(prepare(false, quoted, &[span_of(quoted)], &target, None).is_ok());
-        assert!(matches!(
-            prepare(false, select, &[], &target, None),
-            Err(RunError::NoStatement)
-        ));
+        assert!(matches!(prepare(false, select, &[], &target, None), Err(RunError::NoStatement)));
         assert!(
-            prepare(
-                false,
-                select,
-                &[span_of(select)],
-                &writes::Target {
-                    txn: TxnState::Open,
-                    ..target
-                },
-                None
-            )
-            .is_ok()
+            prepare(false, select, &[span_of(select)], &writes::Target { txn: TxnState::Open, ..target }, None).is_ok()
         );
     }
 
@@ -1111,9 +948,7 @@ mod tests {
         let target = owner.target();
         let select = "select 1";
         let asked = prepare(true, select, &[span_of(select)], &target, None).unwrap_err();
-        let RunError::ConfirmWrites { confirmation } = asked else {
-            panic!("{asked:?}")
-        };
+        let RunError::ConfirmWrites { confirmation } = asked else { panic!("{asked:?}") };
         assert!(confirmation.on_production);
         assert_eq!(confirmation.holds.count, 1);
         let update = "UPDATE dbo.orders SET status = status";
@@ -1126,9 +961,6 @@ mod tests {
             other => panic!("{other:?}"),
         };
         let normal = writes::check(&target, &[update], None).unwrap_err().digest;
-        assert_ne!(
-            show, normal,
-            "a normal run's digest must not accept Explain Analyze"
-        );
+        assert_ne!(show, normal, "a normal run's digest must not accept Explain Analyze");
     }
 }

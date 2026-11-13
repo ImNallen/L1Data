@@ -1,6 +1,9 @@
-use crate::model::{DatabaseKind, ExecutionUnitKind, TableOrderEdit, TableOrderView, TableSortKey, TableScript, Relation};
 use crate::model::{
-    CellReference, CellWrite, ColumnFilter, CompletionContext, DocOffset, DocRange, FilterOp, FormatEdit, FormatError, RunTarget, ScriptOutline, TableQuery,
+    CellReference, CellWrite, ColumnFilter, CompletionContext, DocOffset, DocRange, FilterOp, FormatEdit, FormatError,
+    RunTarget, ScriptOutline, TableQuery,
+};
+use crate::model::{
+    DatabaseKind, ExecutionUnitKind, Relation, TableOrderEdit, TableOrderView, TableScript, TableSortKey,
 };
 use crate::sql::{self, ByteTarget, DmlVerb, StmtKind, StmtSpan};
 
@@ -55,24 +58,20 @@ impl<'a> OffsetMap<'a> {
         match target {
             RunTarget::All => ByteTarget::All,
             RunTarget::Cursor { offset } => ByteTarget::Cursor(self.from_utf16(offset)),
-            RunTarget::Selection { from, to } => ByteTarget::Selection { from: self.from_utf16(from), to: self.from_utf16(to) },
+            RunTarget::Selection { from, to } => {
+                ByteTarget::Selection { from: self.from_utf16(from), to: self.from_utf16(to) }
+            }
         }
     }
 
     pub fn range(&self, span: &StmtSpan) -> DocRange {
-        DocRange {
-            from: self.to_utf16(span.start),
-            to: self.to_utf16(span.end),
-        }
+        DocRange { from: self.to_utf16(span.start), to: self.to_utf16(span.end) }
     }
 
     /// PG `ErrorPosition::Original(n)` is a 1-based character index within the statement.
     pub fn pg_position(&self, stmt: &StmtSpan, n: u32) -> DocOffset {
-        let byte = stmt
-            .text(self.text)
-            .char_indices()
-            .nth((n.max(1) - 1) as usize)
-            .map_or(stmt.end, |(b, _)| stmt.start + b);
+        let byte =
+            stmt.text(self.text).char_indices().nth((n.max(1) - 1) as usize).map_or(stmt.end, |(b, _)| stmt.start + b);
         self.to_utf16(byte)
     }
 }
@@ -83,12 +82,20 @@ pub fn script_outline(text: &str, cursor: DocOffset, database_kind: DatabaseKind
         let map = OffsetMap::new(text);
         let spans = sql::tsql::split_batches(text).unwrap_or_default();
         let picked = sql::tsql::pick(text, ByteTarget::Cursor(map.from_utf16(cursor))).unwrap_or_default();
-        return ScriptOutline { unit_kind: ExecutionUnitKind::Batch, statements: spans.iter().map(|s| map.range(s)).collect(), at_cursor: picked.first().and_then(|p| spans.iter().position(|s| s == p)).and_then(|i| u16::try_from(i).ok()) };
+        return ScriptOutline {
+            unit_kind: ExecutionUnitKind::Batch,
+            statements: spans.iter().map(|s| map.range(s)).collect(),
+            at_cursor: picked
+                .first()
+                .and_then(|p| spans.iter().position(|s| s == p))
+                .and_then(|i| u16::try_from(i).ok()),
+        };
     }
     let map = OffsetMap::new(text);
     let spans = sql::split_statements(text);
     let picked = sql::pick(&spans, text, ByteTarget::Cursor(map.from_utf16(cursor)));
-    ScriptOutline { unit_kind: crate::model::ExecutionUnitKind::Statement,
+    ScriptOutline {
+        unit_kind: crate::model::ExecutionUnitKind::Statement,
         statements: spans.iter().map(|s| map.range(s)).collect(),
         at_cursor: picked.first().and_then(|p| spans.iter().position(|s| s == p)).and_then(|i| u16::try_from(i).ok()),
     }
@@ -98,7 +105,10 @@ pub fn cell_references(text: &str, database_kind: DatabaseKind) -> Vec<CellRefer
     let map = OffsetMap::new(text);
     sql::refs::find(text, database_kind)
         .into_iter()
-        .map(|(span, name)| CellReference { range: DocRange { from: map.to_utf16(span.start), to: map.to_utf16(span.end) }, name: name.to_owned() })
+        .map(|(span, name)| CellReference {
+            range: DocRange { from: map.to_utf16(span.start), to: map.to_utf16(span.end) },
+            name: name.to_owned(),
+        })
         .collect()
 }
 
@@ -129,14 +139,18 @@ pub fn format_edit(text: &str, target: RunTarget, database_kind: DatabaseKind) -
     if database_kind == DatabaseKind::SqlServer {
         let map = OffsetMap::new(text);
         let spans = sql::tsql::pick(text, map.target(target)).map_err(|_| FormatError::Unsupported)?;
-        let (Some(first), Some(last)) = (spans.first(), spans.last()) else { return Err(FormatError::NothingToFormat); };
+        let (Some(first), Some(last)) = (spans.first(), spans.last()) else {
+            return Err(FormatError::NothingToFormat);
+        };
         let insert = sql::tsql::format(&text[first.start..last.end]).map_err(|_| FormatError::Unsupported)?;
         return Ok(FormatEdit { from: map.to_utf16(first.start), to: map.to_utf16(last.end), insert });
     }
     let map = OffsetMap::new(text);
     let spans = sql::split_statements(text);
     let picked = match map.target(target) {
-        ByteTarget::Selection { from, to } if from < to => spans.into_iter().filter(|s| s.start < to && from < s.end).collect(),
+        ByteTarget::Selection { from, to } if from < to => {
+            spans.into_iter().filter(|s| s.start < to && from < s.end).collect()
+        }
         target => sql::pick(&spans, text, target),
     };
     let (Some(first), Some(last)) = (picked.first(), picked.last()) else {
@@ -189,12 +203,20 @@ fn name_in(kind: DatabaseKind, name: &str, postgres_keywords: &[&[&str]]) -> Str
         DatabaseKind::Postgres => {
             let plain = chars.next().is_some_and(|c| c.is_ascii_lowercase() || c == '_')
                 && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '$');
-            if plain && !postgres_keywords.iter().any(|k| k.contains(&name)) { name.to_owned() } else { quote_ident(name) }
+            if plain && !postgres_keywords.iter().any(|k| k.contains(&name)) {
+                name.to_owned()
+            } else {
+                quote_ident(name)
+            }
         }
         DatabaseKind::SqlServer => {
             let plain = chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
                 && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '@' | '$' | '#'));
-            if plain && !sql::tsql::RESERVED.contains(&name.to_ascii_uppercase().as_str()) { name.to_owned() } else { sql::tsql::quote_ident(name) }
+            if plain && !sql::tsql::RESERVED.contains(&name.to_ascii_uppercase().as_str()) {
+                name.to_owned()
+            } else {
+                sql::tsql::quote_ident(name)
+            }
         }
     }
 }
@@ -306,7 +328,8 @@ pub fn insert_sql(schema: &str, table: &str, cells: &[CellWrite]) -> String {
 }
 
 pub fn update_sql(schema: &str, table: &str, key: &[CellWrite], set: &[CellWrite]) -> String {
-    let assigns: Vec<String> = set.iter().map(|c| format!("{} = {}", quote_ident(&c.column), value_sql(&c.value))).collect();
+    let assigns: Vec<String> =
+        set.iter().map(|c| format!("{} = {}", quote_ident(&c.column), value_sql(&c.value))).collect();
     format!("UPDATE {} SET {} WHERE {}", target(schema, table), assigns.join(", "), key_sql(key))
 }
 
@@ -317,7 +340,9 @@ pub fn delete_sql(schema: &str, table: &str, key: &[CellWrite]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn script_outline(text: &str, cursor: DocOffset) -> ScriptOutline { super::script_outline(text, cursor, DatabaseKind::Postgres) }
+    fn script_outline(text: &str, cursor: DocOffset) -> ScriptOutline {
+        super::script_outline(text, cursor, DatabaseKind::Postgres)
+    }
 
     fn r(from: u32, to: u32) -> DocRange {
         DocRange { from: DocOffset(from), to: DocOffset(to) }
@@ -330,10 +355,9 @@ mod tests {
         let start = text.find("insert").unwrap();
         let end = text.find(";\nGO\n").unwrap() + 1;
         let expected = "insert dbo.t(id)\nselect id\nfrom s;\nupdate dbo.t\nset n = @n\nwhere id = 1;";
-        for target in [
-            cursor_at(text, "set"),
-            RunTarget::Selection { from: map.to_utf16(start), to: map.to_utf16(end) },
-        ] {
+        for target in
+            [cursor_at(text, "set"), RunTarget::Selection { from: map.to_utf16(start), to: map.to_utf16(end) }]
+        {
             let edit = format_edit(text, target, DatabaseKind::SqlServer).unwrap();
             assert_eq!(edit.from, map.to_utf16(start));
             assert_eq!(edit.to, map.to_utf16(end));
@@ -344,11 +368,17 @@ mod tests {
         assert_eq!(edit.from, map.to_utf16(start));
         assert_eq!(edit.insert, format!("{expected}\nGO\nDELETE FROM t\nWHERE id = 2;"));
         let edit = format_edit(text, RunTarget::All, DatabaseKind::SqlServer).unwrap();
-        assert_eq!(edit.insert, format!("-- 😀\nSELECT 1;\nGO -- boundary\n{expected}\nGO\nDELETE FROM t\nWHERE id = 2;"));
+        assert_eq!(
+            edit.insert,
+            format!("-- 😀\nSELECT 1;\nGO -- boundary\n{expected}\nGO\nDELETE FROM t\nWHERE id = 2;")
+        );
         let fragment = RunTarget::Selection { from: map.to_utf16(start + 3), to: map.to_utf16(start + 8) };
         assert!(matches!(format_edit(text, fragment, DatabaseKind::SqlServer), Err(FormatError::Unsupported)));
         let unsafe_batch = "UPDATE t SET n=1; SET NOCOUNT ON";
-        assert!(matches!(format_edit(unsafe_batch, cursor_at(unsafe_batch, "UPDATE"), DatabaseKind::SqlServer), Err(FormatError::Unsupported)));
+        assert!(matches!(
+            format_edit(unsafe_batch, cursor_at(unsafe_batch, "UPDATE"), DatabaseKind::SqlServer),
+            Err(FormatError::Unsupported)
+        ));
     }
 
     #[test]
@@ -356,12 +386,25 @@ mod tests {
         let pg = |name| quote_if_needed(DatabaseKind::Postgres, name);
         assert_eq!(
             ["orders", "order$1", "Line Items", "a\"b", "order", "Orders", "left", "int", "café"].map(pg),
-            ["orders", "order$1", "\"Line Items\"", "\"a\"\"b\"", "\"order\"", "\"Orders\"", "\"left\"", "int", "\"café\""]
+            [
+                "orders",
+                "order$1",
+                "\"Line Items\"",
+                "\"a\"\"b\"",
+                "\"order\"",
+                "\"Orders\"",
+                "\"left\"",
+                "int",
+                "\"café\""
+            ]
         );
         let pg_call = |name| quote_function_if_needed(DatabaseKind::Postgres, name);
         assert_eq!(["answer", "MyFunc", "int", "left"].map(pg_call), ["answer", "\"MyFunc\"", "\"int\"", "left"]);
         let ms = |name| quote_if_needed(DatabaseKind::SqlServer, name);
-        assert_eq!(["Orders", "line items", "a]b", "order", "Order", "x#1", "9lives"].map(ms), ["Orders", "[line items]", "[a]]b]", "[order]", "[Order]", "x#1", "[9lives]"]);
+        assert_eq!(
+            ["Orders", "line items", "a]b", "order", "Order", "x#1", "9lives"].map(ms),
+            ["Orders", "[line items]", "[a]]b]", "[order]", "[Order]", "x#1", "[9lives]"]
+        );
     }
 
     #[test]
@@ -387,26 +430,48 @@ mod tests {
         let text = "select 1 as one;\nselect * from public.orders limit 3;\nselect 'third' as three;";
         assert_eq!(
             script_outline(text, DocOffset(30)),
-            ScriptOutline { unit_kind: crate::model::ExecutionUnitKind::Statement, statements: vec![r(0, 15), r(17, 52), r(54, 77)], at_cursor: Some(1) }
+            ScriptOutline {
+                unit_kind: crate::model::ExecutionUnitKind::Statement,
+                statements: vec![r(0, 15), r(17, 52), r(54, 77)],
+                at_cursor: Some(1)
+            }
         );
     }
 
     #[test]
     fn script_outline_at_trailing_whitespace_picks_the_previous_statement() {
         let text = "select 1;   \n\nselect 2";
-        assert_eq!(script_outline(text, DocOffset(11)), ScriptOutline { unit_kind: crate::model::ExecutionUnitKind::Statement, statements: vec![r(0, 8), r(14, 22)], at_cursor: Some(0) });
+        assert_eq!(
+            script_outline(text, DocOffset(11)),
+            ScriptOutline {
+                unit_kind: crate::model::ExecutionUnitKind::Statement,
+                statements: vec![r(0, 8), r(14, 22)],
+                at_cursor: Some(0)
+            }
+        );
     }
 
     #[test]
     fn script_outline_splits_the_users_doc_at_its_blank_line() {
         let text = "SELECT * FROM public.addresses\nWHERE id > 5\nAND id < 10\nORDER BY id DESC\n\nselect * from public.categories";
-        assert_eq!(script_outline(text, DocOffset(80)), ScriptOutline { unit_kind: crate::model::ExecutionUnitKind::Statement, statements: vec![r(0, 72), r(74, 105)], at_cursor: Some(1) });
+        assert_eq!(
+            script_outline(text, DocOffset(80)),
+            ScriptOutline {
+                unit_kind: crate::model::ExecutionUnitKind::Statement,
+                statements: vec![r(0, 72), r(74, 105)],
+                at_cursor: Some(1)
+            }
+        );
         assert_eq!(script_outline(text, DocOffset(35)).at_cursor, Some(0));
     }
 
     #[test]
     fn script_outline_of_a_doc_without_statements_is_empty() {
-        let none = ScriptOutline { unit_kind: crate::model::ExecutionUnitKind::Statement, statements: vec![], at_cursor: None };
+        let none = ScriptOutline {
+            unit_kind: crate::model::ExecutionUnitKind::Statement,
+            statements: vec![],
+            at_cursor: None,
+        };
         assert_eq!(script_outline("", DocOffset(0)), none);
         assert_eq!(script_outline("  -- nothing\n/* here */\n", DocOffset(5)), none);
     }
@@ -414,7 +479,14 @@ mod tests {
     #[test]
     fn script_outline_ranges_and_cursor_are_utf16() {
         let text = "-- 😀é\nselect 1;\nselect 2;";
-        assert_eq!(script_outline(text, DocOffset(18)), ScriptOutline { unit_kind: crate::model::ExecutionUnitKind::Statement, statements: vec![r(0, 15), r(17, 25)], at_cursor: Some(1) });
+        assert_eq!(
+            script_outline(text, DocOffset(18)),
+            ScriptOutline {
+                unit_kind: crate::model::ExecutionUnitKind::Statement,
+                statements: vec![r(0, 15), r(17, 25)],
+                at_cursor: Some(1)
+            }
+        );
     }
 
     #[test]
@@ -433,7 +505,9 @@ mod tests {
     #[test]
     fn completion_context_reads_and_reports_utf16_offsets() {
         let text = "select '😀' as e, o.cu from orders o";
-        let CompletionContext::Complete { from, qualifier, .. } = completion_context(text, DocOffset(22), DatabaseKind::Postgres) else {
+        let CompletionContext::Complete { from, qualifier, .. } =
+            completion_context(text, DocOffset(22), DatabaseKind::Postgres)
+        else {
             panic!("a column after o. completes");
         };
         assert_eq!(from, DocOffset(20));
@@ -454,7 +528,10 @@ mod tests {
     fn only_the_postgres_statements_a_run_executes_that_write_count() {
         let pg = DatabaseKind::Postgres;
         assert_eq!(writes("select * from orders", RunTarget::All, pg), Vec::<&str>::new());
-        assert_eq!(writes("update orders set n = 1 where id = 7", RunTarget::All, pg), ["update orders set n = 1 where id = 7"]);
+        assert_eq!(
+            writes("update orders set n = 1 where id = 7", RunTarget::All, pg),
+            ["update orders set n = 1 where id = 7"]
+        );
         let script = "select 1;\nupdate orders set n = 1;\nselect 2;\ndelete from orders;\nwith x as (select 1) select * from x;";
         assert_eq!(writes(script, RunTarget::All, pg), ["update orders set n = 1", "delete from orders"]);
         assert_eq!(writes(script, cursor_at(script, "update"), pg), ["update orders set n = 1"]);
@@ -473,7 +550,11 @@ mod tests {
         assert_eq!(writes(script, RunTarget::All, ms), ["UPDATE dbo.orders SET n = 1", "EXEC dbo.purge"]);
         assert_eq!(writes(script, cursor_at(script, "UPDATE"), ms), ["UPDATE dbo.orders SET n = 1"]);
         assert_eq!(writes(script, cursor_at(script, "SELECT 2"), ms), Vec::<&str>::new());
-        assert_eq!(writes("USE shop\nGO\nDELETE FROM dbo.orders", RunTarget::All, ms), Vec::<&str>::new(), "the run refuses USE, so it deletes nothing");
+        assert_eq!(
+            writes("USE shop\nGO\nDELETE FROM dbo.orders", RunTarget::All, ms),
+            Vec::<&str>::new(),
+            "the run refuses USE, so it deletes nothing"
+        );
     }
 
     #[test]
@@ -525,7 +606,10 @@ mod tests {
             r#"SELECT * FROM "we""ird"."T;x" ORDER BY "a""b", "c" LIMIT 10 OFFSET 0"#
         );
         assert_eq!(browse_sql("s", "t", &[], &none, Some((5, 0))), r#"SELECT * FROM "s"."t" LIMIT 5 OFFSET 0"#);
-        assert_eq!(browse_sql("public", "orders", &["id".into()], &none, None), r#"SELECT * FROM "public"."orders" ORDER BY "id""#);
+        assert_eq!(
+            browse_sql("public", "orders", &["id".into()], &none, None),
+            r#"SELECT * FROM "public"."orders" ORDER BY "id""#
+        );
         assert_eq!(browse_sql("s", "t", &[], &none, None), r#"SELECT * FROM "s"."t""#);
     }
 
@@ -591,19 +675,39 @@ mod tests {
         );
         assert_eq!(insert_sql("public", "customers", &[]), r#"INSERT INTO "public"."customers" DEFAULT VALUES"#);
         assert_eq!(
-            update_sql("public", "line items", &[cell("order_id", Some("7")), cell("sku", Some("A-1"))], &[cell("qty", Some("3")), cell("note", None)]),
+            update_sql(
+                "public",
+                "line items",
+                &[cell("order_id", Some("7")), cell("sku", Some("A-1"))],
+                &[cell("qty", Some("3")), cell("note", None)]
+            ),
             r#"UPDATE "public"."line items" SET "qty" = '3', "note" = NULL WHERE "order_id" = '7' AND "sku" = 'A-1'"#
         );
-        assert_eq!(delete_sql("public", "customers", &[cell("id", Some("42"))]), r#"DELETE FROM "public"."customers" WHERE "id" = '42'"#);
+        assert_eq!(
+            delete_sql("public", "customers", &[cell("id", Some("42"))]),
+            r#"DELETE FROM "public"."customers" WHERE "id" = '42'"#
+        );
     }
 }
 
 pub fn pick(text: &str, target: ByteTarget, kind: DatabaseKind) -> Result<Vec<StmtSpan>, String> {
-    match kind { DatabaseKind::Postgres => Ok(sql::pick(&sql::split_statements(text), text, target)), DatabaseKind::SqlServer => sql::tsql::pick(text, target) }
+    match kind {
+        DatabaseKind::Postgres => Ok(sql::pick(&sql::split_statements(text), text, target)),
+        DatabaseKind::SqlServer => sql::tsql::pick(text, target),
+    }
 }
-pub fn classify(text: &str, kind: DatabaseKind) -> StmtKind { match kind { DatabaseKind::Postgres => sql::classify(text), DatabaseKind::SqlServer => sql::tsql::classify(text) } }
-pub fn is_write(text: &str, kind: DatabaseKind) -> bool { match kind { DatabaseKind::Postgres => sql::history_is_write(text), DatabaseKind::SqlServer => sql::tsql::is_write(text) } }
-
+pub fn classify(text: &str, kind: DatabaseKind) -> StmtKind {
+    match kind {
+        DatabaseKind::Postgres => sql::classify(text),
+        DatabaseKind::SqlServer => sql::tsql::classify(text),
+    }
+}
+pub fn is_write(text: &str, kind: DatabaseKind) -> bool {
+    match kind {
+        DatabaseKind::Postgres => sql::history_is_write(text),
+        DatabaseKind::SqlServer => sql::tsql::is_write(text),
+    }
+}
 
 pub fn quote_ident_if_needed(name: &str) -> String {
     let mut chars = name.chars();
@@ -617,26 +721,44 @@ pub fn quote_ident_if_needed(name: &str) -> String {
 }
 
 pub fn table_script(kind: DatabaseKind, schema: &str, table: &str) -> TableScript {
-    let quote = match kind { DatabaseKind::Postgres => quote_ident_if_needed, DatabaseKind::SqlServer => sql::tsql::quote_ident };
+    let quote = match kind {
+        DatabaseKind::Postgres => quote_ident_if_needed,
+        DatabaseKind::SqlServer => sql::tsql::quote_ident,
+    };
     let text = format!("SELECT * FROM {}.{}", quote(schema), quote(table));
     let mut accepted_texts = vec![text.clone()];
-    if kind == DatabaseKind::Postgres { accepted_texts.push(format!("{text};")); }
+    if kind == DatabaseKind::Postgres {
+        accepted_texts.push(format!("{text};"));
+    }
     TableScript { text, accepted_texts }
 }
 
-pub fn table_order(kind: DatabaseKind, relation: Option<&Relation>, order_by: &str, edit: TableOrderEdit) -> Result<TableOrderView, String> {
-    let parsed = match kind { DatabaseKind::Postgres => sql::order::parse(order_by), DatabaseKind::SqlServer => sql::tsql::parse_order_by(order_by) };
+pub fn table_order(
+    kind: DatabaseKind,
+    relation: Option<&Relation>,
+    order_by: &str,
+    edit: TableOrderEdit,
+) -> Result<TableOrderView, String> {
+    let parsed = match kind {
+        DatabaseKind::Postgres => sql::order::parse(order_by),
+        DatabaseKind::SqlServer => sql::tsql::parse_order_by(order_by),
+    };
     if kind == DatabaseKind::SqlServer {
         let known = |name: &str| relation.is_some_and(|r| r.columns.iter().any(|c| c.name == name));
-        let resolved = parsed.as_ref().is_some_and(|keys| keys.iter().all(|(name, _)| known(name))) && relation.is_some();
+        let resolved =
+            parsed.as_ref().is_some_and(|keys| keys.iter().all(|(name, _)| known(name))) && relation.is_some();
         match &edit {
             TableOrderEdit::Inspect if !resolved => return Ok(TableOrderView { sql: order_by.to_owned(), keys: None }),
             TableOrderEdit::Cycle { column, additive } => {
                 if relation.is_none() {
-                    return Err("Table columns are unavailable. Connect and refresh the table catalog before sorting.".into());
+                    return Err(
+                        "Table columns are unavailable. Connect and refresh the table catalog before sorting.".into()
+                    );
                 }
                 if !known(column) {
-                    return Err(format!("Column {column:?} is not in this table's catalog. Refresh the catalog before sorting."));
+                    return Err(format!(
+                        "Column {column:?} is not in this table's catalog. Refresh the catalog before sorting."
+                    ));
                 }
                 if *additive && !resolved {
                     return Err("To add a header sort, ORDER BY must use exact table column names. Edit ORDER BY, or click without Shift to replace a simple column order.".into());
@@ -645,44 +767,100 @@ pub fn table_order(kind: DatabaseKind, relation: Option<&Relation>, order_by: &s
             TableOrderEdit::Inspect => {}
         }
     }
-    let Some(mut keys) = parsed else { return Ok(TableOrderView { sql: order_by.to_owned(), keys: None }); };
+    let Some(mut keys) = parsed else {
+        return Ok(TableOrderView { sql: order_by.to_owned(), keys: None });
+    };
     if let TableOrderEdit::Cycle { column, additive } = edit {
-        let previous = keys.iter().find(|(name,_)| *name == column).map(|(_,desc)| *desc);
-        if !additive { keys.retain(|(name,_)| *name == column); }
-        match previous {
-            None => keys.push((column,false)),
-            Some(false) => { if let Some((_,desc)) = keys.iter_mut().find(|(name,_)| *name == column) { *desc = true; } },
-            Some(true) => keys.retain(|(name,_)| *name != column),
+        let previous = keys.iter().find(|(name, _)| *name == column).map(|(_, desc)| *desc);
+        if !additive {
+            keys.retain(|(name, _)| *name == column);
         }
-    } else { return Ok(TableOrderView { sql: order_by.to_owned(), keys: Some(keys.into_iter().map(|(column,desc)| TableSortKey { column,desc }).collect()) }); }
+        match previous {
+            None => keys.push((column, false)),
+            Some(false) => {
+                if let Some((_, desc)) = keys.iter_mut().find(|(name, _)| *name == column) {
+                    *desc = true;
+                }
+            }
+            Some(true) => keys.retain(|(name, _)| *name != column),
+        }
+    } else {
+        return Ok(TableOrderView {
+            sql: order_by.to_owned(),
+            keys: Some(keys.into_iter().map(|(column, desc)| TableSortKey { column, desc }).collect()),
+        });
+    }
     let sql = match kind {
-        DatabaseKind::Postgres => keys.iter().map(|(column,desc)| format!("{}{}",quote_ident(column),if *desc { " DESC" } else { "" })).collect::<Vec<_>>().join(", "),
+        DatabaseKind::Postgres => keys
+            .iter()
+            .map(|(column, desc)| format!("{}{}", quote_ident(column), if *desc { " DESC" } else { "" }))
+            .collect::<Vec<_>>()
+            .join(", "),
         DatabaseKind::SqlServer => sql::tsql::format_order_by(&keys),
     };
-    Ok(TableOrderView { sql, keys: Some(keys.into_iter().map(|(column,desc)| TableSortKey { column,desc }).collect()) })
+    Ok(TableOrderView {
+        sql,
+        keys: Some(keys.into_iter().map(|(column, desc)| TableSortKey { column, desc }).collect()),
+    })
 }
 
-pub fn table_browse(kind: DatabaseKind, schema: &str, table: &str, relation: Option<&Relation>, query: &TableQuery, window: Option<(u32, u64)>) -> Result<String, String> {
+pub fn table_browse(
+    kind: DatabaseKind,
+    schema: &str,
+    table: &str,
+    relation: Option<&Relation>,
+    query: &TableQuery,
+    window: Option<(u32, u64)>,
+) -> Result<String, String> {
     let pk = relation.map(Relation::pk_columns).unwrap_or_default();
     match kind {
         DatabaseKind::Postgres => {
-            let text = browse_sql(schema,table,&pk,query,window);
-            if sql::split_statements(&text).len()!=1 { return Err("The filter must be a single expression.".into()); }
+            let text = browse_sql(schema, table, &pk, query, window);
+            if sql::split_statements(&text).len() != 1 {
+                return Err("The filter must be a single expression.".into());
+            }
             Ok(text)
         }
         DatabaseKind::SqlServer => {
-            sql::tsql::validate_expression(&query.r#where,false)?;
-            sql::tsql::validate_expression(&query.order_by,true)?;
-            let projection = relation.map(|r| r.columns.iter().map(|c| sql::tsql::quote_ident(&c.name)).collect::<Vec<_>>().join(", ")).filter(|p| !p.is_empty()).unwrap_or_else(|| "*".into());
-            sql::tsql::browse_sql(schema,table,&projection,relation.map(|r| r.columns.as_slice()).unwrap_or_default(),&pk,query,window)
+            sql::tsql::validate_expression(&query.r#where, false)?;
+            sql::tsql::validate_expression(&query.order_by, true)?;
+            let projection = relation
+                .map(|r| r.columns.iter().map(|c| sql::tsql::quote_ident(&c.name)).collect::<Vec<_>>().join(", "))
+                .filter(|p| !p.is_empty())
+                .unwrap_or_else(|| "*".into());
+            sql::tsql::browse_sql(
+                schema,
+                table,
+                &projection,
+                relation.map(|r| r.columns.as_slice()).unwrap_or_default(),
+                &pk,
+                query,
+                window,
+            )
         }
     }
 }
 
-pub fn table_count(kind: DatabaseKind, schema: &str, table: &str, relation: Option<&Relation>, query: &TableQuery) -> Result<String,String> {
+pub fn table_count(
+    kind: DatabaseKind,
+    schema: &str,
+    table: &str,
+    relation: Option<&Relation>,
+    query: &TableQuery,
+) -> Result<String, String> {
     match kind {
-        DatabaseKind::Postgres => { let text = count_sql(schema,table,query); if sql::split_statements(&text).len()!=1 { Err("The filter must be a single expression.".into()) } else { Ok(text) } },
-        DatabaseKind::SqlServer => { sql::tsql::validate_expression(&query.r#where,false)?; sql::tsql::count_sql(schema,table,relation.map(|r| r.columns.as_slice()).unwrap_or_default(),query) },
+        DatabaseKind::Postgres => {
+            let text = count_sql(schema, table, query);
+            if sql::split_statements(&text).len() != 1 {
+                Err("The filter must be a single expression.".into())
+            } else {
+                Ok(text)
+            }
+        }
+        DatabaseKind::SqlServer => {
+            sql::tsql::validate_expression(&query.r#where, false)?;
+            sql::tsql::count_sql(schema, table, relation.map(|r| r.columns.as_slice()).unwrap_or_default(), query)
+        }
     }
 }
 
@@ -691,12 +869,93 @@ mod completion_never_panics {
     use crate::model::{DatabaseKind, DocOffset};
 
     const TOKENS: &[&str] = &[
-        "select", "from", "where", "join", "on", "using", "natural", "with", "recursive", "as", "lateral", "apply", "cross", "outer", "insert", "into",
-        "values", "update", "set", "delete", "top", "percent", "merge", "output", "returning", "union", "group", "by", "order", "pivot", "unpivot", "for",
-        "nowait", "go", "begin", "end", "case", "over", "window", "isnull", "interval", "o", "orders", "\"Q\"", "[b]", "[a]]b]", "'s'", "'open", "N'x'",
-        "$$x$$", "$$open", "--c\n", "/*c*/", "/*open", "@v", "#t", "$1", "1", "1e", "0x1", "*", "=", "::", ".", "..", ",", ";", "(", ")", "[", "]", "+",
-        "U&\"x\"", "E'a\\'b'", "😀", "é", "\n", "\nGO\n", "GO 5\n", " ", "\t",
-        "x join y join (a join b) pivot (max(v) for k in ([a])) p", "s(v, i)", "with ordinality", "o(a, b)", "on", "returning",
+        "select",
+        "from",
+        "where",
+        "join",
+        "on",
+        "using",
+        "natural",
+        "with",
+        "recursive",
+        "as",
+        "lateral",
+        "apply",
+        "cross",
+        "outer",
+        "insert",
+        "into",
+        "values",
+        "update",
+        "set",
+        "delete",
+        "top",
+        "percent",
+        "merge",
+        "output",
+        "returning",
+        "union",
+        "group",
+        "by",
+        "order",
+        "pivot",
+        "unpivot",
+        "for",
+        "nowait",
+        "go",
+        "begin",
+        "end",
+        "case",
+        "over",
+        "window",
+        "isnull",
+        "interval",
+        "o",
+        "orders",
+        "\"Q\"",
+        "[b]",
+        "[a]]b]",
+        "'s'",
+        "'open",
+        "N'x'",
+        "$$x$$",
+        "$$open",
+        "--c\n",
+        "/*c*/",
+        "/*open",
+        "@v",
+        "#t",
+        "$1",
+        "1",
+        "1e",
+        "0x1",
+        "*",
+        "=",
+        "::",
+        ".",
+        "..",
+        ",",
+        ";",
+        "(",
+        ")",
+        "[",
+        "]",
+        "+",
+        "U&\"x\"",
+        "E'a\\'b'",
+        "😀",
+        "é",
+        "\n",
+        "\nGO\n",
+        "GO 5\n",
+        " ",
+        "\t",
+        "x join y join (a join b) pivot (max(v) for k in ([a])) p",
+        "s(v, i)",
+        "with ordinality",
+        "o(a, b)",
+        "on",
+        "returning",
     ];
 
     #[test]
@@ -710,7 +969,8 @@ mod completion_never_panics {
         };
         for _ in 0..8_000 {
             let len = (next() % 10) as usize;
-            let mut text = String::from(["", "select ", "select * from t ", "with x as (select "][(next() % 4) as usize]);
+            let mut text =
+                String::from(["", "select ", "select * from t ", "with x as (select "][(next() % 4) as usize]);
             for _ in 0..len {
                 text.push_str(TOKENS[(next() % TOKENS.len() as u64) as usize]);
                 if next() % 3 != 0 {
@@ -720,7 +980,8 @@ mod completion_never_panics {
             let units = text.encode_utf16().count() as u32;
             for cursor in (0..=units).chain([units + 3]) {
                 for kind in [DatabaseKind::Postgres, DatabaseKind::SqlServer] {
-                    let outcome = std::panic::catch_unwind(|| super::completion_context(&text, DocOffset(cursor), kind));
+                    let outcome =
+                        std::panic::catch_unwind(|| super::completion_context(&text, DocOffset(cursor), kind));
                     assert!(outcome.is_ok(), "{kind:?} panicked at {cursor} in {text:?}");
                 }
             }

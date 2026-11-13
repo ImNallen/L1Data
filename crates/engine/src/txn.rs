@@ -63,7 +63,19 @@ pub fn needs_implicit_begin(mode: TxnMode, state: TxnState, kind: &StmtKind) -> 
     use StmtKind::*;
     mode == TxnMode::Manual
         && state == TxnState::Idle
-        && !matches!(kind, Begin | Commit | Rollback | CommitAndChain | RollbackAndChain | Savepoint | RollbackTo | Release | CopyStdio | NoTxnBlock(_))
+        && !matches!(
+            kind,
+            Begin
+                | Commit
+                | Rollback
+                | CommitAndChain
+                | RollbackAndChain
+                | Savepoint
+                | RollbackTo
+                | Release
+                | CopyStdio
+                | NoTxnBlock(_)
+        )
 }
 
 #[cfg(test)]
@@ -163,7 +175,19 @@ mod tests {
     #[test]
     fn implicit_begin_only_in_manual_idle_for_blockable_statements() {
         for kind in all_kinds() {
-            let expected = !matches!(kind, Begin | Commit | Rollback | CommitAndChain | RollbackAndChain | Savepoint | RollbackTo | Release | CopyStdio | NoTxnBlock(_));
+            let expected = !matches!(
+                kind,
+                Begin
+                    | Commit
+                    | Rollback
+                    | CommitAndChain
+                    | RollbackAndChain
+                    | Savepoint
+                    | RollbackTo
+                    | Release
+                    | CopyStdio
+                    | NoTxnBlock(_)
+            );
             assert_eq!(needs_implicit_begin(TxnMode::Manual, Idle, &kind), expected, "{kind:?}");
             assert!(!needs_implicit_begin(TxnMode::Manual, Active, &kind));
             assert!(!needs_implicit_begin(TxnMode::Manual, Aborted, &kind));

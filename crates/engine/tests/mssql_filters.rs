@@ -19,10 +19,16 @@ struct Harness {
 impl Harness {
     async fn open() -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let engine =
-            Engine::open(EngineConfig { data_dir: dir.path().into(), keys: Arc::new(MemoryKeyStore::default()), agent_path: AgentPath::Fixed("".into()), az_binary: None, user_known_hosts: None, updates: Arc::new(engine::ScriptedTransport::named("off").unwrap()) })
-                .await
-                .unwrap();
+        let engine = Engine::open(EngineConfig {
+            data_dir: dir.path().into(),
+            keys: Arc::new(MemoryKeyStore::default()),
+            agent_path: AgentPath::Fixed("".into()),
+            az_binary: None,
+            user_known_hosts: None,
+            updates: Arc::new(engine::ScriptedTransport::named("off").unwrap()),
+        })
+        .await
+        .unwrap();
         let events = engine.subscribe();
         let connection = engine
             .save_connection(ConnectionDraft {
@@ -33,7 +39,9 @@ impl Harness {
                 port: std::env::var("L1_DATA_TEST_MSSQL_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(1434),
                 database: "shop".into(),
                 user: "sa".into(),
-                password: PasswordInput::Set(std::env::var("L1_DATA_TEST_MSSQL_PASSWORD").unwrap_or_else(|_| "L1Data_dev_Str0ng".into())),
+                password: PasswordInput::Set(
+                    std::env::var("L1_DATA_TEST_MSSQL_PASSWORD").unwrap_or_else(|_| "L1Data_dev_Str0ng".into()),
+                ),
                 ssl_mode: SslMode::Require,
                 ca_cert_path: None,
                 color: None,
@@ -47,7 +55,15 @@ impl Harness {
         let tab = TabId(uuid::Uuid::new_v4());
         let db = DatabaseRef { connection_id: connection.id, database: "shop".into() };
         engine
-            .console_configure(tab, ConsoleConfig { connection_id: connection.id, database: db.database.clone(), schema: None, mode: TxnMode::AutoCommit })
+            .console_configure(
+                tab,
+                ConsoleConfig {
+                    connection_id: connection.id,
+                    database: db.database.clone(),
+                    schema: None,
+                    mode: TxnMode::AutoCommit,
+                },
+            )
             .await
             .unwrap();
         Self { engine, events, db, tab, _dir: dir }
@@ -75,7 +91,8 @@ impl Harness {
                 RunOutput::Rows { result, .. } => {
                     let mut page = self.engine.result_page(result.r#ref, 0, 100).unwrap();
                     for (row, column) in page.cut {
-                        page.rows[row as usize][usize::from(column)] = self.engine.result_cell(result.r#ref, row, column).unwrap();
+                        page.rows[row as usize][usize::from(column)] =
+                            self.engine.result_cell(result.r#ref, row, column).unwrap();
                     }
                     Some(page.rows)
                 }
@@ -86,7 +103,14 @@ impl Harness {
     }
 
     async fn sql(&mut self, text: &str) -> Vec<Vec<Option<String>>> {
-        self.run(RunRequest::Script { text: text.into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }).await
+        self.run(RunRequest::Script {
+            text: text.into(),
+            target: RunTarget::All,
+            mode: RunMode::Run,
+            params: Vec::new(),
+            cells: Vec::new(),
+        })
+        .await
     }
 
     async fn page(&mut self, table: &str, query: TableQuery) -> Vec<Vec<Option<String>>> {
@@ -94,10 +118,18 @@ impl Harness {
     }
 
     async fn filter(&mut self, table: &str, column: &str, op: FilterOp, value: &str, expected: &[&str]) {
-        let query = TableQuery { filters: vec![ColumnFilter { column: column.into(), op, value: value.into() }], ..Default::default() };
+        let query = TableQuery {
+            filters: vec![ColumnFilter { column: column.into(), op, value: value.into() }],
+            ..Default::default()
+        };
         let rows = self.page(table, query.clone()).await;
-        let count = self.engine.exact_row_count(self.tab, self.db.clone(), "dbo".into(), table.into(), query).await.unwrap();
-        assert_eq!(rows.iter().map(|r| r[0].as_deref().unwrap()).collect::<Vec<_>>(), expected, "{column} {op:?} {value}");
+        let count =
+            self.engine.exact_row_count(self.tab, self.db.clone(), "dbo".into(), table.into(), query).await.unwrap();
+        assert_eq!(
+            rows.iter().map(|r| r[0].as_deref().unwrap()).collect::<Vec<_>>(),
+            expected,
+            "{column} {op:?} {value}"
+        );
         assert_eq!(count, expected.len() as u64, "{column} {op:?} {value}");
     }
 
@@ -117,7 +149,10 @@ impl Harness {
     }
 
     async fn cleanup(&mut self, table: &str, outcome: std::thread::Result<()>) {
-        assert_eq!(self.sql(&format!("DROP TABLE IF EXISTS dbo.[{table}]; SELECT OBJECT_ID(N'dbo.{table}')")).await, vec![vec![None]]);
+        assert_eq!(
+            self.sql(&format!("DROP TABLE IF EXISTS dbo.[{table}]; SELECT OBJECT_ID(N'dbo.{table}')")).await,
+            vec![vec![None]]
+        );
         self.engine.shutdown().await;
         if let Err(panic) = outcome {
             std::panic::resume_unwind(panic);

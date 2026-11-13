@@ -56,7 +56,11 @@ pub(super) fn tokens(sql: &str) -> Vec<Token<'_>> {
             LexKind::Comma => out.push(Token::Comma),
             LexKind::Open => out.push(Token::Open),
             LexKind::Close => out.push(Token::Close),
-            LexKind::DollarString | LexKind::OpenBracket | LexKind::CloseBracket | LexKind::Semicolon | LexKind::Other => out.push(Token::Other),
+            LexKind::DollarString
+            | LexKind::OpenBracket
+            | LexKind::CloseBracket
+            | LexKind::Semicolon
+            | LexKind::Other => out.push(Token::Other),
         }
     }
     out
@@ -140,7 +144,10 @@ fn names(tokens: &[Token<'_>], mut i: usize) -> Option<usize> {
 /// The index after a recursive CTE's optional `SEARCH ... SET col` and `CYCLE ... USING col` clauses.
 fn search_and_cycle(tokens: &[Token<'_>], mut i: usize) -> Option<usize> {
     if word(tokens.get(i), "SEARCH") {
-        if !(word(tokens.get(i + 1), "DEPTH") || word(tokens.get(i + 1), "BREADTH")) || !word(tokens.get(i + 2), "FIRST") || !word(tokens.get(i + 3), "BY") {
+        if !(word(tokens.get(i + 1), "DEPTH") || word(tokens.get(i + 1), "BREADTH"))
+            || !word(tokens.get(i + 2), "FIRST")
+            || !word(tokens.get(i + 3), "BY")
+        {
             return None;
         }
         i = names(tokens, i + 4)?;
@@ -172,8 +179,8 @@ fn writes(tokens: &[Token<'_>]) -> bool {
         return false;
     };
     match first.to_ascii_uppercase().as_str() {
-        "INSERT" | "UPDATE" | "DELETE" | "MERGE" | "TRUNCATE" | "CREATE" | "ALTER" | "DROP"
-        | "COMMENT" | "GRANT" | "REVOKE" | "REINDEX" | "RENAME" | "IMPORT" | "SECURITY" | "CALL" | "DO" | "EXECUTE" | "REFRESH"
+        "INSERT" | "UPDATE" | "DELETE" | "MERGE" | "TRUNCATE" | "CREATE" | "ALTER" | "DROP" | "COMMENT" | "GRANT"
+        | "REVOKE" | "REINDEX" | "RENAME" | "IMPORT" | "SECURITY" | "CALL" | "DO" | "EXECUTE" | "REFRESH"
         | "VACUUM" | "CLUSTER" => true,
         "PREPARE" => word(tokens.get(1), "TRANSACTION"),
         "COMMIT" | "ROLLBACK" => word(tokens.get(1), "PREPARED"),
@@ -263,9 +270,7 @@ fn writes(tokens: &[Token<'_>]) -> bool {
                 }
                 i = end + 1;
             } else {
-                while word(tokens.get(i), "ANALYZE")
-                    || word(tokens.get(i), "ANALYSE")
-                    || word(tokens.get(i), "VERBOSE")
+                while word(tokens.get(i), "ANALYZE") || word(tokens.get(i), "ANALYSE") || word(tokens.get(i), "VERBOSE")
                 {
                     analyze |= word(tokens.get(i), "ANALYZE") || word(tokens.get(i), "ANALYSE");
                     i += 1;
@@ -315,11 +320,7 @@ pub(crate) fn history_text(sql: &str) -> (String, String) {
             rest = comment[end..].trim_start();
         } else if rest.starts_with("/*") {
             let end = skip_block_comment(rest.as_bytes(), 0);
-            let content_end = if rest[..end].ends_with("*/") {
-                end - 2
-            } else {
-                end
-            };
+            let content_end = if rest[..end].ends_with("*/") { end - 2 } else { end };
             if title.is_none() {
                 title = Some(excerpt(rest[2..content_end].trim(), 90));
             }
@@ -329,17 +330,8 @@ pub(crate) fn history_text(sql: &str) -> (String, String) {
         }
     }
     let sql_excerpt = excerpt(rest, 180);
-    let title = title
-        .filter(|t| !t.is_empty())
-        .unwrap_or_else(|| excerpt(rest, 72));
-    (
-        if title.is_empty() {
-            "SQL statement".into()
-        } else {
-            title
-        },
-        sql_excerpt,
-    )
+    let title = title.filter(|t| !t.is_empty()).unwrap_or_else(|| excerpt(rest, 72));
+    (if title.is_empty() { "SQL statement".into() } else { title }, sql_excerpt)
 }
 
 #[cfg(test)]
@@ -348,25 +340,28 @@ mod tests {
 
     #[test]
     fn unicode_cte_names_keep_the_write_statement_recognizable() {
-        assert!(history_is_write(
-            "WITH café AS (SELECT 1) DELETE FROM orders"
-        ));
-        assert!(history_is_write(
-            "WITH café AS (DELETE FROM orders RETURNING *) SELECT * FROM café"
-        ));
-        assert!(!history_is_write(
-            "WITH café AS (SELECT 1) SELECT * FROM café"
-        ));
+        assert!(history_is_write("WITH café AS (SELECT 1) DELETE FROM orders"));
+        assert!(history_is_write("WITH café AS (DELETE FROM orders RETURNING *) SELECT * FROM café"));
+        assert!(!history_is_write("WITH café AS (SELECT 1) SELECT * FROM café"));
     }
 
     #[test]
     fn escaped_cte_names_preserve_write_classification() {
-        for name in [r#"U&"ch\0061nged""#, r#"u&"ch!0061nged" UESCAPE '!'"#, r#"U&"changed" UESCAPE E'!'"#, "U&\"changed\" UESCAPE '!'\n''"] {
+        for name in [
+            r#"U&"ch\0061nged""#,
+            r#"u&"ch!0061nged" UESCAPE '!'"#,
+            r#"U&"changed" UESCAPE E'!'"#,
+            "U&\"changed\" UESCAPE '!'\n''",
+        ] {
             for columns in ["", "(n)"] {
                 for sql in [
                     format!("WITH {name}{columns} AS (DELETE FROM orders RETURNING n) SELECT * FROM changed"),
-                    format!("WITH RECURSIVE seed AS (SELECT 1), {name}{columns} AS NOT MATERIALIZED (SELECT 1) DELETE FROM orders"),
-                    format!("WITH RECURSIVE {name}{columns} AS (SELECT 1), later AS (UPDATE orders SET n = 2 RETURNING n) SELECT * FROM later"),
+                    format!(
+                        "WITH RECURSIVE seed AS (SELECT 1), {name}{columns} AS NOT MATERIALIZED (SELECT 1) DELETE FROM orders"
+                    ),
+                    format!(
+                        "WITH RECURSIVE {name}{columns} AS (SELECT 1), later AS (UPDATE orders SET n = 2 RETURNING n) SELECT * FROM later"
+                    ),
                 ] {
                     assert!(history_is_write(&sql), "{sql}");
                     assert!(history_is_write(&format!("COPY ({sql}) TO PROGRAM 'cat'")), "{sql}");
@@ -402,11 +397,16 @@ mod tests {
                 assert!(history_is_write(&sql), "{sql}");
                 assert!(history_is_write(&format!("COPY ({sql} RETURNING *) TO PROGRAM 'cat'")), "{sql}");
             }
-            for sql in [format!("{source} {clauses} SELECT * FROM source"), format!(r#"{source} {clauses} SELECT 'DELETE', $$UPDATE t$$ FROM source"#)] {
+            for sql in [
+                format!("{source} {clauses} SELECT * FROM source"),
+                format!(r#"{source} {clauses} SELECT 'DELETE', $$UPDATE t$$ FROM source"#),
+            ] {
                 assert!(!history_is_write(&sql), "{sql}");
             }
         }
-        assert!(!history_is_write(r#"WITH RECURSIVE s(n) AS (SELECT 1) CYCLE n SET "DELETE" TO 'UPDATE' DEFAULT 'INSERT' USING p SELECT * FROM s"#));
+        assert!(!history_is_write(
+            r#"WITH RECURSIVE s(n) AS (SELECT 1) CYCLE n SET "DELETE" TO 'UPDATE' DEFAULT 'INSERT' USING p SELECT * FROM s"#
+        ));
     }
 
     #[test]
@@ -450,7 +450,10 @@ mod tests {
                 Close,
             ]
         );
-        assert_eq!(tokens("x #>> 'p' /* c */ .. \"open"), vec![Word("x"), Operator("#>>"), Other, Other, Quoted("open")]);
+        assert_eq!(
+            tokens("x #>> 'p' /* c */ .. \"open"),
+            vec![Word("x"), Operator("#>>"), Other, Other, Quoted("open")]
+        );
     }
 
     #[test]
@@ -550,15 +553,9 @@ mod tests {
     fn titles_use_leading_comments_and_excerpts_are_single_line() {
         assert_eq!(
             history_text("-- Revenue by region\nSELECT region,\n count(*) FROM orders"),
-            (
-                "Revenue by region".into(),
-                "SELECT region, count(*) FROM orders".into()
-            )
+            ("Revenue by region".into(), "SELECT region, count(*) FROM orders".into())
         );
-        assert_eq!(
-            history_text("/* inventory */ update t set x=1").0,
-            "inventory"
-        );
+        assert_eq!(history_text("/* inventory */ update t set x=1").0, "inventory");
         assert_eq!(history_text("select 1").0, "select 1");
         assert_eq!(history_text("/*🦀"), ("🦀".into(), "".into()));
         assert_eq!(history_text("/*é"), ("é".into(), "".into()));

@@ -10,7 +10,7 @@ use crate::Shared;
 use crate::console::{Console, ConsoleInner, OutputBatch, STREAM_EMIT_INTERVAL, SessionSlot, Work};
 use crate::files::Replacement;
 use crate::model::*;
-use crate::results::{ResultSet, Rerun};
+use crate::results::{Rerun, ResultSet};
 use crate::session::{QueryEvent, Session};
 use crate::sql::{self, Vet};
 use crate::text::{quote_ident, quote_ident_in};
@@ -41,7 +41,13 @@ pub(crate) fn rerun(kind: DatabaseKind, sql: &str, page: bool) -> Rerun {
     }
 }
 
-pub(crate) async fn export(shared: &Arc<Shared>, r: ResultRef, format: ExportFormat, scope: ExportScope, path: String) -> Result<ExportSummary, ExportError> {
+pub(crate) async fn export(
+    shared: &Arc<Shared>,
+    r: ResultRef,
+    format: ExportFormat,
+    scope: ExportScope,
+    path: String,
+) -> Result<ExportSummary, ExportError> {
     let set = shared.result_set(r).ok_or(ExportError::Gone)?;
     let sql = match scope {
         ExportScope::Loaded => None,
@@ -54,7 +60,10 @@ pub(crate) async fn export(shared: &Arc<Shared>, r: ResultRef, format: ExportFor
     }
 }
 
-async fn blocking<T: Send + 'static>(shared: &Shared, f: impl FnOnce() -> Result<T, ExportError> + Send + 'static) -> Result<T, ExportError> {
+async fn blocking<T: Send + 'static>(
+    shared: &Shared,
+    f: impl FnOnce() -> Result<T, ExportError> + Send + 'static,
+) -> Result<T, ExportError> {
     shared.runtime.spawn_blocking(f).await.unwrap_or_else(|e| Err(ExportError::Io { message: e.to_string() }))
 }
 
@@ -78,18 +87,30 @@ async fn insert_target(shared: &Arc<Shared>, set: &ResultSet) -> InsertTarget {
     let Some(oid) = single_source(&set.columns) else { return placeholder() };
     let Ok(catalog) = shared.catalog(&set.db).await else { return placeholder() };
     let Some((schema, relation)) = catalog.relation_by_oid(oid) else { return placeholder() };
-    let found = set.columns.iter().map(|c| relation.columns.iter().find(|k| c.source.is_some_and(|s| s.attnum == k.attnum))).collect::<Option<Vec<_>>>();
+    let found = set
+        .columns
+        .iter()
+        .map(|c| relation.columns.iter().find(|k| c.source.is_some_and(|s| s.attnum == k.attnum)))
+        .collect::<Option<Vec<_>>>();
     let Some(sources) = found else { return placeholder() };
     // `writable` is false both for an identity the server numbers and for a column it computes.
     // Only the identity takes a value, so the detail tells them apart.
     let identities = match sources.iter().any(|k| !k.writable) {
         false => vec![],
         true => match shared.relation_detail(&set.db, oid).await {
-            Ok(detail) => detail.defaults.into_iter().filter(|d| matches!(d.value, DefaultValue::Identity { .. })).map(|d| d.column).collect(),
+            Ok(detail) => detail
+                .defaults
+                .into_iter()
+                .filter(|d| matches!(d.value, DefaultValue::Identity { .. }))
+                .map(|d| d.column)
+                .collect(),
             Err(_) => return placeholder(),
         },
     };
-    let columns: Vec<_> = sources.iter().map(|k| (k.writable || identities.contains(&k.name)).then(|| quote_ident_in(dialect, &k.name))).collect();
+    let columns: Vec<_> = sources
+        .iter()
+        .map(|k| (k.writable || identities.contains(&k.name)).then(|| quote_ident_in(dialect, &k.name)))
+        .collect();
     if columns.iter().all(Option::is_none) {
         return placeholder();
     }
@@ -152,7 +173,9 @@ impl Fence {
         let path = schema.map(|s| format!("; SET LOCAL search_path TO {}", quote_ident(s))).unwrap_or_default();
         match self {
             Fence::ReadOnlyTxn => Some(format!("BEGIN TRANSACTION READ ONLY{path}")),
-            Fence::ReadOnlySavepoint => Some(format!("SAVEPOINT l1_export; SET LOCAL transaction_read_only = on{path}")),
+            Fence::ReadOnlySavepoint => {
+                Some(format!("SAVEPOINT l1_export; SET LOCAL transaction_read_only = on{path}"))
+            }
             Fence::Bare => None,
         }
     }
@@ -178,7 +201,14 @@ struct Job {
     path: String,
 }
 
-async fn run_again(shared: &Arc<Shared>, set: Arc<ResultSet>, format: ExportFormat, sql: Arc<str>, encoder: Encoder, path: String) -> Result<ExportSummary, ExportError> {
+async fn run_again(
+    shared: &Arc<Shared>,
+    set: Arc<ResultSet>,
+    format: ExportFormat,
+    sql: Arc<str>,
+    encoder: Encoder,
+    path: String,
+) -> Result<ExportSummary, ExportError> {
     let console = shared.console(set.r#ref.tab_id).ok_or(ExportError::Gone)?;
     shared.connect(set.db.connection_id).await.map_err(|error| ExportError::Connect { error })?;
     let instance = shared.instance(set.db.connection_id).ok_or(ExportError::Gone)?;
@@ -186,7 +216,9 @@ async fn run_again(shared: &Arc<Shared>, set: Arc<ResultSet>, format: ExportForm
         if console.closed.load(Ordering::Relaxed) || console.result_set(set.r#ref).is_none() {
             return Err(ExportError::Gone);
         }
-        if inner.config.connection_id != set.db.connection_id || instance.canonical_database(&inner.config.database) != instance.canonical_database(&set.db.database) {
+        if inner.config.connection_id != set.db.connection_id
+            || instance.canonical_database(&inner.config.database) != instance.canonical_database(&set.db.database)
+        {
             return Err(ExportError::TargetChanged);
         }
         if matches!(inner.session, SessionSlot::Busy { .. }) {
@@ -217,7 +249,8 @@ async fn run_again(shared: &Arc<Shared>, set: Arc<ResultSet>, format: ExportForm
             inner.session = SessionSlot::Idle(idle);
         }
         let progress = ExportProgress { result: set.r#ref, format, rows: 0, bytes: 0, write_error: None };
-        let (session, stop) = console.take_session(&mut inner, run_id, Work::Export(progress)).ok_or(ExportError::Busy)?;
+        let (session, stop) =
+            console.take_session(&mut inner, run_id, Work::Export(progress)).ok_or(ExportError::Busy)?;
         let txn = inner.txn;
         console.publish(&mut inner, shared);
         (session, stop, txn, fence)
@@ -299,7 +332,14 @@ impl Writer {
     }
 }
 
-async fn export_task(job: Job, mut session: Session, mut encoder: Encoder, file: Replacement, stop: Arc<AtomicBool>, reply: oneshot::Sender<Result<ExportSummary, ExportError>>) {
+async fn export_task(
+    job: Job,
+    mut session: Session,
+    mut encoder: Encoder,
+    file: Replacement,
+    stop: Arc<AtomicBool>,
+    reply: oneshot::Sender<Result<ExportSummary, ExportError>>,
+) {
     let mut writer = Writer::spawn(&job.shared, file);
     let schema = job.set.origin.schema.as_deref().filter(|s| !session.settled_on(Some(s)));
     let opened = match job.fence.open(schema) {
@@ -354,7 +394,12 @@ async fn export_task(job: Job, mut session: Session, mut encoder: Encoder, file:
     let mut lines: Vec<OutputBody> = log_line(&outcome, job.format, &job.path).into_iter().collect();
     lines.extend(lost.as_deref().map(|reason| crate::console::loss_line(&session, after, reason)));
     job.console.output_all(&job.shared, job.run_id, lines);
-    let returned = job.console.edit(&job.shared, job.run_id, |inner| Console::return_session(inner, session, after, lost).or_else(|| inner.finish_refreshes(false))).await;
+    let returned = job
+        .console
+        .edit(&job.shared, job.run_id, |inner| {
+            Console::return_session(inner, session, after, lost).or_else(|| inner.finish_refreshes(false))
+        })
+        .await;
     let outcome = match returned {
         Ok(due) => {
             if let Some((db, owed)) = due {
@@ -371,7 +416,13 @@ async fn export_task(job: Job, mut session: Session, mut encoder: Encoder, file:
 /// Every halt after the stream starts reads it to its end. Where a cancel keeps the session
 /// (PostgreSQL), a halt the user did not ask for also cancels, so the server stops sending; on SQL
 /// Server a cancel would reset the session and its transaction, so the rest is read and dropped.
-async fn pump(job: &Job, session: &mut Session, encoder: &mut Encoder, writer: &mut Writer, stop: &AtomicBool) -> Result<u64, Halt> {
+async fn pump(
+    job: &Job,
+    session: &mut Session,
+    encoder: &mut Encoder,
+    writer: &mut Writer,
+    stop: &AtomicBool,
+) -> Result<u64, Halt> {
     let cancel = session.cancel_handle();
     let cancel_keeps_session = session.cancel_keeps_session();
     let nth = job.set.origin.nth;
@@ -383,7 +434,8 @@ async fn pump(job: &Job, session: &mut Session, encoder: &mut Encoder, writer: &
     // A server flushes rows in bursts, so progress follows a clock rather than the rows.
     let mut tick = tokio::time::interval_at(tokio::time::Instant::now() + STREAM_EMIT_INTERVAL, STREAM_EMIT_INTERVAL);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    let mut published = ExportProgress { result: job.set.r#ref, format: job.format, rows: 0, bytes: 0, write_error: None };
+    let mut published =
+        ExportProgress { result: job.set.r#ref, format: job.format, rows: 0, bytes: 0, write_error: None };
     let mut log = OutputBatch::new(&job.console, &job.shared, job.run_id);
     let mut stream = session.query(&job.sql);
     loop {
@@ -421,7 +473,11 @@ async fn pump(job: &Job, session: &mut Session, encoder: &mut Encoder, writer: &
                 set = Some(index);
                 // The encoder types values by the loaded categories. A SQL Server page loaded only
                 // when its live categories matched the catalog's, so the same check holds there.
-                let same = columns.len() == job.set.columns.len() && columns.iter().zip(&job.set.columns).all(|(a, b)| a.name == b.name && a.r#type.category == b.r#type.category);
+                let same = columns.len() == job.set.columns.len()
+                    && columns
+                        .iter()
+                        .zip(&job.set.columns)
+                        .all(|(a, b)| a.name == b.name && a.r#type.category == b.r#type.category);
                 if index == nth && !same && halt.is_none() {
                     halt = Some(Halt::ShapeChanged);
                     if cancel_keeps_session {
@@ -445,7 +501,8 @@ async fn pump(job: &Job, session: &mut Session, encoder: &mut Encoder, writer: &
             }
             Some(Ok(QueryEvent::Row(_))) => {}
         }
-        let progress = emit.then(|| ExportProgress { rows, bytes: sent, write_error: writer.error.clone(), ..published.clone() });
+        let progress =
+            emit.then(|| ExportProgress { rows, bytes: sent, write_error: writer.error.clone(), ..published.clone() });
         if let Some(progress) = progress.filter(|p| *p != published) {
             let next = progress.clone();
             let progressed = job.console.edit(&job.shared, job.run_id, |inner| {
@@ -474,13 +531,23 @@ fn log_line(outcome: &Result<ExportSummary, ExportError>, format: ExportFormat, 
     let unchanged = "The file was not changed.";
     let info = |message: String| Some(OutputBody::Info { message });
     match outcome {
-        Ok(s) => info(format!("Exported {} as {} to {path} ({}).", rows_text(s.rows), format_label(format), size_text(s.bytes))),
+        Ok(s) => info(format!(
+            "Exported {} as {} to {path} ({}).",
+            rows_text(s.rows),
+            format_label(format),
+            size_text(s.bytes)
+        )),
         Err(ExportError::Cancelled) => info(format!("Export to {path} cancelled. {unchanged}")),
         Err(ExportError::Io { message }) => info(format!("Export to {path} failed: {message}. {unchanged}")),
-        Err(ExportError::ShapeChanged) => info(format!("Export to {path} failed: the query returned other columns when it ran again. {unchanged}")),
+        Err(ExportError::ShapeChanged) => {
+            info(format!("Export to {path} failed: the query returned other columns when it ran again. {unchanged}"))
+        }
         Err(ExportError::Query { error }) => Some(OutputBody::Error {
             statement: None,
-            error: QueryError { message: format!("Export to {path} failed: {}. {unchanged}", error.message), ..error.clone() },
+            error: QueryError {
+                message: format!("Export to {path} failed: {}. {unchanged}", error.message),
+                ..error.clone()
+            },
         }),
         Err(_) => None,
     }
@@ -526,7 +593,9 @@ mod tests {
         let Some(OutputBody::Info { message }) = log_line(&ok, ExportFormat::Csv, "/tmp/o.csv") else { panic!() };
         assert_eq!(message, "Exported 1,284,551 rows as CSV to /tmp/o.csv (3.3 MB).");
         let one = Ok(ExportSummary { rows: 1, bytes: 12, truncated: false });
-        let Some(OutputBody::Info { message }) = log_line(&one, ExportFormat::SqlInsert, "/tmp/o.sql") else { panic!() };
+        let Some(OutputBody::Info { message }) = log_line(&one, ExportFormat::SqlInsert, "/tmp/o.sql") else {
+            panic!()
+        };
         assert_eq!(message, "Exported 1 row as SQL INSERT to /tmp/o.sql (12 B).");
         assert!(log_line(&Err(ExportError::Gone), ExportFormat::Json, "/x").is_none());
     }
@@ -535,9 +604,14 @@ mod tests {
     fn only_reads_run_again_and_unvetted_calls_ask_first() {
         use DatabaseKind::{Postgres, SqlServer};
         assert!(matches!(rerun(Postgres, "select * from orders", false), Rerun::Ready(_)));
-        assert!(matches!(rerun(Postgres, "select nextval('s'), pg_sleep(1)", false), Rerun::Unvetted { calls, .. } if &*calls == ["nextval", "pg_sleep"]));
+        assert!(
+            matches!(rerun(Postgres, "select nextval('s'), pg_sleep(1)", false), Rerun::Unvetted { calls, .. } if &*calls == ["nextval", "pg_sleep"])
+        );
         assert!(matches!(rerun(Postgres, "delete from orders returning *", false), Rerun::Refused(_)));
-        assert!(matches!(rerun(Postgres, "select * from orders where pg_sleep(0) is not null", true), Rerun::Ready(_)), "a page is never asked about");
+        assert!(
+            matches!(rerun(Postgres, "select * from orders where pg_sleep(0) is not null", true), Rerun::Ready(_)),
+            "a page is never asked about"
+        );
         assert!(matches!(rerun(SqlServer, "SELECT * FROM dbo.orders", false), Rerun::Ready(_)));
         assert!(matches!(rerun(SqlServer, "SELECT 1; COMMIT", false), Rerun::Refused(_)));
     }

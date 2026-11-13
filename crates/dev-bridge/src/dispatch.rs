@@ -39,10 +39,7 @@ fn json(value: impl Serialize) -> Value {
 fn take<T: DeserializeOwned>(args: &mut Map<String, Value>, param: &str) -> Result<T, BridgeError> {
     let key = camel_case(param);
     let value = args.remove(&key).unwrap_or(Value::Null);
-    serde_json::from_value(value).map_err(|e| BridgeError::BadArg {
-        arg: key,
-        message: e.to_string(),
-    })
+    serde_json::from_value(value).map_err(|e| BridgeError::BadArg { arg: key, message: e.to_string() })
 }
 
 pub fn camel_case(snake: &str) -> String {
@@ -236,16 +233,16 @@ mod tests {
     #[tokio::test]
     async fn bad_requests_are_bridge_errors_not_command_errors() {
         let (engine, _dir) = engine().await;
-        assert!(matches!(
-            dispatch(&engine, "nope", Map::new()).await,
-            Err(BridgeError::UnknownCommand(_))
-        ));
+        assert!(matches!(dispatch(&engine, "nope", Map::new()).await, Err(BridgeError::UnknownCommand(_))));
         let args = json!({ "tabId": "not-a-uuid" }).as_object().unwrap().clone();
         assert!(matches!(
             dispatch(&engine, "console_cancel", args).await,
             Err(BridgeError::BadArg { arg, .. }) if arg == "tabId"
         ));
-        let unknown = json!({ "db": { "connectionId": "00000000-0000-0000-0000-000000000000", "database": "shop" } }).as_object().unwrap().clone();
+        let unknown = json!({ "db": { "connectionId": "00000000-0000-0000-0000-000000000000", "database": "shop" } })
+            .as_object()
+            .unwrap()
+            .clone();
         let reply = dispatch(&engine, "catalog_get", unknown).await.unwrap();
         assert_eq!(reply.unwrap_err(), json!({ "kind": "NotConnected" }), "a typed error is a command error");
     }

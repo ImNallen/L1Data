@@ -15,7 +15,9 @@ fn draft(database: &str) -> ConnectionDraft {
         port: std::env::var("L1_DATA_TEST_MSSQL_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(1434),
         database: database.into(),
         user: "sa".into(),
-        password: PasswordInput::Set(std::env::var("L1_DATA_TEST_MSSQL_PASSWORD").unwrap_or_else(|_| "L1Data_dev_Str0ng".into())),
+        password: PasswordInput::Set(
+            std::env::var("L1_DATA_TEST_MSSQL_PASSWORD").unwrap_or_else(|_| "L1Data_dev_Str0ng".into()),
+        ),
         ssl_mode: SslMode::Require,
         ca_cert_path: None,
         color: None,
@@ -26,7 +28,16 @@ fn draft(database: &str) -> ConnectionDraft {
 }
 
 async fn open(dir: &std::path::Path, keys: Arc<MemoryKeyStore>) -> Arc<Engine> {
-    Engine::open(EngineConfig { data_dir: dir.into(), keys, agent_path: AgentPath::Fixed("".into()), az_binary: None, user_known_hosts: None, updates: Arc::new(engine::ScriptedTransport::named("off").unwrap()) }).await.unwrap()
+    Engine::open(EngineConfig {
+        data_dir: dir.into(),
+        keys,
+        agent_path: AgentPath::Fixed("".into()),
+        az_binary: None,
+        user_known_hosts: None,
+        updates: Arc::new(engine::ScriptedTransport::named("off").unwrap()),
+    })
+    .await
+    .unwrap()
 }
 
 fn console(connection_id: ConnectionId, database: &str) -> ConsoleConfig {
@@ -38,8 +49,18 @@ fn saved(connection_id: ConnectionId, database: &str, table: bool) -> TabSnapsho
         id: TabId(uuid::Uuid::new_v4()),
         title: "identity".into(),
         text: Some(if table { "SELECT * FROM [dbo].[orders]" } else { "SELECT DB_NAME() AS identity_home" }.into()),
-        console: ConsoleConfigSnapshot { connection_id: Some(connection_id), database: Some(database.into()), schema: None, mode: TxnMode::AutoCommit },
-        table: table.then(|| TableSnapshot { schema: "dbo".into(), table: "orders".into(), page: 0, query: TableQuery::default() }),
+        console: ConsoleConfigSnapshot {
+            connection_id: Some(connection_id),
+            database: Some(database.into()),
+            schema: None,
+            mode: TxnMode::AutoCommit,
+        },
+        table: table.then(|| TableSnapshot {
+            schema: "dbo".into(),
+            table: "orders".into(),
+            page: 0,
+            query: TableQuery::default(),
+        }),
         file: None,
         collapsed: false,
     }
@@ -51,7 +72,10 @@ async fn run(engine: &Engine, tab: TabId, request: RunRequest) -> ConsoleState {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             match events.recv().await {
-                Ok(AppEvent::ConsoleChanged(state)) if state.tab_id == tab && matches!(state.run, RunState::Finished { run_id, .. } if run_id == accepted.run_id) => {
+                Ok(AppEvent::ConsoleChanged(state))
+                    if state.tab_id == tab
+                        && matches!(state.run, RunState::Finished { run_id, .. } if run_id == accepted.run_id) =>
+                {
                     assert!(matches!(state.run, RunState::Finished { outcome: RunOutcome::Ok, .. }), "{:?}", state.run);
                     return state;
                 }
@@ -66,14 +90,24 @@ async fn run(engine: &Engine, tab: TabId, request: RunRequest) -> ConsoleState {
 
 fn result(state: &ConsoleState) -> &ResultMeta {
     let RunState::Finished { statements, .. } = &state.run else { panic!("run not finished") };
-    statements.iter().flat_map(|statement| &statement.outputs).find_map(|output| match output {
-        RunOutput::Rows { result, .. } => Some(result),
-        _ => None,
-    }).expect("query returned rows")
+    statements
+        .iter()
+        .flat_map(|statement| &statement.outputs)
+        .find_map(|output| match output {
+            RunOutput::Rows { result, .. } => Some(result),
+            _ => None,
+        })
+        .expect("query returned rows")
 }
 
 fn query() -> RunRequest {
-    RunRequest::Script { text: "SELECT DB_NAME() AS identity_home".into(), target: RunTarget::All, mode: RunMode::Run, params: Vec::new(), cells: Vec::new() }
+    RunRequest::Script {
+        text: "SELECT DB_NAME() AS identity_home".into(),
+        target: RunTarget::All,
+        mode: RunMode::Run,
+        params: Vec::new(),
+        cells: Vec::new(),
+    }
 }
 
 #[tokio::test]
@@ -113,10 +147,20 @@ async fn restored_targets_catalogs_table_results_and_history_share_the_canonical
         file: None,
     };
     let notebooks = vec![notebook("SHOP", vec![table.id]), notebook("Shop", vec![distinct.id])];
-    engine.save_workspace(Workspace { tabs: vec![table.clone(), distinct.clone()], active: Some(table.id), notebooks: notebooks.clone(), ..Workspace::default() });
+    engine.save_workspace(Workspace {
+        tabs: vec![table.clone(), distinct.clone()],
+        active: Some(table.id),
+        notebooks: notebooks.clone(),
+        ..Workspace::default()
+    });
     let before = engine.console_configure(table.id, console(config.id, "SHOP")).await.unwrap();
     assert_eq!(before.config.database, "SHOP");
-    let state = run(&engine, table.id, RunRequest::TablePage { schema: "dbo".into(), table: "orders".into(), page: 0, query: TableQuery::default() }).await;
+    let state = run(
+        &engine,
+        table.id,
+        RunRequest::TablePage { schema: "dbo".into(), table: "orders".into(), page: 0, query: TableQuery::default() },
+    )
+    .await;
     assert_eq!(state.config.database, "shop");
     assert!(state.rev > before.rev);
     let meta = result(&state);
@@ -127,25 +171,48 @@ async fn restored_targets_catalogs_table_results_and_history_share_the_canonical
     let catalog = engine.catalog(alias.clone()).await.unwrap();
     assert_eq!(catalog.db, db);
     assert_eq!(engine.catalog(db.clone()).await.unwrap().version, catalog.version);
-    let orders = catalog.schemas.iter().find(|s| s.name == "dbo").unwrap().relations.iter().find(|r| r.name == "orders").unwrap();
+    let orders = catalog
+        .schemas
+        .iter()
+        .find(|s| s.name == "dbo")
+        .unwrap()
+        .relations
+        .iter()
+        .find(|r| r.name == "orders")
+        .unwrap();
     assert_eq!(engine.relation_detail(alias.clone(), orders.oid).await.unwrap().db, db);
-    assert_eq!(engine.exact_row_count(table.id, alias, "dbo".into(), "orders".into(), TableQuery::default()).await.unwrap(), u64::from(meta.row_count));
+    assert_eq!(
+        engine.exact_row_count(table.id, alias, "dbo".into(), "orders".into(), TableQuery::default()).await.unwrap(),
+        u64::from(meta.row_count)
+    );
     let reconfigured = engine.console_configure(table.id, console(config.id, "SHOP")).await.unwrap();
     assert_eq!(reconfigured.config.database, "shop");
-    assert!(matches!((state.session, reconfigured.session), (SessionState::Open { backend_pid: a }, SessionState::Open { backend_pid: b }) if a == b));
+    assert!(
+        matches!((state.session, reconfigured.session), (SessionState::Open { backend_pid: a }, SessionState::Open { backend_pid: b }) if a == b)
+    );
     let state = run(&engine, table.id, query()).await;
     assert_eq!(result(&state).db, db);
     assert_eq!(engine.result_page(result(&state).r#ref, 0, 1).unwrap().rows, vec![vec![Some("shop".into())]]);
-    let history = engine.history(HistoryQuery { text: None, connection_id: Some(config.id), before_id: None, limit: 10 });
+    let history =
+        engine.history(HistoryQuery { text: None, connection_id: Some(config.id), before_id: None, limit: 10 });
     assert_eq!(history.entries.len(), 2);
-    assert!(history.entries.iter().all(|entry| entry.database == "shop" && entry.database_kind == DatabaseKind::SqlServer));
+    assert!(
+        history.entries.iter().all(|entry| entry.database == "shop" && entry.database_kind == DatabaseKind::SqlServer)
+    );
     let restored = engine.boot().workspace;
     assert_eq!(restored.tabs[0].console.database.as_deref(), Some("shop"));
     assert_eq!(restored.tabs[1].console.database.as_deref(), Some("Shop"));
     assert_eq!(restored.tabs[0].table, table.table);
-    let databases = |w: &Workspace| w.notebooks.iter().map(|n| n.db.as_ref().unwrap().database.clone()).collect::<Vec<_>>();
+    let databases =
+        |w: &Workspace| w.notebooks.iter().map(|n| n.db.as_ref().unwrap().database.clone()).collect::<Vec<_>>();
     assert_eq!(databases(&restored), ["shop", "Shop"], "a notebook resolves as its cells do");
-    engine.save_workspace(Workspace { tabs: vec![table, distinct], active: restored.active, layout: restored.layout, notebooks, shown: None });
+    engine.save_workspace(Workspace {
+        tabs: vec![table, distinct],
+        active: restored.active,
+        layout: restored.layout,
+        notebooks,
+        shown: None,
+    });
     engine.disconnect(config.id, true).await.unwrap();
     drop(engine);
     let reopened = open(dir.path(), keys).await;
@@ -155,7 +222,10 @@ async fn restored_targets_catalogs_table_results_and_history_share_the_canonical
     assert_eq!(restored.console.database.as_deref(), Some("shop"));
     assert_eq!(snapshot.workspace.tabs[1].console.database.as_deref(), Some("Shop"));
     assert_eq!(databases(&snapshot.workspace), ["shop", "Shop"]);
-    reopened.console_configure(restored.id, console(config.id, restored.console.database.as_deref().unwrap())).await.unwrap();
+    reopened
+        .console_configure(restored.id, console(config.id, restored.console.database.as_deref().unwrap()))
+        .await
+        .unwrap();
     let state = run(&reopened, restored.id, query()).await;
     assert_eq!(state.config.database, "shop");
     assert_eq!(result(&state).db, db);
@@ -182,9 +252,15 @@ async fn saved_config_edits_and_other_case_variants_do_not_retarget_the_connecte
     let state = run(&engine, tab, query()).await;
     assert_eq!(result(&state).db.database, "reporting");
     assert_eq!(engine.result_page(result(&state).r#ref, 0, 1).unwrap().rows, vec![vec![Some("reporting".into())]]);
-    assert_eq!(engine.catalog(DatabaseRef { connection_id: config.id, database: "SHOP".into() }).await.unwrap().db.database, "shop");
+    assert_eq!(
+        engine.catalog(DatabaseRef { connection_id: config.id, database: "SHOP".into() }).await.unwrap().db.database,
+        "shop"
+    );
     for database in ["Shop", "sHoP", "REPORTING"] {
-        assert!(matches!(engine.catalog(DatabaseRef { connection_id: config.id, database: database.into() }).await, Err(CatalogError::UnknownDatabase { .. })));
+        assert!(matches!(
+            engine.catalog(DatabaseRef { connection_id: config.id, database: database.into() }).await,
+            Err(CatalogError::UnknownDatabase { .. })
+        ));
         let state = engine.console_configure(tab, console(config.id, database)).await.unwrap();
         assert_eq!(state.config.database, database);
         assert!(matches!(engine.console_run(tab, query(), None).await, Err(RunError::NotConfigured)));
@@ -195,6 +271,9 @@ async fn saved_config_edits_and_other_case_variants_do_not_retarget_the_connecte
     let boot = engine.boot();
     let ConnStatus::Connected { instance, .. } = &boot.live[0].status else { panic!("not connected") };
     assert_eq!((&*instance.configured_database, &*instance.home), ("reporting", "reporting"));
-    assert!(matches!(engine.catalog(DatabaseRef { connection_id: config.id, database: "SHOP".into() }).await, Err(CatalogError::UnknownDatabase { .. })));
+    assert!(matches!(
+        engine.catalog(DatabaseRef { connection_id: config.id, database: "SHOP".into() }).await,
+        Err(CatalogError::UnknownDatabase { .. })
+    ));
     engine.disconnect(config.id, true).await.unwrap();
 }

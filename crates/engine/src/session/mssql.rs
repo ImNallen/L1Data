@@ -1,19 +1,19 @@
-pub(super) mod import;
 mod catalog;
 mod detail;
+pub(super) mod import;
+#[cfg(all(test, feature = "mssql-tests"))]
+mod import_tests;
 mod map;
 mod source;
 mod values;
-#[cfg(all(test, feature = "mssql-tests"))]
-mod import_tests;
 
+use super::stream::DbStream;
 use super::{QueryEvent, QueryStream, error};
 use crate::connection::{CONNECT_TIMEOUT, ConnectParams};
 use crate::entra::AzCli;
 use crate::model::*;
 use futures_util::{StreamExt, TryStreamExt};
 use std::time::Duration;
-use super::stream::DbStream;
 use tiberius::{AuthMethod, Client, Config, EncryptionLevel, QueryItem};
 use tokio::sync::watch;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
@@ -72,7 +72,9 @@ impl Lease<'_> {
 impl Drop for Lease<'_> {
     fn drop(&mut self) {
         if let Some(mut client) = self.client.take() {
-            self.owner.closed.send_replace(Some("SQL Server operation was abandoned; the session and any open transaction were discarded.".into()));
+            self.owner.closed.send_replace(Some(
+                "SQL Server operation was abandoned; the session and any open transaction were discarded.".into(),
+            ));
             if let Ok(runtime) = tokio::runtime::Handle::try_current() {
                 let closed = self.owner.closed.clone();
                 runtime.spawn(async move {
@@ -138,12 +140,18 @@ const CERTIFICATE_REJECTED: &str = "the server's certificate was rejected during
 const DEVELOPER_ADVICE: &str = " To connect anyway";
 
 fn tls_failure(message: String, entra: bool) -> ConnectError {
-    let Some(rest) = message.strip_prefix(CERTIFICATE_REJECTED) else { return ConnectError::Tls { message: format!("TLS failed: {message}") } };
+    let Some(rest) = message.strip_prefix(CERTIFICATE_REJECTED) else {
+        return ConnectError::Tls { message: format!("TLS failed: {message}") };
+    };
     let reason = rest.split_once(DEVELOPER_ADVICE).map_or(rest, |(reason, _)| reason).trim_end_matches('.');
     let message = if entra {
-        format!("The server's certificate could not be verified, so the Microsoft Entra ID token was not sent. Entra ID sign-in needs a server with a publicly trusted certificate, such as Azure SQL. Check the host name, or ask the server's administrator for a publicly trusted certificate. Reason: {reason}.")
+        format!(
+            "The server's certificate could not be verified, so the Microsoft Entra ID token was not sent. Entra ID sign-in needs a server with a publicly trusted certificate, such as Azure SQL. Check the host name, or ask the server's administrator for a publicly trusted certificate. Reason: {reason}."
+        )
     } else {
-        format!("The server's certificate could not be verified. Check the host name, give the server a certificate this computer trusts, or choose Require under TLS to connect without checking it. Reason: {reason}.")
+        format!(
+            "The server's certificate could not be verified. Check the host name, give the server a certificate this computer trusts, or choose Require under TLS to connect without checking it. Reason: {reason}."
+        )
     };
     ConnectError::Tls { message }
 }
@@ -171,13 +179,17 @@ impl MsSession {
         }
         // The handshake's future is tens of kilobytes in a debug build. On the heap it leaves every caller its stack.
         let connection = Box::pin(Client::connect(cfg, stream.compat_write()));
-        let connected = tokio::time::timeout(CONNECT_TIMEOUT, connection).await.map_err(|_| ConnectError::Network { message: "SQL Server connection timed out".into() })?;
+        let connected = tokio::time::timeout(CONNECT_TIMEOUT, connection)
+            .await
+            .map_err(|_| ConnectError::Network { message: "SQL Server connection timed out".into() })?;
         let client = match connected {
             Ok(client) => client,
             Err(tiberius::error::Error::Tls(message)) => return Err(tls_failure(message, token.is_some())),
             Err(tiberius::error::Error::Server(e)) => {
                 let entra = p.entra.as_deref().zip(token.as_deref());
-                return Err(login_refused(e.code(), e.message(), entra).await.unwrap_or_else(|| ConnectError::Server(query_error(tiberius::error::Error::Server(e)))));
+                return Err(login_refused(e.code(), e.message(), entra)
+                    .await
+                    .unwrap_or_else(|| ConnectError::Server(query_error(tiberius::error::Error::Server(e)))));
             }
             Err(e) => return Err(ConnectError::Server(query_error(e))),
         };
@@ -313,7 +325,9 @@ impl MsSession {
         while let Some(event) = stream.next().await {
             match event? {
                 QueryEvent::Columns(_) => sets.push(Vec::new()),
-                QueryEvent::Row(row) => sets.last_mut().ok_or_else(|| error("SQL Server sent a row before its columns"))?.push(row),
+                QueryEvent::Row(row) => {
+                    sets.last_mut().ok_or_else(|| error("SQL Server sent a row before its columns"))?.push(row)
+                }
                 QueryEvent::ServerError(e) => {
                     failed.get_or_insert(e);
                 }
@@ -326,7 +340,12 @@ impl MsSession {
         self.rows(sql).await.map(drop)
     }
     pub(super) async fn finish_transaction(&mut self, commit: bool) -> Result<(), QueryError> {
-        self.batch(if commit { "WHILE @@TRANCOUNT > 0 COMMIT TRANSACTION" } else { "IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION" }).await
+        self.batch(if commit {
+            "WHILE @@TRANCOUNT > 0 COMMIT TRANSACTION"
+        } else {
+            "IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION"
+        })
+        .await
     }
     pub(super) async fn count(&mut self, sql: &str) -> Result<u64, QueryError> {
         let rows = self.rows(sql).await?;
@@ -388,7 +407,9 @@ fn observe(client: &TdsClient, database: &str) -> Result<TxnState, QueryError> {
     let state = client.session_state().map_err(query_error)?;
     let actual = state.database;
     if actual != database {
-        return Err(error(format!("Execution database changed to {actual}. The session was retired; select a database through the tab target.")));
+        return Err(error(format!(
+            "Execution database changed to {actual}. The session was retired; select a database through the tab target."
+        )));
     }
     Ok(transaction(state.has_transaction))
 }
@@ -435,7 +456,14 @@ mod login_tests {
         fn new() -> Self {
             let dir = tempfile::tempdir().unwrap();
             let (program, log) = (dir.path().join("az"), dir.path().join("az.log"));
-            std::fs::write(&program, format!("#!/bin/sh\necho call >> '{}'\necho '{{\"accessToken\":\"token\",\"expires_on\":9999999999}}'\n", log.display())).unwrap();
+            std::fs::write(
+                &program,
+                format!(
+                    "#!/bin/sh\necho call >> '{}'\necho '{{\"accessToken\":\"token\",\"expires_on\":9999999999}}'\n",
+                    log.display()
+                ),
+            )
+            .unwrap();
             std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
             Self { az: AzCli::new(AgentPath::Fixed("".into()), Some(program)), log, _dir: dir }
         }
@@ -451,9 +479,18 @@ mod login_tests {
         for code in [18456, 18452] {
             let fake = FakeAz::new();
             let token = fake.az.token().await.unwrap();
-            let refused = login_refused(code, "Login failed for user '<token-identified principal>'.", Some((&fake.az, &token))).await;
-            assert!(matches!(refused, Some(ConnectError::Auth { ref message }) if message.starts_with("Login failed")), "{code}: {refused:?}");
-            assert_eq!(fake.calls_after_another_token().await, 2, "{code} drops the token, so the next sign-in runs az");
+            let refused =
+                login_refused(code, "Login failed for user '<token-identified principal>'.", Some((&fake.az, &token)))
+                    .await;
+            assert!(
+                matches!(refused, Some(ConnectError::Auth { ref message }) if message.starts_with("Login failed")),
+                "{code}: {refused:?}"
+            );
+            assert_eq!(
+                fake.calls_after_another_token().await,
+                2,
+                "{code} drops the token, so the next sign-in runs az"
+            );
         }
     }
 
@@ -461,15 +498,22 @@ mod login_tests {
     fn a_rejected_certificate_names_what_the_user_can_do_and_keeps_the_reason() {
         let rejected = "the server's certificate was rejected during the TLS handshake: invalid peer certificate: UnknownIssuer. To connect anyway you can: (1) trust a specific CA certificate with `Config::trust_cert_ca(path)`; (3) skip certificate validation entirely with `Config::trust_cert()`.".to_owned();
         for (entra, advice) in [(true, "publicly trusted certificate"), (false, "choose Require")] {
-            let ConnectError::Tls { message } = tls_failure(rejected.clone(), entra) else { panic!("a TLS failure stays Tls") };
-            assert!(message.starts_with("The server's certificate could not be verified") && message.contains(advice), "{message}");
+            let ConnectError::Tls { message } = tls_failure(rejected.clone(), entra) else {
+                panic!("a TLS failure stays Tls")
+            };
+            assert!(
+                message.starts_with("The server's certificate could not be verified") && message.contains(advice),
+                "{message}"
+            );
             assert!(message.ends_with("Reason: invalid peer certificate: UnknownIssuer."), "{message}");
             assert!(!message.contains("Config::") && !message.contains("trust_cert"), "{message}");
         }
         let old_cert = "the server's certificate was rejected during the TLS handshake: invalid peer certificate: Other(OtherError(UnsupportedCertVersion)). The SQL Server presented a certificate rustls considers too old (an outdated X.509 version), which frequently happens with the self-signed certificate SQL Server auto-generates. To connect anyway you can: (3) skip certificate validation entirely with `Config::trust_cert()`.".to_owned();
         let ConnectError::Tls { message } = tls_failure(old_cert, false) else { panic!("a TLS failure stays Tls") };
         assert!(message.ends_with("Reason: invalid peer certificate: Other(OtherError(UnsupportedCertVersion)). The SQL Server presented a certificate rustls considers too old (an outdated X.509 version), which frequently happens with the self-signed certificate SQL Server auto-generates."), "{message}");
-        let ConnectError::Tls { message } = tls_failure("invalid dns name".into(), true) else { panic!("a TLS failure stays Tls") };
+        let ConnectError::Tls { message } = tls_failure("invalid dns name".into(), true) else {
+            panic!("a TLS failure stays Tls")
+        };
         assert_eq!(message, "TLS failed: invalid dns name");
     }
 
@@ -477,9 +521,15 @@ mod login_tests {
     async fn other_login_errors_keep_the_token_and_a_sql_login_keeps_trunks_mapping() {
         let fake = FakeAz::new();
         let token = fake.az.token().await.unwrap();
-        assert!(login_refused(4060, "Cannot open database", Some((&fake.az, &token))).await.is_none(), "a missing database is not a refused token");
+        assert!(
+            login_refused(4060, "Cannot open database", Some((&fake.az, &token))).await.is_none(),
+            "a missing database is not a refused token"
+        );
         assert_eq!(fake.calls_after_another_token().await, 1);
-        assert!(matches!(login_refused(18456, "Login failed for user 'sa'.", None).await, Some(ConnectError::Auth { .. })));
+        assert!(matches!(
+            login_refused(18456, "Login failed for user 'sa'.", None).await,
+            Some(ConnectError::Auth { .. })
+        ));
         assert!(login_refused(18452, "untrusted domain", None).await.is_none());
     }
 }
@@ -519,13 +569,19 @@ mod tests {
         let mut session = MsSession::open(&params()).await.unwrap();
         let error = session.results("SELECT 1; SELECT 1/0; SELECT 2").await.unwrap_err();
         assert!(error.message.contains("Divide by zero"), "{}", error.message);
-        assert_eq!(session.results("SELECT 1; SELECT 2 WHERE 1=0").await.unwrap(), vec![vec![vec![Some("1".to_owned())]], vec![]]);
+        assert_eq!(
+            session.results("SELECT 1; SELECT 2 WHERE 1=0").await.unwrap(),
+            vec![vec![vec![Some("1".to_owned())]], vec![]]
+        );
     }
 
     async fn stopped(observer: &mut MsSession, pid: i32) {
         tokio::time::timeout(Duration::from_secs(2), async {
             loop {
-                let count = observer.count(&format!("SELECT COUNT_BIG(*) FROM sys.dm_exec_requests WHERE session_id={pid}")).await.unwrap();
+                let count = observer
+                    .count(&format!("SELECT COUNT_BIG(*) FROM sys.dm_exec_requests WHERE session_id={pid}"))
+                    .await
+                    .unwrap();
                 if count == 0 {
                     break;
                 }
@@ -542,7 +598,8 @@ mod tests {
         let mut session = MsSession::open(&params()).await.unwrap();
         let pid = session.backend_pid;
         {
-            let mut stream = session.query("SELECT 1; RAISERROR('flush',0,1) WITH NOWAIT; WAITFOR DELAY '00:00:30'; SELECT 2");
+            let mut stream =
+                session.query("SELECT 1; RAISERROR('flush',0,1) WITH NOWAIT; WAITFOR DELAY '00:00:30'; SELECT 2");
             tokio::time::timeout(Duration::from_secs(2), async {
                 loop {
                     if matches!(stream.next().await.unwrap().unwrap(), QueryEvent::Row(_)) {
@@ -560,7 +617,11 @@ mod tests {
 
         let mut session = MsSession::open(&params()).await.unwrap();
         let pid = session.backend_pid;
-        assert!(tokio::time::timeout(Duration::from_millis(100), session.rows("WAITFOR DELAY '00:00:30'; SELECT 1")).await.is_err());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), session.rows("WAITFOR DELAY '00:00:30'; SELECT 1"))
+                .await
+                .is_err()
+        );
         assert!(session.client.is_none());
         assert!(session.closed_reason().is_some());
         stopped(&mut observer, pid).await;
@@ -589,8 +650,15 @@ mod tests {
         p.ssl_mode = SslMode::Disable;
         assert!(matches!(MsSession::open(&p).await, Err(ConnectError::Tls { .. })));
         p.ssl_mode = SslMode::VerifyFull;
-        let Err(ConnectError::Tls { message }) = MsSession::open(&p).await else { panic!("the dev server's certificate is self-signed") };
-        assert!(message.starts_with("The server's certificate could not be verified.") && message.contains("choose Require") && !message.contains("trust_cert"), "{message}");
+        let Err(ConnectError::Tls { message }) = MsSession::open(&p).await else {
+            panic!("the dev server's certificate is self-signed")
+        };
+        assert!(
+            message.starts_with("The server's certificate could not be verified.")
+                && message.contains("choose Require")
+                && !message.contains("trust_cert"),
+            "{message}"
+        );
         p.ca_cert_path = Some("not-a-real-ca.pem".into());
         assert!(matches!(MsSession::open(&p).await, Err(ConnectError::Tls { .. })));
     }
@@ -613,14 +681,16 @@ mod tests {
             let mut stream = session.query("SELECT 1; RAISERROR('flush',0,1) WITH NOWAIT; WAITFOR DELAY '00:00:30'");
             tokio::time::timeout(Duration::from_secs(2), async {
                 while !matches!(stream.next().await.unwrap().unwrap(), QueryEvent::Row(_)) {}
-            }).await.unwrap();
+            })
+            .await
+            .unwrap();
         }
         closed.borrow_and_update();
         drop(session);
         assert!(closed.has_changed().is_ok(), "Detached cleanup must keep the client lifetime signal open");
-        tokio::time::timeout(Duration::from_secs(1), async {
-            while closed.changed().await.is_ok() {}
-        }).await.expect("Detached Attention retained the client beyond its bound");
+        tokio::time::timeout(Duration::from_secs(1), async { while closed.changed().await.is_ok() {} })
+            .await
+            .expect("Detached Attention retained the client beyond its bound");
         stopped(&mut observer, pid).await;
     }
 }
