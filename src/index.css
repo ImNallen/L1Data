@@ -389,16 +389,20 @@ textarea,
   background: var(--color-canvas);
 }
 .notebook-cell {
+  --cell-edge: var(--color-border);
   overflow: hidden;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--cell-edge);
   border-radius: 8px;
   background: var(--color-bg);
+  /* A 1px arc anti-aliases to half-lit pixels on a 1x display, so the corners look cut off. Tracing it again with an outline on the border's own band fills them in and leaves the straight edges unchanged. */
+  outline: 1px solid var(--cell-edge);
+  outline-offset: -1px;
 }
 .notebook-cell-stale {
-  border-color: var(--color-amber);
+  --cell-edge: var(--color-amber);
 }
 .notebook-cell-active {
-  border-color: var(--color-focus);
+  --cell-edge: var(--color-focus);
 }
 .notebook-cell-heading {
   display: flex;
