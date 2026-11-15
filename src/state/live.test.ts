@@ -14,7 +14,18 @@ import type {
   UpdateState,
   UpdateStatus,
 } from "../ipc/bindings";
-import { applyEvent, emptyLive, hydrateChatLive, hydrateLive, hydrateSavedLive, OUTPUT_LIMIT, seedTranscriptLive, wantedCatalogs, type LiveData } from "./live";
+import {
+  applyEvent,
+  emptyLive,
+  forgetTabLive,
+  hydrateChatLive,
+  hydrateLive,
+  hydrateSavedLive,
+  OUTPUT_LIMIT,
+  seedTranscriptLive,
+  wantedCatalogs,
+  type LiveData,
+} from "./live";
 
 const CONN = "c0000000-0000-4000-8000-000000000001";
 const TAB = "t0000000-0000-4000-8000-000000000001";
@@ -413,6 +424,16 @@ describe("live.apply", () => {
     expect(out.entries[0]?.atMs).toBe(2);
     expect(out.entries.at(-1)?.atMs).toBe(OUTPUT_LIMIT + 1);
     expect(out.dropped).toBe(2);
+  });
+
+  it("a forgotten tab drops its console and output, and no late event or boot snapshot brings them back", () => {
+    const entry: OutputEntry = { atMs: 1, runId: 1, body: { kind: "Info", message: "m" } };
+    const output: AppEvent = { kind: "ConsoleOutput", tabId: TAB, entries: [entry] };
+    const held = applyAll(emptyLive, [consoleChanged(consoleAt(1)), output]);
+    const forgotten = forgetTabLive(held, TAB);
+    expect([forgotten.consoles, forgotten.output]).toEqual([{}, {}]);
+    const late = hydrateLive(applyAll(forgotten, [consoleChanged(consoleAt(2, "Active")), output]), { ...bootWith(savedAt(0, [])), consoles: [consoleAt(3)] });
+    expect([late.consoles, late.output]).toEqual([{}, {}]);
   });
 
   it("prepends appended history entries", () => {
