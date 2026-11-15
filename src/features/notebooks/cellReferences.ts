@@ -8,6 +8,7 @@ import { provideCellNames } from "../editor/completion";
 import { docText } from "../editor/docText";
 import { docOf, editorStateOf, referenceAt, showReferences } from "../editor/editorStates";
 import { goToCell } from "./cellNavigation";
+import { staleness, stalenessText } from "./references";
 
 const ws = () => useWorkspace.getState();
 
@@ -22,6 +23,12 @@ export function notebookSources(id: TabId): CellSource[] {
     const doc = docOf(t.id);
     return doc ? [{ name: t.title, text: docText(doc) }] : [];
   });
+}
+
+/** Why the cell's result no longer matches the cells it references, or "" while it does. */
+export function staleReason(id: TabId): string {
+  const sources = ws().runSources[id];
+  return sources?.length ? stalenessText(staleness(sources, notebookSources(id))) : "";
 }
 
 let timer: ReturnType<typeof setTimeout> | undefined;

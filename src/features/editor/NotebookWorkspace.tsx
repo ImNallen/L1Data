@@ -7,7 +7,6 @@ import { flushSync } from "react-dom";
 import type { RunState, TabId } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
 import { canCancel, hasUncommittedWork, isBusy, resultKey, rowResults, runSummary, shownResult, type ResultPick } from "../../state/status";
-import { notebookOf } from "../../state/notebooks";
 import { activeId, isFiltered, shownNotebook, useWorkspace } from "../../state/workspace";
 import { cx, IconButton } from "../../ui/primitives";
 import { useNow } from "../../ui/useNow";
@@ -19,9 +18,8 @@ import { CELL_SCROLL_MARGIN, cellHeights, EDITOR_MIN, pinnedTop, type DraggedHei
 import { closeTab } from "./closeTab";
 import { goToCell } from "../notebooks/cellNavigation";
 import { ParamsStrip } from "../notebooks/ParamsStrip";
-import { staleness, stalenessText } from "../notebooks/references";
-import { docText } from "./docText";
-import { activateEditor, docOf, onBuffersChanged, textOf } from "./editorStates";
+import { staleReason } from "../notebooks/cellReferences";
+import { activateEditor, onBuffersChanged, textOf } from "./editorStates";
 import { cancelActive, formatActive, openSqlTab, runActive } from "./runActions";
 import { SqlEditor } from "./SqlEditor";
 import { SqlText } from "./SqlText";
@@ -47,19 +45,6 @@ const onStaleInputs = (changed: () => void) => {
     workspace();
   };
 };
-
-/** Why the cell's result no longer matches the cells it references, or "" while it does. */
-function staleReason(id: TabId): string {
-  const s = useWorkspace.getState();
-  const sources = s.runSources[id];
-  if (!sources?.length) return "";
-  const cells = (notebookOf(s.notebooks, id)?.cells ?? []).flatMap((c) => {
-    const doc = docOf(c);
-    const tab = s.tabs[c];
-    return tab && doc ? [{ name: tab.title, text: docText(doc) }] : [];
-  });
-  return stalenessText(staleness(sources, cells));
-}
 
 const UNDRAGGED: DraggedHeights = { editor: null, results: null };
 

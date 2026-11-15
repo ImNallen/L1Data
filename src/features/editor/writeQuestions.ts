@@ -9,8 +9,9 @@ function units(unit: ExecutionUnitKind, n: number): string {
   return unit === "Batch" ? `${n} ${n === 1 ? "batch" : "batches"}` : plural(n, "statement");
 }
 
-function sendsWrites(asked: WriteConfirmation, n: number): string {
-  return `This run sends ${units(asked.unit, n)} that ${n === 1 ? "writes" : "write"} to ${asked.connection} / ${asked.database}.`;
+function sendsWrites(asked: WriteConfirmation, n: number, cells = 1): string {
+  const from = cells > 1 ? ` from ${cells} cells` : "";
+  return `This run sends ${units(asked.unit, n)} that ${n === 1 ? "writes" : "write"} to ${asked.connection} / ${asked.database}${from}.`;
 }
 
 /** A held write may still be open or may have committed already, and a run may be in either mode, so each sentence must hold for all of them. */
@@ -54,5 +55,32 @@ export function runQuestion(asked: WriteConfirmation, mode: RunMode, sqlServer: 
     body: body.filter(Boolean).join(" "),
     statements,
     confirmLabel: offProduction ? "Run" : n > 0 ? "Run writes" : "Run",
+  };
+}
+
+export type CellAsk = { title: string; confirmation: WriteConfirmation };
+
+function askDetail({ unit, sends, holds }: WriteConfirmation): string {
+  const writes = unit === "Batch" ? units(unit, sends.count) : plural(sends.count, "write");
+  return [sends.count > 0 && writes, holds.count > 0 && `${holds.count} held`].filter(Boolean).join(" · ");
+}
+
+/** One question for the cells of a notebook run that would ask, in run order, or null when none would. */
+export function productionQuestion(asks: readonly CellAsk[]): WriteQuestion | null {
+  const first = asks[0]?.confirmation;
+  if (!first) return null;
+  const sends = asks.reduce((n, a) => n + a.confirmation.sends.count, 0);
+  const holds = asks.reduce((n, a) => n + a.confirmation.holds.count, 0);
+  const writing = asks.filter((a) => a.confirmation.sends.count > 0).length;
+  const body = [
+    sends > 0 && sendsWrites(first, sends, writing),
+    holds > 0 && held(first, holds, { on: "in these cells", in: "a cell's transaction" }, covered),
+  ];
+  return {
+    title: sends > 0 ? `Run ${plural(sends, "write")} on Production?` : "Run on Production?",
+    body: body.filter(Boolean).join(" "),
+    rows: asks.map(({ title, confirmation }) => ({ label: title, detail: askDetail(confirmation) })),
+    note: "A cell that changes before its turn asks again.",
+    confirmLabel: sends > 0 ? "Run writes" : "Run",
   };
 }

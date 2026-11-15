@@ -262,6 +262,14 @@ export function scriptRequest(tabId: TabId, text: string, target: RunTarget, mod
   return { kind: "script", text, target, mode, params: notebookOf(ws().notebooks, tabId)?.params ?? [], cells: notebookSources(tabId) };
 }
 
+/** Runs the whole cell, as a notebook run does: no prompt and no focus checks. */
+export async function runCell(id: TabId, digest: WriteDigest | null, valid: () => boolean): Promise<Sent> {
+  const tab = ws().tabs[id];
+  if (!tab || !(await ensureConsole(tab)) || !valid()) return { kind: "dropped" };
+  const request = scriptRequest(id, textOf(id), { kind: "all" }, "Run");
+  return sendRun(tab, request, digest, () => valid() && ws().tabs[id]?.console === tab.console);
+}
+
 /**
  * The one way a run reaches the engine. It sends with `digest`, then asks the cell's own question for as long as the
  * engine asks, and drops the run when the user says no or `valid` fails. An accepted script clears its Stale mark and
