@@ -12,6 +12,7 @@ use crate::session::{self, QueryEvent, Session};
 use crate::sql::StmtSpan;
 use crate::writes;
 
+#[derive(Clone, Copy)]
 pub(crate) enum ExplainMode {
     Explain,
     Analyze,
