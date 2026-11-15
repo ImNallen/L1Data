@@ -6,6 +6,7 @@ import { focusActiveCell } from "../features/notebooks/cellNavigation";
 import { activeId, useWorkspace, type Screen } from "../state/workspace";
 import type { TabId } from "../ipc/bindings";
 import { ACTIVE_OPTION, cx, DialogSurface, Kbd } from "../ui/primitives";
+import { matchRanges, parseQuery } from "../ui/textMatch";
 import { COMMAND_GROUPS, COMMANDS, commandAvailable, commandLabel, shortcutLabel, type Command } from "./commands";
 
 function CommandBrowser({ activate, composing }: { activate: (command: Command) => void; composing: RefObject<boolean> }) {
@@ -16,10 +17,8 @@ function CommandBrowser({ activate, composing }: { activate: (command: Command) 
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const listId = useId();
-  const words = query.toLowerCase().trim().split(/\s+/);
-  const matching = COMMANDS.filter((command) => command.palette !== false && commandAvailable(command)).filter((command) =>
-    words.every((word) => commandLabel(command).toLowerCase().includes(word)),
-  );
+  const tokens = parseQuery(query);
+  const matching = COMMANDS.filter((command) => command.palette !== false && commandAvailable(command) && matchRanges(tokens, commandLabel(command)) !== null);
   const items = COMMAND_GROUPS.flatMap((group) => matching.filter((command) => command.group === group));
   const selectedIndex = Math.max(
     0,
