@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Range;
 
 use super::lex::{self, LexKind, Strings};
-use super::scope::{Class, Lexeme, map_lexemes, reserved};
+use super::scope::{Class, Lexeme, map_lexemes, reserved, unquote};
 use super::{StmtSpan, split_statements, tsql};
 use crate::model::{CellSource, DatabaseKind, RunError};
 use crate::params::{self, ExecutableScript};
@@ -213,10 +213,7 @@ fn folded(text: &str, lexeme: &Lexeme, kind: DatabaseKind) -> Option<String> {
     let name = match lexeme.class {
         Class::Word if kind == DatabaseKind::Postgres => return Some(t.to_ascii_lowercase()),
         Class::Word => t.to_owned(),
-        Class::Name => match t.strip_prefix('[').and_then(|t| t.strip_suffix(']')) {
-            Some(bracketed) => bracketed.replace("]]", "]"),
-            None => t.strip_prefix('"')?.strip_suffix('"')?.replace("\"\"", "\""),
-        },
+        Class::Name => unquote(t)?,
         _ => return None,
     };
     Some(fold(kind, name))

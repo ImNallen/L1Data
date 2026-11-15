@@ -1406,6 +1406,13 @@ impl<'a> Walk<'a> {
     }
 }
 
+pub(super) fn unquote(name: &str) -> Option<String> {
+    match name.strip_prefix('[').and_then(|t| t.strip_suffix(']')) {
+        Some(bracketed) => Some(bracketed.replace("]]", "]")),
+        None => Some(name.strip_prefix('"')?.strip_suffix('"')?.replace("\"\"", "\"")),
+    }
+}
+
 pub(super) fn reserved(kind: DatabaseKind, word: &str) -> bool {
     match kind {
         DatabaseKind::Postgres => {
