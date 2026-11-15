@@ -3,5 +3,5 @@
   "plugins": ["typescript", "unicorn", "oxc", "react", "import"],
   "categories": { "correctness": "error" },
   "rules": { "react/incompatible-library": "off" },
-  "ignorePatterns": ["/.audit/", "/.github/", "/crates/", "/dev/", "/docs/", "/src-tauri/", "/vendor/", "/src/ipc/bindings.ts"]
+  "ignorePatterns": ["/.github/", "/crates/", "/dev/", "/docs/", "/src-tauri/", "/vendor/", "/src/ipc/bindings.ts"]
 }

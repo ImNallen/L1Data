@@ -108,11 +108,7 @@ struct Log(Option<std::fs::File>);
 
 impl Log {
     fn open(args: &[String]) -> Self {
-        let path = args
-            .windows(2)
-            .find(|w| w[0] == "--fake-log")
-            .map(|w| w[1].clone())
-            .or_else(|| std::env::var("L1_FAKE_CLAUDE_LOG").ok());
+        let path = args.windows(2).find(|w| w[0] == "--fake-log").map(|w| w[1].clone());
         Self(path.and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok()))
     }
 

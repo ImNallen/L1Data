@@ -1,2 +1,0 @@
-Actual browser staged id=1, refreshed PK displayed on alternate, Submit refused; both observer rows unchanged=[[["1", "2", "selected"], ["2", "1", "other"]]]
-After column rename invalidated editing, pending overlay stayed on original row; Add disabled, Submit and Revert usable; Revert cleared pending. Disposable table dropped; absence verified.
