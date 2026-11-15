@@ -54,6 +54,7 @@ import {
 } from "./editorStates";
 import { closeChooser, openChooser } from "./chooserState";
 import { cancelStaleParams, finishParams, resolveParams } from "./paramsState";
+import { heldWrites, plural, runQuestion, shownWrites } from "./writeQuestions";
 import { docText } from "./docText";
 import { installCellReferences, notebookSources, refreshReferences } from "../notebooks/cellReferences";
 import { cellNavigation } from "../notebooks/cellNavigation";
@@ -181,47 +182,9 @@ function deferPageForPendingWork(tabId: TabId, target: PageTarget | undefined): 
   return true;
 }
 
-/** A held write may still be open or may have committed already, and a run may be in either mode, so each sentence must hold for all of them. */
-function heldWrites(asked: WriteConfirmation, outcome: (it: string) => string = covered): string {
-  const one = asked.holds.count === 1;
-  return [
-    `${one ? "A write" : `${asked.holds.count} writes`} to ${asked.connection} / ${asked.database} ran on this tab before the connection was marked Production.`,
-    `If ${one ? "it is" : "they are"} still in this tab's transaction, ${outcome(one ? "it" : "them")}.`,
-  ].join(" ");
-}
-
-function covered(it: string): string {
-  return `confirming covers ${it}, so a later commit does not ask about ${it} again`;
-}
-
-function shownWrites(asked: WriteConfirmation): { statements: string[]; note: string } {
-  const statements = [...asked.holds.statements, ...asked.sends.statements];
-  const total = asked.holds.count + asked.sends.count;
-  return { statements, note: total > statements.length ? `${statements.length} of ${total} are shown.` : "" };
-}
-
 /** The answer holds only for the target it named, so a target changed meanwhile drops the run. */
 async function writesConfirmed(tab: Tab, asked: WriteConfirmation, mode: RunMode): Promise<boolean> {
-  const n = asked.sends.count;
-  const h = asked.holds.count;
-  const unit = asked.unit === "Batch" ? (n === 1 ? "batch" : "batches") : n === 1 ? "statement" : "statements";
-  const { statements, note } = shownWrites(asked);
-  const sqlServerAnalyze = mode === "ExplainAnalyze" && databaseKindFor(tabTarget(tab), ws().configs) === "SqlServer";
-  const offProduction = sqlServerAnalyze && !asked.onProduction;
-  const body = [
-    offProduction
-      ? `Explain Analyze executes this batch on ${asked.connection} / ${asked.database}. This app does not roll it back.`
-      : n > 0 && `This run sends ${n} ${unit} that ${n === 1 ? "writes" : "write"} to ${asked.connection} / ${asked.database}.`,
-    h > 0 && heldWrites(asked),
-    note,
-    mode === "ExplainAnalyze" && !sqlServerAnalyze && "A rollback does not undo sequence values or outside side effects.",
-  ];
-  const ok = await confirm({
-    title: offProduction ? "Run this batch?" : n > 0 ? `Run ${plural(n, "write")} on Production?` : "Run on Production?",
-    body: body.filter(Boolean).join(" "),
-    statements,
-    confirmLabel: offProduction ? "Run" : n > 0 ? "Run writes" : "Run",
-  });
+  const ok = await confirm(runQuestion(asked, mode, databaseKindFor(tabTarget(tab), ws().configs) === "SqlServer"));
   return ok && ws().tabs[tab.id]?.console === tab.console;
 }
 
@@ -558,8 +521,6 @@ export function updateTableQuery(tabId: TabId, update: (q: TableQuery) => TableQ
   ws().setTableQuery(tabId, update(tab.table.query));
   setTablePage(tabId, 0);
 }
-
-export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 export async function submitEdits(tabId: TabId): Promise<void> {
   const tab = ws().tabs[tabId];

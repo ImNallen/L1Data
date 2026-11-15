@@ -1,7 +1,7 @@
 import { commands, type ConnectError, type ConnectionId, type DatabaseRef, type SshError, type ViewEdit } from "../../ipc/bindings";
 import { catalogErrorText, connectErrorText, disconnectErrorText } from "../../ipc/errors";
 import { confirm, useWorkspace } from "../../state/workspace";
-import { plural } from "../editor/runActions";
+import { plural } from "../editor/writeQuestions";
 import { closeCells, holdsTransaction } from "../notebooks/notebookActions";
 import { keepNotebook } from "../notebooks/notebookFiles";
 

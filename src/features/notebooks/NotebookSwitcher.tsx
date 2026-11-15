@@ -7,7 +7,7 @@ import { useLive } from "../../state/live";
 import { activeId, useWorkspace } from "../../state/workspace";
 import { isMac } from "../../shell/hostedWindow";
 import { ACTIVE_OPTION, cx, DialogSurface, Kbd, MenuContent, MenuItem } from "../../ui/primitives";
-import { plural } from "../editor/runActions";
+import { plural } from "../editor/writeQuestions";
 import { focusDestination } from "../navigation/navigationActions";
 import { deleteNotebook, startNotebook } from "./notebookActions";
 import { switcherGroups, type SwitcherRow } from "./switcherItems";
