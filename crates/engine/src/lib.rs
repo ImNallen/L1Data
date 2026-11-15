@@ -908,6 +908,22 @@ struct PlannedRun {
     sources: Vec<CellSource>,
 }
 
+impl PlannedRun {
+    /// The saved connection, while the console still targets what `plan_run` planned.
+    fn current(&self, s: &Shared, inner: &console::ConsoleInner) -> Result<ConnectionConfig, RunError> {
+        let current = s.config(inner.config.connection_id).ok_or(RunError::NotConfigured)?;
+        txn::validate_mode(current.database_kind, inner.config.mode).map_err(|what| RunError::Unsupported { what })?;
+        let mut config = inner.config.clone();
+        if config.connection_id == self.instance.config.id {
+            config.database = self.instance.canonical_database(&config.database).to_owned();
+        }
+        if config != self.config {
+            return Err(RunError::Busy);
+        }
+        Ok(current)
+    }
+}
+
 enum Admitted {
     Run { checked: writes::WritesChecked, read_only: writes::ReadOnly },
     Explain(explain::Prepared),
@@ -1715,14 +1731,8 @@ impl Engine {
         }
 
         let mut inner = console.inner.lock().await;
-        let current = s.config(inner.config.connection_id).ok_or(RunError::NotConfigured)?;
-        txn::validate_mode(current.database_kind, inner.config.mode).map_err(|what| RunError::Unsupported { what })?;
-        if inner.config.connection_id == planned.instance.config.id {
-            inner.config.database = planned.instance.canonical_database(&inner.config.database).to_owned();
-        }
-        if inner.config != planned.config {
-            return Err(RunError::Busy);
-        }
+        let current = planned.current(s, &inner)?;
+        inner.config.database = planned.config.database.clone();
         if let Some(idle) = fresh {
             match inner.session {
                 SessionSlot::Empty | SessionSlot::Lost { .. } => inner.session = SessionSlot::Idle(idle),
@@ -1852,6 +1862,29 @@ impl Engine {
                 );
                 Ok(RunAccepted { run_id, statements: ranges, sources })
             }
+        }
+    }
+
+    /// What `console_run(tab, request, None)` would answer, without opening a session, sending anything, or changing
+    /// the console. `Ok(None)`: it would start. `Ok(Some(c))`: it would ask with `c.digest`. A tab with no session is
+    /// judged as the session `console_run` would open, whose `opened` is the saved connection.
+    pub async fn console_check_run(
+        &self,
+        tab: TabId,
+        request: RunRequest,
+    ) -> Result<Option<WriteConfirmation>, RunError> {
+        let planned = self.plan_run(tab, request).await?;
+        let inner = planned.console.inner.lock().await;
+        let current = planned.current(&self.shared, &inner)?;
+        let opened = match &inner.session {
+            SessionSlot::Idle(idle) => idle.opened(),
+            SessionSlot::Empty | SessionSlot::Lost { .. } => &current,
+            SessionSlot::Busy { .. } => return Err(RunError::Busy),
+        };
+        match admit(&planned, &inner, &current, opened, None) {
+            Ok(_) => Ok(None),
+            Err(RunError::ConfirmWrites { confirmation }) => Ok(Some(confirmation)),
+            Err(error) => Err(error),
         }
     }
 

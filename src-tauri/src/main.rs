@@ -45,6 +45,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ipc::table_script,
             ipc::table_order,
             ipc::console_run,
+            ipc::console_check_run,
             ipc::console_cancel,
             ipc::console_commit,
             ipc::console_rollback,

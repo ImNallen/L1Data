@@ -36,6 +36,21 @@ export const commands = {
 	tableScript: (db: DatabaseRef, schema: string, table: string) => typedError<TableScript, string>(__TAURI_INVOKE("table_script", { db, schema, table })),
 	tableOrder: (db: DatabaseRef, schema: string, table: string, orderBy: string, edit: TableOrderEdit) => typedError<TableOrderView, string>(__TAURI_INVOKE("table_order", { db, schema, table, orderBy, edit })),
 	consoleRun: (tabId: TabId, request: RunRequest, confirmed: string | null) => typedError<RunAccepted, RunError>(__TAURI_INVOKE("console_run", { tabId, request, confirmed })),
+	consoleCheckRun: (tabId: TabId, request: RunRequest) => typedError<{
+	/**  The connection's name. */
+	connection: string,
+	database: string,
+	unit: ExecutionUnitKind,
+	sends: WriteList,
+	/**
+	 *  The writes that ran before the tab's session counted as Production, in a transaction the engine has not seen
+	 *  end. Any run on the tab, and Commit, can commit them.
+	 */
+	holds: WriteList,
+	digest: WriteDigest,
+	/**  True when the saved connection or the opened session is Production. */
+	onProduction: boolean,
+} | null, RunError>(__TAURI_INVOKE("console_check_run", { tabId, request })),
 	consoleCancel: (tabId: TabId) => __TAURI_INVOKE<void>("console_cancel", { tabId }),
 	consoleCommit: (tabId: TabId, confirmed: string | null) => typedError<null, TxnError>(__TAURI_INVOKE("console_commit", { tabId, confirmed })),
 	consoleRollback: (tabId: TabId) => typedError<null, TxnError>(__TAURI_INVOKE("console_rollback", { tabId })),

@@ -205,6 +205,16 @@ pub async fn console_run(
     engine.console_run(tab_id, request, confirmed).await
 }
 
+#[tauri::command]
+#[specta::specta]
+pub async fn console_check_run(
+    engine: State<'_, Arc<Engine>>,
+    tab_id: TabId,
+    request: RunRequest,
+) -> Result<Option<WriteConfirmation>, RunError> {
+    engine.console_check_run(tab_id, request).await
+}
+
 // Async commands that borrow `State` must return `Result`; the owned `AppHandle` lifts that.
 #[tauri::command]
 #[specta::specta]

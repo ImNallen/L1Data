@@ -3681,6 +3681,59 @@ async fn a_digest_holds_only_while_the_connection_stays_as_asked() {
 }
 
 #[tokio::test]
+async fn a_run_check_answers_as_the_run_would_without_a_session() {
+    let mut h = Harness::start().await;
+    let oracle = h.oracle().await;
+    let table = unique("t_check");
+    oracle.batch_execute(&format!("create table public.{table} (n int)")).await.unwrap();
+    set_environment(&h, Some(Environment::Production)).await;
+    let tab = h.sql_tab(TxnMode::AutoCommit).await;
+    let write = format!("insert into public.{table} values (1)");
+
+    assert!(matches!(h.engine.console_check_run(tab, script("select 1")).await, Ok(None)), "a read starts");
+    let before = h.console(tab);
+    let checked = h.engine.console_check_run(tab, script(&write)).await.unwrap().expect("a write on Production asks");
+    assert_eq!((checked.sends.count, checked.sends.statements.as_slice()), (1, [write.clone()].as_slice()));
+    let after = h.console(tab);
+    assert!(matches!(after.session, SessionState::None), "a check opens no session: {:?}", after.session);
+    assert_eq!(after.rev, before.rev, "a check changes nothing on the console");
+    assert_eq!(count(&oracle, &table).await, 0, "a check sends nothing");
+
+    let state = run_confirmed(&mut h, tab, &write, &checked.digest).await;
+    assert_eq!(outcome(&state), RunOutcome::Ok, "the run takes the check's digest without asking again");
+    assert_eq!(count(&oracle, &table).await, 1);
+
+    let again = h.engine.console_check_run(tab, script(&write)).await.unwrap().expect("an open session still asks");
+    assert_eq!(again.digest, asked_to_run(&h, tab, script(&write), None).await.digest);
+
+    let running = h.start_run(tab, "select pg_sleep(1)").await;
+    assert!(matches!(h.engine.console_check_run(tab, script("select 1")).await, Err(RunError::Busy)));
+    h.wait_finished(tab, running.run_id).await;
+    oracle.batch_execute(&format!("drop table public.{table}")).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_run_check_digest_goes_stale_when_the_cell_changes() {
+    let h = Harness::start().await;
+    let oracle = h.oracle().await;
+    let table = unique("t_check");
+    oracle.batch_execute(&format!("create table public.{table} (n int)")).await.unwrap();
+    set_environment(&h, Some(Environment::Production)).await;
+    let tab = h.sql_tab(TxnMode::AutoCommit).await;
+    let checked = h
+        .engine
+        .console_check_run(tab, script(&format!("insert into public.{table} values (1)")))
+        .await
+        .unwrap()
+        .expect("a write on Production asks");
+    let edited = format!("insert into public.{table} values (2)");
+    let asked = asked_to_run(&h, tab, script(&edited), Some(&checked.digest)).await;
+    assert_ne!(asked.digest, checked.digest);
+    assert_eq!(count(&oracle, &table).await, 0, "an edited cell asks again and sends nothing");
+    oracle.batch_execute(&format!("drop table public.{table}")).await.unwrap();
+}
+
+#[tokio::test]
 async fn staged_edits_on_production_apply_only_with_the_digest_of_the_same_edits() {
     let mut h = Harness::start().await;
     h.engine.connect(h.conn).await.unwrap();
