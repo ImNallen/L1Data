@@ -11,9 +11,10 @@ use crate::connection::DatabaseInfo;
 use crate::model::{Catalog, DbAccess, Preset, ViewEdit};
 
 /// Persisted per connection in `connection_views`. Never crosses IPC: the UI sees the resolved
-/// `InstanceState`. A connection with no row resolves as `initial()`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+/// `InstanceState`. A connection with no row resolves as `initial()`, and a field missing from a
+/// row an older build wrote takes its initial value.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct ConnectionView {
     pub databases: Selection,
     pub show_system_databases: bool,
@@ -21,8 +22,8 @@ pub struct ConnectionView {
     pub schemas: BTreeMap<String, DatabaseView>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct DatabaseView {
     pub schemas: Selection,
     pub show_system_schemas: bool,
@@ -58,40 +59,15 @@ impl Selection {
     }
 }
 
-// Hand-written so a row this build writes still loads after a later build adds a field, as
-// `Layout` does in model.rs.
-impl<'de> Deserialize<'de> for ConnectionView {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Saved {
-            databases: Option<Selection>,
-            show_system_databases: Option<bool>,
-            schemas: Option<BTreeMap<String, DatabaseView>>,
-        }
-        let s = Saved::deserialize(d)?;
-        let initial = Self::initial();
-        Ok(Self {
-            databases: s.databases.unwrap_or(initial.databases),
-            show_system_databases: s.show_system_databases.unwrap_or(initial.show_system_databases),
-            schemas: s.schemas.unwrap_or(initial.schemas),
-        })
+impl Default for ConnectionView {
+    fn default() -> Self {
+        Self::initial()
     }
 }
 
-impl<'de> Deserialize<'de> for DatabaseView {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Saved {
-            schemas: Option<Selection>,
-            show_system_schemas: Option<bool>,
-        }
-        let s = Saved::deserialize(d)?;
-        Ok(Self {
-            schemas: s.schemas.unwrap_or(Selection::DefaultOnly),
-            show_system_schemas: s.show_system_schemas.unwrap_or(false),
-        })
+impl Default for DatabaseView {
+    fn default() -> Self {
+        Self { schemas: Selection::DefaultOnly, show_system_schemas: false }
     }
 }
 
