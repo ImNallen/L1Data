@@ -865,8 +865,19 @@ pub fn table_count(
 }
 
 #[cfg(test)]
-mod completion_never_panics {
-    use crate::model::{DatabaseKind, DocOffset};
+mod text_commands_never_panic {
+    //! The editor's sync commands run on the desktop app's main thread, so a panic in one ends the app. Each test
+    //! feeds its command random token sequences at every cursor offset, in both dialects. `L1_DATA_FUZZ_SEED` and
+    //! `L1_DATA_FUZZ_ITERATIONS` rerun them on other inputs.
+
+    use std::fmt::Debug;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    use crate::model::{
+        ColumnInfo, DatabaseKind, DocOffset, RelKind, Relation, RunTarget, TableOrderEdit, TypeCategory,
+    };
+
+    const KINDS: [DatabaseKind; 2] = [DatabaseKind::Postgres, DatabaseKind::SqlServer];
 
     const TOKENS: &[&str] = &[
         "select",
@@ -956,35 +967,312 @@ mod completion_never_panics {
         "o(a, b)",
         "on",
         "returning",
+        ":name",
+        ":",
+        "$0",
+        "$x",
+        "@@v",
+        "\\",
+        "{{t}}",
+        "{{ t }}",
+        "{{",
+        "}}",
+        "{{a\n}}",
+        "prepare",
+        "create",
+        "or replace",
+        "function",
+        "procedure",
+        "declare",
+        "exec",
+        "array",
+        "asc",
+        "desc",
+        "nulls first",
+        "collate",
+        "distinct",
+        "all",
+        "having",
+        "limit",
+        "rollup",
+        "grouping sets",
+        "count(*)",
+        "a",
+        "b",
+        "when",
+        "then",
+        "else",
+        "and",
+        "not",
+        "in",
+        "is",
+        "null",
+        "->>",
+        "||",
+        "<>",
+        "-",
+        "'",
+        "\"",
+        "[",
+        "\r\n",
+        "-- %%\n",
+        "ß",
+        "İ",
+        "ﬁ",
+        "𝔘",
+        "\0",
+        "\u{a0}",
+        "\u{85}",
+        "\u{2028}",
+        "\u{3000}",
+        "\u{feff}",
+        "\r",
+        "\x0b",
+        "select a, count(*) from t group by a having count(*) > 1 order by 2 desc limit 10",
+        "insert into t (a, b) values (1, 'x') returning *",
+        "update t set a = 1 from u where t.id = u.id",
+        "create function f() returns int language sql as $$ select 1 $$",
+        "select a::int[], b[1:2], c->'k' from t",
+        "create procedure p @a int as begin set nocount on; select @a end",
+        "begin try select 1 end try begin catch throw; end catch",
+        "if exists (select 1) begin print 'x' end else select 2",
+        "merge t using s on t.id = s.id when matched then update set a = s.a;",
+        "select top (10) with ties * from t with (nolock) order by a option (recompile)",
+        "$",
+        "$a$",
+        "&",
+        "E",
+        "U",
+        "N",
+        "e",
+        "x",
+        "?",
+        "%",
+        "^",
+        "!",
+        "<",
+        ">",
+        "~",
+        "|",
+        "`",
+        "{",
+        "}",
+        "/",
+        "@",
+        "0",
     ];
 
-    #[test]
-    fn completion_context_never_panics_on_any_token_sequence_or_cursor() {
-        let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+    /// SQL with holes, `_`, for random tokens, so a text keeps enough shape to get past a parser's first refusal.
+    const TEMPLATES: &[&str] = &[
+        "_",
+        "select _",
+        "select * from t _",
+        "with x as (select _",
+        "with x as (select _) select _ from x _",
+        "select a, _ count(*) from t _ group by a _",
+        "select a, b, count(*) from t where _ group by _ having _ order by _ limit _",
+        "a _, b _",
+        "insert into t (_) values (_) _",
+        "update t set a = _ where _",
+        "create procedure p _ as begin _ end",
+        "_;\n_\nGO\n_",
+    ];
+
+    fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {
+        std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    }
+
+    /// Templates with random tokens in their holes, from an xorshift generator so each run sees the same texts.
+    /// Each text draws from its own few tokens, so any two tokens meet often enough to find what they break
+    /// together, and a quarter of the texts end at a random point.
+    fn texts(iterations: usize) -> impl Iterator<Item = String> {
+        let mut state: u64 = env_or("L1_DATA_FUZZ_SEED", 0x9E37_79B9_7F4A_7C15u64).max(1);
         let mut next = move || {
             state ^= state << 13;
             state ^= state >> 7;
             state ^= state << 17;
             state
         };
-        for _ in 0..8_000 {
-            let len = (next() % 10) as usize;
-            let mut text =
-                String::from(["", "select ", "select * from t ", "with x as (select "][(next() % 4) as usize]);
-            for _ in 0..len {
-                text.push_str(TOKENS[(next() % TOKENS.len() as u64) as usize]);
-                if next() % 3 != 0 {
-                    text.push(' ');
+        (0..env_or("L1_DATA_FUZZ_ITERATIONS", iterations)).map(move |_| {
+            let palette: Vec<&str> = (0..6).map(|_| TOKENS[(next() % TOKENS.len() as u64) as usize]).collect();
+            let template = TEMPLATES[(next() % TEMPLATES.len() as u64) as usize];
+            let holes = template.matches('_').count() as u64;
+            let mut text = String::new();
+            for (i, part) in template.split('_').enumerate() {
+                if i > 0 {
+                    for _ in 0..next() % (1 + 12 / holes) {
+                        text.push_str(palette[(next() % palette.len() as u64) as usize]);
+                        if next() % 3 != 0 {
+                            text.push(' ');
+                        }
+                    }
+                }
+                text.push_str(part);
+            }
+            if next() % 4 == 0 {
+                let cut = (next() % (text.len() as u64 + 1)) as usize;
+                text.truncate(text.floor_char_boundary(cut));
+            }
+            text
+        })
+    }
+
+    /// Every UTF-16 offset in `text`, and two offsets past its end, as a stale cursor could send.
+    fn offsets(text: &str) -> impl Iterator<Item = u32> {
+        let units = text.encode_utf16().count() as u32;
+        (0..=units).chain([units + 3, u32::MAX])
+    }
+
+    /// The whole document, a cursor at every offset, and a selection from every offset to its mirror offset, so
+    /// the selections run forward, backward, and past the end.
+    fn targets(text: &str) -> impl Iterator<Item = RunTarget> + '_ {
+        let end = text.encode_utf16().count() as u32 + 3;
+        std::iter::once(RunTarget::All).chain(offsets(text).flat_map(move |at| {
+            [
+                RunTarget::Cursor { offset: DocOffset(at) },
+                RunTarget::Selection { from: DocOffset(at), to: DocOffset(end.saturating_sub(at)) },
+            ]
+        }))
+    }
+
+    fn assert_no_panic<R>(command: &str, kind: DatabaseKind, text: &str, at: impl Debug, run: impl FnOnce() -> R) {
+        let outcome = catch_unwind(AssertUnwindSafe(run));
+        assert!(outcome.is_ok(), "{command} panicked in {kind:?} at {at:?} on {text:?}");
+    }
+
+    #[test]
+    fn completion_context_never_panics_on_any_token_sequence_or_cursor() {
+        for text in texts(2_000) {
+            for at in offsets(&text) {
+                for kind in KINDS {
+                    assert_no_panic("completion_context", kind, &text, at, || {
+                        super::completion_context(&text, DocOffset(at), kind)
+                    });
                 }
             }
-            let units = text.encode_utf16().count() as u32;
-            for cursor in (0..=units).chain([units + 3]) {
-                for kind in [DatabaseKind::Postgres, DatabaseKind::SqlServer] {
-                    let outcome =
-                        std::panic::catch_unwind(|| super::completion_context(&text, DocOffset(cursor), kind));
-                    assert!(outcome.is_ok(), "{kind:?} panicked at {cursor} in {text:?}");
+        }
+    }
+
+    #[test]
+    fn script_outline_never_panics_on_any_token_sequence_or_cursor() {
+        for text in texts(2_000) {
+            for at in offsets(&text) {
+                for kind in KINDS {
+                    assert_no_panic("script_outline", kind, &text, at, || {
+                        super::script_outline(&text, DocOffset(at), kind)
+                    });
                 }
             }
+        }
+    }
+
+    #[test]
+    fn cell_references_never_panic_on_any_token_sequence() {
+        for text in texts(20_000) {
+            for kind in KINDS {
+                assert_no_panic("cell_references", kind, &text, (), || super::cell_references(&text, kind));
+            }
+        }
+    }
+
+    #[test]
+    fn editor_format_never_panics_on_any_token_sequence_or_target() {
+        for text in texts(200) {
+            for target in targets(&text) {
+                for kind in KINDS {
+                    assert_no_panic("editor_format", kind, &text, target, || super::format_edit(&text, target, kind));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn script_params_never_panic_on_any_token_sequence_or_target() {
+        for text in texts(800) {
+            for target in targets(&text) {
+                for kind in KINDS {
+                    assert_no_panic("script_params", kind, &text, target, || {
+                        crate::params::discover(&text, target, kind)
+                    });
+                }
+            }
+        }
+    }
+
+    /// `saved_query_save` picks the text and names it before it writes, and `saved_query_update` names the text
+    /// it is given.
+    #[test]
+    fn saved_query_text_never_panics_on_any_token_sequence_or_target() {
+        for text in texts(600) {
+            for kind in KINDS {
+                assert_no_panic("saved_query_update", kind, &text, (), || crate::saved::name_for("", text.trim()));
+            }
+            for target in targets(&text) {
+                for kind in KINDS {
+                    assert_no_panic("saved_query_save", kind, &text, target, || {
+                        crate::saved::text_to_save(&text, target, kind).map(|sql| crate::saved::name_for("", &sql))
+                    });
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn table_order_never_panics_on_any_order_by_text() {
+        let names = ["a", "b", "o", "orders", "Q", "a]b", "é"];
+        let relation = Relation {
+            qualified_name: "dbo.t".into(),
+            oid: 1,
+            name: "t".into(),
+            quoted: "t".into(),
+            kind: RelKind::Table,
+            row_estimate: None,
+            columns: names
+                .iter()
+                .zip(1..)
+                .map(|(name, attnum)| ColumnInfo {
+                    writable: true,
+                    attnum,
+                    name: (*name).into(),
+                    quoted: (*name).into(),
+                    type_display: "int".into(),
+                    category: TypeCategory::Integer,
+                    not_null: false,
+                    pk: false,
+                    fk: false,
+                })
+                .collect(),
+        };
+        let edits = std::iter::once(TableOrderEdit::Inspect).chain(names.iter().flat_map(|column| {
+            [false, true].map(|additive| TableOrderEdit::Cycle { column: (*column).into(), additive })
+        }));
+        let edits: Vec<_> = edits.collect();
+        for text in texts(20_000) {
+            for edit in &edits {
+                for relation in [None, Some(&relation)] {
+                    for kind in KINDS {
+                        assert_no_panic("table_order", kind, &text, edit, || {
+                            super::table_order(kind, relation, &text, edit.clone())
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    /// `result_drill` rewrites the SQL of a PostgreSQL statement that ran, for a row of its result.
+    #[test]
+    fn result_drill_never_panics_on_any_token_sequence() {
+        let kind = DatabaseKind::Postgres;
+        for text in texts(50_000) {
+            assert_no_panic("result_drill", kind, &text, (), || {
+                let Ok(drill) = crate::sql::drill::plan(&text) else { return };
+                let values: Vec<_> = drill
+                    .columns()
+                    .map(|c| (c % 2 == 0).then(|| TOKENS[usize::from(c) % TOKENS.len()].to_owned()))
+                    .collect();
+                drill.sql(&values, &text);
+            });
         }
     }
 }
