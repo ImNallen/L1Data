@@ -636,6 +636,7 @@ export function forgetTab(tabId: TabId) {
   dropEditor(tabId);
   useTableEdits.getState().clear(tabId);
   ws().closeTab(tabId);
+  useLive.getState().forgetTab(tabId);
 }
 
 // The Finished event can arrive before or after consoleRun returns, so both paths call this.
