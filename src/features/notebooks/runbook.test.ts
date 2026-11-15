@@ -70,9 +70,10 @@ describe("afterCell", () => {
       notice: "Stopped at orders: This tab is still running. Cancel it first.",
       reveal: true,
     });
-    expect(afterCell("notes", { kind: "refused", error: { kind: "NoStatement" } }, false)).toMatchObject({
-      notice: "Stopped at notes: It has no statement to run.",
-    });
+  });
+
+  it("skips a cell with only comments", () => {
+    expect(afterCell("notes", { kind: "refused", error: { kind: "NoStatement" } }, false)).toEqual({ kind: "skipped" });
   });
 
   it("tells a cancel made in the cell from Stop", () => {

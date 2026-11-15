@@ -122,6 +122,8 @@ async function sequence(run: NotebookRun, digests: Map<TabId, WriteDigest>): Pro
       case "next":
         ran++;
         continue;
+      case "skipped":
+        continue;
       case "stopped":
         return notify(stoppedNotice(run.cells.length - ran));
       case "dropped":

@@ -36,25 +36,24 @@ export function horizon(found: readonly (readonly Param[] | null)[]): number {
 
 type CellResult = Exclude<Sent, { kind: "accepted" }> | Ending;
 
-type Verdict = { kind: "next" } | { kind: "stopped" } | { kind: "dropped" } | { kind: "failed"; notice: string; reveal: boolean };
+type Verdict = { kind: "next" } | { kind: "skipped" } | { kind: "stopped" } | { kind: "dropped" } | { kind: "failed"; notice: string; reveal: boolean };
 
 /**
- * What the run does after a cell. An Ok cell lets it go on. After Stop, anything else is the stop. A dropped send
- * stops it quietly, since the user said no or the reason is already shown. A closed cell stops it without showing the
+ * What the run does after a cell. An Ok cell lets it go on, and a cell with only comments is skipped as a note. After
+ * Stop, anything else is the stop. A dropped send stops it quietly, since the user said no or the reason is already shown. A closed cell stops it without showing the
  * cell. A refusal, a failure, or a cancel the user made in the cell stops it at that cell.
  */
 export function afterCell(title: string, result: CellResult, stopping: boolean): Verdict {
   if (result.kind === "finished" && result.run.outcome === "Ok") return { kind: "next" };
   if (stopping) return { kind: "stopped" };
+  if (result.kind === "refused" && result.error.kind === "NoStatement") return { kind: "skipped" };
   switch (result.kind) {
     case "dropped":
       return { kind: "dropped" };
     case "gone":
       return { kind: "failed", notice: `${title} was closed.`, reveal: false };
-    case "refused": {
-      const reason = result.error.kind === "NoStatement" ? "It has no statement to run." : runErrorText(result.error);
-      return { kind: "failed", notice: `Stopped at ${title}: ${reason}`, reveal: true };
-    }
+    case "refused":
+      return { kind: "failed", notice: `Stopped at ${title}: ${runErrorText(result.error)}`, reveal: true };
     case "finished": {
       if (result.run.outcome === "Cancelled") return { kind: "failed", notice: `${title} was cancelled.`, reveal: true };
       const failed = result.run.statements.find((s) => s.status.kind === "Failed");
