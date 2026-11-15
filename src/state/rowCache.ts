@@ -1,4 +1,5 @@
 import { commands, type ResultRef, type RowPage } from "../ipc/bindings";
+import { refKey } from "./status";
 
 export const PAGE_SIZE = 256;
 const MAX_PAGES = 64;
@@ -169,7 +170,7 @@ export function windowedRows(cache: RowCache, start: number, totalRowCount: numb
 const caches = new Map<string, RowCache>();
 
 export function rowCacheFor(ref: ResultRef): RowCache {
-  const key = `${ref.tabId}:${ref.runId}:${ref.index}`;
+  const key = refKey(ref);
   let cache = caches.get(key);
   if (!cache) {
     for (const [k, c] of caches) if (c.ref.tabId === ref.tabId && c.ref.runId !== ref.runId) caches.delete(k);

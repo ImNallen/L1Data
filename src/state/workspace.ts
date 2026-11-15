@@ -118,7 +118,7 @@ export type WorkspaceData = {
   layout: Layout;
   configs: Record<ConnectionId, ConnectionConfig>;
   activeResult: Record<TabId, ResultPick>;
-  /** Rows, plan, or chart for each result of the tab's latest run, keyed by `resultKey`. A new run starts from the default. */
+  /** Rows, plan, or chart for each result of the tab's latest run, keyed by `refKey`. A new run starts from the default. */
   resultDisplay: Record<TabId, Record<string, ResultDisplayPref>>;
   /** The cells the tab's latest run inlined through `{{name}}`, with the text it used. Kept in memory, as results are. */
   runSources: Record<TabId, Source[]>;

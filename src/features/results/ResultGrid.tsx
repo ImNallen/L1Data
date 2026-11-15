@@ -51,6 +51,7 @@ import {
 import { DENSITY_FACTOR, gridRowHeight } from "../../shell/appearance";
 import { isMac } from "../../shell/hostedWindow";
 import { rowCacheFor, windowedRows, type Row, type RowView } from "../../state/rowCache";
+import { refKey } from "../../state/status";
 import { findRelation, isPrimaryKey, useCatalog, viewFor, type CatalogView } from "../../state/catalog";
 import { sameDb, type DbKey } from "../../state/dbKey";
 import {
@@ -683,7 +684,7 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
   const queuedTotal = useRef<{ epoch: number; rows: RowSpan; cols: ColSpan; pending: boolean } | null>(null);
   const dragPosted = useRef(false);
   const lastPublished = useRef<string | null>(null);
-  const resultKey = `${meta.ref.tabId}:${meta.ref.runId}:${meta.ref.index}`;
+  const resultKey = refKey(meta.ref);
   const publishTotals = (epoch: number, text: string | null) => {
     lastPublished.current = text;
     onSelectionTotalsRef.current?.({ key: resultKey, epoch, text });

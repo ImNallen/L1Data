@@ -20,7 +20,7 @@ import { useLive, type OutputLog } from "../../state/live";
 import {
   isBusy,
   outputTone,
-  resultKey,
+  refKey,
   resultView,
   rowResults,
   runStatements,
@@ -399,7 +399,7 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
   const shown = shownResult(run, picked);
   const summary = runSummary(run, picked, now);
   const output = useLive((s) => (tabId ? s.output[tabId] : undefined)) ?? NO_OUTPUT;
-  const shownRef = shown ? resultKey(shown) : "";
+  const shownRef = shown ? refKey(shown.meta.ref) : "";
   const storedPref = useWorkspace((s) => (tabId ? s.resultDisplay[tabId]?.[shownRef] : undefined));
   const pref: ResultDisplayPref = storedPref ?? { key: shownRef, display: "default", chart: null };
   const setDisplayPref = (next: ResultDisplayPref) => {

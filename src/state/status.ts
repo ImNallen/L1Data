@@ -1,4 +1,4 @@
-import type { ConnectionState, ConsoleState, OutputEntry, ResultMeta, RowsState, RunState, StatementRun, TabId } from "../ipc/bindings";
+import type { ConnectionState, ConsoleState, OutputEntry, ResultMeta, ResultRef, RowsState, RunState, StatementRun, TabId } from "../ipc/bindings";
 import { formatElapsed, groupDigits, pluralRows } from "../features/results/format";
 
 export function hasUncommittedWork(console: ConsoleState | undefined): boolean {
@@ -80,8 +80,8 @@ export type ResultView =
   | { kind: "output" }
   | { kind: "tail" };
 
-export function resultKey(result: RowResult): string {
-  return `${result.meta.ref.tabId}:${result.meta.ref.runId}:${result.index}`;
+export function refKey(ref: ResultRef): string {
+  return `${ref.tabId}:${ref.runId}:${ref.index}`;
 }
 
 /** How the shown result asks to be drawn. "default" is the plan for a plan result, else rows. */
