@@ -49,7 +49,7 @@ import {
   type TypeCategory,
 } from "../../ipc/bindings";
 import { DENSITY_FACTOR, gridRowHeight } from "../../shell/appearance";
-import { isMac } from "../../shell/hostedWindow";
+import { MAC, MOD_LABEL } from "../../shell/hostedWindow";
 import { rowCacheFor, windowedRows, type Row, type RowView } from "../../state/rowCache";
 import { refKey } from "../../state/status";
 import { findRelation, isPrimaryKey, useCatalog, viewFor, type CatalogView } from "../../state/catalog";
@@ -92,8 +92,6 @@ const PREFETCH = 64;
 const COPY_ROW_LIMIT = 50_000;
 const RESIZE_STEP = 16;
 
-const MAC = typeof navigator !== "undefined" && isMac(navigator.userAgent);
-const MOD_KEY = MAC ? "⌘" : "Ctrl+";
 const ALT_KEY = MAC ? "⌥" : "Alt+";
 
 type Selection = { anchor: Cell; focus: Cell } | null;
@@ -1160,7 +1158,7 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
               ))}
               <ContextMenuItem testId="grid-menu-record" keyShortcuts="Meta+I" disabled={menuCell.row >= rowCount} onSelect={() => openRecord(menuCell.row)}>
                 View as record
-                <KeyHint>{MOD_KEY}I</KeyHint>
+                <KeyHint>{MOD_LABEL}I</KeyHint>
               </ContextMenuItem>
               <ContextMenuItem testId="grid-menu-cell-profile" onSelect={() => setProfiled(menuCell.col)}>
                 Profile {menuColumn}
@@ -1276,7 +1274,7 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
               </IconButton>
             </>
           ) : (
-            <button onClick={showFind} title={`${MOD_KEY}F`}>
+            <button onClick={showFind} title={`${MOD_LABEL}F`}>
               Find in results
             </button>
           )}

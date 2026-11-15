@@ -5,7 +5,7 @@ import { Fragment, useEffect, useId, useRef, useState, type KeyboardEvent, type 
 import type { NotebookId } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
 import { activeId, useWorkspace } from "../../state/workspace";
-import { isMac } from "../../shell/hostedWindow";
+import { MAC } from "../../shell/hostedWindow";
 import { ACTIVE_OPTION, cx, DialogSurface, Kbd, MenuContent, MenuItem } from "../../ui/primitives";
 import { plural } from "../editor/writeQuestions";
 import { focusDestination } from "../navigation/navigationActions";
@@ -13,7 +13,6 @@ import { deleteNotebook, startNotebook } from "./notebookActions";
 import { useRunningNotebooks } from "./notebookRun";
 import { switcherGroups, type SwitcherRow } from "./switcherItems";
 
-const MAC = typeof navigator !== "undefined" && isMac(navigator.userAgent);
 const DELETE_KEY = MAC ? "⌘⌫" : "Ctrl+Backspace";
 
 const ws = () => useWorkspace.getState();

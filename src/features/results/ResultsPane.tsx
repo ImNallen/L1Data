@@ -35,7 +35,7 @@ import { databaseKindFor } from "../../state/databaseKind";
 import { NO_EDITS, pendingCount, useTableEdits } from "../../state/tableEdits";
 import { isFiltered, isTableTab, useWorkspace, type ResultDisplayPref, type Tab, type TableTab } from "../../state/workspace";
 import { Button, cx, IconButton, MenuContent, MenuItem, Spinner } from "../../ui/primitives";
-import { isMac } from "../../shell/hostedWindow";
+import { MAC } from "../../shell/hostedWindow";
 import { useNow } from "../../ui/useNow";
 import {
   isBrowsing,
@@ -297,7 +297,7 @@ function RunTail({ run }: { run: RunState }) {
     return (
       <div className="px-4 text-center">
         <p className="text-ui-13.5 text-muted">Results appear here</p>
-        <p className="mt-1">Run a statement with {isMac(navigator.userAgent) ? "⌘↵" : "Ctrl+Enter"}.</p>
+        <p className="mt-1">Run a statement with {MAC ? "⌘↵" : "Ctrl+Enter"}.</p>
       </div>
     );
   if (run.kind === "Running") {

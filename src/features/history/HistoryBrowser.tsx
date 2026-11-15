@@ -2,7 +2,7 @@ import { BookmarkPlusIcon, CheckIcon, ClockIcon, CopyIcon, PlayIcon } from "luci
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { commands, type HistoryFilter, type HistoryOutcome } from "../../ipc/bindings";
 import { historyClearErrorText } from "../../ipc/errors";
-import { isMac } from "../../shell/hostedWindow";
+import { MOD_LABEL } from "../../shell/hostedWindow";
 import { sameDb } from "../../state/dbKey";
 import { useLive } from "../../state/live";
 import { activeTab, confirm, tabTarget, useWorkspace } from "../../state/workspace";
@@ -79,7 +79,6 @@ export function HistoryBrowser({ closeToEditor, controls }: { closeToEditor: () 
   const active = useWorkspace(activeTab);
   const activeDb = active ? tabTarget(active) : null;
   const insertEnabled = active !== undefined;
-  const mod = isMac(navigator.userAgent) ? "⌘" : "Ctrl+";
   // oxlint-disable-next-line react/purity -- relative times read the clock on each render
   const now = new Date();
   const count = list ? { All: list.counts.all, Failed: list.counts.failed, Writes: list.counts.writes }[filter] : null;
@@ -339,7 +338,7 @@ export function HistoryBrowser({ closeToEditor, controls }: { closeToEditor: () 
                 >
                   {copied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
                   {copied ? "Copied" : "Copy"}
-                  <Kbd className="text-dim">{mod}C</Kbd>
+                  <Kbd className="text-dim">{MOD_LABEL}C</Kbd>
                 </button>
               </div>
               <span className="sr-only" role="status">
@@ -393,7 +392,7 @@ export function HistoryBrowser({ closeToEditor, controls }: { closeToEditor: () 
                 </Button>
                 <Button data-testid="history-run-again" disabled={!detail} onClick={() => act("run")}>
                   <PlayIcon fill="currentColor" size={12} className="text-green" />
-                  Run again<Kbd className="text-dim">{mod}↵</Kbd>
+                  Run again<Kbd className="text-dim">{MOD_LABEL}↵</Kbd>
                 </Button>
                 <Button
                   variant="ghost"
@@ -427,7 +426,7 @@ export function HistoryBrowser({ closeToEditor, controls }: { closeToEditor: () 
           <Kbd>↵</Kbd> Open
         </span>
         <span>
-          <Kbd>{mod}↵</Kbd> Run
+          <Kbd>{MOD_LABEL}↵</Kbd> Run
         </span>
         <span>
           <Kbd>esc</Kbd> Close

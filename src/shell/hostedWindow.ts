@@ -4,9 +4,12 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 export type WindowControl = "minimize" | "maximize" | "close";
 export type ResizeEdge = "North" | "South" | "East" | "West" | "NorthEast" | "NorthWest" | "SouthEast" | "SouthWest";
 
-export function isMac(userAgent: string): boolean {
+function isMac(userAgent: string): boolean {
   return /Macintosh|Mac OS X/.test(userAgent);
 }
+
+export const MAC = typeof navigator !== "undefined" && isMac(navigator.userAgent);
+export const MOD_LABEL = MAC ? "⌘" : "Ctrl+";
 
 export type CustomChrome = {
   chrome: "custom";

@@ -2,8 +2,8 @@ import { BookmarkIcon, BookmarkPlusIcon, CopyIcon, PencilIcon, Trash2Icon } from
 import { useEffect, useMemo, useReducer, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import type { SavedQuery, SavedQueryError, SavedQueryId } from "../../ipc/bindings";
 import { savedQueryErrorText } from "../../ipc/errors";
-import { commandForKey } from "../../shell/commands";
-import { isMac } from "../../shell/hostedWindow";
+import { commandForKey, SAVE_QUERY, shortcutLabel } from "../../shell/commands";
+import { MOD_LABEL } from "../../shell/hostedWindow";
 import { databaseKindFor } from "../../state/databaseKind";
 import { useLive } from "../../state/live";
 import { activeTab, tabTarget, useWorkspace, type SavedEntry } from "../../state/workspace";
@@ -64,8 +64,6 @@ export function SavedBrowser({
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const insertable = canInsert();
-  const mac = isMac(navigator.userAgent);
-  const mod = mac ? "⌘" : "Ctrl+";
   const now = new Date();
   const frozen = pane.kind === "edit" || pane.kind === "confirmDiscard";
 
@@ -172,7 +170,7 @@ export function SavedBrowser({
           <div className="flex max-w-[360px] flex-col items-center gap-2">
             <BookmarkIcon size={28} className="text-faint" aria-hidden />
             <p className="text-ui-14 font-medium text-fg">No saved queries yet</p>
-            <p className="text-ui-12 text-dim">Save the statement at your cursor with {mac ? "⌘⇧E" : "Ctrl+Shift+E"}, or press Save query in query history.</p>
+            <p className="text-ui-12 text-dim">Save the statement at your cursor with {shortcutLabel(SAVE_QUERY)}, or press Save query in query history.</p>
           </div>
         </div>
       ) : (
@@ -227,13 +225,7 @@ export function SavedBrowser({
             ))}
           </div>
           {pane.kind === "edit" || pane.kind === "confirmDiscard" ? (
-            <EditForm
-              edit={pane.kind === "edit" ? pane : pane.edit}
-              confirming={pane.kind === "confirmDiscard"}
-              mod={mod}
-              dispatch={dispatch}
-              submit={submit}
-            />
+            <EditForm edit={pane.kind === "edit" ? pane : pane.edit} confirming={pane.kind === "confirmDiscard"} dispatch={dispatch} submit={submit} />
           ) : !selected ? (
             <div className="grid place-items-center text-ui-13 text-dim">Select a query to preview</div>
           ) : (
@@ -296,12 +288,12 @@ export function SavedBrowser({
                   <Button variant={insertable ? "outline" : "primary"} data-testid="saved-open" onClick={() => act("open")}>
                     Open in new tab
                     <Kbd tone={insertable ? "surface" : "accent"} className={insertable ? "text-dim" : undefined}>
-                      {insertable ? `${mod}↵` : "↵"}
+                      {insertable ? `${MOD_LABEL}↵` : "↵"}
                     </Kbd>
                   </Button>
                   <Button data-testid="saved-copy" onClick={() => act("copy")}>
                     <CopyIcon size={13} />
-                    Copy<Kbd className="text-dim">{mod}C</Kbd>
+                    Copy<Kbd className="text-dim">{MOD_LABEL}C</Kbd>
                   </Button>
                   <span className="ml-auto flex gap-1">
                     <Button variant="ghost" data-testid="saved-edit" onClick={() => dispatch({ type: "edit", query: selected, focus: "sql" })}>
@@ -327,10 +319,10 @@ export function SavedBrowser({
           <Kbd>↵</Kbd> {insertable ? "Insert" : "Open"}
         </span>
         <span>
-          <Kbd>{mod}↵</Kbd> New tab
+          <Kbd>{MOD_LABEL}↵</Kbd> New tab
         </span>
         <span>
-          <Kbd>{mod}C</Kbd> Copy
+          <Kbd>{MOD_LABEL}C</Kbd> Copy
         </span>
         <span data-testid="saved-count" role="status" className="ml-auto shrink-0">
           {count}
@@ -347,26 +339,14 @@ export function SavedBrowser({
           className="flex shrink-0 items-center gap-1.5 rounded px-1 py-1 text-dim outline-none hover:text-fg focus-visible:ring-1 focus-visible:ring-focus disabled:opacity-40"
         >
           <BookmarkPlusIcon size={13} />
-          Save current query<Kbd>{mac ? "⌘⇧E" : "Ctrl+Shift+E"}</Kbd>
+          Save current query<Kbd>{shortcutLabel(SAVE_QUERY)}</Kbd>
         </button>
       </div>
     </div>
   );
 }
 
-function EditForm({
-  edit,
-  confirming,
-  mod,
-  dispatch,
-  submit,
-}: {
-  edit: EditPane;
-  confirming: boolean;
-  mod: string;
-  dispatch: (event: PaneEvent) => void;
-  submit: () => void;
-}) {
+function EditForm({ edit, confirming, dispatch, submit }: { edit: EditPane; confirming: boolean; dispatch: (event: PaneEvent) => void; submit: () => void }) {
   const nameRef = useRef<HTMLInputElement>(null);
   const wasConfirming = useRef(confirming);
   useEffect(() => {
@@ -428,7 +408,7 @@ function EditForm({
       ) : (
         <div className="flex shrink-0 items-center gap-2">
           <Button variant="primary" data-testid="saved-edit-save" disabled={edit.saving} onClick={submit}>
-            Save<Kbd tone="accent">{mod}S</Kbd>
+            Save<Kbd tone="accent">{MOD_LABEL}S</Kbd>
           </Button>
           <Button variant="ghost" data-testid="saved-edit-cancel" disabled={edit.saving} onClick={() => dispatch({ type: "escape" })}>
             Cancel<Kbd className="text-dim">esc</Kbd>

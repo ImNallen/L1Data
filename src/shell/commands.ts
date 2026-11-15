@@ -10,7 +10,7 @@ import type { RunScope } from "../features/notebooks/runbook";
 import { adjacentCell, type Notebook } from "../state/notebooks";
 import { pendingCount, useTableEdits } from "../state/tableEdits";
 import { activeId, activeTab, DEFAULT_PANEL_SIZES, shownDb, shownNotebook, useWorkspace, type Overlay } from "../state/workspace";
-import { isMac } from "./hostedWindow";
+import { MAC } from "./hostedWindow";
 
 export type CommandGroup = "Query" | "Connections" | "Workspace";
 export const COMMAND_GROUPS: CommandGroup[] = ["Query", "Connections", "Workspace"];
@@ -26,8 +26,6 @@ export type Command = {
   palette?: false;
   run: () => void;
 };
-
-const MAC = typeof navigator !== "undefined" && isMac(navigator.userAgent);
 
 const ws = () => useWorkspace.getState();
 
@@ -150,7 +148,7 @@ const SAVE_AS: Command = {
   run: saveShown("saveAs"),
 };
 
-const SAVE_QUERY: Command = {
+export const SAVE_QUERY: Command = {
   id: "save-query",
   group: "Query",
   label: "Save query",
