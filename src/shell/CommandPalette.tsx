@@ -1,12 +1,13 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { SearchIcon } from "lucide-react";
-import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { Fragment, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { docOf, onBuffersChanged } from "../features/editor/editorStates";
 import { focusActiveCell } from "../features/notebooks/cellNavigation";
 import { activeId, useWorkspace, type Screen } from "../state/workspace";
 import type { TabId } from "../ipc/bindings";
 import { ACTIVE_OPTION, cx, DialogSurface, Kbd } from "../ui/primitives";
 import { matchRanges, parseQuery } from "../ui/textMatch";
+import { useListSelection } from "../ui/useListSelection";
 import { COMMAND_GROUPS, COMMANDS, commandAvailable, commandLabel, shortcutLabel, type Command } from "./commands";
 
 function CommandBrowser({ activate, composing }: { activate: (command: Command) => void; composing: RefObject<boolean> }) {
@@ -15,20 +16,10 @@ function CommandBrowser({ activate, composing }: { activate: (command: Command) 
   const active = useWorkspace(activeId);
   useSyncExternalStore(onBuffersChanged, () => (active ? docOf(active) : undefined));
   const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const listId = useId();
   const tokens = parseQuery(query);
   const matching = COMMANDS.filter((command) => command.palette !== false && commandAvailable(command) && matchRanges(tokens, commandLabel(command)) !== null);
   const items = COMMAND_GROUPS.flatMap((group) => matching.filter((command) => command.group === group));
-  const selectedIndex = Math.max(
-    0,
-    items.findIndex((command) => command.id === selectedId),
-  );
-  const selected = items[selectedIndex];
-  const optionId = `${listId}-${selectedIndex}`;
-  useEffect(() => {
-    document.getElementById(optionId)?.scrollIntoView({ block: "nearest" });
-  }, [optionId, selected?.id]);
+  const { listId, optionId, selected, selectedIndex, select, move } = useListSelection(items, (command) => command.id);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -41,16 +32,14 @@ function CommandBrowser({ activate, composing }: { activate: (command: Command) 
           aria-expanded="true"
           aria-autocomplete="list"
           aria-controls={listId}
-          aria-activedescendant={selected ? optionId : undefined}
+          aria-activedescendant={selected ? optionId(selectedIndex) : undefined}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
             if (composing.current || event.nativeEvent.isComposing || event.keyCode === 229) return;
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {
               event.preventDefault();
-              if (!selected) return;
-              const next = items[(selectedIndex + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length];
-              if (next) setSelectedId(next.id);
+              move(event.key === "ArrowDown" ? 1 : -1);
             } else if (event.key === "Enter" && selected) {
               event.preventDefault();
               activate(selected);
@@ -74,11 +63,11 @@ function CommandBrowser({ activate, composing }: { activate: (command: Command) 
               </div>
             )}
             <div
-              id={`${listId}-${index}`}
+              id={optionId(index)}
               role="option"
               aria-selected={index === selectedIndex}
               data-testid={`command-item-${command.id}`}
-              onMouseMove={() => setSelectedId(command.id)}
+              onMouseMove={() => select(command.id)}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => activate(command)}
               className={cx(
