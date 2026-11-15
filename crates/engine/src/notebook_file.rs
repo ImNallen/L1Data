@@ -36,24 +36,11 @@ pub(crate) fn parse(text: &str) -> NotebookText {
             cell.push(unescape(line));
             continue;
         };
-        // Text before the first marker is a cell only when it holds something.
-        match meta.take() {
-            Some(meta) => cells.push(NotebookCell { text: cell.join("\n"), meta }),
-            None if cell.iter().any(|l| !l.trim().is_empty()) => {
-                cells.push(NotebookCell { text: cell.join("\n"), meta: CellMeta::default() })
-            }
-            None => {}
-        }
+        flush(&mut cells, meta.take(), &cell);
         cell.clear();
         meta = Some(cell_meta(rest));
     }
-    match meta {
-        Some(meta) => cells.push(NotebookCell { text: cell.join("\n"), meta }),
-        None if cell.iter().any(|l| !l.trim().is_empty()) => {
-            cells.push(NotebookCell { text: cell.join("\n"), meta: CellMeta::default() })
-        }
-        None => {}
-    }
+    flush(&mut cells, meta, &cell);
     if cells.is_empty() {
         cells.push(NotebookCell::default());
     }
@@ -118,6 +105,17 @@ fn plain_text(notebook: &NotebookText) -> Option<&str> {
         || text.split('\n').any(|line| marker_rest(line).is_some());
     (notebook.plain && cell.meta == CellMeta::default() && notebook.header.params.is_empty() && !structured)
         .then_some(text)
+}
+
+/// Text before the first marker is a cell only when it holds something.
+fn flush(cells: &mut Vec<NotebookCell>, meta: Option<CellMeta>, cell: &[String]) {
+    match meta {
+        Some(meta) => cells.push(NotebookCell { text: cell.join("\n"), meta }),
+        None if cell.iter().any(|l| !l.trim().is_empty()) => {
+            cells.push(NotebookCell { text: cell.join("\n"), meta: CellMeta::default() })
+        }
+        None => {}
+    }
 }
 
 /// A person may write `--%%` or `--   %%`; this build writes `-- %%`.
