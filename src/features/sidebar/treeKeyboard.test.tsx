@@ -215,3 +215,31 @@ it("offers the connection dialog as the first step when no connections are saved
   await user.click(within(screen.getByText(/PostgreSQL or SQL Server/).parentElement!).getByRole("button", { name: "New connection" }));
   expect(useWorkspace.getState().overlay).toEqual({ kind: "connection", editing: null });
 });
+
+it("opens and closes connections that share a name apart", async () => {
+  useWorkspace.setState({ configs: { p: connectionConfig("p", "dev"), q: connectionConfig("q", "dev") } });
+  useLive.setState({
+    connections: { p: connectedState("p", [databaseState("shop", true, ["public"])]), q: connectedState("q", [databaseState("shop", true, ["public"])]) },
+  });
+  const user = userEvent.setup();
+  render(<ConnectionTreeHarness />);
+  const expanded = () => screen.getAllByTestId("tree-node-dev").map((r) => r.getAttribute("aria-expanded"));
+  expect(expanded()).toEqual(["true", "true"]);
+
+  await user.click(screen.getAllByTestId("tree-node-dev")[0]!);
+  expect(expanded()).toEqual(["false", "true"]);
+  expect(screen.getAllByTestId("tree-node-dev/shop")).toHaveLength(1);
+});
+
+it("keeps a connection whose name holds a slash apart from another connection's database", () => {
+  useWorkspace.setState({ configs: { s: connectionConfig("s", "a/b"), a: connectionConfig("a", "a") } });
+  useLive.setState({
+    connections: {
+      s: connectedState("s", [databaseState("shop", true, ["public"])]),
+      a: connectedState("a", [databaseState("shop", true, ["public"]), databaseState("b", true, ["public"])]),
+    },
+  });
+  render(<ConnectionTreeHarness />);
+  const levels = Object.fromEntries(screen.getAllByTestId("tree-node-a/b").map((r) => [r.getAttribute("aria-level"), r.getAttribute("aria-expanded")]));
+  expect(levels).toEqual({ "1": "true", "2": "false" });
+});
