@@ -898,15 +898,19 @@ pub fn standalone_sequence(s: &StandaloneSequence) -> Ddl {
     }
 }
 
+fn type_ddl(o: &ScriptedObject, name: &str, kind: &str, create: String) -> Ddl {
+    let mut statements = vec![create];
+    statements.extend(comment(&format!("{kind} {name}"), &o.comment));
+    Ddl {
+        text: script(statements),
+        warnings: object_warnings(&o.schema, name, &o.privileges, &o.owner, o.security_label),
+    }
+}
+
 pub fn enum_type(o: &ScriptedObject, labels: &[String]) -> Ddl {
     let name = qualified(&o.schema, &o.name);
     let labels = labels.iter().map(|label| quote_literal(label)).collect::<Vec<_>>().join(", ");
-    let mut statements = vec![format!("CREATE TYPE {name} AS ENUM ({labels})")];
-    statements.extend(comment(&format!("TYPE {name}"), &o.comment));
-    Ddl {
-        text: script(statements),
-        warnings: object_warnings(&o.schema, &name, &o.privileges, &o.owner, o.security_label),
-    }
+    type_ddl(o, &name, "TYPE", format!("CREATE TYPE {name} AS ENUM ({labels})"))
 }
 
 pub fn domain_type(
@@ -931,12 +935,7 @@ pub fn domain_type(
     for (check_name, definition) in checks {
         lines.push(format!("    CONSTRAINT {} {definition}", ident(check_name)));
     }
-    let mut statements = vec![lines.join("\n")];
-    statements.extend(comment(&format!("DOMAIN {name}"), &o.comment));
-    Ddl {
-        text: script(statements),
-        warnings: object_warnings(&o.schema, &name, &o.privileges, &o.owner, o.security_label),
-    }
+    type_ddl(o, &name, "DOMAIN", lines.join("\n"))
 }
 
 pub fn composite_type(o: &ScriptedObject, fields: &[CompositeField]) -> Ddl {
@@ -952,12 +951,7 @@ pub fn composite_type(o: &ScriptedObject, fields: &[CompositeField]) -> Ddl {
         })
         .collect::<Vec<_>>()
         .join(",\n");
-    let mut statements = vec![format!("CREATE TYPE {name} AS (\n{body}\n)")];
-    statements.extend(comment(&format!("TYPE {name}"), &o.comment));
-    Ddl {
-        text: script(statements),
-        warnings: object_warnings(&o.schema, &name, &o.privileges, &o.owner, o.security_label),
-    }
+    type_ddl(o, &name, "TYPE", format!("CREATE TYPE {name} AS (\n{body}\n)"))
 }
 
 pub fn range_type(o: &ScriptedObject, range: &RangeScript) -> Ddl {
@@ -975,12 +969,7 @@ pub fn range_type(o: &ScriptedObject, range: &RangeScript) -> Ddl {
     if let Some(diff) = &range.subtype_diff {
         lines.push(format!("    SUBTYPE_DIFF = {diff}"));
     }
-    let mut statements = vec![format!("CREATE TYPE {name} AS RANGE (\n{}\n)", lines.join(",\n"))];
-    statements.extend(comment(&format!("TYPE {name}"), &o.comment));
-    Ddl {
-        text: script(statements),
-        warnings: object_warnings(&o.schema, &name, &o.privileges, &o.owner, o.security_label),
-    }
+    type_ddl(o, &name, "TYPE", format!("CREATE TYPE {name} AS RANGE (\n{}\n)", lines.join(",\n")))
 }
 
 pub fn extension_script(
