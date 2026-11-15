@@ -72,6 +72,10 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
   const density = useWorkspace((s) => s.settings.density);
   const pageSize = useWorkspace((s) => s.settings.tablePageSize);
   const databaseKind = useWorkspace((s) => databaseKindFor(s.tabs[id]?.console.db ?? null, s.configs));
+  const environment = useWorkspace((s) => {
+    const db = s.tabs[id]?.console.db;
+    return db ? (s.configs[db.connectionId]?.environment ?? null) : null;
+  });
   const console = useLive((s) => s.consoles[id]);
   const text = useSyncExternalStore(
     onBuffersChanged,
@@ -266,6 +270,8 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
           </IconButton>
           <IconButton
             data-testid={active ? (cancellable ? "cancel-btn" : "run-btn") : undefined}
+            data-environment={cancellable ? undefined : (environment ?? undefined)}
+            className={cancellable ? undefined : "run-environment bg-run hover:bg-run-hover"}
             aria-label={cancellable ? "Stop" : "Run cell"}
             title={cancellable ? "Stop" : "Run cell"}
             disabled={busy && !cancellable}

@@ -247,7 +247,7 @@ export function TopBar({ hosted }: { hosted: HostedWindow | null }) {
             </span>
           )}
 
-          {notebookId && <NotebookRunButton id={notebookId} />}
+          {notebookId && <NotebookRunButton id={notebookId} environment={environment} />}
           <IconButton
             data-testid="notebook-switcher-btn"
             aria-label={notebookUnsaved ? "Notebooks, unsaved changes" : "Notebooks"}

@@ -1,17 +1,19 @@
 import { PlayIcon, SquareIcon } from "lucide-react";
-import type { NotebookId } from "../../ipc/bindings";
+import type { Environment, NotebookId } from "../../ipc/bindings";
 import { Button } from "../../ui/primitives";
 import { runNotebook, stopNotebookRun, useNotebookRun } from "./notebookRun";
 import { progressText } from "./runbook";
 
-export function NotebookRunButton({ id }: { id: NotebookId }) {
+export function NotebookRunButton({ id, environment }: { id: NotebookId; environment: Environment | null }) {
   const run = useNotebookRun(id);
   if (!run)
     return (
       <Button
         data-testid="run-all-btn"
+        data-environment={environment ?? undefined}
+        variant="primary"
         title="Run every cell in order, and stop at the first that fails"
-        className="@max-[520px]:px-2.5"
+        className="run-environment @max-[520px]:px-2.5"
         onClick={() => void runNotebook(id, "all")}
       >
         <PlayIcon fill="currentColor" size={12} className="shrink-0 text-run-icon" />

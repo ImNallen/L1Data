@@ -11,6 +11,7 @@ import { activeId, useWorkspace, type Tab } from "../../state/workspace";
 import { cellNavigation } from "../notebooks/cellNavigation";
 import { cursorOf, dropEditor, editorStateOf, installEditorBehavior, moveCursor, seedEditor } from "./editorStates";
 import { NotebookWorkspace } from "./NotebookWorkspace";
+import { connectionConfig } from "../../testing/connections";
 import { cellsState } from "../../testing/notebooks";
 
 const IDS = ["a", "b"];
@@ -435,6 +436,15 @@ it("marks a cell stale once a cell its run inlined changes, and says which one",
 
   act(() => useWorkspace.getState().setRunSources("a", []));
   expect(screen.queryByTestId("stale-a")).toBeNull();
+});
+
+it("colors a cell's Run button by its connection's environment", async () => {
+  useWorkspace.setState({ configs: { c1: { ...connectionConfig("c1", "prod"), environment: "Production" } } });
+  await renderNotebook();
+  const run = within(cell("a")).getByRole("button", { name: "Run cell" });
+  expect(run.classList.contains("run-environment")).toBe(true);
+  expect(run.classList.contains("bg-run")).toBe(true);
+  expect(run.dataset.environment).toBe("Production");
 });
 
 describe("a collapsed cell", () => {
