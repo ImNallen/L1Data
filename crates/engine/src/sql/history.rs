@@ -87,11 +87,11 @@ fn split_number<'a>(text: &'a str, out: &mut Vec<Token<'a>>) {
     }
 }
 
-fn word(token: Option<&Token<'_>>, expected: &str) -> bool {
+pub(super) fn is_word(token: Option<&Token<'_>>, expected: &str) -> bool {
     matches!(token, Some(Token::Word(w)) if w.eq_ignore_ascii_case(expected))
 }
 
-fn closing(tokens: &[Token<'_>], open: usize) -> Option<usize> {
+pub(super) fn closing(tokens: &[Token<'_>], open: usize) -> Option<usize> {
     let mut depth = 0;
     for (i, t) in tokens.iter().enumerate().skip(open) {
         match t {
@@ -118,9 +118,9 @@ fn name(tokens: &[Token<'_>], mut i: usize) -> Option<usize> {
         return None;
     }
     i += 1;
-    if unicode && word(tokens.get(i), "UESCAPE") {
+    if unicode && is_word(tokens.get(i), "UESCAPE") {
         i += 1;
-        if word(tokens.get(i), "E") {
+        if is_word(tokens.get(i), "E") {
             i += 1;
         }
         if tokens.get(i) != Some(&Token::Other) {
@@ -143,30 +143,30 @@ fn names(tokens: &[Token<'_>], mut i: usize) -> Option<usize> {
 
 /// The index after a recursive CTE's optional `SEARCH ... SET col` and `CYCLE ... USING col` clauses.
 fn search_and_cycle(tokens: &[Token<'_>], mut i: usize) -> Option<usize> {
-    if word(tokens.get(i), "SEARCH") {
-        if !(word(tokens.get(i + 1), "DEPTH") || word(tokens.get(i + 1), "BREADTH"))
-            || !word(tokens.get(i + 2), "FIRST")
-            || !word(tokens.get(i + 3), "BY")
+    if is_word(tokens.get(i), "SEARCH") {
+        if !(is_word(tokens.get(i + 1), "DEPTH") || is_word(tokens.get(i + 1), "BREADTH"))
+            || !is_word(tokens.get(i + 2), "FIRST")
+            || !is_word(tokens.get(i + 3), "BY")
         {
             return None;
         }
         i = names(tokens, i + 4)?;
-        if !word(tokens.get(i), "SET") {
+        if !is_word(tokens.get(i), "SET") {
             return None;
         }
         i = name(tokens, i + 1)?;
     }
-    if word(tokens.get(i), "CYCLE") {
+    if is_word(tokens.get(i), "CYCLE") {
         i = names(tokens, i + 1)?;
-        if !word(tokens.get(i), "SET") {
+        if !is_word(tokens.get(i), "SET") {
             return None;
         }
         i = name(tokens, i + 1)?;
-        if word(tokens.get(i), "TO") {
-            i += tokens[i..].iter().position(|t| word(Some(t), "DEFAULT"))?;
-            i += tokens[i..].iter().position(|t| word(Some(t), "USING"))?;
+        if is_word(tokens.get(i), "TO") {
+            i += tokens[i..].iter().position(|t| is_word(Some(t), "DEFAULT"))?;
+            i += tokens[i..].iter().position(|t| is_word(Some(t), "USING"))?;
         }
-        if !word(tokens.get(i), "USING") {
+        if !is_word(tokens.get(i), "USING") {
             return None;
         }
         i = name(tokens, i + 1)?;
@@ -182,21 +182,21 @@ fn writes(tokens: &[Token<'_>]) -> bool {
         "INSERT" | "UPDATE" | "DELETE" | "MERGE" | "TRUNCATE" | "CREATE" | "ALTER" | "DROP" | "COMMENT" | "GRANT"
         | "REVOKE" | "REINDEX" | "RENAME" | "IMPORT" | "SECURITY" | "CALL" | "DO" | "EXECUTE" | "REFRESH"
         | "VACUUM" | "CLUSTER" => true,
-        "PREPARE" => word(tokens.get(1), "TRANSACTION"),
-        "COMMIT" | "ROLLBACK" => word(tokens.get(1), "PREPARED"),
+        "PREPARE" => is_word(tokens.get(1), "TRANSACTION"),
+        "COMMIT" | "ROLLBACK" => is_word(tokens.get(1), "PREPARED"),
         "COPY" => {
             let mut i = 1;
-            if word(tokens.get(i), "BINARY") {
+            if is_word(tokens.get(i), "BINARY") {
                 i += 1;
             }
             if tokens.get(i) == Some(&Token::Open) {
                 return closing(tokens, i).is_some_and(|end| writes(&tokens[i + 1..end]));
             }
             while i < tokens.len() {
-                if word(tokens.get(i), "FROM") {
+                if is_word(tokens.get(i), "FROM") {
                     return true;
                 }
-                if word(tokens.get(i), "TO") {
+                if is_word(tokens.get(i), "TO") {
                     return false;
                 }
                 if tokens.get(i) == Some(&Token::Open) {
@@ -211,7 +211,7 @@ fn writes(tokens: &[Token<'_>]) -> bool {
         }
         "WITH" => {
             let mut i = 1;
-            if word(tokens.get(i), "RECURSIVE") {
+            if is_word(tokens.get(i), "RECURSIVE") {
                 i += 1;
             }
             loop {
@@ -225,14 +225,14 @@ fn writes(tokens: &[Token<'_>]) -> bool {
                     };
                     i = end + 1;
                 }
-                if !word(tokens.get(i), "AS") {
+                if !is_word(tokens.get(i), "AS") {
                     return false;
                 }
                 i += 1;
-                if word(tokens.get(i), "NOT") {
+                if is_word(tokens.get(i), "NOT") {
                     i += 1;
                 }
-                if word(tokens.get(i), "MATERIALIZED") {
+                if is_word(tokens.get(i), "MATERIALIZED") {
                     i += 1;
                 }
                 if tokens.get(i) != Some(&Token::Open) {
@@ -262,17 +262,19 @@ fn writes(tokens: &[Token<'_>]) -> bool {
                     return false;
                 };
                 for n in i + 1..end {
-                    if word(tokens.get(n), "ANALYZE") || word(tokens.get(n), "ANALYSE") {
-                        analyze = !word(tokens.get(n + 1), "FALSE")
-                            && !word(tokens.get(n + 1), "OFF")
+                    if is_word(tokens.get(n), "ANALYZE") || is_word(tokens.get(n), "ANALYSE") {
+                        analyze = !is_word(tokens.get(n + 1), "FALSE")
+                            && !is_word(tokens.get(n + 1), "OFF")
                             && tokens.get(n + 1) != Some(&Token::Number("0"));
                     }
                 }
                 i = end + 1;
             } else {
-                while word(tokens.get(i), "ANALYZE") || word(tokens.get(i), "ANALYSE") || word(tokens.get(i), "VERBOSE")
+                while is_word(tokens.get(i), "ANALYZE")
+                    || is_word(tokens.get(i), "ANALYSE")
+                    || is_word(tokens.get(i), "VERBOSE")
                 {
-                    analyze |= word(tokens.get(i), "ANALYZE") || word(tokens.get(i), "ANALYSE");
+                    analyze |= is_word(tokens.get(i), "ANALYZE") || is_word(tokens.get(i), "ANALYSE");
                     i += 1;
                 }
             }

@@ -1,4 +1,4 @@
-use super::history::{Token, history_is_write, tokens};
+use super::history::{Token, closing, history_is_write, is_word, tokens};
 use super::keywords::{NEVER_A_FUNCTION, OTHER_KEYWORDS};
 use super::split::split_statements;
 
@@ -451,29 +451,8 @@ fn part(t: Option<&Token<'_>>) -> Option<String> {
     }
 }
 
-fn is_word(t: Option<&Token<'_>>, expected: &str) -> bool {
-    matches!(t, Some(Token::Word(w)) if w.eq_ignore_ascii_case(expected))
-}
-
 fn is_keyword(word: &str) -> bool {
     NEVER_A_FUNCTION.binary_search(&word).is_ok() || OTHER_KEYWORDS.binary_search(&word).is_ok()
-}
-
-fn close_of(tokens: &[Token<'_>], open: usize) -> Option<usize> {
-    let mut depth = 0usize;
-    for (i, t) in tokens.iter().enumerate().skip(open) {
-        match t {
-            Token::Open => depth += 1,
-            Token::Close => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(i);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
 }
 
 pub fn relation_names(sql: &str) -> Vec<NameRef> {
@@ -522,7 +501,7 @@ pub fn relation_names(sql: &str) -> Vec<NameRef> {
                             j += 1;
                         }
                         if toks.get(j) == Some(&Token::Open)
-                            && let Some(close) = close_of(&toks, j)
+                            && let Some(close) = closing(&toks, j)
                         {
                             let before = i.saturating_sub(1);
                             let name_at = if toks[before] == Token::Close {

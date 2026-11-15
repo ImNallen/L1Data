@@ -729,14 +729,7 @@ impl<'a> Walk<'a> {
 
     /// A reserved word right after a relation, such as `FOR` or `OPTION`, that the server never reads as its alias.
     fn never_an_alias(&self, i: usize) -> bool {
-        let word = &self.text[self.sig[i].span.clone()];
-        match self.kind {
-            DatabaseKind::Postgres => {
-                let word = word.to_ascii_lowercase();
-                RESERVED.contains(&word.as_str()) || TYPE_OR_FUNCTION_NAME.contains(&word.as_str())
-            }
-            DatabaseKind::SqlServer => tsql::RESERVED.iter().any(|r| r.eq_ignore_ascii_case(word)),
-        }
+        reserved(self.kind, &self.text[self.sig[i].span.clone()])
     }
 
     fn cte(&self, name: &str) -> Option<Cte> {
@@ -1410,6 +1403,23 @@ impl<'a> Walk<'a> {
             kw.extend(["UNION", "UNION ALL", "INTERSECT", "EXCEPT"]);
         }
         kw
+    }
+}
+
+pub(super) fn unquote(name: &str) -> Option<String> {
+    match name.strip_prefix('[').and_then(|t| t.strip_suffix(']')) {
+        Some(bracketed) => Some(bracketed.replace("]]", "]")),
+        None => Some(name.strip_prefix('"')?.strip_suffix('"')?.replace("\"\"", "\"")),
+    }
+}
+
+pub(super) fn reserved(kind: DatabaseKind, word: &str) -> bool {
+    match kind {
+        DatabaseKind::Postgres => {
+            let word = word.to_ascii_lowercase();
+            RESERVED.contains(&word.as_str()) || TYPE_OR_FUNCTION_NAME.contains(&word.as_str())
+        }
+        DatabaseKind::SqlServer => tsql::RESERVED.iter().any(|r| r.eq_ignore_ascii_case(word)),
     }
 }
 

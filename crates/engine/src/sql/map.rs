@@ -1,4 +1,4 @@
-use super::scope::{Class, Lexeme, closed, map_lexemes};
+use super::scope::{Class, Lexeme, closed, map_lexemes, unquote};
 use crate::model::*;
 use crate::text::OffsetMap;
 
@@ -18,12 +18,7 @@ impl Token<'_> {
             Class::Word if !self.text.starts_with(['#', '@']) => {
                 Some(if kind == DatabaseKind::Postgres { self.text.to_ascii_lowercase() } else { self.text.to_owned() })
             }
-            Class::Name if self.text.starts_with('"') && self.text.ends_with('"') && self.text.len() >= 2 => {
-                Some(self.text[1..self.text.len() - 1].replace("\"\"", "\""))
-            }
-            Class::Name if self.text.starts_with('[') && self.text.ends_with(']') && self.text.len() >= 2 => {
-                Some(self.text[1..self.text.len() - 1].replace("]]", "]"))
-            }
+            Class::Name => unquote(self.text),
             _ => None,
         }
     }

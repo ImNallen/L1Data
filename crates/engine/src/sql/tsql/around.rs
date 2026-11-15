@@ -1,6 +1,7 @@
 use std::ops::Range;
 
 use super::{word_cont, word_start};
+use crate::sql::split::{skip_block_comment, skip_quoted};
 
 /// A word at depth 0 that the statement-start rules name, or `""` for any other word. It picks candidates by length and
 /// compares with the standard library, so the scan allocates and copies nothing per word.
@@ -133,7 +134,7 @@ fn go_line(b: &[u8], line: usize) -> Option<usize> {
         match b.get(i) {
             None | Some(b'\n') => return Some(i),
             Some(b'-') if b.get(i + 1) == Some(&b'-') => return Some(skip_line(b, i)),
-            Some(b'/') if b.get(i + 1) == Some(&b'*') => i = skip_block(b, i),
+            Some(b'/') if b.get(i + 1) == Some(&b'*') => i = skip_block_comment(b, i),
             _ => return None,
         }
     }
@@ -141,41 +142,6 @@ fn go_line(b: &[u8], line: usize) -> Option<usize> {
 
 fn skip_line(b: &[u8], i: usize) -> usize {
     b[i..].iter().position(|&c| c == b'\n').map_or(b.len(), |p| i + p)
-}
-
-fn skip_block(b: &[u8], mut i: usize) -> usize {
-    let mut depth = 0usize;
-    while i < b.len() {
-        if b[i] == b'/' && b.get(i + 1) == Some(&b'*') {
-            depth += 1;
-            i += 2;
-        } else if b[i] == b'*' && b.get(i + 1) == Some(&b'/') {
-            depth -= 1;
-            i += 2;
-            if depth == 0 {
-                return i;
-            }
-        } else {
-            i += 1;
-        }
-    }
-    b.len()
-}
-
-fn skip_quoted(b: &[u8], start: usize, close: u8) -> usize {
-    let mut i = start + 1;
-    while i < b.len() {
-        if b[i] == close {
-            if b.get(i + 1) == Some(&close) {
-                i += 2;
-            } else {
-                return i + 1;
-            }
-        } else {
-            i += 1;
-        }
-    }
-    b.len()
 }
 
 /// The statement around `at` inside its `GO` batch. One pass over the bytes, with no tokens, so a long script stays cheap.
@@ -207,13 +173,13 @@ pub(in crate::sql) fn statement_around(text: &str, at: usize) -> Range<usize> {
             }
             _ if c.is_ascii_whitespace() => i += 1,
             b'-' if b.get(i + 1) == Some(&b'-') => i = skip_line(b, i),
-            b'/' if b.get(i + 1) == Some(&b'*') => i = skip_block(b, i),
+            b'/' if b.get(i + 1) == Some(&b'*') => i = skip_block_comment(b, i),
             b'\'' => {
-                i = skip_quoted(b, i, b'\'');
+                i = skip_quoted(b, i, b'\'', false);
                 prev = Prev::Other;
             }
             b'[' | b'"' => {
-                i = skip_quoted(b, i, if c == b'[' { b']' } else { b'"' });
+                i = skip_quoted(b, i, if c == b'[' { b']' } else { b'"' }, false);
                 prev = Prev::Other;
             }
             b'{' => {

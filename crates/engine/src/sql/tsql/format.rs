@@ -115,11 +115,9 @@ fn format_batch(text: &str) -> Result<String, String> {
         }
         out.push_str(token.text);
         match token.text {
-            "(" if !token.comment() => depth += 1,
-            ")" if !token.comment() => {
-                depth = depth.checked_sub(1).ok_or("Unsupported unbalanced T-SQL parentheses")?
-            }
-            ";" if !token.comment() && depth == 0 => {
+            "(" => depth += 1,
+            ")" => depth = depth.checked_sub(1).ok_or("Unsupported unbalanced T-SQL parentheses")?,
+            ";" if depth == 0 => {
                 if matches!(statement, Some(Statement::InsertTarget | Statement::Update { set: false })) {
                     return Err("Unsupported incomplete T-SQL formatting statement".into());
                 }

@@ -898,15 +898,19 @@ pub fn standalone_sequence(s: &StandaloneSequence) -> Ddl {
     }
 }
 
+fn type_ddl(o: &ScriptedObject, name: &str, kind: &str, create: String) -> Ddl {
+    let mut statements = vec![create];
+    statements.extend(comment(&format!("{kind} {name}"), &o.comment));
+    Ddl {
+        text: script(statements),
+        warnings: object_warnings(&o.schema, name, &o.privileges, &o.owner, o.security_label),
+    }
+}
+
 pub fn enum_type(o: &ScriptedObject, labels: &[String]) -> Ddl {
     let name = qualified(&o.schema, &o.name);
     let labels = labels.iter().map(|label| quote_literal(label)).collect::<Vec<_>>().join(", ");
-    let mut statements = vec![format!("CREATE TYPE {name} AS ENUM ({labels})")];
-    statements.extend(comment(&format!("TYPE {name}"), &o.comment));
-    Ddl {
-        text: script(statements),
-        warnings: object_warnings(&o.schema, &name, &o.privileges, &o.owner, o.security_label),
-    }
+    type_ddl(o, &name, "TYPE", format!("CREATE TYPE {name} AS ENUM ({labels})"))
 }
 
 pub fn domain_type(
@@ -931,12 +935,7 @@ pub fn domain_type(
     for (check_name, definition) in checks {
         lines.push(format!("    CONSTRAINT {} {definition}", ident(check_name)));
     }
-    let mut statements = vec![lines.join("\n")];
-    statements.extend(comment(&format!("DOMAIN {name}"), &o.comment));
-    Ddl {
-        text: script(statements),
-        warnings: object_warnings(&o.schema, &name, &o.privileges, &o.owner, o.security_label),
-    }
+    type_ddl(o, &name, "DOMAIN", lines.join("\n"))
 }
 
 pub fn composite_type(o: &ScriptedObject, fields: &[CompositeField]) -> Ddl {
@@ -952,12 +951,7 @@ pub fn composite_type(o: &ScriptedObject, fields: &[CompositeField]) -> Ddl {
         })
         .collect::<Vec<_>>()
         .join(",\n");
-    let mut statements = vec![format!("CREATE TYPE {name} AS (\n{body}\n)")];
-    statements.extend(comment(&format!("TYPE {name}"), &o.comment));
-    Ddl {
-        text: script(statements),
-        warnings: object_warnings(&o.schema, &name, &o.privileges, &o.owner, o.security_label),
-    }
+    type_ddl(o, &name, "TYPE", format!("CREATE TYPE {name} AS (\n{body}\n)"))
 }
 
 pub fn range_type(o: &ScriptedObject, range: &RangeScript) -> Ddl {
@@ -975,12 +969,7 @@ pub fn range_type(o: &ScriptedObject, range: &RangeScript) -> Ddl {
     if let Some(diff) = &range.subtype_diff {
         lines.push(format!("    SUBTYPE_DIFF = {diff}"));
     }
-    let mut statements = vec![format!("CREATE TYPE {name} AS RANGE (\n{}\n)", lines.join(",\n"))];
-    statements.extend(comment(&format!("TYPE {name}"), &o.comment));
-    Ddl {
-        text: script(statements),
-        warnings: object_warnings(&o.schema, &name, &o.privileges, &o.owner, o.security_label),
-    }
+    type_ddl(o, &name, "TYPE", format!("CREATE TYPE {name} AS RANGE (\n{}\n)", lines.join(",\n")))
 }
 
 pub fn extension_script(
@@ -1036,7 +1025,7 @@ fn indexes(
             )),
         }
         if let (Some(space), Some(_)) = (&i.tablespace, &i.definition) {
-            out.push(format!("ALTER INDEX {} SET TABLESPACE {}", qualified(schema, &i.name), ident(space)));
+            out.push(format!("ALTER INDEX {qualified_name} SET TABLESPACE {}", ident(space)));
         }
         if i.clustered {
             out.push(format!("ALTER {keyword} {relation} CLUSTER ON {name}"));
@@ -1044,7 +1033,7 @@ fn indexes(
         if i.replica_identity {
             out.push(format!("ALTER TABLE {relation} REPLICA IDENTITY USING INDEX {name}"));
         }
-        out.extend(comment(&format!("INDEX {}", qualified(schema, &i.name)), &i.comment));
+        out.extend(comment(&format!("INDEX {qualified_name}"), &i.comment));
     }
 }
 
@@ -1146,14 +1135,17 @@ pub fn index(definition: &str) -> String {
     }
 }
 
-pub fn trigger(t: &Trigger, keyword: &str, table: &str) -> Vec<String> {
-    let state = match t.enabled {
+fn enabled_state(enabled: char) -> Option<&'static str> {
+    match enabled {
         'D' => Some("DISABLE"),
         'R' => Some("ENABLE REPLICA"),
         'A' => Some("ENABLE ALWAYS"),
-        _ if t.cloned => Some("ENABLE"),
         _ => None,
-    };
+    }
+}
+
+pub fn trigger(t: &Trigger, keyword: &str, table: &str) -> Vec<String> {
+    let state = enabled_state(t.enabled).or(t.cloned.then_some("ENABLE"));
     (!t.cloned)
         .then(|| t.definition.clone())
         .into_iter()
@@ -1169,12 +1161,7 @@ pub fn trigger(t: &Trigger, keyword: &str, table: &str) -> Vec<String> {
 }
 
 fn rule(r: &Rule, keyword: &str, relation: &str) -> Vec<String> {
-    let state = match r.enabled {
-        'D' => Some("DISABLE"),
-        'R' => Some("ENABLE REPLICA"),
-        'A' => Some("ENABLE ALWAYS"),
-        _ => None,
-    };
+    let state = enabled_state(r.enabled);
     let keyword = if keyword == "VIEW" { "VIEW" } else { "TABLE" };
     std::iter::once(r.definition.trim_end().trim_end_matches(';').to_owned())
         .chain(state.map(|s| format!("ALTER {keyword} {relation} {s} RULE {}", ident(&r.name))))

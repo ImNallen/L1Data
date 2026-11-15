@@ -197,10 +197,7 @@ fn lex_with(text: &str, unclosed_to_end: bool) -> Result<Vec<Token<'_>>, String>
         let start = i;
         let kind = match bytes[i] {
             b'-' if bytes.get(i + 1) == Some(&b'-') => {
-                i += 2;
-                while i < bytes.len() && !matches!(bytes[i], b'\r' | b'\n') {
-                    i += 1;
-                }
+                i = super::split::line_comment_end(bytes, i);
                 Kind::LineComment
             }
             b'/' if bytes.get(i + 1) == Some(&b'*') => {

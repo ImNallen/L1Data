@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Range;
 
 use super::lex::{self, LexKind, Strings};
-use super::scope::{Class, Lexeme, map_lexemes};
+use super::scope::{Class, Lexeme, map_lexemes, reserved, unquote};
 use super::{StmtSpan, split_statements, tsql};
 use crate::model::{CellSource, DatabaseKind, RunError};
 use crate::params::{self, ExecutableScript};
@@ -213,10 +213,7 @@ fn folded(text: &str, lexeme: &Lexeme, kind: DatabaseKind) -> Option<String> {
     let name = match lexeme.class {
         Class::Word if kind == DatabaseKind::Postgres => return Some(t.to_ascii_lowercase()),
         Class::Word => t.to_owned(),
-        Class::Name => match t.strip_prefix('[').and_then(|t| t.strip_suffix(']')) {
-            Some(bracketed) => bracketed.replace("]]", "]"),
-            None => t.strip_prefix('"')?.strip_suffix('"')?.replace("\"\"", "\""),
-        },
+        Class::Name => unquote(t)?,
         _ => return None,
     };
     Some(fold(kind, name))
@@ -245,16 +242,6 @@ fn relations(kind: DatabaseKind, text: &str) -> HashSet<String> {
 
 fn cte_name(title: &str) -> String {
     format!("{{{{{title}}}}}")
-}
-
-fn reserved(kind: DatabaseKind, word: &str) -> bool {
-    match kind {
-        DatabaseKind::Postgres => {
-            let word = word.to_ascii_lowercase();
-            super::RESERVED.contains(&word.as_str()) || super::TYPE_OR_FUNCTION_NAME.contains(&word.as_str())
-        }
-        DatabaseKind::SqlServer => tsql::RESERVED.contains(&word.to_ascii_uppercase().as_str()),
-    }
 }
 
 /// A text change: `with` replaces `range`, and an empty range inserts.
