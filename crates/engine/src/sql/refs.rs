@@ -13,7 +13,7 @@ use std::ops::Range;
 use super::lex::{self, LexKind, Strings};
 use super::scope::{Class, Lexeme, map_lexemes};
 use super::{StmtSpan, split_statements, tsql};
-use crate::model::{CellSource, DatabaseKind, RunError, RunTarget};
+use crate::model::{CellSource, DatabaseKind, RunError};
 use crate::params::{self, ExecutableScript};
 use crate::text::quote_ident_in;
 
@@ -80,12 +80,12 @@ const STRINGS: &str =
 pub(crate) fn expand(
     script: ExecutableScript,
     cells: &[CellSource],
-    kind: DatabaseKind,
+    binder: &mut params::Binder<'_>,
 ) -> Result<(ExecutableScript, Vec<CellSource>), RunError> {
     if !script.text.contains("{{") {
         return Ok((script, Vec::new()));
     }
-    let mut resolver = Resolver { cells, kind, bodies: HashMap::new() };
+    let mut resolver = Resolver { cells, kind: binder.kind(), binder, bodies: HashMap::new() };
     let mut used = Vec::new();
     let units = script
         .spans
@@ -123,13 +123,14 @@ struct Body {
     relations: HashSet<String>,
 }
 
-struct Resolver<'a> {
+struct Resolver<'a, 'v> {
     cells: &'a [CellSource],
     kind: DatabaseKind,
+    binder: &'a mut params::Binder<'v>,
     bodies: HashMap<String, Body>,
 }
 
-impl Resolver<'_> {
+impl Resolver<'_, '_> {
     /// The titles `roots` reach, each after the ones it references.
     fn closure(&mut self, roots: impl IntoIterator<Item = String>) -> Result<Vec<String>, String> {
         let mut order = Vec::new();
@@ -147,7 +148,7 @@ impl Resolver<'_> {
             return Err(cycle(&path[at..]));
         }
         if !self.bodies.contains_key(&title) {
-            let body = body(self.cells, &title, self.kind)?;
+            let body = body(self.cells, &title, self.binder)?;
             self.bodies.insert(title.clone(), body);
         }
         let deps = self.bodies[&title].deps.clone();
@@ -431,7 +432,32 @@ fn query_range(text: &str, title: &str, kind: DatabaseKind) -> Result<Range<usiz
     Ok(batch.start + first.span.start..batch.start + last.unwrap_or(first).span.end)
 }
 
-fn body(cells: &[CellSource], title: &str, kind: DatabaseKind) -> Result<Body, String> {
+/// Binds a body in its own text, before it is inlined, so a SQL Server batch that declares `@x` cannot shadow the
+/// notebook's `@x` in it. A parameter at or after `until` is neither bound nor noted.
+fn bound(
+    found: &[(Range<usize>, &str)],
+    until: usize,
+    binder: &mut params::Binder<'_>,
+    title: &str,
+) -> Result<Vec<Edit>, String> {
+    found
+        .iter()
+        .filter(|(range, _)| range.start < until)
+        .map(|(range, name)| {
+            Ok(Edit { range: range.clone(), with: binder.literal(name).map_err(|e| unreadable(title, e))? })
+        })
+        .collect()
+}
+
+fn unreadable(title: &str, e: RunError) -> String {
+    match e {
+        RunError::Unsupported { what } => format!("{title}: {what}"),
+        _ => format!("{title} cannot be read."),
+    }
+}
+
+fn body(cells: &[CellSource], title: &str, binder: &mut params::Binder<'_>) -> Result<Body, String> {
+    let kind = binder.kind();
     let mut named = cells.iter().enumerate().filter(|(_, c)| c.name == title);
     let Some((cell, source)) = named.next() else { return Err(format!("No cell is named {title}.")) };
     let others = named.count();
@@ -466,13 +492,7 @@ fn body(cells: &[CellSource], title: &str, kind: DatabaseKind) -> Result<Body, S
         let queries = if kind == DatabaseKind::Postgres { "SELECT, WITH, VALUES, or TABLE" } else { "SELECT or WITH" };
         return Err(format!("{title} is not a query. A reference needs one {queries} query."));
     }
-    let found = params::discover(sql, RunTarget::All, kind).map_err(|e| match e {
-        RunError::Unsupported { what } => format!("{title}: {what}"),
-        _ => format!("{title} cannot be read."),
-    })?;
-    if let Some(param) = found.first() {
-        return Err(format!("{title} uses the parameter {}. A referenced cell cannot ask for values.", param.name));
-    }
+    let found = binder.find(sql).map_err(|e| unreadable(title, e))?;
     let mut deps: Vec<String> = Vec::new();
     let mut edits = Vec::new();
     for (k, l) in code.iter().enumerate().filter(|(_, l)| l.class == Class::Reference) {
@@ -485,6 +505,8 @@ fn body(cells: &[CellSource], title: &str, kind: DatabaseKind) -> Result<Body, S
     let own = |body: String| format!("{} AS (\n{body}\n)", quote_ident_in(kind, &cte_name(title)));
     let relations = relations(kind, sql);
     if kind == DatabaseKind::Postgres {
+        edits.extend(bound(&found, sql.len(), binder, title)?);
+        edits.sort_by_key(|e| (e.range.start, e.range.end));
         return Ok(Body {
             cell,
             deps,
@@ -508,18 +530,20 @@ fn body(cells: &[CellSource], title: &str, kind: DatabaseKind) -> Result<Body, S
             "{title} ends with an OPTION hint, which SQL Server does not allow inside a CTE. Move the hint to the statement that references {title}."
         ));
     }
-    if let Some(cut) = order_by_cut(sql, &code[main..]) {
+    let cut = order_by_cut(sql, &code[main..]);
+    edits.extend(bound(&found, cut.as_ref().map_or(sql.len(), |cut| cut.start), binder, title)?);
+    if let Some(cut) = cut {
         edits.retain(|e| e.range.end <= cut.start || cut.end <= e.range.start);
         edits.push(Edit { range: cut, with: String::new() });
-        edits.sort_by_key(|e| (e.range.start, e.range.end));
     }
+    edits.sort_by_key(|e| (e.range.start, e.range.end));
     let mut entries: Vec<String> = moved.iter().map(|(_, range)| render(sql, range.clone(), &edits)).collect();
     entries.push(own(render(sql, code[main].span.start..sql.len(), &edits).trim_end().to_owned()));
     Ok(Body { cell, deps, entries, hoisted: moved.into_iter().map(|(name, _)| name).collect(), relations })
 }
 
 /// Rewrites one statement, or one SQL Server batch, when it holds a reference.
-fn rewrite(unit: &str, resolver: &mut Resolver<'_>, used: &mut Vec<String>) -> Result<Option<String>, String> {
+fn rewrite(unit: &str, resolver: &mut Resolver<'_, '_>, used: &mut Vec<String>) -> Result<Option<String>, String> {
     let kind = resolver.kind;
     let code = code(unit, kind);
     let refs: Vec<usize> =
@@ -556,7 +580,7 @@ fn statement_edits(
     code: &[Lexeme],
     first: usize,
     refs: &[usize],
-    resolver: &mut Resolver<'_>,
+    resolver: &mut Resolver<'_, '_>,
     used: &mut Vec<String>,
 ) -> Result<Vec<Edit>, String> {
     let kind = resolver.kind;
@@ -652,7 +676,7 @@ fn tsql_prefix(unit: &str, code: &[Lexeme], first: usize) -> Result<&'static str
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{CellReference, CompletionContext, DocOffset, DocRange, ParamValue};
+    use crate::model::{CellReference, CompletionContext, DocOffset, DocRange, ParamValue, RunTarget};
     use crate::text::{cell_references, completion_context};
 
     const PG: DatabaseKind = DatabaseKind::Postgres;
@@ -663,10 +687,33 @@ mod tests {
         pairs.iter().map(|(name, text)| CellSource { name: (*name).into(), text: (*text).into() }).collect()
     }
 
+    fn values(pairs: &[(&str, &str)]) -> params::Values {
+        params::Values::new(
+            pairs
+                .iter()
+                .map(|(name, value)| ParamValue { name: (*name).into(), value: Some((*value).into()) })
+                .collect(),
+        )
+        .unwrap()
+    }
+
+    fn prepared(
+        kind: DatabaseKind,
+        text: &str,
+        pairs: &[(&str, &str)],
+        values: &params::Values,
+    ) -> Result<params::Prepared, RunError> {
+        params::prepare(text.into(), RunTarget::All, kind, values, &cells(pairs))
+    }
+
     /// Each unit the run sends, and the titles of the cells it inlined.
-    fn run(kind: DatabaseKind, text: &str, pairs: &[(&str, &str)]) -> Result<(Vec<String>, Vec<String>), String> {
-        let script = params::bind(text.into(), RunTarget::All, kind, Vec::new()).unwrap();
-        match expand(script, &cells(pairs), kind) {
+    fn run_with(
+        kind: DatabaseKind,
+        text: &str,
+        pairs: &[(&str, &str)],
+        values: &params::Values,
+    ) -> Result<(Vec<String>, Vec<String>), String> {
+        match prepared(kind, text, pairs, values).and_then(params::Prepared::executable) {
             Ok((script, sources)) => Ok((
                 script.spans.iter().map(|s| s.text(&script.text).to_owned()).collect(),
                 sources.into_iter().map(|c| c.name).collect(),
@@ -676,10 +723,23 @@ mod tests {
         }
     }
 
-    fn one(kind: DatabaseKind, text: &str, pairs: &[(&str, &str)]) -> String {
-        let (units, _) = run(kind, text, pairs).unwrap();
+    fn run(kind: DatabaseKind, text: &str, pairs: &[(&str, &str)]) -> Result<(Vec<String>, Vec<String>), String> {
+        run_with(kind, text, pairs, &params::Values::default())
+    }
+
+    fn one_with(kind: DatabaseKind, text: &str, pairs: &[(&str, &str)], values: &params::Values) -> String {
+        let (units, _) = run_with(kind, text, pairs, values).unwrap();
         assert_eq!(units.len(), 1, "{units:?}");
         units.into_iter().next().unwrap()
+    }
+
+    fn one(kind: DatabaseKind, text: &str, pairs: &[(&str, &str)]) -> String {
+        one_with(kind, text, pairs, &params::Values::default())
+    }
+
+    /// The names a run of `text` asks for, through every cell it reaches.
+    fn discovered(kind: DatabaseKind, text: &str, pairs: &[(&str, &str)]) -> Vec<String> {
+        prepared(kind, text, pairs, &params::Values::default()).unwrap().params().into_iter().map(|p| p.name).collect()
     }
 
     fn refusal(kind: DatabaseKind, text: &str, pairs: &[(&str, &str)]) -> String {
@@ -731,9 +791,8 @@ mod tests {
             one(MS, "SELECT * FROM {{bob's -- rows}} x", &cells),
             "WITH [{{bob's -- rows}}] AS (\nSELECT 1 AS n\n)\nSELECT * FROM [{{bob's -- rows}}] x"
         );
-        let found = params::discover("SELECT * FROM {{a :b $1}} WHERE n = :v", RunTarget::All, PG).unwrap();
-        assert_eq!(found.into_iter().map(|p| p.name).collect::<Vec<_>>(), [":v"]);
-        assert!(params::discover("SELECT * FROM {{@a}}", RunTarget::All, MS).unwrap().is_empty());
+        assert_eq!(discovered(PG, "SELECT * FROM {{a :b $1}} WHERE n = :v", &[("a :b $1", "SELECT 1 AS n")]), [":v"]);
+        assert!(discovered(MS, "SELECT * FROM {{@a}}", &[("@a", "SELECT 1 AS n")]).is_empty());
     }
 
     #[test]
@@ -780,35 +839,80 @@ mod tests {
 
     #[test]
     fn only_the_units_with_references_change() {
-        let script =
-            params::bind("SELECT 1;\nSELECT * FROM {{a}} x;\nSELECT 3".into(), RunTarget::All, PG, Vec::new()).unwrap();
-        let ranges = script.ranges.clone();
-        let (expanded, sources) = expand(script, &cells(&[A]), PG).unwrap();
+        let none = params::Values::default();
+        let text = "SELECT 1;\nSELECT * FROM {{a}} x;\nSELECT 3";
+        let (expanded, sources) = prepared(PG, text, &[A], &none).unwrap().executable().unwrap();
         let units: Vec<&str> = expanded.spans.iter().map(|s| s.text(&expanded.text)).collect();
         assert_eq!(units, ["SELECT 1", "WITH \"{{a}}\" AS (\nSELECT 1 AS n\n)\nSELECT * FROM \"{{a}}\" x", "SELECT 3"]);
         assert_eq!(expanded.changed, [false, true, false]);
-        assert_eq!(expanded.ranges, ranges);
+        let range = |from, to| DocRange { from: DocOffset(from), to: DocOffset(to) };
+        assert_eq!(expanded.ranges, [range(0, 8), range(10, 31), range(33, 41)], "ranges point at the user's text");
         assert_eq!(sources, cells(&[A]));
 
-        let plain = params::bind("SELECT '{{a}}'".into(), RunTarget::All, PG, Vec::new()).unwrap();
-        let (same, sources) = expand(plain, &[], PG).unwrap();
+        let (same, sources) = prepared(PG, "SELECT '{{a}}'", &[], &none).unwrap().executable().unwrap();
         assert_eq!((same.text.as_str(), same.changed, sources), ("SELECT '{{a}}'", vec![false], Vec::new()));
     }
 
     #[test]
     fn parameters_bind_before_references_expand() {
-        let script = params::bind(
-            "SELECT * FROM {{a}} x WHERE x.n = :v".into(),
-            RunTarget::All,
-            PG,
-            vec![ParamValue { name: ":v".into(), value: Some("1".into()) }],
-        )
-        .unwrap();
-        let (expanded, _) = expand(script, &cells(&[A]), PG).unwrap();
         assert_eq!(
-            expanded.spans[0].text(&expanded.text),
+            one_with(PG, "SELECT * FROM {{a}} x WHERE x.n = :v", &[A], &values(&[(":v", "1")])),
             "WITH \"{{a}}\" AS (\nSELECT 1 AS n\n)\nSELECT * FROM \"{{a}}\" x WHERE x.n = E'1'"
         );
+    }
+
+    #[test]
+    fn a_referenced_cell_binds_its_parameters_from_the_same_values() {
+        let values = values(&[(":x", "41"), ("$1", "7"), ("@x", "it's"), (":unused", "0")]);
+        assert_eq!(
+            one_with(PG, "SELECT * FROM {{a}} q WHERE q.n > :x", &[("a", "SELECT :x::int + $1::int AS n")], &values),
+            "WITH \"{{a}}\" AS (\nSELECT E'41'::int + E'7'::int AS n\n)\nSELECT * FROM \"{{a}}\" q WHERE q.n > E'41'"
+        );
+        assert_eq!(
+            one_with(MS, "SELECT * FROM {{a}} q", &[("a", "SELECT @x AS n")], &values),
+            "WITH [{{a}}] AS (\nSELECT N'it''s' AS n\n)\nSELECT * FROM [{{a}}] q"
+        );
+        let missing = prepared(PG, "SELECT * FROM {{a}} q", &[("a", "SELECT :y::int AS n")], &values).unwrap();
+        assert!(matches!(
+            missing.executable(),
+            Err(RunError::Unsupported { what }) if what == "Missing value for parameter :y."
+        ));
+    }
+
+    #[test]
+    fn sql_server_binds_a_body_parameter_before_a_batch_declaration_can_shadow_it() {
+        let pairs = [("a", "SELECT @x AS n")];
+        let text = "DECLARE @x int = 1\nSELECT * FROM {{a}} q WHERE q.n > @x";
+        assert_eq!(discovered(MS, text, &pairs), ["@x"], "the body's @x is the notebook's, not the batch's");
+        assert_eq!(
+            one_with(MS, text, &pairs, &values(&[("@x", "5")])),
+            "DECLARE @x int = 1\n;WITH [{{a}}] AS (\nSELECT N'5' AS n\n)\nSELECT * FROM [{{a}}] q WHERE q.n > @x"
+        );
+    }
+
+    #[test]
+    fn discovery_reaches_parameters_through_chains_and_diamonds_once() {
+        let pairs = [
+            ("top", "SELECT * FROM {{left}} JOIN {{right}} USING (n) WHERE n < :top"),
+            ("left", "SELECT n FROM {{base}} WHERE n > :low"),
+            ("right", "SELECT n FROM {{base}} WHERE n <> :low"),
+            ("base", "SELECT :base::int AS n"),
+        ];
+        assert_eq!(
+            discovered(PG, "SELECT * FROM {{top}} t WHERE t.n = :own", &pairs),
+            [":own", ":top", ":low", ":base"]
+        );
+    }
+
+    #[test]
+    fn a_body_order_by_that_sql_server_drops_asks_for_nothing() {
+        let dropped = [("a", "SELECT n FROM t ORDER BY CASE WHEN n = @first THEN 0 ELSE 1 END")];
+        assert!(discovered(MS, "SELECT * FROM {{a}} x", &dropped).is_empty());
+        assert!(run(MS, "SELECT * FROM {{a}} x", &dropped).is_ok());
+        let kept = [("a", "SELECT TOP 5 n FROM t ORDER BY CASE WHEN n = @first THEN 0 ELSE 1 END")];
+        assert_eq!(discovered(MS, "SELECT * FROM {{a}} x", &kept), ["@first"]);
+        let ordered = [("a", "SELECT n FROM t ORDER BY n = :first")];
+        assert_eq!(discovered(PG, "SELECT * FROM {{a}} x", &ordered), [":first"], "PostgreSQL keeps the ORDER BY");
     }
 
     #[test]
@@ -899,7 +1003,7 @@ mod tests {
     }
 
     #[test]
-    fn a_body_must_be_one_query_without_parameters() {
+    fn a_body_must_be_one_query() {
         let body = |kind, text| refusal(kind, "SELECT * FROM {{a}}", &[("a", text)]);
         assert_eq!(body(PG, "  -- nothing\n"), "a is empty.");
         assert_eq!(body(PG, "SELECT 1; SELECT 2"), "a holds 2 statements. A reference needs one query.");
@@ -916,24 +1020,12 @@ mod tests {
                 "{text}"
             );
         }
-        assert_eq!(
-            body(PG, "SELECT * FROM t WHERE id = :id"),
-            "a uses the parameter :id. A referenced cell cannot ask for values."
-        );
-        assert_eq!(
-            body(PG, "SELECT * FROM t WHERE id = $1"),
-            "a uses the parameter $1. A referenced cell cannot ask for values."
-        );
         assert_eq!(body(MS, ""), "a is empty.");
         assert_eq!(body(MS, "SELECT 1\nGO\nSELECT 2"), "a holds 2 batches. A reference needs one query.");
         assert_eq!(body(MS, "SELECT 1 SELECT 2"), "a holds more than one statement. A reference needs one query.");
         for text in ["UPDATE t SET n = 1", "SELECT n INTO #x FROM t", "EXEC sp_who", "VALUES (1)"] {
             assert_eq!(body(MS, text), "a is not a query. A reference needs one SELECT or WITH query.", "{text}");
         }
-        assert_eq!(
-            body(MS, "SELECT * FROM t WHERE id = @id"),
-            "a uses the parameter @id. A referenced cell cannot ask for values."
-        );
         assert!(run(MS, "SELECT * FROM {{a}}", &[("a", "SELECT 1;")]).is_ok());
     }
 

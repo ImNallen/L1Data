@@ -267,7 +267,8 @@ async function runTab(tabId: TabId, target?: PageTarget, script?: RunTarget, mod
   } else {
     text = state.doc.toString();
     const runTarget = script ?? selectionTarget(state);
-    const discovered = await commands.scriptParams(text, runTarget, destination.databaseKind);
+    const cells = notebookSources(tabId);
+    const discovered = await commands.scriptParams(text, runTarget, destination.databaseKind, cells);
     if (!valid()) return;
     if (discovered.status === "error") {
       notify(runErrorText(discovered.error));
@@ -278,7 +279,7 @@ async function runTab(tabId: TabId, target?: PageTarget, script?: RunTarget, mod
     const description = db ? `${ws().configs[db.connectionId]?.name ?? db.connectionId} / ${db.database}` : "";
     const params = discovered.data.length ? await promptParams(tabId, targetKey, discovered.data, description, valid) : [];
     if (!params || !valid()) return;
-    request = { kind: "script", text, target: runTarget, mode, params, cells: notebookSources(tabId) };
+    request = { kind: "script", text, target: runTarget, mode, params, cells };
     showDiagnostics(tabId, []);
   }
 

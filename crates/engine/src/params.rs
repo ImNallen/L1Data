@@ -1,7 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ops::Range;
 
-use crate::model::{DatabaseKind, DocRange, Param, ParamValue, RunError, RunTarget};
+use crate::model::{CellSource, DatabaseKind, DocRange, Param, ParamValue, RunError, RunTarget};
 use crate::sql::lex::{self, LexKind, Strings};
 use crate::sql::{self, StmtSpan};
 use crate::text::{self, OffsetMap};
@@ -97,99 +97,147 @@ fn occurrences(text: &str, kind: DatabaseKind) -> Result<Vec<Range<usize>>, RunE
     }
 }
 
-fn scan(text: &str, spans: &[StmtSpan], kind: DatabaseKind) -> Result<Vec<Vec<Range<usize>>>, RunError> {
-    spans.iter().map(|span| occurrences(span.text(text), kind)).collect()
+/// The values a run may bind, by name. Built only where values enter the engine.
+#[derive(Default)]
+pub(crate) struct Values(HashMap<String, Option<String>>);
+
+impl Values {
+    pub(crate) fn new(list: Vec<ParamValue>) -> Result<Self, RunError> {
+        let mut values = HashMap::with_capacity(list.len());
+        for ParamValue { name, value } in list {
+            if values.contains_key(&name) {
+                return Err(unsupported(format!("Duplicate parameter {name}.")));
+            }
+            values.insert(name, value);
+        }
+        Ok(Self(values))
+    }
 }
 
-pub(crate) fn discover(text: &str, target: RunTarget, kind: DatabaseKind) -> Result<Vec<Param>, RunError> {
-    let spans = selected(text, target, kind)?;
-    let scanned = scan(text, &spans, kind)?;
-    let mut seen = HashSet::new();
-    let mut params = Vec::new();
-    for (span, occurrences) in spans.iter().zip(scanned) {
-        let unit = span.text(text);
-        for range in occurrences {
-            let name = &unit[range];
-            if seen.insert(name.to_owned()) {
-                params.push(Param { name: name.to_owned() });
-            }
+/// Substitutes parameters wherever a run meets them, and notes each name once in first-use order. Only `prepare` makes
+/// one, so `refs::expand` cannot run without binding.
+pub(crate) struct Binder<'a> {
+    values: &'a Values,
+    kind: DatabaseKind,
+    used: Vec<String>,
+}
+
+impl Binder<'_> {
+    pub(crate) fn kind(&self) -> DatabaseKind {
+        self.kind
+    }
+
+    /// Where `sql` uses a parameter, in `sql`'s own byte offsets, with the name each one uses.
+    pub(crate) fn find<'s>(&self, sql: &'s str) -> Result<Vec<(Range<usize>, &'s str)>, RunError> {
+        Ok(occurrences(sql, self.kind)?.into_iter().map(|r| (r.clone(), &sql[r])).collect())
+    }
+
+    /// The literal that stands for `name`. A name with no value stands as NULL, and `Prepared::executable` refuses it
+    /// before anything is sent. A NUL value is refused only here, where a unit binds it.
+    pub(crate) fn literal(&mut self, name: &str) -> Result<String, RunError> {
+        if !self.used.iter().any(|n| n == name) {
+            self.used.push(name.to_owned());
+        }
+        match self.values.0.get(name) {
+            Some(Some(value)) if value.contains('\0') => Err(unsupported(format!("Parameter {name} contains NUL."))),
+            Some(Some(value)) => Ok(match self.kind {
+                DatabaseKind::Postgres => text::quote_escaped_literal(value),
+                DatabaseKind::SqlServer => format!("N'{}'", value.replace('\'', "''")),
+            }),
+            Some(None) | None => Ok("NULL".into()),
         }
     }
-    Ok(params)
 }
 
-fn literal(value: Option<&str>, kind: DatabaseKind) -> String {
-    match value {
-        None => "NULL".into(),
-        Some(value) => match kind {
-            DatabaseKind::Postgres => text::quote_escaped_literal(value),
-            DatabaseKind::SqlServer => format!("N'{}'", value.replace('\'', "''")),
-        },
+/// A cell's text as the server would run it: units bound, references expanded with their bodies bound, and the names
+/// met on the way.
+pub(crate) struct Prepared {
+    script: ExecutableScript,
+    sources: Vec<CellSource>,
+    used: Vec<String>,
+    missing: Option<String>,
+}
+
+impl Prepared {
+    /// Every name the selected units and the cells they reach use, each once: the units' own first, then each body's in
+    /// the order expansion resolves it.
+    pub(crate) fn params(self) -> Vec<Param> {
+        self.used.into_iter().map(|name| Param { name }).collect()
+    }
+
+    /// The SQL to send and the cells it inlined, refused while a name it uses has no value.
+    pub(crate) fn executable(self) -> Result<(ExecutableScript, Vec<CellSource>), RunError> {
+        match self.missing {
+            Some(name) => Err(unsupported(format!("Missing value for parameter {name}."))),
+            None => Ok((self.script, self.sources)),
+        }
     }
 }
 
-pub(crate) fn bind(
+/// The only path from a cell's text to executable SQL. `console_run` and `script_params` both call it, so discovery
+/// can never disagree with what binding needs.
+pub(crate) fn prepare(
     text: String,
     target: RunTarget,
     kind: DatabaseKind,
-    values: Vec<ParamValue>,
-) -> Result<ExecutableScript, RunError> {
+    values: &Values,
+    cells: &[CellSource],
+) -> Result<Prepared, RunError> {
     let spans = selected(&text, target, kind)?;
-    let scanned = scan(&text, &spans, kind)?;
     let map = OffsetMap::new(&text);
     let ranges = spans.iter().map(|span| map.range(span)).collect();
-    let mut supplied = HashMap::new();
-    for param in values {
-        if param.value.as_ref().is_some_and(|v| v.contains('\0')) {
-            return Err(unsupported(format!("Parameter {} contains NUL.", param.name)));
-        }
-        if supplied.insert(param.name.clone(), param.value).is_some() {
-            return Err(unsupported(format!("Duplicate parameter {}.", param.name)));
-        }
-    }
-    let expected: HashSet<&str> = spans
-        .iter()
-        .zip(&scanned)
-        .flat_map(|(span, found)| found.iter().map(|r| &span.text(&text)[r.clone()]))
-        .collect();
-    for name in &expected {
-        if !supplied.contains_key(*name) {
-            return Err(unsupported(format!("Missing value for parameter {name}.")));
-        }
-    }
-    for name in supplied.keys() {
-        if !expected.contains(name.as_str()) {
-            return Err(unsupported(format!("Unexpected parameter {name}.")));
-        }
-    }
-    if expected.is_empty() {
+    let mut binder = Binder { values, kind, used: Vec::new() };
+    let found = spans.iter().map(|span| binder.find(span.text(&text))).collect::<Result<Vec<_>, _>>()?;
+    let script = if found.iter().all(Vec::is_empty) {
         let changed = vec![false; spans.len()];
-        return Ok(ExecutableScript { text, spans, ranges, changed });
-    }
-    let mut executable = String::with_capacity(text.len());
-    let mut adjusted = Vec::with_capacity(spans.len());
-    let mut changed = Vec::with_capacity(spans.len());
-    for (span, found) in spans.iter().zip(scanned) {
-        let unit = span.text(&text);
-        let start = executable.len();
-        let mut at = 0;
-        changed.push(!found.is_empty());
-        for occurrence in found {
-            executable.push_str(&unit[at..occurrence.start]);
-            let name = &unit[occurrence.clone()];
-            executable.push_str(&literal(supplied[name].as_deref(), kind));
-            at = occurrence.end;
+        ExecutableScript { text, spans, ranges, changed }
+    } else {
+        let mut executable = String::with_capacity(text.len());
+        let mut adjusted = Vec::with_capacity(spans.len());
+        let mut changed = Vec::with_capacity(spans.len());
+        for (span, found) in spans.iter().zip(found) {
+            let unit = span.text(&text);
+            let start = executable.len();
+            let mut at = 0;
+            changed.push(!found.is_empty());
+            for (occurrence, name) in found {
+                executable.push_str(&unit[at..occurrence.start]);
+                executable.push_str(&binder.literal(name)?);
+                at = occurrence.end;
+            }
+            executable.push_str(&unit[at..]);
+            adjusted.push(StmtSpan { start, end: executable.len() });
+            executable.push('\n');
         }
-        executable.push_str(&unit[at..]);
-        adjusted.push(StmtSpan { start, end: executable.len() });
-        executable.push('\n');
-    }
-    Ok(ExecutableScript { text: executable, spans: adjusted, ranges, changed })
+        ExecutableScript { text: executable, spans: adjusted, ranges, changed }
+    };
+    let (script, sources) = sql::refs::expand(script, cells, &mut binder)?;
+    let missing = binder.used.iter().find(|name| !values.0.contains_key(*name)).cloned();
+    Ok(Prepared { script, sources, used: binder.used, missing })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn values(pairs: &[(&str, Option<&str>)]) -> Values {
+        Values::new(
+            pairs
+                .iter()
+                .map(|(name, value)| ParamValue { name: (*name).into(), value: value.map(Into::into) })
+                .collect(),
+        )
+        .unwrap()
+    }
+
+    fn discover(text: &str, target: RunTarget, kind: DatabaseKind) -> Result<Vec<Param>, RunError> {
+        prepare(text.into(), target, kind, &Values::default(), &[]).map(Prepared::params)
+    }
+
+    fn bind(text: &str, kind: DatabaseKind, pairs: &[(&str, Option<&str>)]) -> Result<ExecutableScript, RunError> {
+        prepare(text.into(), RunTarget::All, kind, &values(pairs), &[])?.executable().map(|(script, _)| script)
+    }
+
     fn names(text: &str, kind: DatabaseKind) -> Vec<String> {
         discover(text, RunTarget::All, kind).unwrap().into_iter().map(|p| p.name).collect()
     }
@@ -213,7 +261,7 @@ mod tests {
         for source in [r"SELECT '\' AS slash, '$0' AS txt", r"SELECT '\' AS slash, '$1' AS txt"] {
             let found = discover(source, RunTarget::All, DatabaseKind::Postgres);
             assert!(found.as_ref().is_ok_and(Vec::is_empty), "parameter-free script was rejected: {found:?}");
-            let bound = bind(source.into(), RunTarget::All, DatabaseKind::Postgres, Vec::new()).unwrap();
+            let bound = bind(source, DatabaseKind::Postgres, &[]).unwrap();
             assert_eq!(bound.text, source);
             assert_eq!(bound.changed, [false]);
         }
@@ -228,18 +276,12 @@ mod tests {
             "CREATE PROCEDURE p(int) LANGUAGE SQL AS $$SELECT $1$$",
         ] {
             assert_eq!(names(source, DatabaseKind::Postgres), Vec::<String>::new());
-            let bound = bind(source.into(), RunTarget::All, DatabaseKind::Postgres, Vec::new()).unwrap();
+            let bound = bind(source, DatabaseKind::Postgres, &[]).unwrap();
             assert_eq!(bound.text, source);
         }
         let source = "PREPARE q(int) AS SELECT $1; SELECT $1::int";
         assert_eq!(names(source, DatabaseKind::Postgres), ["$1"]);
-        let bound = bind(
-            source.into(),
-            RunTarget::All,
-            DatabaseKind::Postgres,
-            vec![ParamValue { name: "$1".into(), value: Some("7".into()) }],
-        )
-        .unwrap();
+        let bound = bind(source, DatabaseKind::Postgres, &[("$1", Some("7"))]).unwrap();
         assert_eq!(bound.spans[0].text(&bound.text), "PREPARE q(int) AS SELECT $1");
         assert_eq!(bound.spans[1].text(&bound.text), "SELECT E'7'::int");
         assert_eq!(names("PREPARE q(int) AS SELECT $1 + :extra::int", DatabaseKind::Postgres), [":extra"]);
@@ -257,16 +299,7 @@ mod tests {
     #[test]
     fn binding_keeps_original_ranges_and_quotes_values() {
         let source = "select '😀'; select :x, :x, $1";
-        let result = bind(
-            source.into(),
-            RunTarget::All,
-            DatabaseKind::Postgres,
-            vec![
-                ParamValue { name: ":x".into(), value: Some("a'\\b".into()) },
-                ParamValue { name: "$1".into(), value: None },
-            ],
-        )
-        .unwrap();
+        let result = bind(source, DatabaseKind::Postgres, &[(":x", Some("a'\\b")), ("$1", None)]).unwrap();
         assert_eq!(result.spans[1].text(&result.text), "select E'a''\\\\b', E'a''\\\\b', NULL");
         assert_eq!(result.ranges[1].from.0, 13);
         assert_eq!(result.changed, [false, true]);
@@ -316,16 +349,56 @@ SELECT @a",
     }
 
     #[test]
-    fn exact_coverage_is_required() {
-        for values in [
-            vec![],
-            vec![ParamValue { name: ":y".into(), value: None }],
-            vec![ParamValue { name: ":x".into(), value: None }, ParamValue { name: ":x".into(), value: None }],
-            vec![ParamValue { name: ":x".into(), value: Some("\0".into()) }],
-        ] {
-            assert!(bind("select :x".into(), RunTarget::All, DatabaseKind::Postgres, values).is_err());
-        }
+    fn binding_takes_the_values_each_unit_uses_and_ignores_the_rest() {
+        let pairs = [(":x", Some("1")), (":unused", Some("2")), ("$1", None)];
+        assert_eq!(bind("select :x, $1", DatabaseKind::Postgres, &pairs).unwrap().text, "select E'1', NULL\n");
+        assert_eq!(bind("select 1", DatabaseKind::Postgres, &pairs).unwrap().text, "select 1");
+        let selected = prepare(
+            "select :a; select :x".into(),
+            RunTarget::Selection { from: crate::model::DocOffset(11), to: crate::model::DocOffset(20) },
+            DatabaseKind::Postgres,
+            &values(&pairs),
+            &[],
+        )
+        .unwrap();
+        assert!(selected.executable().is_ok(), "a name only an unselected unit uses needs no value");
     }
+
+    #[test]
+    fn a_name_with_no_value_is_noted_and_refused_only_when_executable() {
+        let prepared = || {
+            prepare(
+                "select :x, :y, :x".into(),
+                RunTarget::All,
+                DatabaseKind::Postgres,
+                &values(&[(":x", Some("1"))]),
+                &[],
+            )
+        };
+        assert_eq!(prepared().unwrap().params(), [Param { name: ":x".into() }, Param { name: ":y".into() }]);
+        assert!(matches!(
+            prepared().unwrap().executable(),
+            Err(RunError::Unsupported { what }) if what == "Missing value for parameter :y."
+        ));
+    }
+
+    #[test]
+    fn duplicate_names_are_refused_where_values_enter() {
+        let twice = vec![
+            ParamValue { name: ":x".into(), value: None },
+            ParamValue { name: ":x".into(), value: Some("1".into()) },
+        ];
+        assert!(matches!(Values::new(twice), Err(RunError::Unsupported { what }) if what == "Duplicate parameter :x."));
+    }
+
+    #[test]
+    fn a_nul_value_is_refused_only_where_it_binds() {
+        let pairs = [(":x", Some("a\0b")), (":y", Some("1"))];
+        assert!(bind("select :y", DatabaseKind::Postgres, &pairs).is_ok());
+        assert!(bind("select :x", DatabaseKind::Postgres, &pairs).is_err());
+        assert!(bind("select @x", DatabaseKind::SqlServer, &[("@x", Some("\0"))]).is_err());
+    }
+
     #[test]
     fn selection_discovers_only_selected_sql() {
         assert_eq!(
