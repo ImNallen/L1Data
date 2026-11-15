@@ -245,7 +245,7 @@ it("shares the command registry with Cmd and Ctrl Shift+P while keeping plain P 
   expect(press("p")?.id).toBe("navigation");
   expect(pressOff("p", { ctrlKey: true })?.id).toBe("navigation");
   expect(new Set(COMMANDS.map((c) => c.id)).size).toBe(COMMANDS.length);
-  expect(COMMANDS.filter((c) => c.palette !== false)).toHaveLength(16);
+  expect(COMMANDS.filter((c) => c.palette !== false)).toHaveLength(19);
   expect(START_COMMANDS.map((c) => c.id)).toEqual(["new-query", "open-file", "new-connection", "navigation", "saved-queries", "settings"]);
   expect(START_COMMANDS.every((c) => COMMANDS.includes(c))).toBe(true);
 });
@@ -313,4 +313,27 @@ it("moves the active cell up and down from the command panel, and offers neither
     ["a", "c", "b"],
     ["move-cell-up", "move-cell-down"],
   ]);
+});
+
+it("offers the notebook runs on a shown notebook that is not running, stale cells only when one is stale", async () => {
+  vi.stubGlobal("window", { crypto });
+  const discoveries: ((params: never[]) => void)[] = [];
+  mockIPC((cmd) => {
+    if (cmd === "script_params") return new Promise((resolve) => discoveries.push(resolve));
+    return cmd === "console_run" ? Promise.reject({ kind: "Busy" }) : null;
+  });
+  const offered = () => ["run-all-cells", "run-stale-cells", "run-from-active-cell"].filter((id) => commandAvailable(COMMANDS.find((c) => c.id === id)!));
+  expect(offered()).toEqual([]);
+  const cell = (id: string) => ({ id, title: id, console: { db: { connectionId: "c", database: "shop" }, mode: "AutoCommit" as const }, table: null });
+  for (const id of ["a", "b"]) {
+    seedEditor(id, `select '${id}'`);
+    useWorkspace.getState().addTab(cell(id));
+  }
+  expect(offered()).toEqual(["run-all-cells", "run-from-active-cell"]);
+  useWorkspace.getState().setRunSources("b", [{ name: "a", text: "select 0" }]);
+  expect(offered()).toEqual(["run-all-cells", "run-stale-cells", "run-from-active-cell"]);
+  COMMANDS.find((c) => c.id === "run-all-cells")!.run();
+  expect(offered()).toEqual([]);
+  for (const discover of discoveries) discover([]);
+  await vi.waitFor(() => expect(offered()).toHaveLength(3));
 });

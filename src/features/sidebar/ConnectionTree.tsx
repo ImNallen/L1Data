@@ -57,6 +57,7 @@ import { connect, confirmDelete, disconnect, refreshCatalog, refreshConnection }
 import { ConnectionColorDot, EnvironmentBadge, EnvironmentIcon, connectionColor } from "../connections/connectionColors";
 import { insertAtCursor } from "../editor/editorStates";
 import { openSqlTab, openTableTab } from "../editor/runActions";
+import { useRunningNotebooks } from "../notebooks/notebookRun";
 import { columnType, defaultText, indexText, keyText, triggerText, type RowText } from "./detailText";
 import { databaseCount, schemaCount } from "./pickers";
 import type { FilteredRelation, FilteredSchema, TreeFilter } from "./treeFilter";
@@ -622,8 +623,16 @@ function ConnectionMenu({ config, shown }: { config: ConnectionConfig; shown: Da
 
 /** Switching notebooks leaves their sessions alive, so a database row says when its notebook is still at work. */
 function NotebookMarker({ db, testId }: { db: DatabaseRef; testId: string }) {
-  const cells = useWorkspace(useShallow((s) => Object.values(s.notebooks).flatMap((n) => (sameDb(n.db, db) ? n.cells : []))));
-  const activity = useLive((s) => notebookActivity(s.consoles, cells));
+  const notebooks = useWorkspace(useShallow((s) => Object.values(s.notebooks).filter((n) => sameDb(n.db, db))));
+  const running = useRunningNotebooks();
+  const cells = notebooks.flatMap((n) => n.cells);
+  const activity = useLive((s) =>
+    notebookActivity(
+      s.consoles,
+      cells,
+      notebooks.some((n) => running.includes(n.id)),
+    ),
+  );
   if (activity === null) return null;
   return (
     <span data-testid={testId} className={cx("flex shrink-0 items-center gap-1 pl-2 text-ui-10.5", activity === "running" ? "text-run" : "text-amber")}>

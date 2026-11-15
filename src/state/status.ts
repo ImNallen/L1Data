@@ -20,8 +20,9 @@ export function canCancel(console: ConsoleState | undefined): boolean {
 /** What a notebook's sessions are doing while it is out of view: running work outranks an open transaction. */
 export type NotebookActivity = "running" | "transaction" | null;
 
-export function notebookActivity(consoles: Record<TabId, ConsoleState>, cells: readonly TabId[]): NotebookActivity {
-  if (cells.some((id) => isBusy(consoles[id]))) return "running";
+/** `runner`: a notebook run is under way, which counts as running between one cell and the next too. */
+export function notebookActivity(consoles: Record<TabId, ConsoleState>, cells: readonly TabId[], runner: boolean): NotebookActivity {
+  if (runner || cells.some((id) => isBusy(consoles[id]))) return "running";
   if (cells.some((id) => hasUncommittedWork(consoles[id]))) return "transaction";
   return null;
 }

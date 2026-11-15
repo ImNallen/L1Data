@@ -21,6 +21,7 @@ import { canCancel, connectionTone, hasUncommittedWork, isBusy } from "../state/
 import { notebookFor } from "../state/notebooks";
 import { openNotebookSwitcher } from "../features/notebooks/notebookActions";
 import { useNotebookDirty } from "../features/notebooks/notebookDirty";
+import { NotebookRunButton } from "../features/notebooks/NotebookRunButton";
 import { activeTab, shownDb, shownNotebook, useWorkspace } from "../state/workspace";
 import { Button, CONNECTION_TONE_LABEL, Kbd, MenuContent, MenuItem, MenuLabel, StatusDot, IconButton, cx } from "../ui/primitives";
 import { windowEdgeClearance, windowEdgeInset, windowLeadingClearance } from "./WindowEdgeActions";
@@ -120,8 +121,9 @@ export function TopBar({ hosted, notebook = false }: { hosted: HostedWindow | nu
   const tab = useWorkspace(activeTab);
   const db = useWorkspace(shownDb);
   const unconnected = useWorkspace((s) => notebookFor(s.notebooks, null) !== undefined);
+  const notebookId = useWorkspace((s) => shownNotebook(s)?.id);
   const notebookTitle = useWorkspace((s) => shownNotebook(s)?.title);
-  const notebookUnsaved = useNotebookDirty(useWorkspace((s) => shownNotebook(s)?.id));
+  const notebookUnsaved = useNotebookDirty(notebookId);
   const switching = useWorkspace((s) => s.overlay.kind === "notebooks");
   const showDatabase = useWorkspace((s) => s.showDatabase);
   const configs = useWorkspace((s) => s.configs);
@@ -340,6 +342,7 @@ export function TopBar({ hosted, notebook = false }: { hosted: HostedWindow | nu
               <RunButton busy={busy} environment={environment} explainable={!!config && explainSupported(config.databaseKind) && !isBrowsing(tab)} />
             ))}
 
+          {notebook && notebookId && <NotebookRunButton id={notebookId} />}
           {notebook && (
             <IconButton
               data-testid="notebook-switcher-btn"

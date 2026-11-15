@@ -1,15 +1,18 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { mockIPC } from "@tauri-apps/api/mocks";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ConsoleState } from "../../ipc/bindings";
 import * as connectionActions from "../connections/connectionActions";
 import * as runActions from "../editor/runActions";
+import { runNotebook } from "../notebooks/notebookRun";
 import { dropEditor } from "../editor/editorStates";
 import { buildCatalogView, useCatalog } from "../../state/catalog";
 import { dbKey } from "../../state/dbKey";
 import { useTableEdits } from "../../state/tableEdits";
 import { useLive } from "../../state/live";
+import { notebookOf } from "../../state/notebooks";
 import { activeId, useWorkspace } from "../../state/workspace";
 import { connectedState, connectionConfig, databaseState } from "../../testing/connections";
 import { shopCatalog } from "../../testing/shopCatalog";
@@ -172,6 +175,23 @@ it("marks a database whose notebook is still running or holds a transaction", ()
   expect(screen.getByTestId("notebook-marker-Postgres/postgres").textContent).toBe("Open transaction");
   act(() => useLive.setState({ consoles: {} }));
   expect(screen.queryByTestId("notebook-marker-Postgres/shop")).toBeNull();
+});
+
+it("keeps a database Running between the cells of a notebook run", async () => {
+  useLive.setState({ connections: { p: connectedState("p", [databaseState("shop", true, ["public"])]) } });
+  const cell = runActions.openSqlTab({ db: { connectionId: "p", database: "shop" }, text: "select 1" });
+  let discover: (params: never[]) => void = () => {};
+  mockIPC((cmd) => {
+    if (cmd === "script_params") return new Promise((resolve) => (discover = resolve));
+    return cmd === "console_run" ? Promise.reject({ kind: "Busy" }) : null;
+  });
+  render(<Sidebar hosted={null} />);
+  expect(screen.queryByTestId("notebook-marker-Postgres/shop")).toBeNull();
+  const run = runNotebook(notebookOf(useWorkspace.getState().notebooks, cell)!.id, "all");
+  await waitFor(() => expect(screen.getByTestId("notebook-marker-Postgres/shop").textContent).toBe("Running"));
+  act(() => discover([]));
+  await run;
+  await waitFor(() => expect(screen.queryByTestId("notebook-marker-Postgres/shop")).toBeNull());
 });
 
 it("names each connection's environment and reaches its database picker by Tab from the row", async () => {

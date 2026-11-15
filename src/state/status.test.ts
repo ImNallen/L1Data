@@ -185,9 +185,10 @@ it("says a notebook is running before it says it holds a transaction", () => {
     aborted: consoleWith("Manual", "Aborted"),
     count: { ...consoleWith("AutoCommit", "Idle"), work: "Count" as const },
   };
-  expect(notebookActivity(consoles, ["idle", "gone"])).toBeNull();
-  expect(notebookActivity(consoles, ["idle", "aborted"])).toBe("transaction");
-  expect(notebookActivity(consoles, ["open", "count"])).toBe("running");
+  expect(notebookActivity(consoles, ["idle", "gone"], false)).toBeNull();
+  expect(notebookActivity(consoles, ["idle", "aborted"], false)).toBe("transaction");
+  expect(notebookActivity(consoles, ["open", "count"], false)).toBe("running");
+  expect(notebookActivity(consoles, ["idle", "aborted"], true)).toBe("running");
 });
 
 describe("workspace snapshot", () => {

@@ -167,3 +167,11 @@ it.each(["Transaction", "Edit", "Probe"] satisfies ConsoleWork[])("keeps %s owne
   expect(html).not.toContain("Counting");
   expect(html).toMatch(/data-testid="run-btn"[^>]*disabled/);
 });
+
+it("puts Run all in the notebook context row, before the notebooks button", () => {
+  onConnection(null);
+  const html = renderToStaticMarkup(<TopBar hosted={null} notebook />);
+  const runAll = html.indexOf('data-testid="run-all-btn"');
+  expect(runAll).toBeGreaterThan(-1);
+  expect(runAll).toBeLessThan(html.indexOf('data-testid="notebook-switcher-btn"'));
+});

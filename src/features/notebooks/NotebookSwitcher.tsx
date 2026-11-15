@@ -10,6 +10,7 @@ import { ACTIVE_OPTION, cx, DialogSurface, Kbd, MenuContent, MenuItem } from "..
 import { plural } from "../editor/writeQuestions";
 import { focusDestination } from "../navigation/navigationActions";
 import { deleteNotebook, startNotebook } from "./notebookActions";
+import { useRunningNotebooks } from "./notebookRun";
 import { switcherGroups, type SwitcherRow } from "./switcherItems";
 
 const MAC = typeof navigator !== "undefined" && isMac(navigator.userAgent);
@@ -66,6 +67,7 @@ function SwitcherBrowser({ renaming, setRenaming }: { renaming: Renaming | null;
   const shown = useWorkspace((s) => s.shown);
   const configs = useWorkspace((s) => s.configs);
   const consoles = useLive((s) => s.consoles);
+  const running = useRunningNotebooks();
   const homeDir = useLive((s) => s.homeDir);
   const renameNotebook = useWorkspace((s) => s.renameNotebook);
   const [query, setQuery] = useState("");
@@ -73,7 +75,7 @@ function SwitcherBrowser({ renaming, setRenaming }: { renaming: Renaming | null;
   const input = useRef<HTMLInputElement>(null);
   const composing = useRef(false);
   const listId = useId();
-  const { groups, total } = switcherGroups({ notebooks, shown, configs, consoles, homeDir }, query);
+  const { groups, total } = switcherGroups({ notebooks, shown, configs, consoles, running, homeDir }, query);
   const rows = groups.flatMap((g) => g.rows);
   const matching = rows.filter((r) => r.kind === "notebook").length;
   const found = rows.findIndex((r) => r.key === selectedKey);
