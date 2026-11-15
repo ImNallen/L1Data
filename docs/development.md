@@ -64,6 +64,7 @@ To measure CSV import in a production frontend against a release engine, build `
 | `L1_DATA_TEST_MSSQL_HOST` | Host for the SQL Server Rust integration tests. Default `localhost`. |
 | `L1_DATA_TEST_MSSQL_PORT` | Port for the SQL Server Rust integration tests. Default `1434`. |
 | `L1_DATA_TEST_MSSQL_PASSWORD` | The `sa` password for the SQL Server Rust integration tests. Default is the development fixture password above. |
+| `L1_DATA_FUZZ_SEED`, `L1_DATA_FUZZ_ITERATIONS` | The seed and the number of random SQL texts for the no-panic tests of the editor's sync commands in `crates/engine/src/text.rs`. Without them each test uses a fixed seed and its own count. |
 | `L1_DATA_BRIDGE_PORT` | The port the dev-bridge listens on, and the port vite gives the page for it. `dev/bridge-smoke.sh` and `dev/mssql-smoke.py` use it too. Default `7077`. |
 | `L1_DATA_VITE_PORT` | The port vite serves the UI on, and the only port the dev-bridge accepts requests from. Default `5173`. `pnpm tauri dev` needs the default. |
 | `L1_DATA_AZ_BINARY` | The program the dev-bridge's engine runs instead of `az` on the PATH for Entra ID sign-in, such as `target/debug/fake-az`. A relative path is relative to the working directory. Only the dev-bridge reads it. The app ignores it. |
