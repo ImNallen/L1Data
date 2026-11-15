@@ -123,6 +123,10 @@ const KV_SETTINGS: &str = "settings";
 const BOOT_CHATS: u32 = 200;
 const NEWER_SIGN_IN: &str = "This connection signs in with a method from a newer version of L1 Data.";
 
+pub fn panic_message(payload: &(dyn std::any::Any + Send)) -> Option<String> {
+    payload.downcast_ref::<&str>().map(|s| (*s).to_owned()).or_else(|| payload.downcast_ref::<String>().cloned())
+}
+
 impl Shared {
     pub(crate) fn emit(&self, ev: AppEvent) {
         let _ = self.events.send(ev);
@@ -148,11 +152,7 @@ impl Shared {
         self.spawn(async move {
             let Err(e) = task.await else { return };
             let Ok(panic) = e.try_into_panic() else { return };
-            let text = panic
-                .downcast_ref::<&str>()
-                .map(|s| (*s).to_owned())
-                .or_else(|| panic.downcast_ref::<String>().cloned())
-                .unwrap_or_default();
+            let text = panic_message(&*panic).unwrap_or_default();
             console
                 .fail_task(
                     &shared,
