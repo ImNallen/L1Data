@@ -7,7 +7,7 @@ use std::error::Error;
 use std::path::Path;
 use std::sync::Arc;
 
-use engine::model::{AppEvent, ColorScheme, Layout};
+use engine::model::{AppEvent, ColorScheme, Layout, Settings};
 use engine::{AgentPath, Engine, EngineConfig, KeyStore, KeyringKeyStore, MemoryKeyStore};
 use specta_typescript::Typescript;
 use tauri::{AppHandle, Emitter, Manager, WebviewWindowBuilder};
@@ -91,6 +91,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         ])
         .typ::<AppEvent>()
         .constant("DEFAULT_LAYOUT", Layout::default())
+        .constant("DEFAULT_SETTINGS", Settings::default())
         .dangerously_cast_bigints_to_number()
 }
 

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { DEFAULT_LAYOUT as FRESH_LAYOUT } from "../ipc/bindings";
+import { DEFAULT_LAYOUT as FRESH_LAYOUT, DEFAULT_SETTINGS as FRESH_SETTINGS } from "../ipc/bindings";
 import type {
   ConnectionConfig,
   ConnectionId,
@@ -139,23 +139,9 @@ export const DEFAULT_PANEL_SIZES = { resultsHeight, sidebarWidth, sidebarSplit, 
 
 const DEFAULT_LAYOUT: Layout = { sidebar: true, results: true, rightPanel: null, assistantChat: null, ...DEFAULT_PANEL_SIZES };
 export const DEFAULT_SETTINGS: Settings = {
-  assistantAccess: "SchemaOnly",
-  maxRows: 200_000,
-  maxResultBytes: 512 * 1024 * 1024,
-  tablePageSize: 500,
-  stopOnError: true,
-  colorScheme: "System",
-  lightTheme: "l1-light",
-  darkTheme: "l1-dark",
-  customThemes: [],
-  interfaceFont: { family: "Inter", size: 13 },
-  codeFont: { family: "JetBrains Mono", size: 13 },
-  density: "Standard",
-  panelMotionMs: 150,
-  reduceMotion: "System",
-  tintConnections: false,
-  providers: [{ provider: "Claude", enabled: true, displayName: "Claude", binaryPath: "", configDir: "", launchArgs: "" }],
-  providerHealthCheckSecs: 300,
+  ...FRESH_SETTINGS,
+  customThemes: [...FRESH_SETTINGS.customThemes],
+  providers: [...FRESH_SETTINGS.providers],
 };
 
 /**
