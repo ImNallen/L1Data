@@ -966,18 +966,13 @@ fn warn_object(name: &str, list: &[Privilege], omitted: &[Omitted]) -> Vec<Strin
 }
 
 pub fn sequence_script(s: &SequenceScript) -> Ddl {
-    let cache = match &s.cache {
-        SequenceCache::Off => "NO CACHE".to_owned(),
-        SequenceCache::Default => String::new(),
-        SequenceCache::Size(size) => format!("CACHE {size}"),
-    };
-    sequence_text(s, &cache)
-}
-
-fn sequence_text(s: &SequenceScript, cache: &str) -> Ddl {
     let name = qualified(&s.schema, &s.name);
+    let cache = match &s.cache {
+        SequenceCache::Off => " NO CACHE".to_owned(),
+        SequenceCache::Default => String::new(),
+        SequenceCache::Size(size) => format!(" CACHE {size}"),
+    };
     let cycle = if s.cycle { "CYCLE" } else { "NO CYCLE" };
-    let cache = if cache.is_empty() { String::new() } else { format!(" {cache}") };
     let text = format!(
         "CREATE SEQUENCE {name} AS {} START WITH {} INCREMENT BY {} MINVALUE {} MAXVALUE {}{cache} {cycle};\n",
         s.type_name, s.start, s.increment, s.min, s.max
