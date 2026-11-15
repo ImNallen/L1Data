@@ -123,6 +123,10 @@ const KV_SETTINGS: &str = "settings";
 const BOOT_CHATS: u32 = 200;
 const NEWER_SIGN_IN: &str = "This connection signs in with a method from a newer version of L1 Data.";
 
+pub fn panic_message(payload: &(dyn std::any::Any + Send)) -> Option<String> {
+    payload.downcast_ref::<&str>().map(|s| (*s).to_owned()).or_else(|| payload.downcast_ref::<String>().cloned())
+}
+
 impl Shared {
     pub(crate) fn emit(&self, ev: AppEvent) {
         let _ = self.events.send(ev);
@@ -148,11 +152,7 @@ impl Shared {
         self.spawn(async move {
             let Err(e) = task.await else { return };
             let Ok(panic) = e.try_into_panic() else { return };
-            let text = panic
-                .downcast_ref::<&str>()
-                .map(|s| (*s).to_owned())
-                .or_else(|| panic.downcast_ref::<String>().cloned())
-                .unwrap_or_default();
+            let text = panic_message(&*panic).unwrap_or_default();
             console
                 .fail_task(
                     &shared,
@@ -845,7 +845,7 @@ impl Shared {
                 if commits { (sql::StmtKind::Commit, "COMMIT") } else { (sql::StmtKind::Rollback, "ROLLBACK") };
             let started = std::time::Instant::now();
             let mut result = session.finish_transaction(commits).await;
-            let elapsed_ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
+            let elapsed_ms = console::elapsed_ms(started);
             let fatal = result.as_ref().err().filter(|e| e.severity == "FATAL").map(|e| e.message.clone());
             let lost = session.closed_reason_settled(fatal).await;
             if commits
@@ -855,7 +855,7 @@ impl Shared {
                 error.message = format!("Commit outcome is unknown because the session was lost: {}", error.message);
             }
             let mut lines = vec![console::statement_line(0, sql)];
-            lines.extend(console::notice_lines(&mut session));
+            lines.extend(session.drain_notices());
             lines.push(match &result {
                 Ok(()) => OutputBody::Command { statement: 0, tag: sql.into(), elapsed_ms },
                 Err(error) => OutputBody::Error { statement: Some(0), error: error.clone() },
@@ -1765,22 +1765,7 @@ impl Engine {
                     config.database.clone(),
                     entered,
                 )?;
-                console.results.lock().clear();
-                inner.run = RunState::Running {
-                    run_id,
-                    started_at_ms: console::now_ms(),
-                    statements: ranges
-                        .iter()
-                        .enumerate()
-                        .map(|(i, range)| StatementRun {
-                            index: i as u16,
-                            range: *range,
-                            status: StmtStatus::Pending,
-                            outputs: Vec::new(),
-                        })
-                        .collect(),
-                };
-                console.publish(&mut inner, s);
+                console.start_run(&mut inner, s, run_id, &ranges);
                 drop(inner);
                 s.spawn_holding(console.clone(), run_id, showplan::run(console.clone(), s.clone(), launch));
                 Ok(RunAccepted { run_id, statements: ranges, sources })
@@ -1798,22 +1783,7 @@ impl Engine {
                     config.database.clone(),
                     entered,
                 )?;
-                console.results.lock().clear();
-                inner.run = RunState::Running {
-                    run_id,
-                    started_at_ms: console::now_ms(),
-                    statements: ranges
-                        .iter()
-                        .enumerate()
-                        .map(|(i, range)| StatementRun {
-                            index: i as u16,
-                            range: *range,
-                            status: StmtStatus::Pending,
-                            outputs: Vec::new(),
-                        })
-                        .collect(),
-                };
-                console.publish(&mut inner, s);
+                console.start_run(&mut inner, s, run_id, &ranges);
                 drop(inner);
                 s.spawn_holding(console.clone(), run_id, explain::run(console.clone(), s.clone(), launch));
                 Ok(RunAccepted { run_id, statements: ranges, sources })
@@ -1825,22 +1795,7 @@ impl Engine {
                     return Err(RunError::Busy);
                 };
                 let txn = inner.txn;
-                console.results.lock().clear();
-                inner.run = RunState::Running {
-                    run_id,
-                    started_at_ms: console::now_ms(),
-                    statements: ranges
-                        .iter()
-                        .enumerate()
-                        .map(|(i, range)| StatementRun {
-                            index: i as u16,
-                            range: *range,
-                            status: StmtStatus::Pending,
-                            outputs: Vec::new(),
-                        })
-                        .collect(),
-                };
-                console.publish(&mut inner, s);
+                console.start_run(&mut inner, s, run_id, &ranges);
                 drop(inner);
 
                 let plan = RunPlan {
@@ -2024,8 +1979,8 @@ impl Engine {
                     lines.push(console::statement_line(statement, sql));
                     let started = std::time::Instant::now();
                     let executed = session.execute_edit(edit).await;
-                    let elapsed_ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
-                    lines.extend(console::notice_lines(&mut session));
+                    let elapsed_ms = console::elapsed_ms(started);
+                    lines.extend(session.drain_notices());
                     let rows = match executed {
                         Ok(rows) => rows,
                         Err(e) => {
@@ -2066,7 +2021,7 @@ impl Engine {
                 _ => TxnState::Idle,
             });
             let lost = session.closed_reason_settled(None).await;
-            lines.extend(console::notice_lines(&mut session));
+            lines.extend(session.drain_notices());
             if let Err(ApplyError::Transaction { error } | ApplyError::OutcomeUnknown { error }) = &outcome {
                 lines.push(OutputBody::Error { statement: None, error: error.clone() });
             }

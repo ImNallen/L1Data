@@ -348,18 +348,6 @@ pub fn original_position(db: &DbError) -> Option<u32> {
     }
 }
 
-pub fn transport_error(e: &tokio_postgres::Error) -> QueryError {
-    QueryError {
-        severity: "ERROR".into(),
-        sqlstate: None,
-        message: error_text(e),
-        detail: None,
-        hint: None,
-        context: None,
-        position: None,
-    }
-}
-
 pub(super) fn query_failure(e: tokio_postgres::Error, sql: Option<&str>) -> QueryError {
     match e.as_db_error() {
         Some(db) => {
@@ -369,7 +357,7 @@ pub(super) fn query_failure(e: tokio_postgres::Error, sql: Option<&str>) -> Quer
             });
             query_error(db, position)
         }
-        None => transport_error(&e),
+        None => super::error(error_text(&e)),
     }
 }
 

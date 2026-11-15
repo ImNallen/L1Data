@@ -415,7 +415,7 @@ pub(crate) fn plan_output(
     set.plan_format = Some(format);
     let set = Arc::new(set);
     set.push_row(std::iter::once(Some(cell)), caps);
-    set.set_elapsed(started.elapsed().as_millis().min(u32::MAX as u128) as u32);
+    set.set_elapsed(crate::console::elapsed_ms(started));
     if set.meta().truncated.is_some() {
         return Err(crate::session::error("The plan exceeds the result size limit."));
     }

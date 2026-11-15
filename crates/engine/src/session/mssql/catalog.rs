@@ -65,7 +65,13 @@ impl MsSession {
                 })
             })
             .collect::<Result<Vec<_>, QueryError>>()?;
-        Ok((databases, self.database.clone()))
+        let rows = self.rows("SELECT DB_NAME()").await?;
+        let home = rows
+            .first()
+            .and_then(|row| row.first())
+            .and_then(Clone::clone)
+            .ok_or_else(|| error("SQL Server returned no database name"))?;
+        Ok((databases, home))
     }
     pub(in crate::session) async fn count_schemas(&mut self) -> Result<u32, QueryError> {
         let rows = self.rows(&format!("SELECT COUNT(*) FROM sys.schemas s WHERE NOT {SYSTEM}")).await?;

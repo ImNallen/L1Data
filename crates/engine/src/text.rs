@@ -710,14 +710,7 @@ pub fn is_write(text: &str, kind: DatabaseKind) -> bool {
 }
 
 pub fn quote_ident_if_needed(name: &str) -> String {
-    let mut chars = name.chars();
-    let simple = chars.next().is_some_and(|c| c.is_ascii_lowercase() || c == '_')
-        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '$');
-    if simple && !sql::RESERVED.contains(&name) && !sql::TYPE_OR_FUNCTION_NAME.contains(&name) {
-        name.to_owned()
-    } else {
-        quote_ident(name)
-    }
+    quote_if_needed(DatabaseKind::Postgres, name)
 }
 
 pub fn table_script(kind: DatabaseKind, schema: &str, table: &str) -> TableScript {

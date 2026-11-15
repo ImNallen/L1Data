@@ -332,6 +332,25 @@ impl Console {
         state
     }
 
+    pub fn start_run(&self, inner: &mut ConsoleInner, shared: &Shared, run_id: RunId, ranges: &[DocRange]) {
+        self.results.lock().clear();
+        inner.run = RunState::Running {
+            run_id,
+            started_at_ms: now_ms(),
+            statements: ranges
+                .iter()
+                .enumerate()
+                .map(|(i, range)| StatementRun {
+                    index: i as u16,
+                    range: *range,
+                    status: StmtStatus::Pending,
+                    outputs: Vec::new(),
+                })
+                .collect(),
+        };
+        self.publish(inner, shared);
+    }
+
     pub fn output(&self, shared: &Shared, run_id: RunId, body: OutputBody) {
         self.output_all(shared, run_id, vec![body]);
     }
@@ -516,7 +535,7 @@ pub fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
-fn elapsed_ms(since: Instant) -> u32 {
+pub(crate) fn elapsed_ms(since: Instant) -> u32 {
     since.elapsed().as_millis().min(u32::MAX as u128) as u32
 }
 
@@ -742,7 +761,7 @@ pub async fn run_task(
         if let Some((db, owed)) = due {
             shared.schedule_refreshes(db, owed);
         }
-        let mut lines = notice_lines(&mut session);
+        let mut lines = session.drain_notices();
         if let Err(error) = &result
             && !logged
         {
@@ -906,10 +925,6 @@ async fn set_status(
     status: StmtStatus,
 ) -> Result<(), Orphaned> {
     console.edit(shared, run_id, |inner| Console::statements_mut(inner)[index as usize].status = status).await
-}
-
-pub fn notice_lines(session: &mut Session) -> Vec<OutputBody> {
-    session.drain_notices()
 }
 
 async fn run_outputs(

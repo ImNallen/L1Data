@@ -124,7 +124,7 @@ pub(crate) async fn run(console: Arc<Console>, shared: Arc<Shared>, launch: Laun
         }
         console.output(&shared, run_id, statement_line(0, &batch));
         let read = read_showplan(&mut session, &batch, &stop).await;
-        console.output_all(&shared, run_id, console::notice_lines(&mut session));
+        console.output_all(&shared, run_id, session.drain_notices());
         let read = match read {
             Read::Cancelled => {
                 if session.closed_reason().is_none() {
