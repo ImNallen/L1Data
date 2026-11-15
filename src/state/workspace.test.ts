@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ConnectionConfig, DatabaseRef, FileBinding, FileSnapshot, TabSnapshot, Workspace } from "../ipc/bindings";
 import { cellMeta, metaKey } from "./notebookFile";
+import { paramsKey } from "./notebookParams";
 import { activeId, allCells, DEFAULT_SETTINGS, EMPTY_QUERY, shownDb, shownNotebook, useWorkspace, workspaceSnapshot, type Tab } from "./workspace";
 
 const config = (id: string): ConnectionConfig => ({
@@ -109,7 +110,9 @@ describe("notebook files", () => {
     ],
     active: "m",
     layout,
-    notebooks: [{ id: "n1", title: "shop", db: { connectionId: "c", database: "shop" }, cells: ["a", "r", "m"], active: "m", shownAtMs: 5, file: null }],
+    notebooks: [
+      { id: "n1", title: "shop", db: { connectionId: "c", database: "shop" }, cells: ["a", "r", "m"], active: "m", shownAtMs: 5, params: [], file: null },
+    ],
     shown: "n1",
   } satisfies Workspace;
 
@@ -124,7 +127,12 @@ describe("notebook files", () => {
     expect(notebooks.map((n) => n.db)).toEqual([0, 1, 2].map(() => ({ connectionId: "c", database: "shop" })));
     const report = notebooks[1]!.file!;
     const r = ws().tabs.r!;
-    expect([r.title, report.plain, report.health, report.saved]).toEqual(["Untitled-2.sql", true, "ok", [{ text: "select 2", meta: metaKey(cellMeta(r)) }]]);
+    expect([r.title, report.plain, report.health, report.saved]).toEqual([
+      "Untitled-2.sql",
+      true,
+      "ok",
+      { cells: [{ text: "select 2", meta: metaKey(cellMeta(r)) }], params: paramsKey([]) },
+    ]);
     expect(notebooks[2]!.file?.saved).toBeNull();
     expect([shownNotebook(ws())?.title, activeId(ws())]).toEqual(["monthly", "m"]);
   });
@@ -147,7 +155,7 @@ describe("notebook files", () => {
     expect(Object.values(ws().notebooks).map((n) => [n.title, n.file?.saved ?? null])).toEqual([
       ["shop", null],
       ["report", null],
-      ["monthly", [{ text: "text of m", meta: metaKey(cellMeta(ws().tabs.m!)) }]],
+      ["monthly", { cells: [{ text: "text of m", meta: metaKey(cellMeta(ws().tabs.m!)) }], params: paramsKey([]) }],
     ]);
   });
 });
@@ -217,8 +225,8 @@ describe("notebooks", () => {
 
   it("keeps each cell in one notebook on its database, and puts the cells no notebook claims into the one for their database", () => {
     const [a, b, c] = oldWorkspace.tabs;
-    const mine = { id: "n1", title: "Mine", db: shop, cells: ["a", "closed"], active: "closed", shownAtMs: 0, file: null };
-    const pg = { id: "n2", title: "Postgres", db: postgres, cells: ["a", "b"], active: "a", shownAtMs: 0, file: null };
+    const mine = { id: "n1", title: "Mine", db: shop, cells: ["a", "closed"], active: "closed", shownAtMs: 0, params: [], file: null };
+    const pg = { id: "n2", title: "Postgres", db: postgres, cells: ["a", "b"], active: "a", shownAtMs: 0, params: [], file: null };
     ws().restore({ ...oldWorkspace, tabs: [a!, b!, c!], notebooks: [mine, pg], shown: "n1" }, [config("c")], DEFAULT_SETTINGS);
     expect(shape()).toEqual([
       ["Mine", ["a", "c"], "a"],
@@ -342,6 +350,43 @@ describe("notebooks", () => {
     ws().upsertConfig(config("c"));
     expect(shape()).toEqual([["shop", ["free", "other"], "free"]]);
     expect(activeId(ws())).toBe("free");
+  });
+
+  it("sets a notebook's values by name, removes one, keeps them across a restart, and leaves the store alone for no change", () => {
+    ws().upsertConfig(config("c"));
+    ws().addTab(cell("query"));
+    const id = shownNotebook(ws())!.id;
+    ws().mergeParams(id, [
+      { name: ":x", value: "1" },
+      { name: "$1", value: null },
+    ]);
+    ws().mergeParams(id, [
+      { name: "@z", value: "" },
+      { name: ":x", value: "2" },
+    ]);
+    ws().removeParam(id, "$1");
+    const params = [
+      { name: ":x", value: "2" },
+      { name: "@z", value: "" },
+    ];
+    expect(ws().notebooks[id]?.params).toEqual(params);
+    const notebooks = ws().notebooks;
+    ws().mergeParams(id, [{ name: ":x", value: "2" }]);
+    ws().removeParam(id, "$1");
+    expect(ws().notebooks).toBe(notebooks);
+    const saved = workspaceSnapshot(ws(), { textOf: () => "select :x", isNotebookDirty: () => false });
+    useWorkspace.setState(useWorkspace.getInitialState(), true);
+    ws().restore(saved, [config("c")], DEFAULT_SETTINGS);
+    expect(shownNotebook(ws())?.params).toEqual(params);
+  });
+
+  it("keeps a notebook's values when its cells move it to another database", () => {
+    ws().upsertConfig(config("c"));
+    ws().addTab(cell("query"));
+    const id = shownNotebook(ws())!.id;
+    ws().mergeParams(id, [{ name: ":x", value: "1" }]);
+    ws().upsertConfig({ ...config("c"), database: "shop_v2" });
+    expect([ws().notebooks[id]?.db?.database, ws().notebooks[id]?.params]).toEqual(["shop_v2", [{ name: ":x", value: "1" }]]);
   });
 
   it("follows a cell that moves with its connection's database into that database's notebook", () => {

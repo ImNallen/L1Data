@@ -1163,6 +1163,8 @@ export type NotebookHeader = {
 	connection: string | null,
 	kind: DatabaseKind | null,
 	database: string | null,
+	/**  The notebook's parameter values, one per name, in order. */
+	params: ParamValue[],
 	/**  Keys this build does not read, written back as they were. */
 	unknown: MetaPair[],
 };
@@ -1195,6 +1197,11 @@ export type NotebookSnapshot = {
 	active: TabId | null,
 	/**  When the notebook was last shown, in Unix milliseconds. Choosing a database shows its most recent notebook. */
 	shownAtMs: number,
+	/**
+	 *  The notebook's parameter values, one per name, in order. A file notebook keeps them here too, so values not yet
+	 *  saved to the file outlive a restart.
+	 */
+	params: ParamValue[],
 	/**  `None` for a notebook not saved to a file. */
 	file: NotebookFileSnapshot | null,
 };
@@ -1539,7 +1546,12 @@ export type RunOutcome = "Ok" | "Failed" | "Cancelled";
 
 export type RunOutput = { kind: "Rows"; result: ResultMeta; state: RowsState } | { kind: "Command"; tag: string; affectedRows: number | null; elapsedMs: number } | { kind: "Plan"; result: ResultMeta; format: PlanFormat };
 
-export type RunRequest = { kind: "script"; text: string; target: RunTarget; mode: RunMode; params: ParamValue[]; 
+export type RunRequest = { kind: "script"; text: string; target: RunTarget; mode: RunMode; 
+/**
+ *  The notebook's values. The run binds the names its SQL and the cells it reaches use, refuses a used name with
+ *  no value, and ignores the rest.
+ */
+params: ParamValue[]; 
 /**  Every cell of the running cell's notebook, which `{{title}}` references resolve against. */
 cells?: CellSource[] } | { kind: "tablePage"; schema: string; table: string; page: number; query?: TableQuery };
 

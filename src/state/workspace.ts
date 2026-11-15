@@ -8,6 +8,7 @@ import type {
   Layout,
   NotebookId,
   NotebookSnapshot,
+  ParamValue,
   ResultMeta,
   SavedQueryId,
   Settings,
@@ -21,6 +22,7 @@ import type { SettingsSectionId } from "../features/settings/settingsIndex";
 import { homeDb, resolveDb, sameDb } from "./dbKey";
 import { useLive } from "./live";
 import { cellMeta, fileName, fileStem, metaKey } from "./notebookFile";
+import { mergedParams, paramsKey, withoutParam } from "./notebookParams";
 import {
   followActive,
   moveCell,
@@ -176,7 +178,7 @@ export function tabFromSnapshot(t: TabSnapshot, configs: Record<ConnectionId, Co
 
 /**
  * A notebook on a connection that is gone has no connection, as its cells do. A file notebook saved clean takes its
- * cells' saved text as what the file holds; boot's read of the file confirms it.
+ * cells' saved text and its values as what the file holds; boot's read of the file confirms it.
  */
 function notebookFromSnapshot(
   n: NotebookSnapshot,
@@ -193,9 +195,10 @@ function notebookFromSnapshot(
     health: "ok",
     plain: n.file.plain,
     unknown: n.file.unknown,
-    saved: n.file.dirty ? null : saved,
+    saved: n.file.dirty ? null : { cells: saved, params: paramsKey(n.params) },
   };
-  return { id: n.id, title: n.title, db: n.db && configs[n.db.connectionId] ? n.db : null, cells: n.cells, active: n.active, shownAtMs: n.shownAtMs, file };
+  const db = n.db && configs[n.db.connectionId] ? n.db : null;
+  return { id: n.id, title: n.title, db, cells: n.cells, active: n.active, shownAtMs: n.shownAtMs, params: n.params, file };
 }
 
 /**
@@ -210,7 +213,7 @@ function fileTabNotebooks(w: Workspace, restored: Record<TabId, Tab>): { tabs: R
     if (!t.file || !tab) continue;
     const cell = { ...tab, title: nextUntitled(Object.values(tabs)) };
     tabs = { ...tabs, [t.id]: cell };
-    const saved = t.file.dirty ? null : [{ text: t.text ?? "", meta: metaKey(cellMeta(cell)) }];
+    const saved = t.file.dirty ? null : { cells: [{ text: t.text ?? "", meta: metaKey(cellMeta(cell)) }], params: paramsKey([]) };
     notebooks.push({
       id: crypto.randomUUID(),
       title: fileStem(fileName(t.file.binding.path)),
@@ -218,6 +221,7 @@ function fileTabNotebooks(w: Workspace, restored: Record<TabId, Tab>): { tabs: R
       cells: [t.id],
       active: t.id,
       shownAtMs: 0,
+      params: [],
       file: { binding: t.file.binding, health: "ok", plain: true, unknown: { header: [], cells: {} }, saved },
     });
   }
@@ -306,6 +310,7 @@ export function workspaceSnapshot(s: Pick<WorkspaceData, "tabs" | "notebooks" | 
       cells: n.cells,
       active: n.active,
       shownAtMs: n.shownAtMs,
+      params: n.params,
       file: n.file && fileSnapshot(n, n.file),
     })),
     shown: s.shown.kind === "notebook" ? s.shown.id : null,
@@ -338,8 +343,14 @@ type WorkspaceActions = {
   addNotebook(tab: Tab): void;
   /** Adds a whole notebook whose `cells` are `tabs`, and shows it. */
   openNotebook(notebook: Notebook, tabs: Tab[]): void;
-  /** Makes `tabs` the notebook's cells, in order. A cell left out stays in `tabs` until `closeTab` drops it. */
-  replaceCells(id: NotebookId, tabs: Tab[]): void;
+  /**
+   * Makes `tabs` the notebook's cells, in order, and `params` its values: what a reload from disk found. A cell left out
+   * stays in `tabs` until `closeTab` drops it.
+   */
+  replaceCells(id: NotebookId, tabs: Tab[], params: ParamValue[]): void;
+  /** Sets each value by name, never replacing the list. A known name keeps its place, and a new one goes last. */
+  mergeParams(id: NotebookId, values: readonly ParamValue[]): void;
+  removeParam(id: NotebookId, name: string): void;
   /** Binds the notebook to a file, or replaces what it knows of the file. A `title` renames it in the same step. */
   setNotebookFile(id: NotebookId, file: NotebookFile, title?: string): void;
   patchNotebookFile(id: NotebookId, patch: Partial<Pick<NotebookFile, "health" | "saved">>): void;
@@ -394,6 +405,14 @@ function homeFor(s: Shows, db: DatabaseRef | null, after: TabId | undefined): No
   return candidates.find((n) => n && sameDb(n.db, db)) ?? notebookFor(s.notebooks, db) ?? newNotebook(Object.values(s.notebooks), db);
 }
 
+/** No change when `change` returns the same list. */
+function withParams(s: Pick<WorkspaceData, "notebooks">, id: NotebookId, change: (params: ParamValue[]) => ParamValue[]): Partial<WorkspaceData> {
+  const notebook = s.notebooks[id];
+  if (!notebook) return {};
+  const params = change(notebook.params);
+  return params === notebook.params ? {} : { notebooks: { ...s.notebooks, [id]: { ...notebook, params } } };
+}
+
 /** Moves each cell whose database changed into the notebook for its new database, and keeps the active cell in view. */
 function settled(s: Shows, notebooks: Notebook[], tabs: Record<TabId, Tab>): Shows {
   return followActive(
@@ -445,8 +464,13 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
         // A file notebook is its file, so it never merges.
         const into = notebooks.findIndex((m) => sameDb(m.db, next.db) && (next !== n || m !== s.notebooks[m.id]) && !m.file && !next.file);
         const target = notebooks[into];
-        if (target) notebooks[into] = { ...target, cells: [...target.cells, ...next.cells], active: target.active ?? next.active };
-        else notebooks.push(next);
+        if (target) {
+          const params = mergedParams(
+            target.params,
+            next.params.filter((p) => !target.params.some((q) => q.name === p.name)),
+          );
+          notebooks[into] = { ...target, cells: [...target.cells, ...next.cells], active: target.active ?? next.active, params };
+        } else notebooks.push(next);
       }
       const startDb = s.shown.kind === "start" ? resolve(s.shown.db) : null;
       const shown: Shown = s.shown.kind === "start" && startDb !== s.shown.db ? { kind: "start", db: startDb } : s.shown;
@@ -478,14 +502,19 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
       tabs: { ...s.tabs, ...Object.fromEntries(tabs.map((t) => [t.id, t])) },
       ...showNotebook({ ...s.notebooks, [notebook.id]: notebook }, notebook.id),
     })),
-  replaceCells: (id, tabs) =>
+  replaceCells: (id, tabs, params) =>
     set((s) => {
       const notebook = s.notebooks[id];
       if (!notebook) return {};
       const cells = tabs.map((t) => t.id);
       const active = notebook.active && cells.includes(notebook.active) ? notebook.active : (cells[0] ?? null);
-      return { tabs: { ...s.tabs, ...Object.fromEntries(tabs.map((t) => [t.id, t])) }, notebooks: { ...s.notebooks, [id]: { ...notebook, cells, active } } };
+      return {
+        tabs: { ...s.tabs, ...Object.fromEntries(tabs.map((t) => [t.id, t])) },
+        notebooks: { ...s.notebooks, [id]: { ...notebook, cells, active, params } },
+      };
     }),
+  mergeParams: (id, values) => set((s) => withParams(s, id, (params) => mergedParams(params, values))),
+  removeParam: (id, name) => set((s) => withParams(s, id, (params) => withoutParam(params, name))),
   setNotebookFile: (id, file, title) =>
     set((s) => {
       const notebook = s.notebooks[id];

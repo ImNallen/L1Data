@@ -12,6 +12,7 @@ import {
   type NotebookId,
   type NotebookOpened,
   type NotebookSaved,
+  type ParamValue,
   type SaveTarget,
   type UnknownKeys,
 } from "../../ipc/bindings";
@@ -19,8 +20,19 @@ import { fileReadErrorText, fileWriteErrorText } from "../../ipc/errors";
 import { databaseKindFor } from "../../state/databaseKind";
 import { homeDb, resolveDb } from "../../state/dbKey";
 import { useLive } from "../../state/live";
-import { cellMeta, fileStem, hasDefaultTitle, judgeNotebook, metaKey, notebookText, recordedTitle, savedCells } from "../../state/notebookFile";
-import { newNotebook, type FileHealth, type Notebook, type SavedCell } from "../../state/notebooks";
+import {
+  cellMeta,
+  fileStem,
+  hasDefaultTitle,
+  judgeNotebook,
+  metaKey,
+  notebookText,
+  openedNotebook,
+  recordedTitle,
+  savedNotebook,
+} from "../../state/notebookFile";
+import { paramsKey } from "../../state/notebookParams";
+import { newNotebook, type FileHealth, type Notebook, type SavedNotebook } from "../../state/notebooks";
 import { ask, EMPTY_QUERY, nextUntitled, notebookWithFile, shownDb, useWorkspace, type Question, type Tab } from "../../state/workspace";
 import { docOf, replaceDoc, seedEditor, textOf } from "../editor/editorStates";
 import { flushWorkspaceSave } from "../editor/persistence";
@@ -60,7 +72,8 @@ async function openNotebookFile(path: string): Promise<void> {
       title: fileStem(res.data.name),
       cells: tabs.map((t) => t.id),
       active: tabs[0]?.id ?? null,
-      file: { binding: res.data.binding, health: "ok", plain: notebook.plain, unknown: unknownKeys(res.data, tabs), saved: baseline(tabs, notebook.cells) },
+      params: notebook.header.params,
+      file: { binding: res.data.binding, health: "ok", plain: notebook.plain, unknown: unknownKeys(res.data, tabs), saved: baseline(tabs, res.data) },
     },
     tabs,
   );
@@ -112,8 +125,9 @@ function cellTabs(cells: readonly NotebookCell[], db: DatabaseRef | null, reuse:
 }
 
 /** What the file holds, as the cells it made: anything a cell could not take reads as a change. */
-function baseline(tabs: readonly Tab[], cells: readonly NotebookCell[]): SavedCell[] {
-  return tabs.map((t, i) => ({ text: cells[i]?.text ?? "", meta: metaKey(cellMeta(t)) }));
+function baseline(tabs: readonly Tab[], opened: NotebookOpened): SavedNotebook {
+  const { cells, header } = opened.notebook;
+  return { cells: tabs.map((t, i) => ({ text: cells[i]?.text ?? "", meta: metaKey(cellMeta(t)) })), params: paramsKey(header.params) };
 }
 
 function unknownKeys(opened: NotebookOpened, tabs: readonly Tab[]): UnknownKeys {
@@ -171,8 +185,8 @@ function cellsOf(notebook: Notebook): NotebookCell[] {
 }
 
 /**
- * Sends the cells as they are when the write starts, and the same cells again after an overwrite question, so what lands
- * on disk is always what the notebook held. Stops before any write once the notebook is gone or bound elsewhere.
+ * Sends the cells and values as they are when the write starts, and the same again after an overwrite question, so what
+ * lands on disk is always what the notebook held. Stops before any write once the notebook is gone or bound elsewhere.
  */
 async function write(id: NotebookId, binding: FileBinding | undefined, first: SaveTarget): Promise<boolean> {
   const notebook = ws().notebooks[id];
@@ -186,7 +200,7 @@ async function write(id: NotebookId, binding: FileBinding | undefined, first: Sa
     if (!sameBinding(id, binding)) return false;
     const res = await commands.notebookSave(target, text);
     if (res.status === "ok") {
-      adopt(id, res.data, cells, target.kind === "New");
+      adopt(id, res.data, savedNotebook(cells, notebook.params), target.kind === "New");
       return true;
     }
     if (res.error.kind !== "Changed" || target.kind !== "Bound") {
@@ -202,12 +216,12 @@ async function write(id: NotebookId, binding: FileBinding | undefined, first: Sa
 }
 
 /** A save to a new file renames a notebook that still has the title it was given, so it reads as the file. */
-function adopt(id: NotebookId, saved: NotebookSaved, cells: NotebookCell[], newFile: boolean): void {
+function adopt(id: NotebookId, saved: NotebookSaved, written: SavedNotebook, newFile: boolean): void {
   const notebook = ws().notebooks[id];
   if (!notebook) return;
   const title = newFile && hasDefaultTitle(notebook) ? fileStem(saved.name) : undefined;
   const unknown = notebook.file?.unknown ?? { header: [], cells: {} };
-  ws().setNotebookFile(id, { binding: saved.binding, health: "ok", plain: saved.plain, unknown, saved: savedCells(cells) }, title);
+  ws().setNotebookFile(id, { binding: saved.binding, health: "ok", plain: saved.plain, unknown, saved: written }, title);
 }
 
 function overwriteQuestion(title: string): Question<"overwrite"> {
@@ -223,15 +237,17 @@ export function defaultFileName(title: string): string {
   return /\.\w{1,10}$/.test(name) ? name : `${name}.sql`;
 }
 
-/** What a close question's answer covers: the cells, their docs, and what the file records about each. */
-export type Answered = { cells: string; docs: (Text | undefined)[] };
+/** What a close question's answer covers: the cells, their docs, what the file records about each, and the values. */
+export type Answered = { cells: string; docs: (Text | undefined)[]; params: ParamValue[] };
 
 function answeredOf(notebook: Notebook): Answered {
   const { tabs } = ws();
-  return { cells: JSON.stringify(notebook.cells.map((id) => [id, tabs[id] ? metaKey(cellMeta(tabs[id])) : null])), docs: notebook.cells.map(docOf) };
+  const cells = JSON.stringify(notebook.cells.map((id) => [id, tabs[id] ? metaKey(cellMeta(tabs[id])) : null]));
+  return { cells, docs: notebook.cells.map(docOf), params: notebook.params };
 }
 
-const sameAnswer = (a: Answered, b: Answered) => a.cells === b.cells && a.docs.length === b.docs.length && a.docs.every((d, i) => d === b.docs[i]);
+const sameAnswer = (a: Answered, b: Answered) =>
+  a.cells === b.cells && a.params === b.params && a.docs.length === b.docs.length && a.docs.every((d, i) => d === b.docs[i]);
 
 /**
  * Asks once to save an unsaved file notebook that is about to go. Resolves `false` to keep it, else what the user chose
@@ -276,8 +292,8 @@ export async function reconcileNotebookFiles(): Promise<void> {
   if (reloaded.length > 0) notify(reloaded.length === 1 ? `Reloaded ${reloaded[0]} from disk.` : `Reloaded ${reloaded.length} files from disk.`);
 }
 
-function currentCells(notebook: Notebook): SavedCell[] {
-  return savedCells(cellsOf(notebook));
+function current(notebook: Notebook): SavedNotebook {
+  return savedNotebook(cellsOf(notebook), notebook.params);
 }
 
 async function reconcile(id: NotebookId, binding: FileBinding): Promise<string | null> {
@@ -288,7 +304,7 @@ async function reconcile(id: NotebookId, binding: FileBinding): Promise<string |
   const notebook = ws().notebooks[id];
   // A verdict applies only to the cells its read started with.
   if (!notebook?.file || !sameBinding(id, binding) || !sameAnswer(started, answeredOf(notebook))) return null;
-  const verdict = judgeNotebook(binding, currentCells(notebook), notebookDirty(id), read);
+  const verdict = judgeNotebook(binding, current(notebook), notebookDirty(id), read);
   // The verdict compares known keys only, so a file kept in place still brings the keys another program changed.
   const kept = () => notebook.cells.flatMap((cell) => ws().tabs[cell] ?? []);
   switch (verdict.kind) {
@@ -299,7 +315,7 @@ async function reconcile(id: NotebookId, binding: FileBinding): Promise<string |
         health: "ok",
         plain: verdict.file.notebook.plain,
         unknown: unknownKeys(verdict.file, kept()),
-        saved: currentCells(notebook),
+        saved: current(notebook),
       });
       return null;
     case "same":
@@ -308,7 +324,7 @@ async function reconcile(id: NotebookId, binding: FileBinding): Promise<string |
         health: "ok",
         plain: verdict.file.notebook.plain,
         unknown: unknownKeys(verdict.file, kept()),
-        saved: savedCells(verdict.file.notebook.cells),
+        saved: openedNotebook(verdict.file),
       });
       return null;
     case "reload":
@@ -328,20 +344,20 @@ async function reconcile(id: NotebookId, binding: FileBinding): Promise<string |
   }
 }
 
-/** Cells keep their place, and each kept cell's text changes as one undoable edit. */
+/** Cells keep their place, and each kept cell's text changes as one undoable edit. The values become the file's. */
 function reload(notebook: Notebook, opened: NotebookOpened): void {
-  const { cells } = opened.notebook;
+  const { cells, header } = opened.notebook;
   const kept = notebook.cells.map((id) => ws().tabs[id]);
   const tabs = cellTabs(cells, notebook.db, kept);
   tabs.forEach((t, i) => (i < notebook.cells.length ? replaceDoc(t.id, cells[i]?.text ?? "") : seedEditor(t.id, cells[i]?.text ?? "")));
-  ws().replaceCells(notebook.id, tabs);
+  ws().replaceCells(notebook.id, tabs, header.params);
   for (const id of notebook.cells.slice(tabs.length)) forgetTab(id);
   ws().setNotebookFile(notebook.id, {
     binding: opened.binding,
     health: "ok",
     plain: opened.notebook.plain,
     unknown: unknownKeys(opened, tabs),
-    saved: baseline(tabs, cells),
+    saved: baseline(tabs, opened),
   });
 }
 

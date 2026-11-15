@@ -2649,6 +2649,7 @@ mod tests {
             connection: Some("local".into()),
             kind: Some(DatabaseKind::Postgres),
             database: Some("shop".into()),
+            params: vec![],
             unknown: vec![],
         };
         two.cells

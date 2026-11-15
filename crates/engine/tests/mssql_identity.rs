@@ -144,6 +144,7 @@ async fn restored_targets_catalogs_table_results_and_history_share_the_canonical
         active: cells.first().copied(),
         cells,
         shown_at_ms: 0,
+        params: Vec::new(),
         file: None,
     };
     let notebooks = vec![notebook("SHOP", vec![table.id]), notebook("Shop", vec![distinct.id])];
