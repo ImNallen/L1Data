@@ -18,7 +18,7 @@ type Prompt =
 export const useImport = create<{ prompt: Prompt | null }>(() => ({ prompt: null }));
 let sequence = 0;
 
-export function dismissImport(): Promise<void> {
+function dismissImport(): Promise<void> {
   sequence++;
   const { prompt } = useImport.getState();
   useImport.setState({ prompt: null });

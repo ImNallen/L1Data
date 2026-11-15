@@ -2,7 +2,7 @@ import type { Appearance, ColorScheme, CustomTheme, CustomThemeVariant, Settings
 import { isHex } from "./color";
 import { completePalette, derivePalette, isToken, TOKEN_NAMES, type Palette, type ThemeColors } from "./palette";
 
-export type ThemeId = string;
+type ThemeId = string;
 
 export type ThemeVariant = {
   id: ThemeId;
@@ -107,7 +107,7 @@ export function familyPicks(family: ThemeFamily): ThemeVariant[] {
 export const FIXED_APPEARANCE: Record<ColorScheme, Appearance | null> = { System: null, Light: "light", Dark: "dark" };
 export const SCHEME_FOR: Record<Appearance, ColorScheme> = { light: "Light", dark: "Dark" };
 
-export function schemeAppearance(scheme: ColorScheme, systemPrefersDark: boolean): Appearance {
+function schemeAppearance(scheme: ColorScheme, systemPrefersDark: boolean): Appearance {
   return FIXED_APPEARANCE[scheme] ?? (systemPrefersDark ? "dark" : "light");
 }
 

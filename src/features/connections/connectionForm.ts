@@ -128,7 +128,7 @@ export function parsePort(text: string): number | null {
   return Number.isInteger(port) && port > 0 && port < 65_536 ? port : null;
 }
 
-export function toPasswordInput(edit: PasswordEdit): PasswordInput {
+function toPasswordInput(edit: PasswordEdit): PasswordInput {
   switch (edit.kind) {
     case "keep":
       return "Keep";

@@ -46,7 +46,7 @@ function tabsWithUnsubmittedEdits(): TabId[] {
 
 type Accepted = { impact: RestartImpact; unsubmitted: TabId[] };
 
-export async function installUpdate(version: string, accepted: Accepted | null): Promise<void> {
+async function installUpdate(version: string, accepted: Accepted | null): Promise<void> {
   const covered = accepted !== null && tabsWithUnsubmittedEdits().every((id) => accepted.unsubmitted.includes(id));
   if (covered) await flushWorkspaceSave();
   const res = await commands.updateInstall(version, covered ? accepted.impact : null);

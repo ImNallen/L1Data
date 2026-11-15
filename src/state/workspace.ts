@@ -48,7 +48,7 @@ export type ResultDisplayPref = { key: string; display: ResultDisplay; chart: Ch
 export type ConsoleTarget = { db: DatabaseRef | null; mode: TxnMode; schema?: string | null };
 
 /** The table a tab opened from the sidebar browses, in the tab's console database. */
-export type TableBrowse = { schema: string; table: string; page: number; query: TableQuery; exactRowCount?: number };
+type TableBrowse = { schema: string; table: string; page: number; query: TableQuery; exactRowCount?: number };
 
 /**
  * One cell of a notebook. A file belongs to the notebook, not to a cell. A `collapsed` cell shows only its header; the

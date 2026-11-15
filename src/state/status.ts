@@ -5,7 +5,7 @@ export function hasUncommittedWork(console: ConsoleState | undefined): boolean {
   return console !== undefined && console.txn !== "Idle";
 }
 
-export function isRunning(console: ConsoleState | undefined): boolean {
+function isRunning(console: ConsoleState | undefined): boolean {
   return console?.run.kind === "Running";
 }
 
@@ -18,7 +18,7 @@ export function canCancel(console: ConsoleState | undefined): boolean {
 }
 
 /** What a notebook's sessions are doing while it is out of view: running work outranks an open transaction. */
-export type NotebookActivity = "running" | "transaction" | null;
+type NotebookActivity = "running" | "transaction" | null;
 
 /** `runner`: a notebook run is under way, which counts as running between one cell and the next too. */
 export function notebookActivity(consoles: Record<TabId, ConsoleState>, cells: readonly TabId[], runner: boolean): NotebookActivity {
