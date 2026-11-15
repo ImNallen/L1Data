@@ -84,6 +84,17 @@ it("closes a tab with nothing to lose without asking", async () => {
   expect([allCells(ws()), question(), closes]).toEqual([[], null, []]);
 });
 
+it("forgets a closed tab's console and output, and a late event for it does not bring them back", async () => {
+  const id = tabWithConsole();
+  const output = { atMs: 1, runId: 1, body: { kind: "Info", message: "done" } } as const;
+  useLive.getState().apply({ kind: "ConsoleOutput", tabId: id, entries: [output] });
+  const held = useLive.getState().consoles[id]!;
+  await closeTab(id);
+  useLive.getState().apply({ kind: "ConsoleChanged", ...held, rev: 2, session: { kind: "None" } });
+  useLive.getState().apply({ kind: "ConsoleOutput", tabId: id, entries: [output] });
+  expect([allCells(ws()), useLive.getState().consoles[id], useLive.getState().output[id]]).toEqual([[], undefined, undefined]);
+});
+
 it("asks to discard staged edits, then to roll back, and closes only after both", async () => {
   const id = tabWithConsole();
   openTransaction = true;
