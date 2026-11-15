@@ -1606,22 +1606,6 @@ pub enum HistoryOutcome {
     Cancelled,
 }
 
-#[derive(Debug, Clone, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct HistoryQuery {
-    pub text: Option<String>,
-    pub connection_id: Option<ConnectionId>,
-    pub before_id: Option<i64>,
-    pub limit: u16,
-}
-
-#[derive(Debug, Clone, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct HistoryPage {
-    pub entries: Vec<HistoryEntry>,
-    pub has_more: bool,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub enum HistoryFilter {
     All,

@@ -72,7 +72,6 @@ export const commands = {
 	resultExport: (resultRef: ResultRef, format: ExportFormat, scope: ExportScope, path: string) => typedError<ExportSummary, ExportError>(__TAURI_INVOKE("result_export", { resultRef, format, scope, path })),
 	notebookOpen: (path: string) => typedError<NotebookOpened, FileReadError>(__TAURI_INVOKE("notebook_open", { path })),
 	notebookSave: (target: SaveTarget, notebook: NotebookText) => typedError<NotebookSaved, FileWriteError>(__TAURI_INVOKE("notebook_save", { target, notebook })),
-	historyList: (query: HistoryQuery) => __TAURI_INVOKE<HistoryPage>("history_list", { query }),
 	historyBrowse: (query: HistoryBrowseQuery) => typedError<HistoryBrowsePage, HistoryError>(__TAURI_INVOKE("history_browse", { query })),
 	historyGroup: (query: HistoryGroupQuery) => typedError<HistoryGroupPage, HistoryError>(__TAURI_INVOKE("history_group", { query })),
 	historyClear: () => typedError<null, HistoryClearError>(__TAURI_INVOKE("history_clear")),
@@ -922,18 +921,6 @@ export type HistoryGroupSummary = {
 };
 
 export type HistoryOutcome = { kind: "Rows"; rows: number } | { kind: "Command"; tag: string } | { kind: "Error"; message: string } | { kind: "Cancelled" };
-
-export type HistoryPage = {
-	entries: HistoryEntry[],
-	hasMore: boolean,
-};
-
-export type HistoryQuery = {
-	text: string | null,
-	connectionId: ConnectionId | null,
-	beforeId: number | null,
-	limit: number,
-};
 
 export type HistoryRun = {
 	id: number,
