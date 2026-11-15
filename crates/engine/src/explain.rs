@@ -270,7 +270,7 @@ pub(crate) async fn run(console: Arc<Console>, shared: Arc<Shared>, launch: Laun
     }
     console.output(&shared, run_id, statement_line(0, &body));
     let read = read_plan(&mut session, &body, &stop).await;
-    console.output_all(&shared, run_id, console::notice_lines(&mut session));
+    console.output_all(&shared, run_id, session.drain_notices());
     if let Err(error) = session.batch(bracket.close()).await {
         let lost = Some(error.message.clone());
         let end = match read {

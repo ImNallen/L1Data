@@ -742,7 +742,7 @@ pub async fn run_task(
         if let Some((db, owed)) = due {
             shared.schedule_refreshes(db, owed);
         }
-        let mut lines = notice_lines(&mut session);
+        let mut lines = session.drain_notices();
         if let Err(error) = &result
             && !logged
         {
@@ -906,10 +906,6 @@ async fn set_status(
     status: StmtStatus,
 ) -> Result<(), Orphaned> {
     console.edit(shared, run_id, |inner| Console::statements_mut(inner)[index as usize].status = status).await
-}
-
-pub fn notice_lines(session: &mut Session) -> Vec<OutputBody> {
-    session.drain_notices()
 }
 
 async fn run_outputs(

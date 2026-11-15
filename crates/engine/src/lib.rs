@@ -855,7 +855,7 @@ impl Shared {
                 error.message = format!("Commit outcome is unknown because the session was lost: {}", error.message);
             }
             let mut lines = vec![console::statement_line(0, sql)];
-            lines.extend(console::notice_lines(&mut session));
+            lines.extend(session.drain_notices());
             lines.push(match &result {
                 Ok(()) => OutputBody::Command { statement: 0, tag: sql.into(), elapsed_ms },
                 Err(error) => OutputBody::Error { statement: Some(0), error: error.clone() },
@@ -2025,7 +2025,7 @@ impl Engine {
                     let started = std::time::Instant::now();
                     let executed = session.execute_edit(edit).await;
                     let elapsed_ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
-                    lines.extend(console::notice_lines(&mut session));
+                    lines.extend(session.drain_notices());
                     let rows = match executed {
                         Ok(rows) => rows,
                         Err(e) => {
@@ -2066,7 +2066,7 @@ impl Engine {
                 _ => TxnState::Idle,
             });
             let lost = session.closed_reason_settled(None).await;
-            lines.extend(console::notice_lines(&mut session));
+            lines.extend(session.drain_notices());
             if let Err(ApplyError::Transaction { error } | ApplyError::OutcomeUnknown { error }) = &outcome {
                 lines.push(OutputBody::Error { statement: None, error: error.clone() });
             }

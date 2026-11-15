@@ -208,7 +208,7 @@ pub(super) async fn run(
         _ => TxnState::Idle,
     };
     let lost = session.closed_reason_settled(None).await;
-    let notices = crate::console::notice_lines(&mut session);
+    let notices = session.drain_notices();
     let ended = opened
         && !matches!(fence, Fence::Savepoint)
         && (matches!(fence, Fence::Auto) || outcome.is_err())
