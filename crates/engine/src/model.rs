@@ -1708,6 +1708,13 @@ pub enum HistoryError {
     Unavailable { message: String },
 }
 
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(tag = "kind", rename_all_fields = "camelCase")]
+pub enum HistoryClearError {
+    /// Nothing was removed.
+    Store { message: String },
+}
+
 /// Rowid of `saved_queries`. AUTOINCREMENT, so a deleted id is never reissued and a late click on
 /// a deleted entry cannot act on a newer one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
@@ -1782,6 +1789,13 @@ pub struct Workspace {
     pub notebooks: Vec<NotebookSnapshot>,
     /// `None` shows the start commands.
     pub shown: Option<NotebookId>,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(tag = "kind", rename_all_fields = "camelCase")]
+pub enum WorkspaceError {
+    /// The next launch restores the workspace last saved.
+    Store { message: String },
 }
 
 // Hand-written so a workspace from before notebooks loads with none, and a notebook or a `shown` that a later build
@@ -2202,6 +2216,13 @@ pub struct Settings {
     pub providers: Vec<ProviderConfig>,
     /// Seconds between background provider status checks; 0 turns them off.
     pub provider_health_check_secs: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(tag = "kind", rename_all_fields = "camelCase")]
+pub enum SettingsError {
+    /// The settings apply until the app quits, and the next launch loads the ones last saved.
+    Unsaved { message: String },
 }
 
 const DEFAULT_PANEL_MOTION_MS: u16 = 150;

@@ -16,7 +16,7 @@ import {
   type TxnMode,
   type WriteConfirmation,
 } from "../../ipc/bindings";
-import { applyErrorText, configureErrorText, runErrorText, txnErrorText } from "../../ipc/errors";
+import { applyErrorText, configureErrorText, runErrorText, settingsErrorText, txnErrorText } from "../../ipc/errors";
 import { databaseKindFor } from "../../state/databaseKind";
 import { homeDb, resolveDb, sameDb } from "../../state/dbKey";
 import { useLive } from "../../state/live";
@@ -497,10 +497,10 @@ export async function loadTableOnce(tabId: TabId): Promise<void> {
 
 // The store updates before the IPC so a second change made meanwhile builds on this one.
 // Writes run in order, including every access change that must revoke an older turn.
-let settingsWrites: Promise<void> = Promise.resolve();
+let settingsWrites: Promise<unknown> = Promise.resolve();
 
 export async function flushSettings(): Promise<void> {
-  let pending: Promise<void>;
+  let pending: Promise<unknown>;
   do {
     pending = settingsWrites;
     await pending;
@@ -513,7 +513,8 @@ export async function saveSettings(patch: Partial<Settings>): Promise<void> {
   ws().setSettings(next);
   const write = settingsWrites.catch(() => {}).then(() => commands.settingsSet(next));
   settingsWrites = write;
-  await write;
+  const res = await write;
+  if (res.status === "error") notify(settingsErrorText(res.error));
   if (next.tablePageSize === prev.tablePageSize) return;
   for (const tab of Object.values(ws().tabs)) if (isTableTab(tab)) setTablePage(tab.id, 0);
 }

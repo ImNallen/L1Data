@@ -578,7 +578,9 @@ mod tests {
             ["describe_tables", "search_catalog"]
         );
         assert_eq!(execute(&engine.shared, None, call.clone(), access).await.for_model.text, SCHEMA_REFUSAL);
-        engine.set_settings(crate::model::Settings { assistant_access: AssistantAccess::Full, ..engine.settings() });
+        engine
+            .set_settings(crate::model::Settings { assistant_access: AssistantAccess::Full, ..engine.settings() })
+            .unwrap();
         let stale = execute(&engine.shared, None, call, access).await;
         assert!(stale.for_model.is_error && stale.for_model.text.contains("access changed"));
     }
@@ -625,7 +627,9 @@ mod tests {
         let config = engine.save_connection(draft).await.unwrap();
         engine.connect(config.id).await.unwrap();
         let db = DatabaseRef { connection_id: config.id, database: "shop".into() };
-        engine.set_settings(crate::model::Settings { assistant_access: AssistantAccess::Full, ..engine.settings() });
+        engine
+            .set_settings(crate::model::Settings { assistant_access: AssistantAccess::Full, ..engine.settings() })
+            .unwrap();
         let access = *engine.shared.access.lock();
         let refused =
             execute(&engine.shared, Some(&db), parse_call("run_query", &json!({"sql":"SELECT 1"})), access).await;

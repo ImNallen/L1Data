@@ -41,7 +41,7 @@ impl Harness {
     }
 
     fn access(&self, access: AssistantAccess) {
-        self.engine.set_settings(Settings { assistant_access: access, ..self.engine.settings() });
+        self.engine.set_settings(Settings { assistant_access: access, ..self.engine.settings() }).unwrap();
     }
 
     fn log_path(&self) -> std::path::PathBuf {
@@ -62,7 +62,7 @@ impl Harness {
     fn configure_provider(&self, edit: impl FnOnce(&mut ProviderConfig)) {
         let mut settings = self.engine.settings();
         edit(&mut settings.providers[0]);
-        self.engine.set_settings(settings);
+        self.engine.set_settings(settings).unwrap();
     }
 
     async fn wait_event(&mut self, what: &str, mut pick: impl FnMut(&AppEvent) -> bool) -> AppEvent {
@@ -412,7 +412,7 @@ async fn an_unchanged_setting_does_not_reprobe_but_the_health_loop_does() {
     let (before, handshakes) = (h.settle().await, h.handshakes());
     let mut settings = h.engine.settings();
     settings.provider_health_check_secs = 1;
-    h.engine.set_settings(settings);
+    h.engine.set_settings(settings).unwrap();
     let after =
         h.wait_provider("the health loop's probe", |s| !s.checking && s.checked_at_ms > before.checked_at_ms).await;
     assert_eq!(after.outcome, before.outcome, "a quick probe keeps the models of the last full one");
@@ -1993,8 +1993,10 @@ async fn an_access_switch_cancels_pending_and_already_approved_calls_even_if_ful
         let before = h.stdin_lines().len();
         let engine = h.engine.clone();
         std::thread::spawn(move || {
-            engine.set_settings(Settings { assistant_access: AssistantAccess::SchemaOnly, ..engine.settings() });
-            engine.set_settings(Settings { assistant_access: AssistantAccess::Full, ..engine.settings() });
+            engine
+                .set_settings(Settings { assistant_access: AssistantAccess::SchemaOnly, ..engine.settings() })
+                .unwrap();
+            engine.set_settings(Settings { assistant_access: AssistantAccess::Full, ..engine.settings() }).unwrap();
         })
         .join()
         .expect("settings_set works outside a runtime");

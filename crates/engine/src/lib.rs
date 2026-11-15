@@ -2267,10 +2267,8 @@ impl Engine {
         self.shared.store.history_group(&q)
     }
 
-    pub fn clear_history(&self) {
-        if let Err(e) = self.shared.store.clear_history() {
-            eprintln!("history clear failed: {e}");
-        }
+    pub fn clear_history(&self) -> Result<(), HistoryClearError> {
+        self.shared.store.clear_history().map_err(|e| HistoryClearError::Store { message: e.to_string() })
     }
 
     pub fn saved_query_save(
@@ -2294,33 +2292,29 @@ impl Engine {
         saved::used(&self.shared, id)
     }
 
-    pub fn save_workspace(&self, mut w: Workspace) {
+    pub fn save_workspace(&self, mut w: Workspace) -> Result<(), WorkspaceError> {
         self.shared.resolve_workspace(&mut w);
-        if let Err(e) = self.shared.store.kv_set(KV_WORKSPACE, &w) {
-            eprintln!("workspace save failed: {e}");
-        }
+        self.shared.store.kv_set(KV_WORKSPACE, &w).map_err(|e| WorkspaceError::Store { message: e.to_string() })
     }
 
     pub fn settings(&self) -> Settings {
         self.shared.settings()
     }
 
-    pub fn set_settings(&self, s: Settings) {
+    pub fn set_settings(&self, s: Settings) -> Result<(), SettingsError> {
         let mut access = self.shared.access.lock();
+        let mut lease = Ok(());
         if access.mode != s.assistant_access {
             *access = access::AccessLease::new(s.assistant_access);
-            if let Err(e) = self.shared.store.kv_set("assistant_access", &*access) {
-                eprintln!("assistant access save failed: {e}");
-            }
+            lease = self.shared.store.kv_set("assistant_access", &*access);
             self.shared.access.changed(*access);
             self.shared.revoke_assistant_access();
         }
-        if let Err(e) = self.shared.store.kv_set(KV_SETTINGS, &s) {
-            eprintln!("settings save failed: {e}");
-        }
+        let saved = self.shared.store.kv_set(KV_SETTINGS, &s);
         let before = std::mem::replace(&mut *self.shared.settings.write(), s.clone());
         drop(access);
         self.shared.reprobe_changed(&before.providers, &s.providers);
+        lease.and(saved).map_err(|e| SettingsError::Unsaved { message: e.to_string() })
     }
 
     /// The chat with every entry, the running turn's as of now. An unknown id opens a draft with
@@ -2780,6 +2774,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn refused_writes_return_the_store_error_and_settings_still_apply() {
+        let (engine, dir) = engine().await;
+        let db = rusqlite::Connection::open(dir.path().join("nested").join(DB_FILE)).unwrap();
+        let refused = |message: &str| message.contains("disk is full");
+        db.execute_batch(
+            "CREATE TRIGGER refuse_access BEFORE INSERT ON kv WHEN NEW.key = 'assistant_access'
+             BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END;",
+        )
+        .unwrap();
+        let full = Settings { assistant_access: AssistantAccess::Full, ..engine.settings() };
+        assert!(matches!(engine.set_settings(full), Err(SettingsError::Unsaved { message }) if refused(&message)));
+        assert_eq!(engine.settings().assistant_access, AssistantAccess::Full);
+
+        db.execute_batch(
+            "INSERT INTO history (at_ms, connection_id, connection_name, database, sql, elapsed_ms, outcome_json)
+             VALUES (0, 'c', 'dev', 'shop', 'select 1', 1, '{\"kind\":\"Cancelled\"}');
+             CREATE TRIGGER refuse_kv BEFORE INSERT ON kv BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END;
+             CREATE TRIGGER refuse_clear BEFORE DELETE ON history BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END;",
+        )
+        .unwrap();
+        let settings = engine.set_settings(Settings { max_rows: 10, ..engine.settings() });
+        assert!(matches!(settings, Err(SettingsError::Unsaved { message }) if refused(&message)));
+        assert_eq!(engine.settings().max_rows, 10);
+        let workspace = engine.save_workspace(Workspace::default());
+        assert!(matches!(workspace, Err(WorkspaceError::Store { message }) if refused(&message)));
+        assert!(matches!(engine.clear_history(), Err(HistoryClearError::Store { message }) if refused(&message)));
+    }
+
+    #[tokio::test]
     async fn connections_settings_and_workspace_persist_across_open() {
         let dir = tempfile::tempdir().unwrap();
         let keys = Arc::new(MemoryKeyStore::default());
@@ -2804,11 +2827,13 @@ mod tests {
                 .unwrap();
             assert!(saved.has_password);
             assert_eq!(password(&engine, saved.id).as_deref(), Some(PLAINTEXT));
-            engine.set_settings(Settings { max_rows: 10, ..Settings::default() });
-            engine.save_workspace(Workspace {
-                layout: Layout { sidebar: false, ..Layout::default() },
-                ..Workspace::default()
-            });
+            engine.set_settings(Settings { max_rows: 10, ..Settings::default() }).unwrap();
+            engine
+                .save_workspace(Workspace {
+                    layout: Layout { sidebar: false, ..Layout::default() },
+                    ..Workspace::default()
+                })
+                .unwrap();
             saved
         };
         let engine = Engine::open(cfg()).await.unwrap();
@@ -3090,24 +3115,26 @@ mod tests {
             .await
             .unwrap();
         let tab = TabId(uuid::Uuid::new_v4());
-        engine.save_workspace(Workspace {
-            tabs: vec![TabSnapshot {
-                id: tab,
-                title: "Saved Manual".into(),
-                text: Some("UPDATE dbo.target SET n=2".into()),
-                table: None,
-                file: None,
-                collapsed: false,
-                console: ConsoleConfigSnapshot {
-                    connection_id: Some(connection.id),
-                    database: Some("shop".into()),
-                    schema: None,
-                    mode: TxnMode::Manual,
-                },
-            }],
-            active: Some(tab),
-            ..Workspace::default()
-        });
+        engine
+            .save_workspace(Workspace {
+                tabs: vec![TabSnapshot {
+                    id: tab,
+                    title: "Saved Manual".into(),
+                    text: Some("UPDATE dbo.target SET n=2".into()),
+                    table: None,
+                    file: None,
+                    collapsed: false,
+                    console: ConsoleConfigSnapshot {
+                        connection_id: Some(connection.id),
+                        database: Some("shop".into()),
+                        schema: None,
+                        mode: TxnMode::Manual,
+                    },
+                }],
+                active: Some(tab),
+                ..Workspace::default()
+            })
+            .unwrap();
         let saved: Workspace = serde_json::from_value(serde_json::to_value(engine.boot().workspace).unwrap()).unwrap();
         assert_eq!(saved.tabs[0].console.mode, TxnMode::Manual);
         let config = ConsoleConfig {

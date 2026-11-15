@@ -1,6 +1,7 @@
 import { BookmarkPlusIcon, CheckIcon, ClockIcon, CopyIcon, PlayIcon } from "lucide-react";
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { commands, type HistoryFilter, type HistoryOutcome } from "../../ipc/bindings";
+import { historyClearErrorText } from "../../ipc/errors";
 import { isMac } from "../../shell/hostedWindow";
 import { sameDb } from "../../state/dbKey";
 import { useLive } from "../../state/live";
@@ -57,8 +58,9 @@ async function clearHistory() {
   )
     return;
   try {
-    await commands.historyClear();
-    useLive.setState({ historyTail: [] });
+    const res = await commands.historyClear();
+    if (res.status === "ok") useLive.setState({ historyTail: [] });
+    else useWorkspace.getState().notify(historyClearErrorText(res.error));
     useWorkspace.getState().openQueries("history");
   } catch (e) {
     useWorkspace.getState().notify(String(e));

@@ -951,7 +951,7 @@ impl Harness {
 #[tokio::test]
 async fn all_rows_exports_the_chosen_result_set_of_a_batch_and_keeps_the_session() {
     let mut h = Harness::open(TxnMode::AutoCommit).await;
-    h.engine.set_settings(Settings { max_rows: 5, ..h.engine.settings() });
+    h.engine.set_settings(Settings { max_rows: 5, ..h.engine.settings() }).unwrap();
     let state = h
         .ok("SELECT N'first' AS head; SELECT TOP (40) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS n FROM sys.all_objects ORDER BY n; SELECT N'last' AS tail")
         .await;

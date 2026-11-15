@@ -434,7 +434,7 @@ pub fn history_group(
 
 #[tauri::command]
 #[specta::specta]
-pub fn history_clear(engine: State<'_, Arc<Engine>>) {
+pub fn history_clear(engine: State<'_, Arc<Engine>>) -> Result<(), HistoryClearError> {
     engine.clear_history()
 }
 
@@ -473,13 +473,13 @@ pub fn saved_query_used(engine: State<'_, Arc<Engine>>, id: SavedQueryId) -> Res
 
 #[tauri::command]
 #[specta::specta]
-pub fn workspace_save(engine: State<'_, Arc<Engine>>, workspace: Workspace) {
+pub fn workspace_save(engine: State<'_, Arc<Engine>>, workspace: Workspace) -> Result<(), WorkspaceError> {
     engine.save_workspace(workspace)
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn settings_set(engine: State<'_, Arc<Engine>>, settings: Settings) {
+pub fn settings_set(engine: State<'_, Arc<Engine>>, settings: Settings) -> Result<(), SettingsError> {
     engine.set_settings(settings)
 }
 
