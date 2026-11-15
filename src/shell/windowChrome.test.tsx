@@ -164,7 +164,7 @@ it.each(CHROMES)("insets the right-panel toggle by the same amount as both heade
   withLayout({ rightPanel: "Assistant" });
   const inset = toggleInset(renderToStaticMarkup(<AppLayout />), "r");
   expect(renderToStaticMarkup(<RightPanel hosted={hosted} />).match(/data-tauri-drag-region="deep" class="[^"]*\b(pr-\S+?)(?=[\s"])/)?.[1]).toBe(inset);
-  expect(headerPadding(renderToStaticMarkup(<TopBar hosted={hosted} notebook />), "r")).toBe(inset);
+  expect(headerPadding(renderToStaticMarkup(<TopBar hosted={hosted} />), "r")).toBe(inset);
 });
 
 it.each(CHROMES)("ends the top bar's actions a gap before the window-edge actions when the right panel is closed in %s", (_where, userAgent) => {
@@ -173,7 +173,7 @@ it.each(CHROMES)("ends the top bar's actions a gap before the window-edge action
   withLayout({ rightPanel: null });
   const inset = classPx(toggleInset(renderToStaticMarkup(<AppLayout />), "r"));
   const actions = classPx(renderToStaticMarkup(<WindowEdgeActionsSpacer hosted={hosted} />).match(/\b(w-\S+?)(?=[\s"])/)?.[1]);
-  expect(classPx(headerPadding(renderToStaticMarkup(<TopBar hosted={hosted} notebook />), "r"))).toBe(inset + actions + 8);
+  expect(classPx(headerPadding(renderToStaticMarkup(<TopBar hosted={hosted} />), "r"))).toBe(inset + actions + 8);
 });
 
 it.each([null, "Assistant"] as const)("keeps custom window controls after the toggle with panel %s", (rightPanel) => {
@@ -205,7 +205,7 @@ it.each(CHROMES)("starts the sidebar header at the sidebar toggle, and the close
   const inset = toggleInset(layout, "l");
   expect(renderToStaticMarkup(<Sidebar hosted={hosted} />).match(/data-tauri-drag-region="deep" class="[^"]*\b(pl-\S+?)(?=[\s"])/)?.[1]).toBe(inset);
   const toggle = classPx(layout.match(new RegExp(`<button[^>]*class="[^"]*\\b(size-\\d+)\\b[^"]*"[^>]*${SIDEBAR_TOGGLE}`))?.[1]);
-  expect(classPx(headerPadding(renderToStaticMarkup(<TopBar hosted={hosted} notebook />), "l"))).toBe(classPx(inset) + toggle);
+  expect(classPx(headerPadding(renderToStaticMarkup(<TopBar hosted={hosted} />), "l"))).toBe(classPx(inset) + toggle);
 });
 
 // An empty element: the line itself is the handle, with no pill inside it.
@@ -275,7 +275,7 @@ it("drops the right panel and its handle while the panel is closed", () => {
   expect(html).not.toContain('data-testid="right-panel"');
 });
 
-function withTableTab(mode: TxnMode = "AutoCommit", color: string | null = null) {
+function withTableTab(mode: TxnMode = "AutoCommit") {
   const tab: Tab = {
     id: "t2",
     title: "orders",
@@ -293,7 +293,7 @@ function withTableTab(mode: TxnMode = "AutoCommit", color: string | null = null)
     caCertPath: null,
     databaseKind: "Postgres",
     hasPassword: true,
-    color,
+    color: null,
     ssh: null,
     environment: null,
     sqlServerAuth: null,
@@ -311,15 +311,7 @@ it("shows the transaction mode and cursor position on a table tab", () => {
 it("gives a table tab the connection, database, and transaction mode menus a query tab has", () => {
   withTableTab("Manual");
   const html = renderToStaticMarkup(<TopBar hosted={null} />);
-  expect(html).toMatch(/<button[^>]*aria-haspopup="menu"[^>]*data-testid="tab-connection"[^>]*><span class="truncate">dev</);
+  expect(html).toMatch(/<button[^>]*aria-haspopup="menu"[^>]*data-testid="tab-connection"[^>]*><svg.*?<\/svg><span class="truncate">dev</);
   expect(html).toMatch(/<button[^>]*aria-haspopup="menu"[^>]*data-testid="tx-mode"[^>]*>Manual</);
   expect(html).toMatch(/<button[^>]*aria-haspopup="menu"[^>]*data-testid="tab-database"[^>]*><span class="truncate">shop</);
-});
-
-it("marks the tab's connection with its color in the top bar", () => {
-  withTableTab("AutoCommit", "red");
-  const html = renderToStaticMarkup(<TopBar hosted={null} />);
-  expect(html).toMatch(
-    /data-testid="tab-connection"[^>]*><span aria-hidden="true" class="[^"]*" style="background-color:#ef4444"><\/span><span class="truncate">dev</,
-  );
 });

@@ -57,7 +57,7 @@ export function AppLayout() {
         <Sidebar hosted={hosted} />
       </PixelColumn>
       <main data-testid="main" className="workspace-main flex min-w-80 flex-1 flex-col">
-        <TopBar hosted={hosted} notebook />
+        <TopBar hosted={hosted} />
         <Group orientation="horizontal" className="min-h-0 flex-1">
           <Panel id="sql-work" minSize={240}>
             <NotebookWorkspace />

@@ -1,29 +1,18 @@
 import * as Menu from "@radix-ui/react-dropdown-menu";
-import { BookOpenIcon, ChevronDownIcon, DatabaseIcon, ListIndentIncreaseIcon, PlayIcon, PlusIcon, SquareIcon } from "lucide-react";
+import { BookOpenIcon, ChevronDownIcon, DatabaseIcon, PlusIcon } from "lucide-react";
 import { ConnectionColorDot } from "../features/connections/connectionColors";
-import {
-  cancelActive,
-  endTransaction,
-  explainActive,
-  explainSupported,
-  formatActive,
-  isBrowsing,
-  runOrChoose,
-  setTabMode,
-  setTabSchema,
-  openSqlTab,
-} from "../features/editor/runActions";
-import type { ConnectionState, DatabaseRef, Environment, TransactionLoss, TxnMode } from "../ipc/bindings";
+import { endTransaction, setTabMode, setTabSchema, openSqlTab } from "../features/editor/runActions";
+import type { ConnectionState, DatabaseRef, TransactionLoss, TxnMode } from "../ipc/bindings";
 import { useCatalog, viewFor } from "../state/catalog";
 import { homeDb } from "../state/dbKey";
 import { instanceOf, useLive } from "../state/live";
-import { canCancel, connectionTone, hasUncommittedWork, isBusy } from "../state/status";
+import { connectionTone, hasUncommittedWork, isBusy } from "../state/status";
 import { notebookFor } from "../state/notebooks";
 import { openNotebookSwitcher } from "../features/notebooks/notebookActions";
 import { useNotebookDirty } from "../features/notebooks/notebookDirty";
 import { NotebookRunButton } from "../features/notebooks/NotebookRunButton";
 import { activeTab, shownDb, shownNotebook, useWorkspace } from "../state/workspace";
-import { Button, CONNECTION_TONE_LABEL, Kbd, MenuContent, MenuItem, MenuLabel, StatusDot, IconButton, cx } from "../ui/primitives";
+import { Button, CONNECTION_TONE_LABEL, MenuContent, MenuItem, MenuLabel, StatusDot, IconButton, cx } from "../ui/primitives";
 import { windowEdgeClearance, windowEdgeInset, windowLeadingClearance } from "./WindowEdgeActions";
 import type { HostedWindow } from "./hostedWindow";
 
@@ -75,49 +64,7 @@ function DatabaseMenu({ db }: { db: DatabaseRef }) {
   );
 }
 
-function RunButton({ busy, environment, explainable }: { busy: boolean; environment: Environment | null; explainable: boolean }) {
-  return (
-    <span className="run-environment inline-flex" data-environment={environment ?? undefined}>
-      <Button
-        data-testid="run-btn"
-        data-environment={environment ?? undefined}
-        disabled={busy}
-        variant="primary"
-        title={`Run the selection or the marked statement (⌘↵). On a blank line, or with ⌘⇧↵, choose which statement to run.${environment === "Production" ? " This tab targets Production, so a run that writes asks first." : ""}`}
-        className={cx("min-w-[104px] justify-center pr-2 pl-2.5 font-medium", explainable && "rounded-r-none")}
-        onClick={() => void runOrChoose()}
-      >
-        <PlayIcon fill="currentColor" size={13} className="shrink-0 text-run-icon" />
-        Run
-        <Kbd tone="accent">⌘↵</Kbd>
-      </Button>
-      {explainable && (
-        <Menu.Root modal={false}>
-          <Menu.Trigger
-            data-testid="explain-menu"
-            disabled={busy}
-            aria-label="Explain"
-            className="inline-flex h-8 items-center rounded-r-lg border-l border-run-fg/25 bg-run px-1.5 text-run-fg hover:bg-run-hover focus-visible:outline-run-fg disabled:pointer-events-none disabled:opacity-40"
-          >
-            <ChevronDownIcon size={14} />
-          </Menu.Trigger>
-          <MenuContent align="end">
-            <MenuItem testId="explain-item" onSelect={() => explainActive("Explain")}>
-              <span className="flex-1">Explain</span>
-              <Kbd tone="menu">⌘⌥↵</Kbd>
-            </MenuItem>
-            <MenuItem testId="explain-analyze-item" onSelect={() => explainActive("ExplainAnalyze")}>
-              <span className="flex-1">Explain Analyze</span>
-              <Kbd tone="menu">⌘⌥⇧↵</Kbd>
-            </MenuItem>
-          </MenuContent>
-        </Menu.Root>
-      )}
-    </span>
-  );
-}
-
-export function TopBar({ hosted, notebook = false }: { hosted: HostedWindow | null; notebook?: boolean }) {
+export function TopBar({ hosted }: { hosted: HostedWindow | null }) {
   const tab = useWorkspace(activeTab);
   const db = useWorkspace(shownDb);
   const unconnected = useWorkspace((s) => notebookFor(s.notebooks, null) !== undefined);
@@ -134,7 +81,6 @@ export function TopBar({ hosted, notebook = false }: { hosted: HostedWindow | nu
   const catalog = useCatalog((s) => viewFor(s.views, db)?.catalog);
   const config = connectionId ? configs[connectionId] : undefined;
   const busy = isBusy(liveConsole);
-  const cancellable = canCancel(liveConsole);
   const txn = liveConsole?.txn;
   const txnDepth = liveConsole?.txnDepth;
   const sqlServer = config?.databaseKind === "SqlServer";
@@ -147,10 +93,9 @@ export function TopBar({ hosted, notebook = false }: { hosted: HostedWindow | nu
     <header
       data-tauri-drag-region="deep"
       className={cx(
-        notebook ? "workspace-context @container shrink-0" : "@container shrink-0 border-b-2 border-transparent pt-[2px]",
-        "follow-panels",
+        "workspace-context @container shrink-0 follow-panels",
         layout.rightPanel === null ? windowEdgeClearance(hosted) : windowEdgeInset(hosted),
-        layout.sidebar ? (notebook ? "pl-[24px] max-[1100px]:pl-[16px]" : "pl-4") : windowLeadingClearance(hosted),
+        layout.sidebar ? "pl-[24px] max-[1100px]:pl-[16px]" : windowLeadingClearance(hosted),
       )}
       data-testid="top-bar"
       data-environment={environment ?? undefined}
@@ -165,11 +110,7 @@ export function TopBar({ hosted, notebook = false }: { hosted: HostedWindow | nu
           {tab || db ? (
             <Menu.Root modal={false}>
               <Menu.Trigger data-testid="tab-connection" title={config?.name} className={cx(TARGET_TRIGGER, "-ml-1 flex-1", config ? "text-fg" : "text-dim")}>
-                {notebook ? (
-                  <DatabaseIcon size={14} className="shrink-0 text-keyword" />
-                ) : (
-                  <ConnectionColorDot color={config?.color ?? null} className="mr-0.5" />
-                )}
+                <DatabaseIcon size={14} className="shrink-0 text-keyword" />
                 <span className="truncate">{config?.name ?? "No connection"}</span>
                 <ChevronDownIcon size={12} className="shrink-0 text-dim" />
               </Menu.Trigger>
@@ -199,12 +140,12 @@ export function TopBar({ hosted, notebook = false }: { hosted: HostedWindow | nu
             </span>
           )}
           {db && config && (
-            <div className={cx("flex min-w-0 items-center overflow-hidden", !notebook && "flex-1")}>
+            <div className="flex min-w-0 items-center overflow-hidden">
               <Separator />
               <DatabaseMenu db={db} />
             </div>
           )}
-          {notebook && tab && db && (
+          {tab && db && (
             <>
               <Separator />
               <Menu.Root modal={false}>
@@ -300,69 +241,29 @@ export function TopBar({ hosted, notebook = false }: { hosted: HostedWindow | nu
             </>
           )}
 
-          {tab && !notebook && (
-            <Button
-              data-testid="format-btn"
-              title="Format the selection or the marked statement (⌘⌥L)"
-              className="@max-[900px]:px-2.5 @max-[520px]:hidden"
-              onClick={() => void formatActive()}
-            >
-              <ListIndentIncreaseIcon size={14} className="text-muted" />
-              <span className="@max-[900px]:sr-only">Format</span>
-            </Button>
-          )}
-
           {tab && liveConsole?.work === "Count" && (
             <span data-testid="counting-status" role="status" className="text-ui-13 text-dim">
               Counting…
             </span>
           )}
 
-          {tab && !notebook && <span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-border" />}
-          {tab &&
-            !notebook &&
-            (cancellable ? (
-              <Button
-                data-testid="cancel-btn"
-                title={
-                  sqlServer
-                    ? liveConsole?.work === "Import"
-                      ? "Cancel waits for the active import batch, then rolls back."
-                      : "Cancel resets the SQL Server session. Earlier commits remain committed."
-                    : undefined
-                }
-                className="w-[104px] justify-center bg-hover"
-                onClick={() => cancelActive()}
-              >
-                <SquareIcon fill="currentColor" size={10} className="text-muted" />
-                Cancel
-                <Kbd tone="menu">Esc</Kbd>
-              </Button>
-            ) : (
-              <RunButton busy={busy} environment={environment} explainable={!!config && explainSupported(config.databaseKind) && !isBrowsing(tab)} />
-            ))}
-
-          {notebook && notebookId && <NotebookRunButton id={notebookId} />}
-          {notebook && (
-            <IconButton
-              data-testid="notebook-switcher-btn"
-              aria-label={notebookUnsaved ? "Notebooks, unsaved changes" : "Notebooks"}
-              aria-pressed={switching}
-              title={notebookUnsaved ? `${notebookTitle} has unsaved changes` : (notebookTitle ?? "Notebooks")}
-              className={cx("relative", switching && "bg-badge-bg text-badge hover:bg-badge-bg hover:text-badge")}
-              onClick={openNotebookSwitcher}
-            >
-              <BookOpenIcon size={14} />
-              {notebookUnsaved && (
-                <span data-testid="notebook-unsaved" aria-hidden className="absolute top-1 right-1 size-1.5 rounded-full border-[1.5px] border-focus bg-bg" />
-              )}
-            </IconButton>
-          )}
-          {notebook && (
-            <IconButton data-testid="new-query-cell" aria-label="Add SQL cell" title="Add SQL cell" onClick={() => openSqlTab()}>
-              <PlusIcon size={14} />
-            </IconButton>
-          )}
+          {notebookId && <NotebookRunButton id={notebookId} />}
+          <IconButton
+            data-testid="notebook-switcher-btn"
+            aria-label={notebookUnsaved ? "Notebooks, unsaved changes" : "Notebooks"}
+            aria-pressed={switching}
+            title={notebookUnsaved ? `${notebookTitle} has unsaved changes` : (notebookTitle ?? "Notebooks")}
+            className={cx("relative", switching && "bg-badge-bg text-badge hover:bg-badge-bg hover:text-badge")}
+            onClick={openNotebookSwitcher}
+          >
+            <BookOpenIcon size={14} />
+            {notebookUnsaved && (
+              <span data-testid="notebook-unsaved" aria-hidden className="absolute top-1 right-1 size-1.5 rounded-full border-[1.5px] border-focus bg-bg" />
+            )}
+          </IconButton>
+          <IconButton data-testid="new-query-cell" aria-label="Add SQL cell" title="Add SQL cell" onClick={() => openSqlTab()}>
+            <PlusIcon size={14} />
+          </IconButton>
         </div>
       </div>
     </header>

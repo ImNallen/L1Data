@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, expect, it } from "vitest";
-import type { ConsoleState, ConsoleWork, DatabaseKind, Environment, TransactionLoss, TxnState } from "../ipc/bindings";
+import type { ConsoleState, ConsoleWork, Environment, TransactionLoss, TxnState } from "../ipc/bindings";
 import { connectedState, connectionConfig, databaseState } from "../testing/connections";
 import { useLive } from "../state/live";
 import { useWorkspace, type Tab } from "../state/workspace";
@@ -16,7 +16,7 @@ afterEach(() => {
   live.consoles = saved.consoles;
 });
 
-function onConnection(environment: Environment | null, txn: TxnState = "Idle", databaseKind: DatabaseKind = "Postgres"): string {
+function onConnection(environment: Environment | null, txn: TxnState = "Idle"): string {
   const tab: Tab = { id: "t1", title: "Query 3", console: { db: { connectionId: "c1", database: "shop" }, mode: "Manual" }, table: null };
   const state: ConsoleState = {
     tabId: tab.id,
@@ -32,19 +32,18 @@ function onConnection(environment: Environment | null, txn: TxnState = "Idle", d
   };
   Object.assign(workspace, {
     ...cellsState([tab]),
-    configs: { c1: { ...connectionConfig("c1", "prod-postgres"), environment, databaseKind } },
+    configs: { c1: { ...connectionConfig("c1", "prod-postgres"), environment } },
   });
   live.consoles = { [tab.id]: state };
   return renderToStaticMarkup(<TopBar hosted={null} />);
 }
 
 const header = (html: string) => html.slice(0, html.indexOf(">") + 1);
-it.each(["Production", "Staging", "Local", null] satisfies (Environment | null)[])("keeps %s environment styling on the Run button only", (environment) => {
+it.each(["Production", "Staging", "Local", null] satisfies (Environment | null)[])("keeps %s environment styling off the header", (environment) => {
   const html = onConnection(environment);
   expect(html).not.toContain('data-testid="env-icon"');
   expect(header(html)).not.toContain("border-danger");
   expect(html).not.toContain("ring-danger");
-  expect(html).toContain(`class="run-environment inline-flex"${environment ? ` data-environment="${environment}"` : ""}`);
 });
 
 it("reads the run target as the connection, then database, and leaves the tab title to the tab bar", () => {
@@ -54,11 +53,6 @@ it("reads the run target as the connection, then database, and leaves the tab ti
   expect(order.every((i) => i >= 0)).toBe(true);
   expect([...order].sort((a, b) => a - b)).toEqual(order);
   expect(html).not.toContain("Query 3");
-});
-
-it("offers Explain on a PostgreSQL or SQL Server script tab", () => {
-  expect(onConnection("Local")).toContain('data-testid="explain-menu"');
-  expect(onConnection("Local", "Idle", "SqlServer")).toContain('data-testid="explain-menu"');
 });
 
 it("shows an open transaction as pending and an aborted one as an error", () => {
@@ -142,35 +136,17 @@ function workingConsole(work: ConsoleWork): string {
   return renderToStaticMarkup(<TopBar hosted={null} />);
 }
 
-it("shows Counting and Cancel with Esc while retaining the finished run", () => {
+it("shows Counting while retaining the finished run", () => {
   const html = workingConsole("Count");
   expect(html).toContain("Counting");
-  expect(html).toContain('data-testid="cancel-btn"');
-  expect(html).toContain("Esc");
-  expect(html).not.toContain('data-testid="run-btn"');
   expect(html).toMatch(/data-testid="commit-btn"[^>]*disabled/);
   expect(html).toMatch(/data-testid="rollback-btn"[^>]*disabled/);
   expect(live.consoles.t1?.run.kind).toBe("Finished");
 });
 
-it("offers Cancel with Esc while an export streams", () => {
-  const html = workingConsole("Export");
-  expect(html).toContain('data-testid="cancel-btn"');
-  expect(html).toContain("Esc");
-  expect(html).not.toContain('data-testid="run-btn"');
-  expect(html).toMatch(/data-testid="commit-btn"[^>]*disabled/);
-});
-
-it.each(["Transaction", "Edit", "Probe"] satisfies ConsoleWork[])("keeps %s ownership busy without offering Cancel", (work) => {
-  const html = workingConsole(work);
-  expect(html).not.toContain('data-testid="cancel-btn"');
-  expect(html).not.toContain("Counting");
-  expect(html).toMatch(/data-testid="run-btn"[^>]*disabled/);
-});
-
 it("puts Run all in the notebook context row, before the notebooks button", () => {
   onConnection(null);
-  const html = renderToStaticMarkup(<TopBar hosted={null} notebook />);
+  const html = renderToStaticMarkup(<TopBar hosted={null} />);
   const runAll = html.indexOf('data-testid="run-all-btn"');
   expect(runAll).toBeGreaterThan(-1);
   expect(runAll).toBeLessThan(html.indexOf('data-testid="notebook-switcher-btn"'));
