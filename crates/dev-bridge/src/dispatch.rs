@@ -121,6 +121,7 @@ routes! { e;
     table_script(db: DatabaseRef, schema: String, table: String) => e.table_script(db, &schema, &table);
     table_order(db: DatabaseRef, schema: String, table: String, order_by: String, edit: TableOrderEdit) => e.table_order(db, &schema, &table, &order_by, edit);
     console_run(tab_id: TabId, request: RunRequest, confirmed: Option<WriteDigest>) => e.console_run(tab_id, request, confirmed).await;
+    console_check_run(tab_id: TabId, request: RunRequest) => e.console_check_run(tab_id, request).await;
     console_cancel(tab_id: TabId) => { e.console_cancel(tab_id).await; ok(()) };
     console_commit(tab_id: TabId, confirmed: Option<WriteDigest>) => e.console_commit(tab_id, confirmed).await;
     console_rollback(tab_id: TabId) => e.console_rollback(tab_id).await;

@@ -1171,6 +1171,24 @@ async fn a_batch_that_runs_exec_on_production_waits_for_the_digest() {
 }
 
 #[tokio::test]
+async fn a_run_check_gives_the_digest_the_batch_runs_with() {
+    let mut h = Harness::open(TxnMode::AutoCommit).await;
+    set_environment(&h, Some(Environment::Production)).await;
+    let request = || RunRequest::Script {
+        text: "CREATE TABLE #check_guard(id int)".into(),
+        target: RunTarget::All,
+        mode: RunMode::Run,
+        params: Vec::new(),
+        cells: Vec::new(),
+    };
+    let checked = h.engine.console_check_run(h.tab, request()).await.unwrap().expect("a write on Production asks");
+    assert_eq!((checked.unit, checked.sends.count), (ExecutionUnitKind::Batch, 1));
+    let id = h.engine.console_run(h.tab, request(), Some(checked.digest)).await.unwrap().run_id;
+    let state = h.finish(id).await;
+    assert!(matches!(state.run, RunState::Finished { outcome: RunOutcome::Ok, .. }), "{:?}", state.run);
+}
+
+#[tokio::test]
 async fn every_batch_on_production_asks_while_the_transaction_holds_writes_that_ran_before() {
     let mut h = Harness::open(TxnMode::AutoCommit).await;
     h.ok("CREATE TABLE #held (id int)").await;

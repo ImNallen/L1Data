@@ -3,8 +3,11 @@ import { isBrowsing, openSqlTab, submitEdits } from "../features/editor/runActio
 import { saveActiveQuery } from "../features/saved/savedActions";
 import { openNavigation } from "../features/navigation/navigationActions";
 import { openNotebookSwitcher } from "../features/notebooks/notebookActions";
+import { staleReason } from "../features/notebooks/cellReferences";
 import { openNotebookFiles, saveNotebook, type SaveMode } from "../features/notebooks/notebookFiles";
-import { adjacentCell } from "../state/notebooks";
+import { notebookRunning, runNotebook } from "../features/notebooks/notebookRun";
+import type { RunScope } from "../features/notebooks/runbook";
+import { adjacentCell, type Notebook } from "../state/notebooks";
 import { pendingCount, useTableEdits } from "../state/tableEdits";
 import { activeId, activeTab, DEFAULT_PANEL_SIZES, shownDb, shownNotebook, useWorkspace, type Overlay } from "../state/workspace";
 import { isMac } from "./hostedWindow";
@@ -201,6 +204,20 @@ const moveActiveCell = (step: -1 | 1): Command => {
   };
 };
 
+const runCells = (id: string, label: string, scope: RunScope, offered: (notebook: Notebook) => boolean): Command => ({
+  id,
+  group: "Query",
+  label,
+  available: () => {
+    const notebook = shownNotebook(ws());
+    return hasWorkspaceTab() && notebook !== undefined && !notebookRunning(notebook.id) && offered(notebook);
+  },
+  run: () => {
+    const notebook = shownNotebook(ws());
+    if (notebook) void runNotebook(notebook.id, scope);
+  },
+});
+
 export const COMMANDS: Command[] = [
   ...START_COMMANDS,
   COLLAPSE_CELL,
@@ -218,6 +235,9 @@ export const COMMANDS: Command[] = [
   SAVE,
   SAVE_AS,
   SAVE_QUERY,
+  runCells("run-all-cells", "Run all cells", "all", () => true),
+  runCells("run-stale-cells", "Run stale cells", "stale", (n) => n.cells.some((c) => staleReason(c) !== "")),
+  runCells("run-from-active-cell", "Run from active cell", "fromActive", (n) => n.active !== null),
   { id: "commands", group: "Workspace", label: "Command panel", key: "p", shift: true, palette: false, run: openCommandPalette },
 ];
 

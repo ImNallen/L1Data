@@ -5,7 +5,8 @@ import { notebookOf } from "../../state/notebooks";
 import { pendingCount, useTableEdits } from "../../state/tableEdits";
 import { confirm, useWorkspace } from "../../state/workspace";
 import { keepNotebook, type Answered } from "../notebooks/notebookFiles";
-import { forgetTab, plural } from "./runActions";
+import { forgetTab } from "./runActions";
+import { plural } from "./writeQuestions";
 
 const ws = () => useWorkspace.getState();
 const exists = (id: TabId) => ws().tabs[id] !== undefined;

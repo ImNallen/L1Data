@@ -16,6 +16,7 @@ import type {
   OutputEntry,
   ProviderKind,
   ProviderState,
+  RunState,
   SavedQueries,
   TabId,
   UpdateState,
@@ -215,3 +216,28 @@ export const useLive = create<LiveState>()((set) => ({
   forgetTab: (id) => set((s) => forgetTabLive(s, id)),
   apply: (e) => set((s) => applyEvent(s, e)),
 }));
+
+export type Ending = { kind: "finished"; run: Extract<RunState, { kind: "Finished" }> } | { kind: "gone" };
+
+/**
+ * Resolves when the tab's console reports run `runId` Finished, or `gone` once the tab is closed or a newer run replaced
+ * it. It reads the store first, because Finished can land before `consoleRun` returns.
+ */
+export function whenFinished(tabId: TabId, runId: number): Promise<Ending> {
+  const ending = (s: LiveData): Ending | null => {
+    if (s.forgotten.has(tabId)) return { kind: "gone" };
+    const run = s.consoles[tabId]?.run;
+    if (run?.kind === "Finished" && run.runId === runId) return { kind: "finished", run };
+    return run && run.kind !== "Idle" && run.runId > runId ? { kind: "gone" } : null;
+  };
+  return new Promise((resolve) => {
+    const now = ending(useLive.getState());
+    if (now) return resolve(now);
+    const stop = useLive.subscribe((s) => {
+      const later = ending(s);
+      if (!later) return;
+      stop();
+      resolve(later);
+    });
+  });
+}

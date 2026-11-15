@@ -23,7 +23,9 @@ import {
   hydrateSavedLive,
   OUTPUT_LIMIT,
   seedTranscriptLive,
+  useLive,
   wantedCatalogs,
+  whenFinished,
   type LiveData,
 } from "./live";
 
@@ -450,5 +452,35 @@ describe("live.apply", () => {
     let s = applyEvent(emptyLive, { kind: "HistoryAppended", id: 1, ...base });
     s = applyEvent(s, { kind: "HistoryAppended", id: 2, ...base });
     expect(s.historyTail.map((h) => h.id)).toEqual([2, 1]);
+  });
+});
+
+describe("whenFinished", () => {
+  const finished = (rev: number, runId: number): ConsoleState => ({
+    ...consoleAt(rev),
+    run: { kind: "Finished", runId, elapsedMs: 5, statements: [], outcome: "Ok" },
+  });
+  const running = (rev: number, runId: number): ConsoleState => ({ ...consoleAt(rev), run: { kind: "Running", runId, startedAtMs: 0, statements: [] } });
+
+  it("resolves when the run finishes, whether that landed before or after the call", async () => {
+    useLive.setState(useLive.getInitialState(), true);
+    useLive.getState().apply(consoleChanged(finished(1, 7)));
+    await expect(whenFinished(TAB, 7)).resolves.toMatchObject({ kind: "finished", run: { runId: 7 } });
+
+    const later = whenFinished(TAB, 8);
+    useLive.getState().apply(consoleChanged(running(2, 8)));
+    useLive.getState().apply(consoleChanged(finished(3, 8)));
+    await expect(later).resolves.toMatchObject({ kind: "finished", run: { runId: 8 } });
+  });
+
+  it("resolves gone when the tab closes or a newer run replaces the one it waits for", async () => {
+    useLive.setState(useLive.getInitialState(), true);
+    const closed = whenFinished(TAB, 1);
+    useLive.getState().forgetTab(TAB);
+    await expect(closed).resolves.toEqual({ kind: "gone" });
+
+    useLive.setState(useLive.getInitialState(), true);
+    useLive.getState().apply(consoleChanged(running(1, 4)));
+    await expect(whenFinished(TAB, 3)).resolves.toEqual({ kind: "gone" });
   });
 });

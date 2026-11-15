@@ -896,6 +896,66 @@ impl Shared {
     }
 }
 
+struct PlannedRun {
+    console: Arc<Console>,
+    config: ConsoleConfigView,
+    connection: ConnectionConfig,
+    instance: Arc<Instance>,
+    explain: Option<explain::ExplainMode>,
+    page: Option<console::TablePage>,
+    script: params::ExecutableScript,
+    statements: Vec<PlannedStmt>,
+    sources: Vec<CellSource>,
+}
+
+impl PlannedRun {
+    /// The saved connection, while the console still targets what `plan_run` planned.
+    fn current(&self, s: &Shared, inner: &console::ConsoleInner) -> Result<ConnectionConfig, RunError> {
+        let current = s.config(inner.config.connection_id).ok_or(RunError::NotConfigured)?;
+        txn::validate_mode(current.database_kind, inner.config.mode).map_err(|what| RunError::Unsupported { what })?;
+        let mut config = inner.config.clone();
+        if config.connection_id == self.instance.config.id {
+            config.database = self.instance.canonical_database(&config.database).to_owned();
+        }
+        if config != self.config {
+            return Err(RunError::Busy);
+        }
+        Ok(current)
+    }
+}
+
+enum Admitted {
+    Run { checked: writes::WritesChecked, read_only: writes::ReadOnly },
+    Explain(explain::Prepared),
+    Showplan(showplan::Prepared),
+}
+
+/// The Production verdict on `planned` for the console state in `inner`, with `opened` as the session's config.
+fn admit(
+    planned: &PlannedRun,
+    inner: &console::ConsoleInner,
+    current: &ConnectionConfig,
+    opened: &ConnectionConfig,
+    confirmed: Option<&WriteDigest>,
+) -> Result<Admitted, RunError> {
+    let params::ExecutableScript { text, spans, ranges, changed } = &planned.script;
+    let target =
+        writes::Target { saved: current, opened, console: &planned.config, txn: inner.txn, unasked: &inner.unasked };
+    if let Some(mode) = planned.explain {
+        if current.database_kind == DatabaseKind::SqlServer {
+            let analyze = matches!(mode, explain::ExplainMode::Analyze);
+            return showplan::prepare(analyze, text, spans, &target, confirmed).map(Admitted::Showplan);
+        }
+        let prepared = explain::prepare(mode, current.database_kind, inner.txn, text, spans, &target, confirmed)?;
+        return Ok(Admitted::Explain(prepared.source(ranges[0].from, changed[0])));
+    }
+    let sent: Vec<&str> = spans.iter().map(|span| span.text(text)).collect();
+    debug_assert_eq!(sent.len(), planned.statements.len(), "the fence bits index the planned statements");
+    writes::check_run(&target, &sent, &inner.proven, confirmed)
+        .map(|(checked, read_only)| Admitted::Run { checked, read_only })
+        .map_err(|confirmation| RunError::ConfirmWrites { confirmation })
+}
+
 impl Engine {
     pub async fn open(cfg: EngineConfig) -> Result<Arc<Self>, StoreError> {
         tokio::fs::create_dir_all(&cfg.data_dir).await?;
@@ -1549,12 +1609,9 @@ impl Engine {
         Ok(state)
     }
 
-    pub async fn console_run(
-        &self,
-        tab: TabId,
-        r: RunRequest,
-        confirmed: Option<WriteDigest>,
-    ) -> Result<RunAccepted, RunError> {
+    /// Everything `console_run` decides before it needs a session: the Busy check, connect, the canonical database,
+    /// the prepared SQL, the statement plan, and the explain mode.
+    async fn plan_run(&self, tab: TabId, r: RunRequest) -> Result<PlannedRun, RunError> {
         let s = &self.shared;
         let console = s.console(tab).ok_or(RunError::NotConfigured)?;
         let (mut config, busy) = {
@@ -1608,7 +1665,7 @@ impl Engine {
                 params::ExecutableScript { text, spans, ranges, changed }
             }
         };
-        let params::ExecutableScript { text, spans, ranges, changed } = executable;
+        let params::ExecutableScript { text, spans, ranges, changed } = &executable;
         if spans.len() > usize::from(u16::MAX) {
             return Err(RunError::Unsupported { what: "Too many execution units".into() });
         }
@@ -1616,8 +1673,8 @@ impl Engine {
             return Err(RunError::NoStatement);
         }
         if explain_mode.is_none() && connection.database_kind == DatabaseKind::SqlServer {
-            for span in &spans {
-                sql::tsql::validate_batch(span.text(&text)).map_err(|what| RunError::Unsupported { what })?;
+            for span in spans {
+                sql::tsql::validate_batch(span.text(text)).map_err(|what| RunError::Unsupported { what })?;
             }
         }
         let statements: Vec<PlannedStmt> = if explain_mode.is_some() {
@@ -1627,7 +1684,7 @@ impl Engine {
                 .iter()
                 .enumerate()
                 .map(|(index, span)| {
-                    let sql = span.text(&text);
+                    let sql = span.text(text);
                     let kind = text::classify(sql, connection.database_kind);
                     let transaction = txn::plan(connection.database_kind, config.mode, &kind)
                         .map_err(|what| RunError::Unsupported { what })?;
@@ -1644,23 +1701,38 @@ impl Engine {
         if statements.iter().any(|p| p.kind == sql::StmtKind::CopyStdio) {
             return Err(RunError::Unsupported { what: "COPY FROM STDIN / TO STDOUT".into() });
         }
-        let sent: Vec<&str> = spans.iter().map(|span| span.text(&text)).collect();
+        Ok(PlannedRun {
+            console,
+            config,
+            connection,
+            instance,
+            explain: explain_mode,
+            page,
+            script: executable,
+            statements,
+            sources,
+        })
+    }
+
+    pub async fn console_run(
+        &self,
+        tab: TabId,
+        r: RunRequest,
+        confirmed: Option<WriteDigest>,
+    ) -> Result<RunAccepted, RunError> {
+        let s = &self.shared;
+        let planned = self.plan_run(tab, r).await?;
+        let console = planned.console.clone();
 
         let mut fresh = None;
         let needs_session = matches!(console.inner.lock().await.session, SessionSlot::Empty | SessionSlot::Lost { .. });
         if needs_session {
-            fresh = Some(s.open_tab_session(&config).await.map_err(|error| RunError::Connect { error })?);
+            fresh = Some(s.open_tab_session(&planned.config).await.map_err(|error| RunError::Connect { error })?);
         }
 
         let mut inner = console.inner.lock().await;
-        let current = s.config(inner.config.connection_id).ok_or(RunError::NotConfigured)?;
-        txn::validate_mode(current.database_kind, inner.config.mode).map_err(|what| RunError::Unsupported { what })?;
-        if inner.config.connection_id == instance.config.id {
-            inner.config.database = instance.canonical_database(&inner.config.database).to_owned();
-        }
-        if inner.config != config {
-            return Err(RunError::Busy);
-        }
+        let current = planned.current(s, &inner)?;
+        inner.config.database = planned.config.database.clone();
         if let Some(idle) = fresh {
             match inner.session {
                 SessionSlot::Empty | SessionSlot::Lost { .. } => inner.session = SessionSlot::Idle(idle),
@@ -1669,24 +1741,18 @@ impl Engine {
             }
         }
         let SessionSlot::Idle(idle) = &inner.session else { return Err(RunError::Busy) };
-        let target = writes::Target {
-            saved: &current,
-            opened: idle.opened(),
-            console: &config,
-            txn: inner.txn,
-            unasked: &inner.unasked,
+        let admitted = match admit(&planned, &inner, &current, idle.opened(), confirmed.as_ref()) {
+            Ok(admitted) => admitted,
+            Err(RunError::ConfirmWrites { confirmation }) => {
+                console.publish(&mut inner, s);
+                return Err(RunError::ConfirmWrites { confirmation });
+            }
+            Err(error) => return Err(error),
         };
-        if let Some(mode) = explain_mode {
-            if current.database_kind == DatabaseKind::SqlServer {
-                let analyze = matches!(mode, explain::ExplainMode::Analyze);
-                let prepared = match showplan::prepare(analyze, &text, &spans, &target, confirmed.as_ref()) {
-                    Ok(prepared) => prepared,
-                    Err(RunError::ConfirmWrites { confirmation }) => {
-                        console.publish(&mut inner, s);
-                        return Err(RunError::ConfirmWrites { confirmation });
-                    }
-                    Err(error) => return Err(error),
-                };
+        let PlannedRun { config, connection, page, script, statements, sources, .. } = planned;
+        let params::ExecutableScript { text, ranges, .. } = script;
+        match admitted {
+            Admitted::Showplan(prepared) => {
                 let run_id = s.next_run_id();
                 let entered = inner.txn;
                 let launch = showplan::launch(
@@ -1717,103 +1783,109 @@ impl Engine {
                 console.publish(&mut inner, s);
                 drop(inner);
                 s.spawn_holding(console.clone(), run_id, showplan::run(console.clone(), s.clone(), launch));
-                return Ok(RunAccepted { run_id, statements: ranges, sources });
+                Ok(RunAccepted { run_id, statements: ranges, sources })
             }
-            let prepared = match explain::prepare(
-                mode,
-                current.database_kind,
-                inner.txn,
-                &text,
-                &spans,
-                &target,
-                confirmed.as_ref(),
-            ) {
-                Ok(prepared) => prepared,
-                Err(RunError::ConfirmWrites { confirmation }) => {
-                    console.publish(&mut inner, s);
-                    return Err(RunError::ConfirmWrites { confirmation });
-                }
-                Err(error) => return Err(error),
-            };
-            let prepared = prepared.source(ranges[0].from, changed[0]);
-            let run_id = s.next_run_id();
-            let entered = inner.txn;
-            let launch = explain::launch(
-                &console,
-                &mut inner,
-                run_id,
-                prepared,
-                config.schema.clone(),
-                current.clone(),
-                config.database.clone(),
-                entered,
-            )?;
-            console.results.lock().clear();
-            inner.run = RunState::Running {
-                run_id,
-                started_at_ms: console::now_ms(),
-                statements: ranges
-                    .iter()
-                    .enumerate()
-                    .map(|(i, range)| StatementRun {
-                        index: i as u16,
-                        range: *range,
-                        status: StmtStatus::Pending,
-                        outputs: Vec::new(),
-                    })
-                    .collect(),
-            };
-            console.publish(&mut inner, s);
-            drop(inner);
-            s.spawn_holding(console.clone(), run_id, explain::run(console.clone(), s.clone(), launch));
-            return Ok(RunAccepted { run_id, statements: ranges, sources });
-        }
-        debug_assert_eq!(sent.len(), statements.len(), "the fence bits index the planned statements");
-        let (checked, read_only) = match writes::check_run(&target, &sent, &inner.proven, confirmed.as_ref()) {
-            Ok(checked) => checked,
-            Err(confirmation) => {
+            Admitted::Explain(prepared) => {
+                let run_id = s.next_run_id();
+                let entered = inner.txn;
+                let launch = explain::launch(
+                    &console,
+                    &mut inner,
+                    run_id,
+                    prepared,
+                    config.schema.clone(),
+                    current.clone(),
+                    config.database.clone(),
+                    entered,
+                )?;
+                console.results.lock().clear();
+                inner.run = RunState::Running {
+                    run_id,
+                    started_at_ms: console::now_ms(),
+                    statements: ranges
+                        .iter()
+                        .enumerate()
+                        .map(|(i, range)| StatementRun {
+                            index: i as u16,
+                            range: *range,
+                            status: StmtStatus::Pending,
+                            outputs: Vec::new(),
+                        })
+                        .collect(),
+                };
                 console.publish(&mut inner, s);
-                return Err(RunError::ConfirmWrites { confirmation });
+                drop(inner);
+                s.spawn_holding(console.clone(), run_id, explain::run(console.clone(), s.clone(), launch));
+                Ok(RunAccepted { run_id, statements: ranges, sources })
             }
-        };
-        let writes_stay_unasked = checked.writes_stay_unasked();
-        let run_id = s.next_run_id();
-        let Some((session, stop)) = console.take_session(&mut inner, run_id, Work::Run(checked)) else {
-            return Err(RunError::Busy);
-        };
-        let txn = inner.txn;
-        console.results.lock().clear();
-        inner.run = RunState::Running {
-            run_id,
-            started_at_ms: console::now_ms(),
-            statements: ranges
-                .iter()
-                .enumerate()
-                .map(|(i, range)| StatementRun {
-                    index: i as u16,
-                    range: *range,
-                    status: StmtStatus::Pending,
-                    outputs: Vec::new(),
-                })
-                .collect(),
-        };
-        console.publish(&mut inner, s);
-        drop(inner);
+            Admitted::Run { checked, read_only } => {
+                let writes_stay_unasked = checked.writes_stay_unasked();
+                let run_id = s.next_run_id();
+                let Some((session, stop)) = console.take_session(&mut inner, run_id, Work::Run(checked)) else {
+                    return Err(RunError::Busy);
+                };
+                let txn = inner.txn;
+                console.results.lock().clear();
+                inner.run = RunState::Running {
+                    run_id,
+                    started_at_ms: console::now_ms(),
+                    statements: ranges
+                        .iter()
+                        .enumerate()
+                        .map(|(i, range)| StatementRun {
+                            index: i as u16,
+                            range: *range,
+                            status: StmtStatus::Pending,
+                            outputs: Vec::new(),
+                        })
+                        .collect(),
+                };
+                console.publish(&mut inner, s);
+                drop(inner);
 
-        let plan = RunPlan {
-            run_id,
-            text,
-            statements,
-            txn,
-            schema: config.schema.clone(),
-            database: config.database.clone(),
-            connection,
-            page,
-            writes_stay_unasked,
-            read_only,
+                let plan = RunPlan {
+                    run_id,
+                    text,
+                    statements,
+                    txn,
+                    schema: config.schema.clone(),
+                    database: config.database.clone(),
+                    connection,
+                    page,
+                    writes_stay_unasked,
+                    read_only,
+                };
+                s.spawn_holding(
+                    console.clone(),
+                    run_id,
+                    console::run_task(console.clone(), s.clone(), session, plan, stop),
+                );
+                Ok(RunAccepted { run_id, statements: ranges, sources })
+            }
+        }
+    }
+
+    /// What `console_run(tab, request, None)` would answer, without opening a session, sending anything, or changing
+    /// the console. `Ok(None)`: it would start. `Ok(Some(c))`: it would ask with `c.digest`. A tab with no session is
+    /// judged as the session `console_run` would open, whose `opened` is the saved connection.
+    pub async fn console_check_run(
+        &self,
+        tab: TabId,
+        request: RunRequest,
+    ) -> Result<Option<WriteConfirmation>, RunError> {
+        let planned = self.plan_run(tab, request).await?;
+        let inner = planned.console.inner.lock().await;
+        let current = planned.current(&self.shared, &inner)?;
+        let opened = match &inner.session {
+            SessionSlot::Idle(idle) => idle.opened(),
+            SessionSlot::Empty | SessionSlot::Lost { .. } => &current,
+            SessionSlot::Busy { .. } => return Err(RunError::Busy),
         };
-        s.spawn_holding(console.clone(), run_id, console::run_task(console.clone(), s.clone(), session, plan, stop));
-        Ok(RunAccepted { run_id, statements: ranges, sources })
+        match admit(&planned, &inner, &current, opened, None) {
+            Ok(_) => Ok(None),
+            Err(RunError::ConfirmWrites { confirmation }) => Ok(Some(confirmation)),
+            Err(error) => Err(error),
+        }
     }
 
     pub async fn console_cancel(&self, tab: TabId) {
