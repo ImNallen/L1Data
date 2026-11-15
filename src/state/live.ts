@@ -30,6 +30,8 @@ export type LiveData = {
   connections: Record<ConnectionId, ConnectionState>;
   consoles: Record<TabId, ConsoleState>;
   output: Record<TabId, OutputLog>;
+  /** Closed tabs, so a late console event cannot bring their state back. */
+  forgotten: ReadonlySet<TabId>;
   historyTail: HistoryEntry[];
   providers: Partial<Record<ProviderKind, ProviderState>>;
   chats: Record<ChatId, ChatState>;
@@ -45,6 +47,7 @@ type LiveState = LiveData & {
   hydrateChat(view: ChatView): void;
   hydrateSaved(queries: SavedQueries): void;
   seedTranscript(id: ChatId): void;
+  forgetTab(id: TabId): void;
   apply(e: AppEvent): void;
 };
 
@@ -52,6 +55,7 @@ export const emptyLive: LiveData = {
   connections: {},
   consoles: {},
   output: {},
+  forgotten: new Set(),
   historyTail: [],
   providers: {},
   chats: {},
@@ -129,9 +133,11 @@ export function applyEvent(s: LiveData, e: AppEvent): LiveData {
     }
     case "ConsoleChanged": {
       const { kind: _, ...state } = e;
+      if (s.forgotten.has(state.tabId)) return s;
       return { ...s, consoles: keepHigher(s.consoles, state.tabId, state) };
     }
     case "ConsoleOutput": {
+      if (s.forgotten.has(e.tabId)) return s;
       const prev = s.output[e.tabId] ?? { entries: [], dropped: 0 };
       const all = prev.entries.concat(e.entries);
       const cut = Math.max(0, all.length - OUTPUT_LIMIT);
@@ -172,7 +178,7 @@ export function applyEvent(s: LiveData, e: AppEvent): LiveData {
 export function hydrateLive(s: LiveData, b: BootSnapshot): LiveData {
   let next = s;
   for (const c of b.live) next = { ...next, connections: keepHigher(next.connections, c.id, c) };
-  for (const c of b.consoles) next = { ...next, consoles: keepHigher(next.consoles, c.tabId, c) };
+  for (const c of b.consoles) if (!next.forgotten.has(c.tabId)) next = { ...next, consoles: keepHigher(next.consoles, c.tabId, c) };
   for (const p of b.providers) next = { ...next, providers: keepHigher(next.providers, p.provider, p) };
   for (const c of b.chats) next = withChat(next, c);
   return { ...next, updates: newerUpdate(next.updates, b.updates), savedQueries: newerSaved(next.savedQueries, b.savedQueries), homeDir: b.homeDir };
@@ -189,6 +195,12 @@ export function hydrateChatLive(s: LiveData, view: ChatView): LiveData {
   return withEntries(next, view.state.id, next.transcripts[view.state.id] ?? {}, view.entries);
 }
 
+export function forgetTabLive(s: LiveData, id: TabId): LiveData {
+  const { [id]: _console, ...consoles } = s.consoles;
+  const { [id]: _output, ...output } = s.output;
+  return { ...s, consoles, output, forgotten: new Set(s.forgotten).add(id) };
+}
+
 export function seedTranscriptLive(s: LiveData, id: ChatId): LiveData {
   if (s.transcripts[id] || s.chats[id]?.status.kind === "Deleted") return s;
   return { ...s, transcripts: { ...s.transcripts, [id]: {} } };
@@ -200,5 +212,6 @@ export const useLive = create<LiveState>()((set) => ({
   hydrateChat: (view) => set((s) => hydrateChatLive(s, view)),
   hydrateSaved: (queries) => set((s) => hydrateSavedLive(s, queries)),
   seedTranscript: (id) => set((s) => seedTranscriptLive(s, id)),
+  forgetTab: (id) => set((s) => forgetTabLive(s, id)),
   apply: (e) => set((s) => applyEvent(s, e)),
 }));

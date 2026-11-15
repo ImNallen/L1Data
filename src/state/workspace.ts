@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { DEFAULT_LAYOUT as FRESH_LAYOUT } from "../ipc/bindings";
 import type {
   ConnectionConfig,
   ConnectionId,
@@ -131,16 +132,10 @@ export type WorkspaceData = {
   cursor: { line: number; col: number };
 };
 
-const DEFAULT_LAYOUT: Layout = {
-  sidebar: true,
-  results: true,
-  rightPanel: null,
-  resultsHeight: 320,
-  sidebarWidth: 280,
-  sidebarSplit: 50,
-  rightPanelWidth: 341,
-  assistantChat: null,
-};
+const { resultsHeight, sidebarWidth, sidebarSplit, rightPanelWidth } = FRESH_LAYOUT;
+export const DEFAULT_PANEL_SIZES = { resultsHeight, sidebarWidth, sidebarSplit, rightPanelWidth };
+
+const DEFAULT_LAYOUT: Layout = { sidebar: true, results: true, rightPanel: null, assistantChat: null, ...DEFAULT_PANEL_SIZES };
 export const DEFAULT_SETTINGS: Settings = {
   assistantAccess: "SchemaOnly",
   maxRows: 200_000,

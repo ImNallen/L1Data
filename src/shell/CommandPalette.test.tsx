@@ -13,6 +13,11 @@ import { AppLayout } from "./AppLayout";
 import { preloadSurfaces } from "./lazySurfaces";
 import { CommandPalette } from "./CommandPalette";
 import { COMMANDS, openCommandPalette, shortcutLabel } from "./commands";
+import { DEFAULT_LAYOUT } from "../ipc/bindings";
+import { PixelColumn } from "./PixelColumn";
+
+const { sidebarWidth, sidebarSplit, rightPanelWidth, resultsHeight } = DEFAULT_LAYOUT;
+const FRESH_SIZES = { sidebarWidth, sidebarSplit, rightPanelWidth, resultsHeight };
 
 // Settings and the connection dialog load from their own chunks; loaded, they open in the same pass.
 beforeAll(preloadSurfaces);
@@ -311,12 +316,22 @@ it("groups commands without selecting headings and resets sizes without changing
   await user.type(screen.getByTestId("command-input"), "reset panel");
   expect(screen.queryByText("Query")).toBeNull();
   await user.keyboard("{Enter}");
-  expect(useWorkspace.getState().layout).toMatchObject({
-    sidebar: false,
-    rightPanel: "Assistant",
-    results: false,
-    sidebarWidth: 240,
-    rightPanelWidth: 360,
-    resultsHeight: 320,
-  });
+  expect(useWorkspace.getState().layout).toMatchObject({ sidebar: false, rightPanel: "Assistant", results: false, ...FRESH_SIZES });
+});
+
+it("returns each side column to its fresh-install width on a double-click of its resize line", () => {
+  useWorkspace.getState().setLayout({ sidebarWidth: 470, rightPanelWidth: 540 });
+  render(
+    <>
+      <PixelColumn column="sidebar" open>
+        {null}
+      </PixelColumn>
+      <PixelColumn column="right" open>
+        {null}
+      </PixelColumn>
+    </>,
+  );
+  fireEvent.doubleClick(screen.getByTestId("sidebar-resize"));
+  fireEvent.doubleClick(screen.getByTestId("right-panel-resize"));
+  expect(useWorkspace.getState().layout).toMatchObject({ sidebarWidth: FRESH_SIZES.sidebarWidth, rightPanelWidth: FRESH_SIZES.rightPanelWidth });
 });
