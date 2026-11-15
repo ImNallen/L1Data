@@ -332,11 +332,11 @@ pub struct ResultMeta {
 #[derive(Clone, Serialize, Type)]
 pub struct ColumnMeta {
     pub name: String,
-    pub r#type: PgTypeRef,
+    pub r#type: SqlTypeRef,
     pub source: Option<ColumnSource>,  // table_oid + attnum: the grid's PK icon (isPrimaryKey in state/catalog.ts) and foreign key follow; set on PostgreSQL results that read a table column and on SQL Server table pages
 }
 #[derive(Clone, Serialize, Type)]
-pub struct PgTypeRef { pub oid: u32, pub display: String /* "bigint", "integer[]", "order_status" */, pub category: TypeCategory }
+pub struct SqlTypeRef { pub display: String /* "bigint", "integer[]", "order_status" */, pub category: TypeCategory }
 #[derive(Clone, Copy, Serialize, Type)]
 pub enum TypeCategory { Integer /* int2, int4, int8, oid */, Numeric, Text, Bool, Temporal, Json, Binary, Uuid, Network, Array, Enum, Composite, Range, Other }
 #[derive(Clone, Copy, Serialize, Type)] pub struct ColumnSource { pub table_oid: u32, pub attnum: i16 }
@@ -415,13 +415,13 @@ pub struct Layout {
 #[derive(Clone, Serialize, Type)]
 pub struct Settings {
     pub assistant_access: AssistantAccess, // SchemaOnly by default, including older stored settings
-    pub max_rows: u32 /* 200_000 */, pub max_result_bytes: u64 /* 512 MiB */, pub table_page_size: u32 /* 500 */, pub stop_on_error: bool, pub theme: Theme /* System */,
+    pub max_rows: u32 /* 200_000 */, pub max_result_bytes: u64 /* 512 MiB */, pub table_page_size: u32 /* 500 */, pub stop_on_error: bool, pub color_scheme: ColorScheme /* System */,
     pub providers: Vec<ProviderConfig>,    // one per ProviderKind::ALL, in that order
     pub provider_health_check_secs: u32,   // 300; 0 turns the background check off
 }
 #[derive(Clone, Copy, Default, Serialize, Deserialize, Type)] pub enum AssistantAccess { #[default] SchemaOnly, Full }
-#[derive(Clone, Copy, Default, Serialize, Deserialize, Type)] pub enum Theme { #[default] System, Light, Dark }
-// Settings has a hand-written Deserialize: settings saved before `theme` existed load with Theme::System,
+#[derive(Clone, Copy, Default, Serialize, Deserialize, Type)] pub enum ColorScheme { #[default] System, Light, Dark }
+// Settings has a hand-written Deserialize: a saved `theme` loads as `color_scheme`, settings saved before it existed load with ColorScheme::System,
 // and settings saved before `providers` existed load the Claude default.
 
 #[derive(Serialize, Type)]
@@ -615,9 +615,18 @@ Each command is one line delegating to `Engine`. tauri-specta uses `ErrorHandlin
 | `console_commit` | `TabId, confirmed: Option<WriteDigest>` | `Result<(), TxnError>` | `Busy`, `NoTransaction`. Commit in `Aborted` reports `RolledBack`. On Production, a commit that would keep writes no Production question covered returns `ConfirmWrites` that lists them and sends nothing unless `confirmed` matches. |
 | `console_rollback` | `TabId` | `Result<(), TxnError>` | |
 | `table_apply` | `TabId, TableChanges, confirmed: Option<WriteDigest>` | `Result<ApplySummary, ApplyError>` | Applies staged row edits on the tab's session, all or nothing. On a Production connection it applies only with a matching `confirmed`, as `console_run` does. |
+| `table_script` | `db: DatabaseRef, schema: String, table: String` | `Result<TableScript, String>` | Sync. The browse SQL for a table tab in the connection's dialect, and the texts that count as that same browse. See [Implementation reconciliation](#implementation-reconciliation). |
+| `table_order` | `db: DatabaseRef, schema: String, table: String, orderBy: String, edit: TableOrderEdit` | `Result<TableOrderView, String>` | Sync. A header click's new ORDER BY text and the sort keys it shows. See [Implementation reconciliation](#implementation-reconciliation). |
+| `table_import_prepare` | `TabId, target: ImportTarget, file: String` | `Result<ImportSourceId, ImportError>` | Starts reading and checking a CSV file for a PostgreSQL table tab and returns the draft's id at once. See [Implementation reconciliation](#implementation-reconciliation). |
+| `table_import_preview` | `TabId, source: ImportSourceId, header: bool` | `Result<ImportPreview, ImportError>` | Waits for the draft, then returns its counts, the default mapping, and up to ten sample records. |
+| `table_import` | `TabId, ImportRequest, confirmed: Option<WriteDigest>` | `Result<ImportSummary, ImportError>` | Copies the draft into the table on the tab's session. On Production it returns `ConfirmWrites` unless `confirmed` matches, as `console_run` does. |
+| `table_import_discard` | `TabId, source: ImportSourceId` | `Result<(), ImportError>` | Drops the matching draft only. |
 | `console_close` | `TabId, force: bool` | `Result<(), DisconnectError>` | Drops session and results. |
 | `result_page` | `ResultRef, start: u32, len: u32` | `Result<RowPage, ResultError>` | `Gone` if the tab re-ran or closed. `len` ≤ 2,000. |
 | `result_cell` | `ResultRef, row: u32, col: u16` | `Result<Option<String>, ResultError>` | Full value for cut cells. |
+| `result_find` | `ResultRef, query: String, direction: ResultFindDirection` | `Result<ResultFind, ResultError>` | Case-insensitive literal search over every stored cell, cut cells in full. Returns the match count and the first match, or the next or previous one from `anchor`. |
+| `result_cell_matches` | `ResultRef, cell: ResultCell, query: String` | `Result<bool, ResultError>` | Whether one stored cell matches `query` as `result_find` matches. An empty query matches nothing. |
+| `result_aggregate` | `ResultRef, rows: RowSpan, cols: ColSpan` | `Result<CellAggregate, ResultError>` | Counts the cells of a selected rectangle. One integer or numeric column, other than `money`, also gets sum, average, minimum, and maximum when every non-null cell parses. |
 | `result_series` | `ResultRef, x: Option<u16>, y: u16, maxPoints: u32` | `Result<ChartSeries, ResultError>` | Reads the first `min(maxPoints, 2,000)` stored rows for a chart. `labels` holds the x column's text, cut like a page cell, or the 1-based row number when `x` is `None`. `values` holds the y column as `f64`, `None` for NULL or text that is not a finite number. `capped` says more rows are stored. `OutOfRange` for a column outside the result. |
 | `result_profile` | `ResultRef, col: u16` | `Result<ColumnProfile, ResultError>` | Reads every stored cell of one column. Counts rows, NULLs, and distinct non-null texts. An integer or numeric column other than `money` or `smallmoney` whose every non-null text parses gets `Numeric`: exact `min`, `mean`, and `max` text from the selection-totals code, and 12 equal-width `f64` bins between the finite minimum and maximum, or one bin when they are equal. Any other column gets `Values`: the five most frequent texts, ties in first-appearance order, cut like a page cell. `OutOfRange` for a column outside the result. |
 | `result_drill` | `ResultRef, point: DrillPoint` | `Result<String, DrillError>` | The SQL of the rows behind one stored row of a PostgreSQL result, for a chart click. `sql::drill` cuts the result's `Origin` SQL, only when it is `Rerun::Ready`, into its `WITH`, `FROM`, and `WHERE` text and matches every `GROUP BY` key to a result column. `Row { row, title }` builds `SELECT *` with that text and one equality per key against the row's stored value, and `Probe` answers `""` when a row would. `Ungrouped` for SQL with no `SELECT … FROM … GROUP BY`, which the chart does not explain. `Unsupported { reason }` for a table page, SQL Server, unvetted or refused SQL, and every shape the rewrite cannot keep exact. |
@@ -890,12 +899,12 @@ pub fn needs_implicit_begin(mode: TxnMode, state: TxnState, kind: &StmtKind) -> 
 pub struct OffsetMap<'a> { /* sql text */ }
 impl OffsetMap<'_> {
     pub fn to_utf16(&self, byte: usize) -> DocOffset;
-    pub fn from_utf16(&self, off: DocOffset) -> usize;
+    pub fn to_byte(&self, off: DocOffset) -> usize;
     pub fn range(&self, span: &StmtSpan) -> DocRange;
     /// PG ErrorPosition::Original(n) is a 1-based character index within the statement.
     pub fn pg_position(&self, stmt: &StmtSpan, n: u32) -> DocOffset;
 }
-pub fn type_ref(t: &tokio_postgres::types::Type) -> PgTypeRef;       // int8 -> bigint, _int4 -> integer[], Kind -> category
+pub fn type_ref(t: &tokio_postgres::types::Type) -> SqlTypeRef;       // int8 -> bigint, _int4 -> integer[], Kind -> category
 pub fn synthesize_tag(kind: &StmtKind, rows: u64) -> String;          // "INSERT 0 3", "UPDATE 3", "CREATE TABLE"
 pub fn quote_ident(name: &str) -> String;
 pub fn quote_literal(value: &str) -> String;
@@ -1096,7 +1105,7 @@ crates/engine/
   src/text.rs                 # UTF-16 mapping, type_ref, synthesize_tag, quoting, browse/count/edit SQL
   src/results.rs              # Arena, pages, each result's Origin
   src/export/{mod,encode}.rs  # export: CSV, JSON, Markdown, and INSERT encoders, the all-rows re-run, its fence and writer
-  src/catalog.rs              # 4 catalog queries -> Catalog
+  src/catalog.rs              # lookups on a loaded Catalog; session/{postgres,mssql}/catalog.rs load it
   src/store.rs                # SQLite: migrations, connections, history, kv, secrets, ssh_secrets, saved_queries
   src/saved.rs                # saved queries: what a save takes, default names, limits, dedupe, the revision, the list
   src/notebook_file.rs        # pure: a notebook file's header, `-- %%` cells, and metadata, parsed and printed back
@@ -1145,7 +1154,7 @@ src/                          # frontend
   features/assistant/{AssistantPanel,Transcript,ReplyText,SqlCard,SqlHighlight,ToolCard,Composer,ChatHistory,providerIcons}.tsx  features/assistant/{assistantActions,assistantText}.ts
   features/sidebar/{Sidebar,SidebarSearch,ConnectionTree,VirtualTree}.tsx  features/sidebar/{treeFilter,detailText}.ts   # the tree flattens its visible rows and virtualizes them, with one shared context menu
   features/connections/{ConnectionDialog,connectionColors}.tsx  features/connections/connectionActions.ts
-  features/editor/{SqlEditor.tsx,editorStates.ts,runActions.ts,persistence.ts,sqlIdent.ts,theme.ts}
+  features/editor/{SqlEditor.tsx,editorStates.ts,runActions.ts,persistence.ts,theme.ts}
   features/updates/{UpdateButton.tsx,updateActions.ts,updateText.ts}   # the sidebar update button and its change list card, the install confirm loop, every update string
   features/results/{ResultsPane,ResultGrid,FilterBar}.tsx  features/results/{format,tableQuery}.ts
   features/queries/QueriesDialog.tsx   # one dialog for query history and saved queries, with the History and Saved switch
@@ -1216,7 +1225,7 @@ Tracing a run from the button to the grid takes four files: `runActions.ts` → 
    - table pages sort and filter in the engine
    - SQL comments in WHERE and ORDER BY keep the page limit
    - assistant queries: Postgres refuses each write the lexer let through, a session advisory lock dies with the call, the statement timeout and the row and cell caps hold, no row crosses the byte budget and a first row that would is cut to fit, a wide row stays within the budget in the stored result and the model text, a manual tab's uncommitted insert stays untouched and unseen by an approved count, `describe_tables` lists a foreign key and an index, the context sends the schema outline once per provider session, every vetted name is a `pg_catalog` function with no volatile overload, every vetted operator symbol is a `pg_catalog` operator with no volatile implementation, the keyword lists match the server's, and Auto asks for a `U&`-escaped call
-3. **Frontend units** (`pnpm test`, vitest, 38 files):
+3. **Frontend units** (`pnpm test`, vitest):
    - `live.apply` rev ordering and exhaustiveness
    - numeric grouping on text (`-1234567.890` → `-1,234,567.890`), page labels, elapsed time, TSV
    - the catalog view's qualified tables and functions, substring matching, the tree filter, and the settings filter
@@ -1229,7 +1238,7 @@ Tracing a run from the button to the grid takes four files: `runActions.ts` → 
    - grid header icons and key navigation, history list paging, settings screen, window chrome, theme, global shortcuts, the bridge shim
    - the assistant: `live.apply` for providers, chats, entries, and tombstones, turn grouping, tool lines, provider status text, ignored launch arguments, send requests with UTF-16 offsets and an attached result, Replace tab as one undo, the resync check, SQL cards, and the panel's pickers, approval card, and failure states
 4. **Contract drift**: a `src-tauri` test (`export_bindings_up_to_date`) renders bindings to a string and asserts equality with `src/ipc/bindings.ts`. A second test asserts the dev-bridge dispatch table covers exactly the registered command names. The dev-bridge also tests that `app_boot` replies with the snapshot and that bad requests are bridge errors, not command errors.
-5. **UI against the real engine** (`pnpm bridge`). `crates/dev-bridge` hosts the same `Engine` (MemoryKeyStore, temp `L1_DATA_DATA_DIR`) behind `POST /invoke/:cmd` and an SSE stream of `AppEvent`. It listens on 127.0.0.1 at `L1_DATA_BRIDGE_PORT` (default 7077) and accepts requests only from the vite origin at `L1_DATA_VITE_PORT` (default 5173). Each variable takes only ASCII digits for a port from 1 to 65535. Vite checks both only when it serves, and passes the bridge port to the page, so separate port pairs run separate bridges side by side. In vite dev outside Tauri, `src/dev/bridgeShim.ts` installs `mockIPC` from `@tauri-apps/api/mocks` (with `shouldMockEvents`) that forwards every command to the bridge and re-emits SSE frames as `app-event`. The generated bindings run unchanged. An agent drives it with agent-browser or Playwright, selecting by `data-testid`:
+5. **UI against the real engine** (`pnpm bridge`). `crates/dev-bridge` hosts the same `Engine` (MemoryKeyStore, temp `L1_DATA_DATA_DIR`) behind `POST /invoke/:cmd` and an SSE stream of `AppEvent`. It listens on 127.0.0.1 and accepts requests only from the vite origin. [docs/development.md](development.md#environment-variables) gives both ports. In vite dev outside Tauri, `src/dev/bridgeShim.ts` installs `mockIPC` from `@tauri-apps/api/mocks` (with `shouldMockEvents`) that forwards every command to the bridge and re-emits SSE frames as `app-event`. The generated bindings run unchanged. An agent drives it with agent-browser or Playwright, selecting by `data-testid`:
    - create connection via the dialog, test it, save it, and see "Live" plus `customers 18.4k`-style estimates in the tree
    - ⌘P, type "ord it", and Enter opens `order_items`; the table tab shows 500 rows
    - new tab: type the mockup query, ⌘↵, see status "6 rows ·", the `orders` header tooltip `orders bigint`, right-aligned numbers
@@ -1241,7 +1250,7 @@ Tracing a run from the button to the grid takes four files: `runActions.ts` → 
    - after a bridge restart, the chat reopens from history and a resumed turn answers from memory
    - with `L1_DATA_UPDATE_SCENARIO` (`update/scripted.rs` defines the scenarios): `available` checks, downloads with a progress ring, and confirms a restart that names a running query and an open transaction, then shows Restarting; `nightly-build` switched to Stable in **Settings** > **General** offers 0.1.0 as an older build; `offline` and `install-fails` show their failure text; `off` shows no button
    - with no signed-in CLI, `fake-claude` stands in. Build it with `cargo build -p engine --bin fake-claude`, then set **Binary path** to `target/debug/fake-claude` and **Launch arguments** to `--fake-scenario <name>`; the comment at the top of `crates/engine/src/bin/fake_claude.rs` lists every scenario, and `card`, `query`, `slow`, `wedged`, `crash`, and `resume-lost` are the ones to start with
-6. **Real shell.** `pnpm self-check` launches the debug binary with `L1_DATA_SELF_CHECK=1`: it boots `Engine` inside Tauri, connects to the dev DB, runs `SELECT 1` and loads the catalog, prints JSON, and exits 0. `pnpm screenshot` covers WKWebView rendering on macOS. It starts a throwaway Postgres, seeds a workspace and an assistant chat that `fake-claude` answers through the dev-bridge, launches the debug app on that data dir, and captures its window with `screencapture` into `docs/images/l1-data.png`. Driving the real webview with `@wdio/tauri-service` (embedded provider, verified to support macOS) is not built.
+6. **Real shell.** `pnpm self-check` launches the debug binary with `L1_DATA_SELF_CHECK=1`: it boots `Engine` inside Tauri, connects to the dev DB, runs `SELECT 1` and loads the catalog, prints JSON, and exits 0. `pnpm screenshot` covers WKWebView rendering on macOS. [docs/development.md](development.md#checks) says what it needs. Driving the real webview with `@wdio/tauri-service` (embedded provider, verified to support macOS) is not built.
 7. **Real CLI.** `cargo test -p engine --features claude-smoke --test claude_smoke -- --nocapture` needs a signed-in `claude` and `pnpm db:up`. It spends three Haiku turns at low effort. It checks what `fake-claude` cannot: the CLI accepts the argv and the child env, a resumed session remembers the earlier turn, and a `can_use_tool` ask approved after 75 s still runs its query.
 
 ## Synthesis decision
@@ -1340,7 +1349,7 @@ These items record where the current implementation differs from or adds to the 
 - **Window chrome.** On macOS, `main.rs` turns decorations back on with an overlay title bar and a hidden title. The native traffic lights sit over the sidebar header, and macOS handles resizing. On Windows and Linux, `tauri.conf.json` sets `decorations` to false, and the webview draws the resize edges and the minimize, maximize, and close buttons at the right of the toolbar. The toolbar and the sidebar header are drag regions on every platform. `hostedWindow()` returns `{ chrome: "native" }` on macOS, the custom controls elsewhere, and null in the dev-bridge browser, where no window controls show. The sidebar toggle leads whichever header touches the window's left edge. That is the sidebar header while the sidebar is open and the toolbar while it is hidden. `windowLeadingInset()` gives both headers the same left padding, so the toggle stays put. On macOS that padding clears the traffic lights. The 56px header height and the macOS padding stay the same at every density, because the traffic lights don't scale. The "L1 Data" title follows the toggle on every platform. The window opens with the persisted theme, or no theme for System, so native chrome such as the traffic lights matches from the first frame. When that theme resolves to light, `main.rs` sets a white window background. `index.html` paints a `light-dark()` background for the same reason. `startTheme()` paints the document from the webview's `prefers-color-scheme` before the first render. After that, in the app window, each theme change awaits the window's `setTheme` before it repaints, because the webview reports the window's forced theme until then. Only the latest change repaints and then calls `setBackgroundColor`. In the browser, the repaint is immediate.
 - **Engine additions.** `Engine::data_dir()` lets the self-check report and the bridge log show the directory in use. `KeyringKeyStore` and `MemoryKeyStore` are implemented, not stubbed, and sealed passwords are keyed by `ConnectionId`.
 - **Panel sizes.** The sidebar and the right panel are plain columns on either side of the main area, with widths set in pixels from `layout.sidebarWidth` and `layout.rightPanelWidth`. They used to be react-resizable-panels panels, which kept each one as a share of the window, so their widths changed whenever the window resized. `PixelColumn` draws either column with its resize handle. The sidebar's handle sits on its right edge and the right panel's on its left. A drag updates the width live, clamps it (200 to 480 pixels for the sidebar, 260 to 560 for the right panel), and saves it once on release. ArrowLeft and ArrowRight on the focused handle move it 8 pixels and save each step. Dragging one column takes space from the main area only. The main area keeps at least 320 pixels. When the window is too narrow for both columns beside it, the right panel shrinks toward its minimum first and the sidebar after it, without changing the saved widths. A drag or arrow key starts from the drawn width, so a squeezed column follows the pointer with no jump. A vertical react-resizable-panels `Group` still holds the editor and the results, and saves the results height on release.
-- **Defaults the design left open.** `Settings::default()` sets `stop_on_error: true` and `theme: System`. `Layout::default()` is sidebar and results shown, no right panel, `results_height: 320`, `sidebar_width: 256`, and `right_panel_width: 341`.
+- **Defaults the design left open.** `Settings::default()` sets `stop_on_error: true` and `color_scheme: System`. `Layout::default()` is sidebar and results shown, no right panel, `results_height: 320`, `sidebar_width: 256`, and `right_panel_width: 341`.
 - **Fonts** come from `@fontsource-variable/inter` and `@fontsource-variable/jetbrains-mono`, the variable-axis builds of the Fontsource packages. They are the default interface and code fonts. `themes/fonts.ts` lists the other choices, which are system fonts. The picker offers one only when a canvas width probe finds it installed, because WKWebView has no `queryLocalFonts`.
 
 Engine phase (every `todo!()` in `crates/engine` filled in, self-check wired). The contract did not change; `src/ipc/bindings.ts` is byte-identical.
