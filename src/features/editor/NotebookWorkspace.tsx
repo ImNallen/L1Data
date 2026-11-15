@@ -18,6 +18,7 @@ import { CellResizeHandle } from "./CellResizeHandle";
 import { CELL_SCROLL_MARGIN, cellHeights, EDITOR_MIN, pinnedTop, type DraggedHeights } from "./cellSizing";
 import { closeTab } from "./closeTab";
 import { goToCell } from "../notebooks/cellNavigation";
+import { ParamsStrip } from "../notebooks/ParamsStrip";
 import { staleness, stalenessText } from "../notebooks/references";
 import { docText } from "./docText";
 import { activateEditor, docOf, onBuffersChanged, textOf } from "./editorStates";
@@ -379,6 +380,7 @@ const cellRect = (scroller: HTMLElement, id: TabId) => scroller.querySelector(`[
 const resizing = (animation: Animation) => animation instanceof CSSTransition && animation.transitionProperty === "height";
 
 export function NotebookWorkspace() {
+  const notebook = useWorkspace((s) => shownNotebook(s)?.id);
   const cells = useWorkspace((s) => shownNotebook(s)?.cells ?? NO_CELLS);
   const scroller = useRef<HTMLDivElement>(null);
   const settle = useRef<{ id: TabId; anchorTop: number } | null>(null);
@@ -429,7 +431,12 @@ export function NotebookWorkspace() {
       {cells.length === 0 ? (
         <StartCommands />
       ) : (
-        cells.map((id, index) => <NotebookCell key={id} id={id} index={index} viewport={viewport} focused={focused === id} />)
+        <>
+          {notebook && <ParamsStrip id={notebook} />}
+          {cells.map((id, index) => (
+            <NotebookCell key={id} id={id} index={index} viewport={viewport} focused={focused === id} />
+          ))}
+        </>
       )}
     </div>
   );

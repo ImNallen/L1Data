@@ -1,9 +1,10 @@
 import { useRef, useState } from "react";
+import type { ParamValue } from "../../ipc/bindings";
 import { Button, Modal } from "../../ui/primitives";
 import { finishParams, useParams, type ParamPrompt } from "./paramsState";
 
 function Prompt({ prompt }: { prompt: ParamPrompt }) {
-  const [values, setValues] = useState(prompt.values);
+  const [values, setValues] = useState<ParamValue[]>(() => prompt.params.map(({ name }) => ({ name, value: "" })));
   const first = useRef<HTMLInputElement>(null);
   const run = () => finishParams(values);
   return (
@@ -29,7 +30,7 @@ function Prompt({ prompt }: { prompt: ParamPrompt }) {
                 {param.name}
               </label>
               <input
-                ref={index === 0 && param.value !== null ? first : undefined}
+                ref={index === 0 ? first : undefined}
                 id={`param-${index}`}
                 data-testid={`param-value-${param.name}`}
                 className="min-w-0 flex-1 rounded-md border border-control bg-bg px-2.5 py-1.5 font-mono text-ui-12.5 text-fg outline-none focus:border-focus disabled:opacity-40"
@@ -39,7 +40,6 @@ function Prompt({ prompt }: { prompt: ParamPrompt }) {
               />
               <label className="flex items-center gap-1.5 text-ui-12 text-dim">
                 <input
-                  ref={index === 0 && param.value === null ? first : undefined}
                   type="checkbox"
                   data-testid={`param-null-${param.name}`}
                   aria-label={`${param.name} is NULL`}

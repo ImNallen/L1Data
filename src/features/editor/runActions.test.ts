@@ -20,6 +20,7 @@ import { buildCatalogView, useCatalog } from "../../state/catalog";
 import { dbKey } from "../../state/dbKey";
 import { useLive } from "../../state/live";
 import { markDeleted, pendingCount, setCell, useTableEdits } from "../../state/tableEdits";
+import { notebookOf } from "../../state/notebooks";
 import { activeId, useWorkspace, workspaceSnapshot } from "../../state/workspace";
 import { gridEditing } from "../results/ResultGrid";
 import { dropEditor, editorStateOf, insertAtCursor, moveCursor, seedEditor, textOf } from "./editorStates";
@@ -1327,8 +1328,12 @@ describe("parameter run intents", () => {
   function start(mode: "Run" | "Explain" = "Run") {
     useWorkspace.setState({ configs: { c1: connectionConfig("c1", "dev") } });
     const runs: unknown[] = [];
+    const discoveries: unknown[] = [];
     mockIPC((cmd, args) => {
-      if (cmd === "script_params") return [{ name: ":id" }];
+      if (cmd === "script_params") {
+        discoveries.push(args);
+        return [{ name: ":id" }];
+      }
       if (cmd === "script_outline") return { statements: [], atCursor: null, unitKind: "Statement" };
       if (cmd === "console_run") {
         runs.push(args);
@@ -1339,19 +1344,73 @@ describe("parameter run intents", () => {
     const id = openSqlTab({ db: { connectionId: "c1", database: "shop" }, text: "select :id::integer" });
     if (mode === "Explain") explainActive("Explain");
     else runActive({ kind: "all" });
-    return { id, runs };
+    return { id, runs, discoveries, notebook: () => notebookOf(useWorkspace.getState().notebooks, id)! };
   }
 
-  it("uses the parameter snapshot for Explain and remembers it in this tab", async () => {
-    const { id, runs } = start("Explain");
-    await vi.waitFor(() => expect(useParams.getState().prompt).not.toBeNull());
+  it("asks once for a name the notebook has no value for, keeps the answer on the notebook, and runs with it again without asking", async () => {
+    const { id, runs, notebook } = start("Explain");
+    await vi.waitFor(() => expect(useParams.getState().prompt?.params).toEqual([{ name: ":id" }]));
     finishParams([{ name: ":id", value: "42" }]);
     await vi.waitFor(() => expect(runs).toHaveLength(1));
     expect(runs[0]).toMatchObject({ tabId: id, request: { kind: "script", mode: "Explain", params: [{ name: ":id", value: "42" }] } });
+    expect(notebook().params).toEqual([{ name: ":id", value: "42" }]);
     runActive({ kind: "all" });
-    await vi.waitFor(() => expect(useParams.getState().prompt?.values).toEqual([{ name: ":id", value: "42" }]));
+    await vi.waitFor(() => expect(runs).toHaveLength(2));
+    expect(useParams.getState().prompt).toBeNull();
+    expect(runs[1]).toMatchObject({ request: { mode: "Run", params: [{ name: ":id", value: "42" }] } });
+  });
+
+  it("discovers names through the notebook's cells, asks only for the missing ones, and sends the notebook's whole list", async () => {
+    useWorkspace.setState({ configs: { c1: connectionConfig("c1", "dev") } });
+    const db = { connectionId: "c1", database: "shop" };
+    const a = openSqlTab({ db, text: "select :x::int + 1 as n", title: "a" });
+    const b = openSqlTab({ db, text: "select * from {{a}} where n > :min", title: "b" });
+    const notebook = notebookOf(useWorkspace.getState().notebooks, b)!.id;
+    useWorkspace.getState().mergeParams(notebook, [
+      { name: ":min", value: "0" },
+      { name: ":other", value: null },
+    ]);
+    const discoveries: unknown[] = [];
+    const runs: unknown[] = [];
+    mockIPC((cmd, args) => {
+      if (cmd === "script_params") {
+        discoveries.push(args);
+        return [{ name: ":min" }, { name: ":x" }];
+      }
+      if (cmd === "script_outline") return { statements: [], atCursor: null, unitKind: "Statement" };
+      if (cmd === "console_run") {
+        runs.push(args);
+        return { runId: 1, statements: [], sources: [] };
+      }
+      return null;
+    });
+    runActive({ kind: "all" });
+    await vi.waitFor(() => expect(useParams.getState().prompt?.params).toEqual([{ name: ":x" }]));
+    const cells = [
+      { name: "a", text: textOf(a) },
+      { name: "b", text: textOf(b) },
+    ];
+    expect(discoveries).toEqual([{ text: textOf(b), target: { kind: "all" }, databaseKind: "Postgres", cells }]);
+    finishParams([{ name: ":x", value: "41" }]);
+    await vi.waitFor(() => expect(runs).toHaveLength(1));
+    expect(runs[0]).toMatchObject({
+      request: {
+        params: [
+          { name: ":min", value: "0" },
+          { name: ":other", value: null },
+          { name: ":x", value: "41" },
+        ],
+        cells,
+      },
+    });
+  });
+
+  it("merges nothing from a cancelled prompt", async () => {
+    const { runs, notebook } = start();
+    await vi.waitFor(() => expect(useParams.getState().prompt).not.toBeNull());
     finishParams(null);
-    expect(runs).toHaveLength(1);
+    await Promise.resolve();
+    expect([runs, notebook().params]).toEqual([[], []]);
   });
 
   it.each(["document", "tab", "database", "overlay"])("cancels a parameter prompt when its %s changes", async (change) => {
@@ -1396,9 +1455,8 @@ describe("parameter run intents", () => {
     expect(runs[0]).toMatchObject({ confirmed: null, request: { params: [{ name: ":id", value: "42" }] } });
     expect(runs[1]).toMatchObject({ confirmed: "value-digest", request: { params: [{ name: ":id", value: "42" }] } });
     runActive({ kind: "all" });
-    await vi.waitFor(() => expect(useParams.getState().prompt).not.toBeNull());
-    finishParams([{ name: ":id", value: "42" }]);
     await vi.waitFor(() => expect(useWorkspace.getState().overlay.kind).toBe("ask"));
+    expect(useParams.getState().prompt).toBeNull();
     seedEditor(id, "select changed");
     useWorkspace.getState().answer("btn");
     await Promise.resolve();
