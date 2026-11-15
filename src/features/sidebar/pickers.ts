@@ -1,4 +1,5 @@
 import type { Catalog, ConnectionConfig, DatabaseState, DbAccess, InstanceState, Preset, SchemaCount, ViewEdit } from "../../ipc/bindings";
+import { plural } from "../editor/writeQuestions";
 
 /** `warn` paints the pill amber: the user chose to show nothing out of something. */
 export type ShownCount = { shown: number; total: number; warn: boolean };
@@ -35,8 +36,6 @@ export function countText(c: ShownCount): string {
   return `${c.shown}/${c.total}`;
 }
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-
 const matches = (query: string) => {
   const q = query.trim().toLowerCase();
   return (name: string) => name.toLowerCase().includes(q);
@@ -70,7 +69,7 @@ const ACCESS_REASON: Record<Exclude<DbAccess, "Ok">, string> = {
 function schemaCountText(count: SchemaCount): Pick<PickerItem, "trailing" | "trailingTitle"> {
   switch (count.kind) {
     case "Known":
-      return { trailing: plural(count.count, "schema", "schemas") };
+      return { trailing: plural(count.count, "schema") };
     case "Unknown":
     case "Probing":
       return { trailing: "…" };
@@ -125,7 +124,7 @@ export function schemaPicker(state: DatabaseState, catalog: Catalog, query: stri
         name: s.name,
         checked: shown.has(s.name),
         isDefault: s.name === catalog.defaultSchema,
-        trailing: plural(s.tableCount, "table", "tables"),
+        trailing: plural(s.tableCount, "table"),
         disabled: false,
         system: s.system,
       })),

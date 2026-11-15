@@ -52,7 +52,7 @@ import { defaultChart, type ChartSpec } from "./chart";
 import { ChartView } from "./ChartView";
 import { ExportMenu } from "./ExportMenu";
 import { FilterBar } from "./FilterBar";
-import { groupDigits, hasResultPager, PAGE_SIZES, pageStatus, pluralRows, resultPage, type RowWindow } from "./format";
+import { groupCount, hasResultPager, PAGE_SIZES, pageStatus, pluralRows, resultPage, type RowWindow } from "./format";
 import { ErrorBlock, OutputPanel } from "./OutputPanel";
 import { PlanView } from "./PlanView";
 import { gridEditing, ResultGrid, type GridActions, type GridEditing, type GridQuery } from "./ResultGrid";
@@ -102,7 +102,7 @@ function PagerBar({
         <MenuContent align="end">
           {PAGE_SIZES.map((n) => (
             <MenuItem key={n} testId={`page-size-${n}`} checked={n === size} onSelect={() => void saveSettings({ tablePageSize: n })}>
-              {groupDigits(String(n))} per page
+              {groupCount(n)} per page
             </MenuItem>
           ))}
         </MenuContent>

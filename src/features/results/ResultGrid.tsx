@@ -74,7 +74,7 @@ import { openTableTab } from "../editor/runActions";
 import { useKeyLinks, type KeyLink } from "./foreignKeys";
 import { ColumnProfilePopover } from "./ColumnProfile";
 import { cellAt, DEFAULT, EMPTY_MARK, GridEditor, GridRow, NULL_MARK, rowNumberAt, type Cell } from "./GridRows";
-import { groupDigits, isNumeric, toTsv, type RowWindow } from "./format";
+import { groupCount, groupDigits, isNumeric, toTsv, type RowWindow } from "./format";
 import { formatSelectionTotals, type SelectionSlot } from "./selectionTotals";
 import { useResultFind } from "./useResultFind";
 import { referencedRows, type SortKey } from "./tableQuery";
@@ -319,7 +319,7 @@ async function copySelection(
   const c0 = Math.min(sel.anchor.col, sel.focus.col);
   const c1 = Math.max(sel.anchor.col, sel.focus.col);
   if (r1 - r0 + 1 > COPY_ROW_LIMIT) {
-    notify(`Copy is limited to ${groupDigits(String(COPY_ROW_LIMIT))} rows. Use Export for the full result.`);
+    notify(`Copy is limited to ${groupCount(COPY_ROW_LIMIT)} rows. Use Export for the full result.`);
     return;
   }
   if (r0 < rowCount) await cache.ensure({ start: r0, end: Math.min(r1, rowCount - 1) + 1 }, rowCount);
@@ -337,7 +337,7 @@ async function copySelection(
   }
   await navigator.clipboard.writeText(toTsv(rows));
   const cells = (r1 - r0 + 1) * (c1 - c0 + 1);
-  if (cells > 1) notify(`Copied ${groupDigits(String(cells))} cells.`);
+  if (cells > 1) notify(`Copied ${groupCount(cells)} cells.`);
 }
 
 /** Which columns are primary keys, per the catalog of the database the rows came from. */

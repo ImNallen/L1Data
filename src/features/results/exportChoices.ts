@@ -1,5 +1,5 @@
 import type { ExportFormat, ExportScope, ResultMeta, RowsState } from "../../ipc/bindings";
-import { groupDigits, pluralRows } from "./format";
+import { groupCount, pluralRows } from "./format";
 
 /** Keyed by the generated union, so a format added in model.rs fails the typecheck until it has a row here. */
 export const EXPORT_FORMATS: Record<ExportFormat, { label: string; extension: string }> = {
@@ -22,7 +22,7 @@ export type ExportMenuModel = { groups: ExportGroup[]; note: string | null };
 export function exportMenu(meta: ResultMeta, state: RowsState, table: TablePage | null): ExportMenuModel {
   const incomplete = meta.truncated !== null || state !== "Complete";
   const every = { groups: [{ scope: "Loaded" as const, label: pluralRows(meta.rowCount) }], note: null };
-  const loaded = `${groupDigits(String(meta.rowCount))} loaded rows`;
+  const loaded = `${groupCount(meta.rowCount)} loaded rows`;
   switch (meta.allRows.kind) {
     case "Table": {
       if (table && table.page === 0 && meta.rowCount < table.pageSize && !incomplete) return every;

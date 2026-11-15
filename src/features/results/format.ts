@@ -19,13 +19,13 @@ export function isNumeric(category: TypeCategory): boolean {
   return category === "Integer" || category === "Numeric";
 }
 
-const digits = (v: number) => groupDigits(String(v));
+export const groupCount = (n: number): string => groupDigits(String(n));
 
 function totalLabel(last: number, shortPage: boolean, estimate: number | null, exactRowCount: number | undefined): string {
-  if (exactRowCount !== undefined) return digits(exactRowCount);
-  if (shortPage) return digits(last);
-  if (estimate !== null && estimate > last) return `~${digits(estimate)}`;
-  return `${digits(last)}+`;
+  if (exactRowCount !== undefined) return groupCount(exactRowCount);
+  if (shortPage) return groupCount(last);
+  if (estimate !== null && estimate > last) return `~${groupCount(estimate)}`;
+  return `${groupCount(last)}+`;
 }
 
 export function pageStatus(
@@ -38,8 +38,8 @@ export function pageStatus(
   const first = page * size;
   const last = first + rows;
   const isLast = exactRowCount !== undefined ? last >= exactRowCount : rows < size;
-  if (rows === 0) return { label: `0 of ${digits(exactRowCount ?? first)}`, isLast };
-  return { label: `${digits(first + 1)}–${digits(last)} of ${totalLabel(last, rows < size, estimate, exactRowCount)}`, isLast };
+  if (rows === 0) return { label: `0 of ${groupCount(exactRowCount ?? first)}`, isLast };
+  return { label: `${groupCount(first + 1)}–${groupCount(last)} of ${totalLabel(last, rows < size, estimate, exactRowCount)}`, isLast };
 }
 
 /** How many rows a table page holds, given the table's total row count. */
@@ -97,7 +97,7 @@ export function shortType(display: string): string {
 }
 
 export function pluralRows(n: number): string {
-  return `${groupDigits(String(n))} ${n === 1 ? "row" : "rows"}`;
+  return `${groupCount(n)} ${n === 1 ? "row" : "rows"}`;
 }
 
 const pad2 = (n: number) => String(n).padStart(2, "0");

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { commands, type ColumnMeta, type ColumnProfile, type HistogramBin, type ResultMeta, type ValueCount } from "../../ipc/bindings";
 import { cx } from "../../ui/primitives";
 import { EMPTY_MARK } from "./GridRows";
-import { groupDigits, isNumeric } from "./format";
+import { groupCount, groupDigits, isNumeric, pluralRows } from "./format";
 
 const PLOT_W = 276;
 const PLOT_H = 56;
@@ -17,19 +17,17 @@ function edgeText(lo: number, hi: number): string {
   const format = new Intl.NumberFormat(undefined, { maximumFractionDigits: digits });
   return `${format.format(lo)} – ${format.format(hi)}`;
 }
-const count = (n: number) => groupDigits(String(n));
-const rows = (n: number) => `${count(n)} ${n === 1 ? "row" : "rows"}`;
 
 /** Where the rows came from: every stored row of a result, or one page of a table tab. */
 export type ProfileScope = "result" | "page";
 
 function footnote(profile: ColumnProfile, meta: ResultMeta, scope: ProfileScope): string {
-  if (scope === "page") return `From the ${rows(profile.rows)} on this page.`;
+  if (scope === "page") return `From the ${pluralRows(profile.rows)} on this page.`;
   if (meta.truncated !== null) {
     const why = meta.truncated === "RowLimit" ? "row limit" : "size limit";
-    return `From the ${count(profile.rows)} stored rows of ${count(meta.rowsSeen)} read (${why}).`;
+    return `From the ${groupCount(profile.rows)} stored rows of ${groupCount(meta.rowsSeen)} read (${why}).`;
   }
-  return profile.rows === 1 ? "From the 1 stored row." : `From all ${count(profile.rows)} stored rows.`;
+  return profile.rows === 1 ? "From the 1 stored row." : `From all ${groupCount(profile.rows)} stored rows.`;
 }
 
 function Stat({ label, value }: { label: string; value: string | null }) {
@@ -72,7 +70,7 @@ function Histogram({ bins }: { bins: HistogramBin[] }) {
       </svg>
       {shown ? (
         <div role="status" data-testid="profile-bin-tooltip" className="mt-1 truncate text-center text-ui-11.5 text-fg tabular-nums">
-          {edgeText(shown.lo ?? 0, shown.hi ?? 0)} · {rows(shown.count)}
+          {edgeText(shown.lo ?? 0, shown.hi ?? 0)} · {pluralRows(shown.count)}
         </div>
       ) : (
         <div className="mt-1 flex justify-between font-mono text-ui-11 text-dim tabular-nums">
@@ -98,7 +96,7 @@ function TopValues({ top, nonNull }: { top: ValueCount[]; nonNull: number }) {
                 {v.value}
               </span>
             )}
-            <span className="ml-auto shrink-0 font-mono text-muted tabular-nums">{count(v.count)}</span>
+            <span className="ml-auto shrink-0 font-mono text-muted tabular-nums">{groupCount(v.count)}</span>
           </div>
           <div className="mt-0.5 h-[3px] rounded-full bg-run/25" style={{ width: `${(v.count / Math.max(1, nonNull)) * 100}%` }} />
         </li>
@@ -151,7 +149,7 @@ function ProfileBody({ meta, col, scope, done, onClose }: { meta: ResultMeta; co
   const profile = state.kind === "ready" ? state.profile : null;
   const summary = profile?.summary;
   const numeric = summary ? summary.kind === "Numeric" : looksNumeric(column);
-  const stat = (n: number | undefined) => (n === undefined ? null : count(n));
+  const stat = (n: number | undefined) => (n === undefined ? null : groupCount(n));
   return (
     <>
       <div className="flex min-w-0 items-baseline gap-2">

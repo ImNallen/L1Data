@@ -4,7 +4,7 @@ import type { ResultMeta } from "../../ipc/bindings";
 import { useCatalog } from "../../state/catalog";
 import { rowCacheFor } from "../../state/rowCache";
 import { IconButton, Modal } from "../../ui/primitives";
-import { groupDigits } from "./format";
+import { groupCount } from "./format";
 import { HeaderIcon, primaryKeyColumns } from "./ResultGrid";
 
 const STEP: Record<string, number> = { ArrowUp: -1, ArrowDown: 1 };
@@ -67,7 +67,7 @@ export function RecordView({ meta, row: first, onClose }: { meta: ResultMeta; ro
     <Modal open onOpenChange={(open) => !open && onClose()} title="Record" width={720} testId="record-dialog" initialFocus={fields} onKeyDown={onKeyDown}>
       <div className="-mt-2 mb-3 flex items-center gap-1 text-ui-12.5 text-dim">
         <span data-testid="record-position" aria-live="polite" aria-atomic className="tabular-nums">
-          Row {groupDigits(String(row + 1))} of {groupDigits(String(meta.rowCount))}
+          Row {groupCount(row + 1)} of {groupCount(meta.rowCount)}
         </span>
         <div className="flex-1" />
         <IconButton

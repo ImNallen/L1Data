@@ -6,7 +6,7 @@ import { refKey, type RowResult } from "../../state/status";
 import { cx, MenuContent, MenuItem } from "../../ui/primitives";
 import { openDrill } from "../editor/runActions";
 import { niceTicks, yColumns, type ChartKind, type ChartSpec } from "./chart";
-import { groupDigits } from "./format";
+import { groupCount } from "./format";
 
 const MAX_POINTS = 2_000;
 const STREAM_REFETCH_MS = 300;
@@ -284,8 +284,8 @@ export function ChartView({
   const note = !series
     ? ""
     : series.capped
-      ? `First ${groupDigits(String(count))} of ${groupDigits(String(meta.rowCount))} stored rows`
-      : `All ${groupDigits(String(count))} stored ${count === 1 ? "row" : "rows"}`;
+      ? `First ${groupCount(count)} of ${groupCount(meta.rowCount)} stored rows`
+      : `All ${groupCount(count)} stored ${count === 1 ? "row" : "rows"}`;
 
   return (
     <div data-testid="chart-view" className="flex min-h-0 flex-1 flex-col bg-bg">
