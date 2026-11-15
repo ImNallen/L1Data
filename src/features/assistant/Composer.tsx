@@ -1,5 +1,5 @@
 import * as Menu from "@radix-ui/react-dropdown-menu";
-import { ArrowUpIcon, ChevronDownIcon, LockIcon, LockOpenIcon, PlusIcon, DatabaseIcon, SquareIcon, TableIcon, TriangleAlertIcon, XIcon } from "lucide-react";
+import { ArrowUpIcon, ChevronDownIcon, PlusIcon, DatabaseIcon, SquareIcon, TableIcon, TriangleAlertIcon, XIcon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { commands, type ChatOptions, type ChatState, type ModelOption, type Permission } from "../../ipc/bindings";
 import { useCatalog, viewFor } from "../../state/catalog";
@@ -14,19 +14,17 @@ import { providerBanner, type ProviderBanner } from "./assistantText";
 const MAX_INPUT_PX = 200;
 
 const PERMISSIONS = {
-  AskFirst: { label: "Ask first", hint: "Every query waits for Run or Deny", Icon: LockIcon },
-  Auto: { label: "Auto", hint: "Read-only queries run without asking", Icon: LockOpenIcon },
+  AskFirst: { label: "Ask first", hint: "Every query waits for Run or Deny" },
+  Auto: { label: "Auto", hint: "Read-only queries run without asking" },
 } satisfies Record<Permission, unknown>;
 
-function Picker({ testId, label, icon, disabled, children }: { testId: string; label: string; icon: ReactNode; disabled?: boolean; children: ReactNode }) {
+function Picker({ testId, label, children }: { testId: string; label: string; children: ReactNode }) {
   return (
     <Menu.Root modal={false}>
       <Menu.Trigger
         data-testid={testId}
-        disabled={disabled}
-        className="inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-ui-12.5 text-muted hover:bg-hover hover:text-fg disabled:pointer-events-none disabled:opacity-40 data-[state=open]:bg-hover data-[state=open]:text-fg"
+        className="inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-ui-12.5 text-muted hover:bg-hover hover:text-fg data-[state=open]:bg-hover data-[state=open]:text-fg"
       >
-        {icon}
         <span className="truncate">{label}</span>
         <ChevronDownIcon size={12} className="shrink-0 text-dim" />
       </Menu.Trigger>
@@ -41,7 +39,7 @@ function Pickers({ chat, models }: { chat: ChatState; models: ModelOption[] }) {
   const configure = (patch: Partial<ChatOptions>) => void configureChat(chat.id, { ...options, ...patch });
   return (
     <div className="flex min-w-0 items-center">
-      <Picker testId="assistant-model" label={model?.label ?? options.model} icon={null}>
+      <Picker testId="assistant-model" label={model?.label ?? options.model}>
         {models.length === 0 && <MenuLabel>Models appear once the provider is checked.</MenuLabel>}
         {models.map((m) => (
           <MenuItem key={m.id} checked={m.id === options.model} onSelect={() => configure({ model: m.id, effort: effortFor(m, options.effort) })}>
