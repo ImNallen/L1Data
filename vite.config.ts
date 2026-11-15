@@ -20,7 +20,6 @@ export default defineConfig(({ command, mode }) => {
     define: { __L1_DATA_BRIDGE_URL__: JSON.stringify(`http://127.0.0.1:${read("L1_DATA_BRIDGE_PORT", 7077)}`) },
     server: { port: read("L1_DATA_VITE_PORT", 5173), strictPort: true, watch: { ignored: ["**/src-tauri/**", "**/crates/**", "**/target/**"] } },
     clearScreen: false,
-    envPrefix: ["VITE_", "TAURI_ENV_"],
     test: { include: ["src/**/*.test.ts", "src/**/*.test.tsx"] },
   };
 });
