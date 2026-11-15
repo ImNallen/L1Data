@@ -6,6 +6,8 @@ import {
   type DatabaseRef,
   type DatabaseKind,
   type ResultRef,
+  type RunAccepted,
+  type RunError,
   type RunMode,
   type RunRequest,
   type RunTarget,
@@ -15,6 +17,7 @@ import {
   type TableScript,
   type TxnMode,
   type WriteConfirmation,
+  type WriteDigest,
 } from "../../ipc/bindings";
 import { applyErrorText, configureErrorText, runErrorText, settingsErrorText, txnErrorText } from "../../ipc/errors";
 import { databaseKindFor } from "../../state/databaseKind";
@@ -224,12 +227,11 @@ async function runTab(tabId: TabId, target?: PageTarget, script?: RunTarget, mod
 
   if (!valid()) return;
   let request: RunRequest;
-  let text = "";
   if (isBrowsing(tab)) {
     const { schema, table, page, query } = tab.table;
     request = { kind: "tablePage", schema, table, page: target?.page ?? page, query };
   } else {
-    text = state.doc.toString();
+    const text = state.doc.toString();
     const runTarget = script ?? selectionTarget(state);
     const cells = notebookSources(tabId);
     const discovered = await commands.scriptParams(text, runTarget, destination.databaseKind, cells);
@@ -242,29 +244,45 @@ async function runTab(tabId: TabId, target?: PageTarget, script?: RunTarget, mod
     if (!notebook) return;
     const db = destination.db;
     const description = db ? `${ws().configs[db.connectionId]?.name ?? db.connectionId} / ${db.database}` : "";
-    const params = await resolveParams(notebook.id, discovered.data, description, valid);
-    if (!params || !valid()) return;
-    request = { kind: "script", text, target: runTarget, mode, params, cells };
-    showDiagnostics(tabId, []);
+    if (!(await resolveParams(notebook.id, discovered.data, description, valid)) || !valid()) return;
+    request = scriptRequest(tabId, text, runTarget, mode);
   }
 
-  let res = await commands.consoleRun(tabId, request, null);
-  while (res.status === "error" && res.error.kind === "ConfirmWrites") {
-    if (!(await writesConfirmed(tab, res.error.confirmation, mode)) || !valid()) return;
-    res = await commands.consoleRun(tabId, request, res.error.confirmation.digest);
-  }
-  if (res.status === "error") {
-    notify(runErrorText(res.error));
-    return;
-  }
+  const result = await sendRun(tab, request, null, valid);
+  if (result.kind === "refused") notify(runErrorText(result.error));
+  if (result.kind !== "accepted") return;
   if (target?.countContext && !isCurrentCount(target.countContext)) return;
   if (target && request.kind === "tablePage") ws().setTablePage(tabId, target.page, target.exactRowCount);
+}
+
+/** What became of one send. `dropped`: nothing ran, because the user said no or `valid` failed. */
+export type Sent = { kind: "accepted"; run: RunAccepted } | { kind: "refused"; error: RunError } | { kind: "dropped" };
+
+export function scriptRequest(tabId: TabId, text: string, target: RunTarget, mode: RunMode): RunRequest {
+  return { kind: "script", text, target, mode, params: notebookOf(ws().notebooks, tabId)?.params ?? [], cells: notebookSources(tabId) };
+}
+
+/**
+ * The one way a run reaches the engine. It sends with `digest`, then asks the cell's own question for as long as the
+ * engine asks, and drops the run when the user says no or `valid` fails. An accepted script clears its Stale mark and
+ * shows its errors.
+ */
+async function sendRun(tab: Tab, request: RunRequest, digest: WriteDigest | null, valid: () => boolean): Promise<Sent> {
+  const mode = request.kind === "script" ? request.mode : "Run";
+  if (request.kind === "script") showDiagnostics(tab.id, []);
+  let res = await commands.consoleRun(tab.id, request, digest);
+  while (res.status === "error" && res.error.kind === "ConfirmWrites") {
+    if (!(await writesConfirmed(tab, res.error.confirmation, mode)) || !valid()) return { kind: "dropped" };
+    res = await commands.consoleRun(tab.id, request, res.error.confirmation.digest);
+  }
+  if (res.status === "error") return { kind: "refused", error: res.error };
   if (request.kind === "script") {
-    sent.set(tabId, { runId: res.data.runId, text });
-    ws().setRunSources(tabId, res.data.sources);
-    flashRanges(tabId, res.data.statements);
+    sent.set(tab.id, { runId: res.data.runId, text: request.text });
+    ws().setRunSources(tab.id, res.data.sources);
+    flashRanges(tab.id, res.data.statements);
     showRunErrors(useLive.getState());
   }
+  return { kind: "accepted", run: res.data };
 }
 
 export function explainActive(mode: "Explain" | "ExplainAnalyze"): void {
@@ -309,11 +327,16 @@ export async function runOrChoose(ask = false): Promise<void> {
 export function cancelActive(): boolean {
   const id = activeId(ws());
   if (!id || !canCancel(useLive.getState().consoles[id])) return false;
+  cancelCell(id);
+  return true;
+}
+
+/** Says that a SQL Server cancel resets the session. The engine ignores a cancel of an idle cell. */
+export function cancelCell(id: TabId): void {
   queuedPages.delete(id);
   if (databaseKindFor(tabTarget(ws().tabs[id]), ws().configs) === "SqlServer" && useLive.getState().consoles[id]?.work !== "Import")
     notify("Cancelling SQL Server resets this session. Earlier commits remain committed; the last transaction outcome may be unknown.");
   void commands.consoleCancel(id);
-  return true;
 }
 
 async function commitConfirmed(tab: Tab, asked: WriteConfirmation): Promise<boolean> {
