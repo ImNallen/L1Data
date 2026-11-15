@@ -1,4 +1,4 @@
-import type { DatabaseRef, FileBinding, NotebookId, TabId, UnknownKeys } from "../ipc/bindings";
+import type { DatabaseRef, FileBinding, NotebookId, ParamValue, TabId, UnknownKeys } from "../ipc/bindings";
 import { sameDb } from "./dbKey";
 
 /**
@@ -11,14 +11,17 @@ export type FileHealth = "ok" | "missing" | "changed" | "unreadable";
 /** One cell as the file held it: its text, and `metaKey` of what the file records about it. */
 export type SavedCell = { text: string; meta: string };
 
+/** What the file held: its cells, and `paramsKey` of its parameter values. */
+export type SavedNotebook = { cells: SavedCell[]; params: string };
+
 export type NotebookFile = {
   binding: FileBinding;
   health: FileHealth;
   /** The file holds plain SQL. A save keeps it plain while the notebook is one cell with nothing else to record. */
   plain: boolean;
   unknown: UnknownKeys;
-  /** The cells as the file held them at the last open, save, or read. `null` is unknown, which reads unsaved. */
-  saved: SavedCell[] | null;
+  /** What the file held at the last open, save, or read. `null` is unknown, which reads unsaved. */
+  saved: SavedNotebook | null;
 };
 
 /**
@@ -33,6 +36,8 @@ export type Notebook = {
   cells: TabId[];
   active: TabId | null;
   shownAtMs: number;
+  /** The values its runs bind, one per name, in order. A file notebook saves them in the file's header. */
+  params: ParamValue[];
   file: NotebookFile | null;
 };
 
@@ -81,7 +86,7 @@ export function newNotebook(existing: Iterable<Notebook>, db: DatabaseRef | null
   const taken = new Set([...existing].filter((n) => sameDb(n.db, db)).map((n) => n.title));
   let title = name;
   for (let i = 2; taken.has(title); i++) title = `${name} ${i}`;
-  return { id: crypto.randomUUID(), title, db, cells: [], active: null, shownAtMs: 0, file: null };
+  return { id: crypto.randomUUID(), title, db, cells: [], active: null, shownAtMs: 0, params: [], file: null };
 }
 
 /** Marks `id` shown later than every other notebook, at the current time unless the clock has not moved past them. */

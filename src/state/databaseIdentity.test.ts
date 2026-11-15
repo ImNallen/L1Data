@@ -80,6 +80,46 @@ it("resolves restored home query and table targets and saves their canonical ide
   expect(useWorkspace.getState().tabs).toBe(current.tabs);
 });
 
+it("merges two spellings of one database into one notebook that keeps its own values and adds the other's new names", () => {
+  const [a, b] = [saved("shop"), saved("SHOP")];
+  const notebook = (id: string, database: string, cells: string[], params: { name: string; value: string | null }[]) => ({
+    id,
+    title: id,
+    db: { connectionId: config.id, database },
+    cells,
+    active: cells[0]!,
+    shownAtMs: 0,
+    params,
+    file: null,
+  });
+  const ws = useWorkspace.getState();
+  const notebooks = [
+    notebook("n1", "shop", [a.id], [{ name: ":x", value: "1" }]),
+    notebook(
+      "n2",
+      "SHOP",
+      [b.id],
+      [
+        { name: ":x", value: "2" },
+        { name: ":y", value: null },
+      ],
+    ),
+  ];
+  ws.restore({ tabs: [a, b], active: a.id, layout: ws.layout, notebooks, shown: "n1" }, [config], ws.settings);
+  useLive.getState().apply({ kind: "ConnectionChanged", ...connected() });
+  ws.resolveDatabases(useLive.getState().connections);
+  expect(Object.values(useWorkspace.getState().notebooks).map((n) => [n.id, n.cells, n.params])).toEqual([
+    [
+      "n1",
+      [a.id, b.id],
+      [
+        { name: ":x", value: "1" },
+        { name: ":y", value: null },
+      ],
+    ],
+  ]);
+});
+
 it("keeps a saved-config edit separate from the old connected home until reconnect", () => {
   useLive.getState().apply({ kind: "ConnectionChanged", ...connected() });
   const ws = useWorkspace.getState();

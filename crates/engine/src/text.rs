@@ -1192,7 +1192,8 @@ mod text_commands_never_panic {
             for target in targets(&text) {
                 for kind in KINDS {
                     assert_no_panic("script_params", kind, &text, target, || {
-                        crate::params::discover(&text, target, kind)
+                        crate::params::prepare(text.clone(), target, kind, &crate::params::Values::default(), &[])
+                            .map(crate::params::Prepared::params)
                     });
                 }
             }

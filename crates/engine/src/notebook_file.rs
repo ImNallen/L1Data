@@ -1,12 +1,18 @@
 //! A notebook file is SQL. Each cell starts at a `-- %%` comment line, the cell marker of Jupytext's percent format, so
-//! the file still runs in psql or sqlcmd. An optional first line, `-- l1 notebook: …`, names the database. A file with
-//! neither is one cell holding the whole file, and prints back byte for byte. The text here is LF-only with no BOM;
-//! `files.rs` puts the file's own line breaks and BOM back.
+//! the file still runs in psql or sqlcmd. An optional first line, `-- l1 notebook: …`, names the database and holds the
+//! notebook's parameter values. A file with neither is one cell holding the whole file, and prints back byte for byte.
+//! The text here is LF-only with no BOM; `files.rs` puts the file's own line breaks and BOM back.
 
-use crate::model::{CellMeta, CellTable, DatabaseKind, MetaPair, NotebookCell, NotebookHeader, NotebookText};
+use crate::model::{
+    CellMeta, CellTable, DatabaseKind, MetaPair, NotebookCell, NotebookHeader, NotebookText, ParamValue,
+};
 
 const HEADER: &str = "-- l1 notebook:";
 const MARKER: &str = "-- %%";
+/// `param="<name>=<value>"` holds a value, and `null="<name>"` holds NULL. A name never holds `=`, so the value starts
+/// after the first one. Older builds keep both as keys they do not read and write them back in order.
+const PARAM: &str = "param";
+const NULL: &str = "null";
 
 pub(crate) fn parse(text: &str) -> NotebookText {
     let mut lines: Vec<&str> = text.split('\n').collect();
@@ -65,11 +71,17 @@ pub(crate) fn print(notebook: &NotebookText) -> (String, bool) {
         DatabaseKind::Postgres => "postgres",
         DatabaseKind::SqlServer => "sqlserver",
     });
-    write_pairs(
-        &mut out,
-        &[("connection", h.connection.as_deref()), ("kind", kind), ("database", h.database.as_deref())],
-        &h.unknown,
-    );
+    let params: Vec<(&str, String)> = h
+        .params
+        .iter()
+        .map(|p| match &p.value {
+            Some(value) => (PARAM, format!("{}={value}", p.name)),
+            None => (NULL, p.name.clone()),
+        })
+        .collect();
+    let mut known = vec![("connection", h.connection.as_deref()), ("kind", kind), ("database", h.database.as_deref())];
+    known.extend(params.iter().map(|(key, value)| (*key, Some(value.as_str()))));
+    write_pairs(&mut out, &known, &h.unknown);
     out.push('\n');
     for cell in &notebook.cells {
         let m = &cell.meta;
@@ -98,13 +110,14 @@ pub(crate) fn print(notebook: &NotebookText) -> (String, bool) {
     (out, false)
 }
 
-/// Plain only while the text would read back as this same notebook.
+/// Plain only while the text would read back as this same notebook. Parameter values live only in the header.
 fn plain_text(notebook: &NotebookText) -> Option<&str> {
     let [cell] = notebook.cells.as_slice() else { return None };
     let text = cell.text.as_str();
     let structured = text.split('\n').next().is_some_and(|first| header_rest(first).is_some())
         || text.split('\n').any(|line| marker_rest(line).is_some());
-    (notebook.plain && cell.meta == CellMeta::default() && !structured).then_some(text)
+    (notebook.plain && cell.meta == CellMeta::default() && notebook.header.params.is_empty() && !structured)
+        .then_some(text)
 }
 
 /// A person may write `--%%` or `--   %%`; this build writes `-- %%`.
@@ -140,10 +153,23 @@ fn notebook_header(rest: &str) -> NotebookHeader {
             "connection" if header.connection.is_none() => header.connection = Some(pair.value),
             "database" if header.database.is_none() => header.database = Some(pair.value),
             "kind" if header.kind.is_none() && kind_of(&pair.value).is_some() => header.kind = kind_of(&pair.value),
-            _ => header.unknown.push(pair),
+            _ => match param_of(&pair) {
+                Some(p) if !header.params.iter().any(|q| q.name == p.name) => header.params.push(p),
+                _ => header.unknown.push(pair),
+            },
         }
     }
     header
+}
+
+fn param_of(pair: &MetaPair) -> Option<ParamValue> {
+    let (name, value) = match pair.key.as_str() {
+        PARAM => pair.value.split_once('=').map(|(name, value)| (name, Some(value)))?,
+        NULL => (pair.value.as_str(), None),
+        _ => return None,
+    };
+    let named = name.len() > 1 && name.starts_with([':', '$', '@']) && !name.contains(['=', '\n', '\r']);
+    named.then(|| ParamValue { name: name.to_owned(), value: value.map(str::to_owned) })
 }
 
 fn kind_of(value: &str) -> Option<DatabaseKind> {
@@ -288,8 +314,13 @@ mod tests {
             connection: Some("localhost / shop".into()),
             kind: Some(DatabaseKind::Postgres),
             database: Some("shop".into()),
+            params: vec![],
             unknown: vec![],
         }
+    }
+
+    fn value(name: &str, value: Option<&str>) -> ParamValue {
+        ParamValue { name: name.to_owned(), value: value.map(str::to_owned) }
     }
 
     /// The bytes a plain file holds after it is opened and saved unchanged.
@@ -419,7 +450,74 @@ SELECT * FROM \"public\".\"orders\"
     }
 
     #[test]
-    fn the_header_is_optional_and_never_holds_more_than_names() {
+    fn parameters_round_trip_in_order_with_nulls_and_escapes() {
+        let params = vec![
+            value(":region", Some("EU")),
+            value("$1", None),
+            value("@Since", Some("say \"a=b\" \\ to\nC:\\temp")),
+            value(":empty", Some("")),
+        ];
+        let notebook = NotebookText {
+            plain: false,
+            header: NotebookHeader { params: params.clone(), unknown: vec![pair("theme", "dark")], ..shop() },
+            cells: vec![cell("select :region, $1, @Since, :empty;", CellMeta::default())],
+        };
+        let (text, _) = print(&notebook);
+        assert_eq!(
+            text.lines().next().unwrap(),
+            "-- l1 notebook: connection=\"localhost / shop\" kind=\"postgres\" database=\"shop\" param=\":region=EU\" null=\"$1\" param=\"@Since=say \\\"a=b\\\" \\\\ to\\nC:\\\\temp\" param=\":empty=\" theme=\"dark\""
+        );
+        assert_eq!(parse(&text), notebook);
+    }
+
+    #[test]
+    fn a_malformed_or_repeated_parameter_stays_an_unknown_key() {
+        let text = "-- l1 notebook: param=\":x=1\" param=\"x=2\" param=\":y\" null=\":x\" null=\"@\" param=\"=3\" null=\":a=b\" param=\":z=a=b\"\n-- %%\nselect 1;\n";
+        let header = parse(text).header;
+        assert_eq!(header.params, [value(":x", Some("1")), value(":z", Some("a=b"))]);
+        assert_eq!(
+            header.unknown,
+            [
+                pair("param", "x=2"),
+                pair("param", ":y"),
+                pair("null", ":x"),
+                pair("null", "@"),
+                pair("param", "=3"),
+                pair("null", ":a=b")
+            ]
+        );
+        let none = NotebookText { header: NotebookHeader { params: vec![], ..header.clone() }, ..parse(text) };
+        assert!(
+            print(&none).0.starts_with("-- l1 notebook: param=\"x=2\" param=\":y\" null=\":x\""),
+            "a key this build cannot read is written back while no value takes its key"
+        );
+    }
+
+    #[test]
+    fn a_build_that_reads_params_as_unknown_keys_writes_them_back() {
+        let older = NotebookText {
+            plain: false,
+            header: NotebookHeader { unknown: vec![pair("param", ":x=41"), pair("null", "@y")], ..shop() },
+            cells: vec![cell("select :x::int, @y;", CellMeta::default())],
+        };
+        let (text, _) = print(&older);
+        assert_eq!(parse(&text).header.params, [value(":x", Some("41")), value("@y", None)]);
+    }
+
+    #[test]
+    fn a_plain_notebook_with_parameters_prints_the_header() {
+        let notebook = NotebookText {
+            plain: true,
+            header: NotebookHeader { params: vec![value(":x", Some("41"))], ..NotebookHeader::default() },
+            cells: vec![cell("select :x::int + 1;", CellMeta::default())],
+        };
+        let (text, plain) = print(&notebook);
+        assert_eq!((text.as_str(), plain), ("-- l1 notebook: param=\":x=41\"\n-- %%\nselect :x::int + 1;\n", false));
+        assert_eq!(parse(&text), NotebookText { plain: false, ..notebook });
+    }
+
+    #[test]
+    fn the_header_is_optional_and_holds_names_and_parameter_values() {
         let headless = parse("-- %%\nselect 1;\n");
         assert_eq!(
             (headless.plain, headless.header, headless.cells),
@@ -446,6 +544,15 @@ SELECT * FROM \"public\".\"orders\"
             cells: vec![cell("select 1;", CellMeta::default())],
         };
         assert_eq!(print(&no_connection).0, "-- l1 notebook:\n-- %%\nselect 1;\n");
+        let valued = parse("-- l1 notebook: database=\"shop\" null=\":id\"\nselect :id;\n");
+        assert_eq!(
+            valued.header,
+            NotebookHeader {
+                database: Some("shop".into()),
+                params: vec![value(":id", None)],
+                ..NotebookHeader::default()
+            }
+        );
     }
 
     #[test]

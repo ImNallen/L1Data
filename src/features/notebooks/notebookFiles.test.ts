@@ -13,7 +13,7 @@ import type {
   SaveTarget,
   Workspace,
 } from "../../ipc/bindings";
-import { judgeNotebook, savedCells, type NotebookRead } from "../../state/notebookFile";
+import { judgeNotebook, savedNotebook, type NotebookRead } from "../../state/notebookFile";
 import { activeId, DEFAULT_SETTINGS, shownNotebook, useWorkspace, workspaceSnapshot } from "../../state/workspace";
 import { closeTab } from "../editor/closeTab";
 import { dropEditor, insertAtCursor, seedEditor, textOf } from "../editor/editorStates";
@@ -24,7 +24,7 @@ import { defaultFileName, notebookDatabase, openNotebookFiles, reconcileNotebook
 const ws = () => useWorkspace.getState();
 const PLAIN = { bom: false, crlf: false };
 const NO_META: CellMeta = { title: null, schema: null, table: null, manual: false, unknown: [] };
-const NO_HEADER: NotebookHeader = { connection: null, kind: null, database: null, unknown: [] };
+const NO_HEADER: NotebookHeader = { connection: null, kind: null, database: null, params: [], unknown: [] };
 
 type Call = { cmd: string; args: Record<string, unknown> };
 let calls: Call[];
@@ -92,7 +92,11 @@ beforeEach(() => {
       if (target.kind === "Bound" && now && now.stamp !== target.binding.stamp && now.stamp !== target.overwrite) {
         throw { kind: "Changed", disk: now.stamp } satisfies FileWriteError;
       }
-      const plain = notebook.plain && notebook.cells.length === 1 && JSON.stringify(notebook.cells[0]?.meta) === JSON.stringify(NO_META);
+      const plain =
+        notebook.plain &&
+        notebook.cells.length === 1 &&
+        JSON.stringify(notebook.cells[0]?.meta) === JSON.stringify(NO_META) &&
+        notebook.header.params.length === 0;
       writeDisk(path, { ...notebook, plain });
       const { binding, name } = opened(path);
       return { binding, name, plain };
@@ -118,15 +122,18 @@ const binding = (stamp: string): FileBinding => ({ path: "/q/a.sql", stamp, form
 const read = (text: string, stamp: string): NotebookRead => ({ status: "ok", data: { binding: binding(stamp), name: "a.sql", notebook: plainFile(text) } });
 
 it("judges a restored notebook's fresh read by one table", () => {
-  const mine = (text: string) => savedCells([cell(text)]);
+  const mine = (text: string) => savedNotebook([cell(text)], []);
   expect(judgeNotebook(binding("s1"), mine("select 1;"), true, read("select 1;", "s2")).kind).toBe("adopt");
   expect(judgeNotebook(binding("s1"), mine("select 1; -- edited"), true, read("select 1;", "s1")).kind).toBe("same");
   expect(judgeNotebook(binding("s1"), mine("select 1;"), false, read("select 2;", "s2")).kind).toBe("reload");
   expect(judgeNotebook(binding("s1"), mine("select 1; -- edited"), true, read("select 2;", "s2")).kind).toBe("diverged");
   expect(judgeNotebook(binding("s1"), mine("x"), false, { status: "error", error: { kind: "NotFound" } }).kind).toBe("missing");
   expect(judgeNotebook(binding("s1"), mine("x"), false, { status: "error", error: { kind: "NotUtf8", offset: 0 } }).kind).toBe("unreadable");
-  const twoCells = savedCells([cell("select 1;"), cell("select 2;")]);
+  const twoCells = savedNotebook([cell("select 1;"), cell("select 2;")], []);
   expect(judgeNotebook(binding("s1"), twoCells, false, read("select 1;", "s1")).kind).toBe("same");
+  const valued = savedNotebook([cell("select 1;")], [{ name: ":x", value: "1" }]);
+  expect(judgeNotebook(binding("s1"), valued, false, read("select 1;", "s2")).kind).toBe("reload");
+  expect(judgeNotebook(binding("s1"), valued, true, read("select 1;", "s1")).kind).toBe("same");
 });
 
 it("suggests a file name from the notebook title", () => {
@@ -283,7 +290,78 @@ describe("unsaved", () => {
     ws().restore(saved, [], DEFAULT_SETTINGS);
     expect([shown().file?.saved, dirty()]).toEqual([null, true]);
     await reconcileNotebookFiles();
-    expect([shown().file?.saved, dirty()]).toEqual([[{ text: "select 1;", meta: savedCells([cell("")])[0]!.meta }], true]);
+    expect([shown().file?.saved, dirty()]).toEqual([savedNotebook([cell("select 1;")], []), true]);
+  });
+});
+
+describe("parameter values", () => {
+  const x = (value: string | null) => [{ name: ":x", value }];
+  const valued = (value: string): NotebookText => ({ plain: false, header: { ...NO_HEADER, params: x(value) }, cells: [cell("select :x::int;")] });
+
+  it("opens the file's values, writes them back in its header, and reads unsaved while they differ from it", async () => {
+    const id = await openFile("/q/a.sql", valued("41"));
+    expect([shown().params, dirty()]).toEqual([x("41"), false]);
+    ws().mergeParams(id, x("42"));
+    expect(dirty()).toBe(true);
+    ws().mergeParams(id, x("41"));
+    expect(dirty()).toBe(false);
+    ws().mergeParams(id, x(null));
+    expect(await saveNotebook(id)).toBe(true);
+    expect([dirty(), saves().at(-1)?.notebook.header.params]).toEqual([false, x(null)]);
+  });
+
+  it("keeps a notebook unsaved when a value changed while its save was out", async () => {
+    const id = await openFile("/q/a.sql", valued("41"));
+    ws().mergeParams(id, x("1"));
+    let release = () => {};
+    hold.notebookSave = new Promise((r) => (release = r));
+    const saving = saveNotebook(id);
+    await vi.waitFor(() => expect(saves()).toHaveLength(1));
+    ws().mergeParams(id, x("2"));
+    release();
+    expect(await saving).toBe(true);
+    expect([disk.get("/q/a.sql")?.notebook.header.params, dirty()]).toEqual([x("1"), true]);
+  });
+
+  it("gives a plain file a header once it holds a value", async () => {
+    const id = await openFile("/q/a.sql", plainFile("select :x::int;"));
+    ws().mergeParams(id, x("41"));
+    expect(dirty()).toBe(true);
+    await saveNotebook(id);
+    expect([disk.get("/q/a.sql")?.notebook.plain, shown().file?.plain, dirty()]).toEqual([false, false, false]);
+  });
+
+  it("reloads a clean notebook's values from its changed file, and adopts a file that holds the notebook's values", async () => {
+    const id = await openFile("/q/a.sql", valued("41"));
+    writeDisk("/q/a.sql", valued("7"));
+    await reconcileNotebookFiles();
+    expect([ws().notebooks[id]?.params, notebookDirty(id)]).toEqual([x("7"), false]);
+    ws().mergeParams(id, x("8"));
+    writeDisk("/q/a.sql", valued("8"));
+    await reconcileNotebookFiles();
+    expect([ws().notebooks[id]?.params, notebookDirty(id), ws().notebooks[id]?.file?.binding.stamp]).toEqual([x("8"), false, `s${stamps}`]);
+  });
+
+  it("keeps unsaved values across a restart", async () => {
+    const id = await openFile("/q/a.sql", valued("41"));
+    ws().mergeParams(id, [
+      { name: ":x", value: "42" },
+      { name: ":y", value: null },
+    ]);
+    const saved: Workspace = JSON.parse(JSON.stringify(workspaceSnapshot(ws(), { textOf, isNotebookDirty: notebookDirty })));
+    for (const t of Object.keys(ws().tabs)) dropEditor(t);
+    useWorkspace.setState(useWorkspace.getInitialState(), true);
+    for (const t of saved.tabs) seedEditor(t.id, t.text ?? "");
+    ws().restore(saved, [], DEFAULT_SETTINGS);
+    await reconcileNotebookFiles();
+    expect([shown().params, dirty(), shown().file?.health]).toEqual([
+      [
+        { name: ":x", value: "42" },
+        { name: ":y", value: null },
+      ],
+      true,
+      "ok",
+    ]);
   });
 });
 

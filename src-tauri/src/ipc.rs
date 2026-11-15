@@ -146,8 +146,9 @@ pub fn script_params(
     text: String,
     target: RunTarget,
     database_kind: DatabaseKind,
+    cells: Vec<CellSource>,
 ) -> Result<Vec<Param>, RunError> {
-    engine.script_params(&text, target, database_kind)
+    engine.script_params(&text, target, database_kind, &cells)
 }
 
 #[tauri::command]

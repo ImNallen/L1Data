@@ -4923,6 +4923,46 @@ async fn production_parameter_confirmation_covers_exact_values() {
 }
 
 #[tokio::test]
+async fn a_referenced_cell_runs_with_the_notebook_values_and_its_digest_covers_them() {
+    let mut h = Harness::start().await;
+    let oracle = h.oracle().await;
+    let table = unique("t_ref_params");
+    oracle.batch_execute(&format!("create table public.{table} (n int)")).await.unwrap();
+    set_environment(&h, Some(Environment::Production)).await;
+    let tab = h.sql_tab(TxnMode::AutoCommit).await;
+    let cells = vec![CellSource { name: "a".into(), text: "select :x::int + 1 as n".into() }];
+    let text = format!("insert into public.{table} select n from {{{{a}}}}");
+    let request = |params: Vec<ParamValue>| RunRequest::Script {
+        text: text.clone(),
+        target: RunTarget::All,
+        mode: RunMode::Run,
+        params,
+        cells: cells.clone(),
+    };
+    let x = |value: &str| {
+        vec![
+            ParamValue { name: ":x".into(), value: Some(value.into()) },
+            ParamValue { name: ":unused".into(), value: None },
+        ]
+    };
+    let found = h.engine.script_params(&text, RunTarget::All, DatabaseKind::Postgres, &cells).unwrap();
+    assert_eq!(found, [Param { name: ":x".into() }], "discovery reaches the referenced cell");
+    match h.engine.console_run(tab, request(Vec::new()), None).await {
+        Err(RunError::Unsupported { what }) => assert_eq!(what, "Missing value for parameter :x."),
+        other => panic!("expected a refusal for the missing value, got {other:?}"),
+    }
+    let asked = asked_to_run(&h, tab, request(x("41")), None).await;
+    let changed = asked_to_run(&h, tab, request(x("1")), Some(&asked.digest)).await;
+    assert_ne!(asked.digest, changed.digest, "a referenced cell's value is part of what the user confirms");
+    assert_eq!(count(&oracle, &table).await, 0);
+    let accepted = h.engine.console_run(tab, request(x("41")), Some(asked.digest)).await.unwrap();
+    assert_eq!(accepted.sources, cells);
+    h.wait_finished(tab, accepted.run_id).await;
+    assert_eq!(oracle.query_one(&format!("select n from public.{table}"), &[]).await.unwrap().get::<_, i32>(0), 42);
+    oracle.batch_execute(&format!("drop table public.{table}")).await.unwrap();
+}
+
+#[tokio::test]
 async fn postgres_server_parameters_keep_their_runtime_arguments() {
     let mut h = Harness::start().await;
     let tab = h.sql_tab(TxnMode::AutoCommit).await;

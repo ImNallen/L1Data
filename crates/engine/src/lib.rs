@@ -1130,13 +1130,17 @@ impl Engine {
         text::script_outline(text, cursor, database_kind)
     }
 
+    /// The names a run of `text` needs values for, including the names the cells it references use. Pure, so the sync
+    /// command never needs the runtime.
     pub fn script_params(
         &self,
         text: &str,
         target: RunTarget,
         database_kind: DatabaseKind,
+        cells: &[CellSource],
     ) -> Result<Vec<Param>, RunError> {
-        params::discover(text, target, database_kind)
+        params::prepare(text.into(), target, database_kind, &params::Values::default(), cells)
+            .map(params::Prepared::params)
     }
 
     /// The editor's reference underline and jump. Pure, so the sync command never needs the runtime.
@@ -1575,10 +1579,11 @@ impl Engine {
         let executable = match r {
             RunRequest::Script { text, target, mode, params, cells } => {
                 explain_mode = mode.explain();
-                let bound = params::bind(text, target, connection.database_kind, params)?;
-                let (expanded, inlined) = sql::refs::expand(bound, &cells, connection.database_kind)?;
+                let values = params::Values::new(params)?;
+                let (script, inlined) =
+                    params::prepare(text, target, connection.database_kind, &values, &cells)?.executable()?;
                 sources = inlined;
-                expanded
+                script
             }
             RunRequest::TablePage { schema, table, page: index, query } => {
                 let catalog = self.catalog(config.db()).await.map_err(|_| RunError::NotConfigured)?;
@@ -2644,6 +2649,7 @@ mod tests {
             connection: Some("local".into()),
             kind: Some(DatabaseKind::Postgres),
             database: Some("shop".into()),
+            params: vec![],
             unknown: vec![],
         };
         two.cells

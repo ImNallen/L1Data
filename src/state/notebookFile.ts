@@ -1,5 +1,17 @@
-import type { CellMeta, CellTable, ConnectionConfig, FileBinding, FileReadError, MetaPair, NotebookCell, NotebookOpened, NotebookText } from "../ipc/bindings";
-import { notebookTitle, type Notebook, type SavedCell } from "./notebooks";
+import type {
+  CellMeta,
+  CellTable,
+  ConnectionConfig,
+  FileBinding,
+  FileReadError,
+  MetaPair,
+  NotebookCell,
+  NotebookOpened,
+  NotebookText,
+  ParamValue,
+} from "../ipc/bindings";
+import { paramsKey } from "./notebookParams";
+import { notebookTitle, type Notebook, type SavedNotebook } from "./notebooks";
 import type { Tab } from "./workspace";
 
 const UNTITLED = /^Untitled-\d+\.sql$/;
@@ -20,12 +32,12 @@ export function metaKey(meta: CellMeta): string {
   return JSON.stringify([recordedTitle(meta.title, meta.table), meta.schema, meta.table?.schema ?? null, meta.table?.table ?? null, meta.manual]);
 }
 
-export function savedCells(cells: readonly NotebookCell[]): SavedCell[] {
-  return cells.map((c) => ({ text: c.text, meta: metaKey(c.meta) }));
+export function savedNotebook(cells: readonly NotebookCell[], params: readonly ParamValue[]): SavedNotebook {
+  return { cells: cells.map((c) => ({ text: c.text, meta: metaKey(c.meta) })), params: paramsKey(params) };
 }
 
-function sameCells(a: readonly SavedCell[], b: readonly SavedCell[]): boolean {
-  return a.length === b.length && a.every((c, i) => c.text === b[i]?.text && c.meta === b[i]?.meta);
+function sameSaved(a: SavedNotebook, b: SavedNotebook): boolean {
+  return a.params === b.params && a.cells.length === b.cells.length && a.cells.every((c, i) => c.text === b.cells[i]?.text && c.meta === b.cells[i]?.meta);
 }
 
 /** The header names the connection and database by name only, so the file carries no credentials. */
@@ -36,6 +48,7 @@ export function notebookText(notebook: Notebook, cells: readonly NotebookCell[],
       connection: config?.name ?? null,
       kind: config?.databaseKind ?? null,
       database: notebook.db?.database ?? null,
+      params: notebook.params,
       unknown: notebook.file?.unknown.header ?? [],
     },
     cells: [...cells],
@@ -74,15 +87,19 @@ export type NotebookVerdict =
   | { kind: "missing" }
   | { kind: "unreadable" };
 
+export function openedNotebook(opened: NotebookOpened): SavedNotebook {
+  return savedNotebook(opened.notebook.cells, opened.notebook.header.params);
+}
+
 /**
- * A restored notebook's fresh read of its file. The disk holds the cells, so adopt its binding, clean; the stamp
- * matches, so the disk is the baseline; it changed and the notebook was clean, so reload; it changed and the notebook
- * was not, so keep the cells and ask at the next save; missing or unreadable, so the baseline is unknown.
+ * A restored notebook's fresh read of its file. The disk holds the cells and values, so adopt its binding, clean; the
+ * stamp matches, so the disk is the baseline; it changed and the notebook was clean, so reload; it changed and the
+ * notebook was not, so keep the notebook and ask at the next save; missing or unreadable, so the baseline is unknown.
  */
-export function judgeNotebook(binding: FileBinding, cells: readonly SavedCell[], dirty: boolean, read: NotebookRead): NotebookVerdict {
+export function judgeNotebook(binding: FileBinding, current: SavedNotebook, dirty: boolean, read: NotebookRead): NotebookVerdict {
   if (read.status === "error") return read.error.kind === "NotFound" ? { kind: "missing" } : { kind: "unreadable" };
   const file = read.data;
-  if (sameCells(savedCells(file.notebook.cells), cells)) return { kind: "adopt", file };
+  if (sameSaved(openedNotebook(file), current)) return { kind: "adopt", file };
   if (file.binding.stamp === binding.stamp) return { kind: "same", file };
   return dirty ? { kind: "diverged" } : { kind: "reload", file };
 }

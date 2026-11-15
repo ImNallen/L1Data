@@ -20,6 +20,7 @@ import { applyErrorText, configureErrorText, runErrorText, settingsErrorText, tx
 import { databaseKindFor } from "../../state/databaseKind";
 import { homeDb, resolveDb, sameDb } from "../../state/dbKey";
 import { useLive } from "../../state/live";
+import { notebookOf } from "../../state/notebooks";
 import { dropRowCaches } from "../../state/rowCache";
 import { canCancel, isBusy } from "../../state/status";
 import { NO_EDITS, pendingCount, toChanges, useTableEdits, type TableEdits } from "../../state/tableEdits";
@@ -52,7 +53,7 @@ import {
   textOf,
 } from "./editorStates";
 import { closeChooser, openChooser } from "./chooserState";
-import { cancelStaleParams, finishParams, forgetParams, promptParams } from "./paramsState";
+import { cancelStaleParams, finishParams, resolveParams } from "./paramsState";
 import { docText } from "./docText";
 import { installCellReferences, notebookSources, refreshReferences } from "../notebooks/cellReferences";
 import { cellNavigation } from "../notebooks/cellNavigation";
@@ -267,18 +268,20 @@ async function runTab(tabId: TabId, target?: PageTarget, script?: RunTarget, mod
   } else {
     text = state.doc.toString();
     const runTarget = script ?? selectionTarget(state);
-    const discovered = await commands.scriptParams(text, runTarget, destination.databaseKind);
+    const cells = notebookSources(tabId);
+    const discovered = await commands.scriptParams(text, runTarget, destination.databaseKind, cells);
     if (!valid()) return;
     if (discovered.status === "error") {
       notify(runErrorText(discovered.error));
       return;
     }
+    const notebook = notebookOf(ws().notebooks, tabId);
+    if (!notebook) return;
     const db = destination.db;
-    const targetKey = JSON.stringify([db, destination.databaseKind]);
     const description = db ? `${ws().configs[db.connectionId]?.name ?? db.connectionId} / ${db.database}` : "";
-    const params = discovered.data.length ? await promptParams(tabId, targetKey, discovered.data, description, valid) : [];
+    const params = await resolveParams(notebook.id, discovered.data, description, valid);
     if (!params || !valid()) return;
-    request = { kind: "script", text, target: runTarget, mode, params, cells: notebookSources(tabId) };
+    request = { kind: "script", text, target: runTarget, mode, params, cells };
     showDiagnostics(tabId, []);
   }
 
@@ -629,7 +632,6 @@ async function applyEdits(tab: TableTab, edits: TableEdits): Promise<void> {
 
 export function forgetTab(tabId: TabId) {
   runIntents.delete(tabId);
-  forgetParams(tabId);
   sent.delete(tabId);
   queuedPages.delete(tabId);
   loadedTables.delete(tabId);
@@ -731,12 +733,7 @@ export function installRunBehavior(): void {
       const previous = s.tabs[before];
       if (previous && !isBrowsing(previous)) runIntents.delete(before);
     }
-    for (const [id, before] of Object.entries(prev.tabs)) {
-      const now = s.tabs[id];
-      if (!now) runIntents.delete(id);
-      if (!now || !sameDb(tabTarget(now), tabTarget(before)) || databaseKindFor(tabTarget(now), s.configs) !== databaseKindFor(tabTarget(before), prev.configs))
-        forgetParams(id);
-    }
+    for (const id of Object.keys(prev.tabs)) if (!s.tabs[id]) runIntents.delete(id);
     cancelStaleParams();
     const tab = activeTab(s);
     const was = activeTab(prev);

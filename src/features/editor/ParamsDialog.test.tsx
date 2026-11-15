@@ -1,70 +1,84 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it } from "vitest";
+import type { ParamValue } from "../../ipc/bindings";
+import { newNotebook } from "../../state/notebooks";
+import { useWorkspace } from "../../state/workspace";
 import { ParamsDialog } from "./ParamsDialog";
-import { finishParams, forgetParams, promptParams } from "./paramsState";
+import { finishParams, resolveParams } from "./paramsState";
+
+const params = () => useWorkspace.getState().notebooks.n?.params;
+
+function notebook(values: ParamValue[]): void {
+  useWorkspace.setState({ notebooks: { n: { ...newNotebook([], null), id: "n", params: values } } });
+}
+
+beforeEach(() => notebook([]));
 
 afterEach(() => {
   cleanup();
   finishParams(null);
-  forgetParams("tab");
+  useWorkspace.setState(useWorkspace.getInitialState(), true);
 });
 
-it("keeps text and NULL distinct, remembers accepted values, and cancels on Escape", async () => {
+it("asks only for names the notebook has no value for, each empty, keeps text and NULL distinct, and merges the answer", async () => {
   const user = userEvent.setup();
+  notebook([{ name: ":known", value: "1" }]);
   render(<ParamsDialog />);
-  let answer: ReturnType<typeof promptParams> | undefined;
+  let answer: ReturnType<typeof resolveParams> | undefined;
   act(() => {
-    answer = promptParams("tab", "db", [{ name: ":name" }, { name: "$1" }], "dev / shop", () => true);
+    answer = resolveParams("n", [{ name: ":name" }, { name: ":known" }, { name: "$1" }], "dev / shop", () => true);
   });
   expect(await screen.findByTestId("params-dialog")).toBeTruthy();
+  expect(screen.queryByTestId("param-value-:known")).toBeNull();
+  expect(screen.getByTestId("param-value-:name")).toHaveProperty("value", "");
+  expect(screen.getByTestId("param-value-:name")).toBe(document.activeElement);
   await user.type(screen.getByTestId("param-value-:name"), "O'Reilly\\literal");
   await user.click(screen.getByTestId("param-null-$1"));
   await user.click(screen.getByTestId("params-run"));
-  await expect(answer).resolves.toEqual([
+  const merged = [
+    { name: ":known", value: "1" },
     { name: ":name", value: "O'Reilly\\literal" },
     { name: "$1", value: null },
-  ]);
-  act(() => {
-    answer = promptParams("tab", "db", [{ name: ":name" }, { name: "$1" }], "dev / shop", () => true);
-  });
-  expect(await screen.findByTestId("param-value-:name")).toHaveProperty("value", "O'Reilly\\literal");
-  expect(screen.getByTestId("param-null-$1")).toHaveProperty("checked", true);
-  await user.keyboard("{Escape}");
-  await expect(answer).resolves.toBeNull();
+  ];
+  await expect(answer).resolves.toEqual(merged);
+  expect(params()).toEqual(merged);
 });
 
-it("remounts superseded same-name prompts and clears values for a new target", async () => {
+it("resolves the notebook's list without asking once every name has a value", async () => {
+  notebook([{ name: ":id", value: null }]);
+  render(<ParamsDialog />);
+  await expect(resolveParams("n", [{ name: ":id" }], "dev / shop", () => true)).resolves.toEqual([{ name: ":id", value: null }]);
+  expect(screen.queryByTestId("params-dialog")).toBeNull();
+});
+
+it("cancels on Escape and merges nothing", async () => {
+  render(<ParamsDialog />);
+  let answer: ReturnType<typeof resolveParams> | undefined;
+  act(() => {
+    answer = resolveParams("n", [{ name: ":id" }], "dev / shop", () => true);
+  });
+  await screen.findByTestId("params-dialog");
+  await userEvent.setup().keyboard("{Escape}");
+  await expect(answer).resolves.toBeNull();
+  expect(params()).toEqual([]);
+});
+
+it("remounts a superseded prompt for the same name empty", async () => {
   const user = userEvent.setup();
   render(<ParamsDialog />);
-  let first: ReturnType<typeof promptParams> | undefined;
-  let second: ReturnType<typeof promptParams> | undefined;
+  let first: ReturnType<typeof resolveParams> | undefined;
+  let second: ReturnType<typeof resolveParams> | undefined;
   act(() => {
-    first = promptParams("tab", "db", [{ name: ":id" }], "dev / shop", () => true);
+    first = resolveParams("n", [{ name: ":id" }], "dev / shop", () => true);
   });
   await user.type(await screen.findByTestId("param-value-:id"), "unsent");
   act(() => {
-    second = promptParams("tab", "other", [{ name: ":id" }], "dev / other", () => true);
+    second = resolveParams("n", [{ name: ":id" }], "dev / shop", () => true);
   });
   await expect(first).resolves.toBeNull();
   expect(screen.getByTestId("param-value-:id")).toHaveProperty("value", "");
   await user.click(screen.getByTestId("params-run"));
   await expect(second).resolves.toEqual([{ name: ":id", value: "" }]);
-});
-
-it("focuses the NULL control when the first remembered value is NULL", async () => {
-  render(<ParamsDialog />);
-  let answer: ReturnType<typeof promptParams> | undefined;
-  act(() => {
-    answer = promptParams("tab", "db", [{ name: ":id" }], "dev / shop", () => true);
-  });
-  act(() => finishParams([{ name: ":id", value: null }]));
-  await answer;
-  act(() => {
-    answer = promptParams("tab", "db", [{ name: ":id" }], "dev / shop", () => true);
-  });
-  expect(await screen.findByTestId("param-null-:id")).toBe(document.activeElement);
-  await userEvent.setup().keyboard("{Escape}");
-  await expect(answer).resolves.toBeNull();
 });

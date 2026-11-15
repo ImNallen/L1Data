@@ -1,6 +1,7 @@
 import { textOf } from "../features/editor/editorStates";
 import type { DatabaseRef, FileBinding, NotebookId, TabId } from "../ipc/bindings";
 import { cellMeta, metaKey } from "../state/notebookFile";
+import { paramsKey } from "../state/notebookParams";
 import { followActive, notebookOf, settle } from "../state/notebooks";
 import { useWorkspace, type Tab, type WorkspaceData } from "../state/workspace";
 
@@ -38,7 +39,8 @@ export function moveCell(id: TabId, db: DatabaseRef | null): void {
 export function bindToFile(id: NotebookId, path = "/q/a.sql", plain = false): FileBinding {
   const { notebooks, tabs } = useWorkspace.getState();
   const binding: FileBinding = { path, stamp: "s1", format: { bom: false, crlf: false } };
-  const saved = (notebooks[id]?.cells ?? []).map((c) => ({ text: textOf(c), meta: metaKey(cellMeta(tabs[c]!)) }));
+  const cells = (notebooks[id]?.cells ?? []).map((c) => ({ text: textOf(c), meta: metaKey(cellMeta(tabs[c]!)) }));
+  const saved = { cells, params: paramsKey(notebooks[id]?.params ?? []) };
   useWorkspace.getState().setNotebookFile(id, { binding, health: "ok", plain, unknown: { header: [], cells: {} }, saved });
   return binding;
 }

@@ -1046,6 +1046,8 @@ pub enum RunRequest {
         text: String,
         target: RunTarget,
         mode: RunMode,
+        /// The notebook's values. The run binds the names its SQL and the cells it reaches use, refuses a used name with
+        /// no value, and ignores the rest.
         params: Vec<ParamValue>,
         /// Every cell of the running cell's notebook, which `{{title}}` references resolve against.
         #[serde(default)]
@@ -1844,13 +1846,16 @@ pub struct NotebookSnapshot {
     pub active: Option<TabId>,
     /// When the notebook was last shown, in Unix milliseconds. Choosing a database shows its most recent notebook.
     pub shown_at_ms: u64,
+    /// The notebook's parameter values, one per name, in order. A file notebook keeps them here too, so values not yet
+    /// saved to the file outlive a restart.
+    pub params: Vec<ParamValue>,
     /// `None` for a notebook not saved to a file.
     pub file: Option<NotebookFileSnapshot>,
 }
 
-// Hand-written so a notebook saved before `shown_at_ms` loads as never shown, and one saved before `file` loads with
-// none. `#[serde(default)]` would mark the fields optional in the TS bindings. A build from before `file` ignores it,
-// so it opens the cells and loses only the binding.
+// Hand-written so a notebook saved before `shown_at_ms` loads as never shown, and one saved before `file` or `params`
+// loads with none. `#[serde(default)]` would mark the fields optional in the TS bindings. A build from before `file`
+// ignores it, so it opens the cells and loses only the binding. A build from before `params` loses only the values.
 impl<'de> Deserialize<'de> for NotebookSnapshot {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
@@ -1863,17 +1868,30 @@ impl<'de> Deserialize<'de> for NotebookSnapshot {
             active: Option<TabId>,
             #[serde(default)]
             shown_at_ms: u64,
+            /// Each parsed on its own, so a value a later build wrote drops only itself.
+            #[serde(default)]
+            params: Vec<serde_json::Value>,
             /// Parsed on its own, so a `file` a later build wrote drops the binding and keeps the notebook.
             #[serde(default)]
             file: Option<serde_json::Value>,
         }
-        let Saved { id, title, db, cells, active, shown_at_ms, file } = Saved::deserialize(d)?;
+        let Saved { id, title, db, cells, active, shown_at_ms, params: saved, file } = Saved::deserialize(d)?;
+        let mut params: Vec<ParamValue> = Vec::with_capacity(saved.len());
+        for value in saved {
+            match serde_json::from_value::<ParamValue>(value) {
+                Ok(p) if params.iter().any(|q| q.name == p.name) => {
+                    eprintln!("dropped a repeated notebook parameter {}", p.name)
+                }
+                Ok(p) => params.push(p),
+                Err(e) => eprintln!("dropped a notebook parameter this build cannot read: {e}"),
+            }
+        }
         let file = file.and_then(|f| {
             serde_json::from_value(f)
                 .inspect_err(|e| eprintln!("dropped a notebook's file binding this build cannot read: {e}"))
                 .ok()
         });
-        Ok(Self { id, title, db, cells, active, shown_at_ms, file })
+        Ok(Self { id, title, db, cells, active, shown_at_ms, params, file })
     }
 }
 
@@ -2996,6 +3014,8 @@ pub struct NotebookHeader {
     pub connection: Option<String>,
     pub kind: Option<DatabaseKind>,
     pub database: Option<String>,
+    /// The notebook's parameter values, one per name, in order.
+    pub params: Vec<ParamValue>,
     /// Keys this build does not read, written back as they were.
     pub unknown: Vec<MetaPair>,
 }
@@ -3785,7 +3805,35 @@ mod tests {
     const NOTEBOOK: &str = "00000000-0000-0000-0000-000000000003";
 
     fn notebook_json() -> serde_json::Value {
-        json!({ "id": NOTEBOOK, "title": "shop", "db": { "connectionId": CONN, "database": "shop" }, "cells": [TAB], "active": TAB, "shownAtMs": 1_700_000_000_000_u64 })
+        json!({
+            "id": NOTEBOOK, "title": "shop", "db": { "connectionId": CONN, "database": "shop" }, "cells": [TAB], "active": TAB,
+            "shownAtMs": 1_700_000_000_000_u64, "params": [{ "name": ":region", "value": "EU" }, { "name": "@Since", "value": null }]
+        })
+    }
+
+    #[test]
+    fn a_notebook_saved_before_params_loads_with_none() {
+        let mut old = notebook_json();
+        old.as_object_mut().unwrap().remove("params");
+        let n: NotebookSnapshot = serde_json::from_value(old).unwrap();
+        assert_eq!((n.cells.len(), n.params), (1, vec![]));
+    }
+
+    #[test]
+    fn a_param_this_build_cannot_read_drops_only_itself() {
+        let mut value = notebook_json();
+        value["params"] = json!([
+            { "name": ":a", "value": "1" },
+            { "name": ":b", "value": 7 },
+            "x",
+            { "name": ":a", "value": "again" },
+            { "name": ":c", "value": null, "default": "later" }
+        ]);
+        let n: NotebookSnapshot = serde_json::from_value(value).unwrap();
+        assert_eq!(
+            n.params,
+            [ParamValue { name: ":a".into(), value: Some("1".into()) }, ParamValue { name: ":c".into(), value: None }]
+        );
     }
 
     #[test]
@@ -3885,6 +3933,10 @@ mod tests {
             cells: vec![TabId(uuid(TAB))],
             active: Some(TabId(uuid(TAB))),
             shown_at_ms: 1_700_000_000_000,
+            params: vec![
+                ParamValue { name: ":region".into(), value: Some("EU".into()) },
+                ParamValue { name: "@Since".into(), value: None },
+            ],
             file: None,
         };
         assert_eq!((&w.notebooks, w.shown), (&vec![notebook], Some(NotebookId(uuid(NOTEBOOK)))));

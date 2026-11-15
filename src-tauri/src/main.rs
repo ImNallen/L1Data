@@ -322,7 +322,7 @@ async fn self_check_steps(
     let database_kind = config.database_kind;
     let text_services = std::thread::spawn(move || {
         let outline = text_engine.script_outline("SELECT 1", DocOffset(0), database_kind);
-        let params = text_engine.script_params("SELECT :value::int", RunTarget::All, database_kind).map_err(fail("script_params"))?;
+        let params = text_engine.script_params("SELECT :value::int", RunTarget::All, database_kind, &[]).map_err(fail("script_params"))?;
         let completion = text_engine.completion_context("SELECT * FROM orders o WHERE o.", DocOffset(31), database_kind);
         let formatted = text_engine.editor_format("SELECT 1", RunTarget::All, database_kind).map_err(fail("editor_format"))?;
         let browse = text_engine.table_script(text_db.clone(), &text_schema, "orders").map_err(fail("table_script"))?;

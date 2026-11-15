@@ -1793,7 +1793,7 @@ async fn plain_explain_on_production_does_not_ask() {
 async fn parameters_preserve_declarations_and_quote_unicode_across_go() {
     let mut h = Harness::open(TxnMode::AutoCommit).await;
     let text = "DECLARE @x int = 7; SELECT @X AS declared, @input AS value;\nGO\nSELECT @x AS [external], @input AS repeated, @nil AS nil";
-    let params = h.engine.script_params(text, RunTarget::All, DatabaseKind::SqlServer).unwrap();
+    let params = h.engine.script_params(text, RunTarget::All, DatabaseKind::SqlServer, &[]).unwrap();
     assert_eq!(params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["@input", "@x", "@nil"]);
     let value = "世界'; SELECT 99; -- \\";
     let accepted = h
@@ -1820,6 +1820,34 @@ async fn parameters_preserve_declarations_and_quote_unicode_across_go() {
     let sets = Harness::rowsets(&state);
     assert_eq!(h.rows(sets[0]), [vec![Some("7".into()), Some(value.into())]]);
     assert_eq!(h.rows(sets[1]), [vec![Some("outside".into()), Some(value.into()), None]]);
+}
+
+#[tokio::test]
+async fn a_referenced_cell_parameter_binds_before_the_batch_declares_it() {
+    let mut h = Harness::open(TxnMode::AutoCommit).await;
+    let cells = vec![CellSource { name: "a".into(), text: "SELECT CAST(@X AS int) + 1 AS n".into() }];
+    let text = "DECLARE @X int = 1\nSELECT n FROM {{a}} WHERE n > @X";
+    let found = h.engine.script_params(text, RunTarget::All, DatabaseKind::SqlServer, &cells).unwrap();
+    assert_eq!(found, [Param { name: "@X".into() }], "the batch's own @X is declared, the cell's is the notebook's");
+    let accepted = h
+        .engine
+        .console_run(
+            h.tab,
+            RunRequest::Script {
+                text: text.into(),
+                target: RunTarget::All,
+                mode: RunMode::Run,
+                params: vec![ParamValue { name: "@X".into(), value: Some("41".into()) }],
+                cells: cells.clone(),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(accepted.sources, cells);
+    let state = h.finish(accepted.run_id).await;
+    assert!(matches!(state.run, RunState::Finished { outcome: RunOutcome::Ok, .. }), "{:?}", state.run);
+    assert_eq!(h.rows(Harness::rowsets(&state)[0]), [vec![Some("42".into())]]);
 }
 
 #[path = "common/database_map.rs"]

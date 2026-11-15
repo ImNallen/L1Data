@@ -1,12 +1,14 @@
 import type { Text } from "@codemirror/state";
 import { useSyncExternalStore } from "react";
-import type { NotebookId, TabId } from "../../ipc/bindings";
+import type { NotebookId, ParamValue, TabId } from "../../ipc/bindings";
 import { cellMeta, metaKey } from "../../state/notebookFile";
+import { paramsKey } from "../../state/notebookParams";
 import type { Notebook } from "../../state/notebooks";
 import { useWorkspace, type Tab } from "../../state/workspace";
 import { docOf, onBuffersChanged } from "../editor/editorStates";
 
 const metaKeys = new WeakMap<Tab, string>();
+const paramsKeys = new WeakMap<ParamValue[], string>();
 const sameText = new WeakMap<Text, { text: string; same: boolean }>();
 
 function keyOf(tab: Tab): string {
@@ -14,6 +16,15 @@ function keyOf(tab: Tab): string {
   if (key === undefined) {
     key = metaKey(cellMeta(tab));
     metaKeys.set(tab, key);
+  }
+  return key;
+}
+
+function paramsKeyOf(params: ParamValue[]): string {
+  let key = paramsKeys.get(params);
+  if (key === undefined) {
+    key = paramsKey(params);
+    paramsKeys.set(params, key);
   }
   return key;
 }
@@ -28,14 +39,14 @@ function holds(doc: Text | undefined, text: string): boolean {
   return same;
 }
 
-/** Unsaved: a cell's text or what the file records about it changed, or a cell was added, closed, or moved. */
+/** Unsaved: a cell's text or what the file records about it changed, a cell was added, closed, or moved, or a value changed. */
 export function isNotebookDirty(notebook: Notebook, tabs: Record<TabId, Tab>, docs: (id: TabId) => Text | undefined = docOf): boolean {
   if (!notebook.file) return false;
   const saved = notebook.file.saved;
-  if (!saved || saved.length !== notebook.cells.length) return true;
+  if (!saved || saved.cells.length !== notebook.cells.length || saved.params !== paramsKeyOf(notebook.params)) return true;
   return notebook.cells.some((id, i) => {
     const tab = tabs[id];
-    const cell = saved[i];
+    const cell = saved.cells[i];
     return !tab || !cell || keyOf(tab) !== cell.meta || !holds(docs(id), cell.text);
   });
 }
