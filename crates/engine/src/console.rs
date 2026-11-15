@@ -516,7 +516,7 @@ pub fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
-fn elapsed_ms(since: Instant) -> u32 {
+pub(crate) fn elapsed_ms(since: Instant) -> u32 {
     since.elapsed().as_millis().min(u32::MAX as u128) as u32
 }
 

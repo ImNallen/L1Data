@@ -441,7 +441,7 @@ pub(crate) async fn run_query(
     if !more {
         guard.handle = None;
     }
-    Ok(RowsOut { columns, rows, more, elapsed_ms: started.elapsed().as_millis().min(u32::MAX as u128) as u32 })
+    Ok(RowsOut { columns, rows, more, elapsed_ms: crate::console::elapsed_ms(started) })
 }
 
 struct CancelOnDrop<'a> {

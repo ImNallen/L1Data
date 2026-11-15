@@ -845,7 +845,7 @@ impl Shared {
                 if commits { (sql::StmtKind::Commit, "COMMIT") } else { (sql::StmtKind::Rollback, "ROLLBACK") };
             let started = std::time::Instant::now();
             let mut result = session.finish_transaction(commits).await;
-            let elapsed_ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
+            let elapsed_ms = console::elapsed_ms(started);
             let fatal = result.as_ref().err().filter(|e| e.severity == "FATAL").map(|e| e.message.clone());
             let lost = session.closed_reason_settled(fatal).await;
             if commits
@@ -2024,7 +2024,7 @@ impl Engine {
                     lines.push(console::statement_line(statement, sql));
                     let started = std::time::Instant::now();
                     let executed = session.execute_edit(edit).await;
-                    let elapsed_ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
+                    let elapsed_ms = console::elapsed_ms(started);
                     lines.extend(session.drain_notices());
                     let rows = match executed {
                         Ok(rows) => rows,
