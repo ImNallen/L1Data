@@ -1025,7 +1025,7 @@ fn indexes(
             )),
         }
         if let (Some(space), Some(_)) = (&i.tablespace, &i.definition) {
-            out.push(format!("ALTER INDEX {} SET TABLESPACE {}", qualified(schema, &i.name), ident(space)));
+            out.push(format!("ALTER INDEX {qualified_name} SET TABLESPACE {}", ident(space)));
         }
         if i.clustered {
             out.push(format!("ALTER {keyword} {relation} CLUSTER ON {name}"));
@@ -1033,7 +1033,7 @@ fn indexes(
         if i.replica_identity {
             out.push(format!("ALTER TABLE {relation} REPLICA IDENTITY USING INDEX {name}"));
         }
-        out.extend(comment(&format!("INDEX {}", qualified(schema, &i.name)), &i.comment));
+        out.extend(comment(&format!("INDEX {qualified_name}"), &i.comment));
     }
 }
 
@@ -1135,14 +1135,17 @@ pub fn index(definition: &str) -> String {
     }
 }
 
-pub fn trigger(t: &Trigger, keyword: &str, table: &str) -> Vec<String> {
-    let state = match t.enabled {
+fn enabled_state(enabled: char) -> Option<&'static str> {
+    match enabled {
         'D' => Some("DISABLE"),
         'R' => Some("ENABLE REPLICA"),
         'A' => Some("ENABLE ALWAYS"),
-        _ if t.cloned => Some("ENABLE"),
         _ => None,
-    };
+    }
+}
+
+pub fn trigger(t: &Trigger, keyword: &str, table: &str) -> Vec<String> {
+    let state = enabled_state(t.enabled).or(t.cloned.then_some("ENABLE"));
     (!t.cloned)
         .then(|| t.definition.clone())
         .into_iter()
@@ -1158,12 +1161,7 @@ pub fn trigger(t: &Trigger, keyword: &str, table: &str) -> Vec<String> {
 }
 
 fn rule(r: &Rule, keyword: &str, relation: &str) -> Vec<String> {
-    let state = match r.enabled {
-        'D' => Some("DISABLE"),
-        'R' => Some("ENABLE REPLICA"),
-        'A' => Some("ENABLE ALWAYS"),
-        _ => None,
-    };
+    let state = enabled_state(r.enabled);
     let keyword = if keyword == "VIEW" { "VIEW" } else { "TABLE" };
     std::iter::once(r.definition.trim_end().trim_end_matches(';').to_owned())
         .chain(state.map(|s| format!("ALTER {keyword} {relation} {s} RULE {}", ident(&r.name))))
