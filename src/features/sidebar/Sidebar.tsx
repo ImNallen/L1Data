@@ -4,7 +4,7 @@ import type { DatabaseRef } from "../../ipc/bindings";
 import { isViewKind, useCatalog, viewFor } from "../../state/catalog";
 import { dbKey } from "../../state/dbKey";
 import { instanceOf, useLive } from "../../state/live";
-import { shownDb, useWorkspace } from "../../state/workspace";
+import { DEFAULT_PANEL_SIZES, shownDb, useWorkspace } from "../../state/workspace";
 import { cx, IconButton } from "../../ui/primitives";
 import { parseQuery } from "../../ui/textMatch";
 import type { HostedWindow } from "../../shell/hostedWindow";
@@ -122,7 +122,7 @@ function SplitHandle({ container }: { container: RefObject<HTMLElement | null> }
       }}
       onPointerCancel={() => setDragging(false)}
       onKeyDown={onKeyDown}
-      onDoubleClick={() => set(50)}
+      onDoubleClick={() => set(DEFAULT_PANEL_SIZES.sidebarSplit)}
       className="relative z-10 h-px shrink-0 cursor-row-resize bg-border outline-none transition-[background-color,scale] duration-100 after:absolute after:inset-x-0 after:-inset-y-1 hover:scale-y-200 hover:bg-run focus-visible:scale-y-200 focus-visible:bg-focus data-dragging:scale-y-200 data-dragging:bg-run"
     />
   );

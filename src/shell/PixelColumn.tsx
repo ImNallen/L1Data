@@ -1,12 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import { useWorkspace } from "../state/workspace";
+import { DEFAULT_PANEL_SIZES, useWorkspace } from "../state/workspace";
 import { useReducedMotion } from "./appearance";
 import { handleLook } from "./ResizeHandle";
 
 const COLUMNS = {
   sidebar: {
     key: "sidebarWidth",
-    reset: 240,
     min: 200,
     max: 480,
     shrink: 1,
@@ -17,7 +16,6 @@ const COLUMNS = {
   },
   right: {
     key: "rightPanelWidth",
-    reset: 360,
     min: 260,
     max: 560,
     shrink: 1e6,
@@ -138,7 +136,7 @@ export function PixelColumn({ column, open, children }: { column: Column; open: 
       onPointerUp={onPointerEnd}
       onPointerCancel={onPointerEnd}
       onKeyDown={onKeyDown}
-      onDoubleClick={() => save(COLUMNS[column].reset)}
+      onDoubleClick={() => save(DEFAULT_PANEL_SIZES[key])}
     />
   );
   // While sliding, the content keeps its full width pinned to the moving edge, so it slides with that edge instead of
