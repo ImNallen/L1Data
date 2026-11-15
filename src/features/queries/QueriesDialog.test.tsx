@@ -61,6 +61,22 @@ it("opens on History the first time, and on the tab shown last after that", asyn
   expect(pressed("queries-tab-saved")).toBe("true");
 });
 
+it("says why history was not cleared and returns to it", async () => {
+  const user = userEvent.setup();
+  mockIPC((command) => {
+    if (command === "history_browse") return page;
+    if (command === "history_clear") return Promise.reject({ kind: "Store", message: "sqlite: database or disk is full" });
+    return null;
+  });
+  render(<QueriesDialog />);
+  act(() => useWorkspace.getState().openQueries("history"));
+  await waitFor(() => expect((screen.getByTestId("history-clear") as HTMLButtonElement).disabled).toBe(false));
+  await user.click(screen.getByTestId("history-clear"));
+  act(() => useWorkspace.getState().answer("btn"));
+  await waitFor(() => expect(useWorkspace.getState().toast?.text).toBe("Couldn't clear history: sqlite: database or disk is full"));
+  expect(screen.getByTestId("history-list")).toBeTruthy();
+});
+
 it("switches panes inside the same dialog, focuses the new search, and counts each tab", async () => {
   const user = userEvent.setup();
   render(<QueriesDialog />);
