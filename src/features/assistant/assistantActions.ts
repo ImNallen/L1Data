@@ -18,9 +18,9 @@ import { approveErrorText, chatErrorText, sendErrorText } from "../../ipc/errors
 import { useLive } from "../../state/live";
 import { resultView, type ResultPick, type RowResult } from "../../state/status";
 import { needsResync } from "../../state/transcript";
-import { activeId, activeTab, confirm, useWorkspace, type Tab } from "../../state/workspace";
-import { editorStateOf, focusEditor, insertAtCursor, replaceDoc } from "../editor/editorStates";
-import { flushSettings, openSqlTab, runActive } from "../editor/runActions";
+import { activeTab, confirm, useWorkspace, type Tab } from "../../state/workspace";
+import { editorStateOf } from "../editor/editorStates";
+import { flushSettings, openSqlTab } from "../editor/runActions";
 
 const ws = () => useWorkspace.getState();
 const notify = (text: string) => ws().notify(text);
@@ -129,27 +129,8 @@ export async function confirmDeleteChat(chat: ChatState): Promise<void> {
   if (ok) await commands.assistantDelete(chat.id);
 }
 
-export function runInNewTab(sql: string, db: DatabaseRef | null): void {
-  openSqlTab({ db: db ?? undefined, text: sql });
-  runActive({ kind: "all" });
-}
-
 export function openInNewTab(sql: string, db: DatabaseRef | null): void {
   openSqlTab({ db: db ?? undefined, text: sql });
-}
-
-export function insertSql(sql: string): void {
-  const id = activeId(ws());
-  if (!id) return void openSqlTab({ text: sql });
-  insertAtCursor(id, sql);
-  focusEditor();
-}
-
-export function replaceTabSql(sql: string): void {
-  const id = activeId(ws());
-  if (!id) return void openSqlTab({ text: sql });
-  replaceDoc(id, sql);
-  focusEditor();
 }
 
 export function startAssistantSync(): () => void {
