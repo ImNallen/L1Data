@@ -9,7 +9,7 @@ afterEach(cleanup);
 it("waits for Continue and submits just the selected follow-ups", async () => {
   const user = userEvent.setup();
   const submit = vi.fn();
-  render(<ChatChoices multiple options={["By region", "By month", "By product"]} disabled={false} onContinue={submit} />);
+  render(<ChatChoices options={["By region", "By month", "By product"]} disabled={false} onContinue={submit} />);
   expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty("disabled", true);
   await user.click(screen.getByRole("checkbox", { name: "By region" }));
   await user.click(screen.getByRole("checkbox", { name: "By month" }));
@@ -19,15 +19,9 @@ it("waits for Continue and submits just the selected follow-ups", async () => {
   expect(submit).toHaveBeenCalledWith(["By region", "By month"]);
 });
 
-it("keeps a single-choice prompt exclusive and disables it during a turn", async () => {
-  const user = userEvent.setup();
-  const submit = vi.fn();
-  const props = { options: ["By region", "By month"], onContinue: submit };
-  const view = render(<ChatChoices {...props} disabled={false} />);
-  await user.click(screen.getByRole("radio", { name: "By region" }));
-  await user.click(screen.getByRole("radio", { name: "By month" }));
-  expect(screen.getByRole("radio", { name: "By region" })).toHaveProperty("checked", false);
-  view.rerender(<ChatChoices {...props} disabled />);
-  expect(screen.getByRole("radio", { name: "By month" })).toHaveProperty("disabled", true);
+it("disables the choices and Continue during a turn", () => {
+  const props = { options: ["By region", "By month"], onContinue: vi.fn() };
+  render(<ChatChoices {...props} disabled />);
+  expect(screen.getByRole("checkbox", { name: "By month" })).toHaveProperty("disabled", true);
   expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty("disabled", true);
 });
