@@ -1,9 +1,0 @@
-Pinned source 7ebc2f0. Rebuilt debug macOS app bundle, isolated /tmp/l1data-mssql-native-r6, memory credentials. CUA WKWebView acceptance.
-SQL Server URL parser/Test/Save/Connect accepted fixture SHOP, displayed SQL Server 16.0.4305, tree canonical shop.
-Actual selected two-batch guarded-delete script returned surviving=1, compared with R5 pre-fix native result surviving=0.
-Native BEGIN twice plus two SELECT outputs displayed transaction open with depth/committability unavailable tooltip; user SQL independently returned depth2 and database shop, Unicode output 世界.
-Commit button ended all nesting; user SQL returned after_commit0. DROP local temp table then OBJECT_ID returned NULL, verified in result2.
-Table orders read-only add/delete/submit controls disabled. Header total produced [total] ASC and 42.00 before125.50; WHERE status=N'paid' returned one row125.50. Manual menu disabled with explicit native transaction guidance.
-WAITFOR cancelled, returned Cancelled/session reset and unknown-last-outcome message; no rollback claim. Returned to orders grid.
-No providers or seeded-row writes. Native self-checks separately passed both dialects.
-Browser real bridge restored PG semicolon/outer whitespace document with paid filter, total DESC and page1001-1500 retained; SQL Server bracket browse read-only controls and two native rows passed.

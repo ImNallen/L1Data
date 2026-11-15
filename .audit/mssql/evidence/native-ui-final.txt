@@ -1,3 +1,0 @@
-Revision-specific native evidence is retained without overwrite.
-98301df: native-ui-98301df.txt
-7ebc2f0: native-ui-7ebc2f0.txt

@@ -1,4 +1,0 @@
-Pinned source8b78498. Rebuilt real engine bridge with generated frontend IPC. Created one unique alias type, readable table, executable alias-parameter procedure and restricted SQL login/user. Granted only SELECT on that table and EXECUTE on that routine, no metadata privilege.
-Actual browser table tree and double-click TablePage show id, value, row1/visible alias under Restricted alias metadata acceptance. Both columns remain, with value type nvarchar(20). Expanding Functions shows the executable procedure.
-Closed the created table tab through UI, returned to legacy PG tab, disconnected/deleted only the temporary test connection, waited zero restricted sessions, dropped all fixture objects/type/user/login. Native cleanup counts objects/types/users/logins/sessions=0,0,0,0,0. Refreshed owned SA fixture catalog after external cleanup.
-No providers or seeded-row writes.

@@ -1,6 +1,0 @@
-   Compiling engine v0.1.0 (/Users/nallen/.t3/worktrees/L1Data/t3-029ea83a/crates/engine)
-   Compiling l1data-r8-count-proof v0.1.0 (/tmp/l1data-r8-count-proof)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.81s
-     Running `/tmp/l1data-review-probe/target/debug/l1data-r8-count-proof`
-table=l1_review_datefirst_ca90fcc7e4f34e46bc9c2f27e3b5fefe tab_datefirst=[[Some("1")]] page_rows=[[Some("1"), Some("2024-01-01")]] exact_count=Ok(1)
-cleanup_count=[[Some("0")]]
