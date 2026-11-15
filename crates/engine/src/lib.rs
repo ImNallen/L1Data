@@ -1765,22 +1765,7 @@ impl Engine {
                     config.database.clone(),
                     entered,
                 )?;
-                console.results.lock().clear();
-                inner.run = RunState::Running {
-                    run_id,
-                    started_at_ms: console::now_ms(),
-                    statements: ranges
-                        .iter()
-                        .enumerate()
-                        .map(|(i, range)| StatementRun {
-                            index: i as u16,
-                            range: *range,
-                            status: StmtStatus::Pending,
-                            outputs: Vec::new(),
-                        })
-                        .collect(),
-                };
-                console.publish(&mut inner, s);
+                console.start_run(&mut inner, s, run_id, &ranges);
                 drop(inner);
                 s.spawn_holding(console.clone(), run_id, showplan::run(console.clone(), s.clone(), launch));
                 Ok(RunAccepted { run_id, statements: ranges, sources })
@@ -1798,22 +1783,7 @@ impl Engine {
                     config.database.clone(),
                     entered,
                 )?;
-                console.results.lock().clear();
-                inner.run = RunState::Running {
-                    run_id,
-                    started_at_ms: console::now_ms(),
-                    statements: ranges
-                        .iter()
-                        .enumerate()
-                        .map(|(i, range)| StatementRun {
-                            index: i as u16,
-                            range: *range,
-                            status: StmtStatus::Pending,
-                            outputs: Vec::new(),
-                        })
-                        .collect(),
-                };
-                console.publish(&mut inner, s);
+                console.start_run(&mut inner, s, run_id, &ranges);
                 drop(inner);
                 s.spawn_holding(console.clone(), run_id, explain::run(console.clone(), s.clone(), launch));
                 Ok(RunAccepted { run_id, statements: ranges, sources })
@@ -1825,22 +1795,7 @@ impl Engine {
                     return Err(RunError::Busy);
                 };
                 let txn = inner.txn;
-                console.results.lock().clear();
-                inner.run = RunState::Running {
-                    run_id,
-                    started_at_ms: console::now_ms(),
-                    statements: ranges
-                        .iter()
-                        .enumerate()
-                        .map(|(i, range)| StatementRun {
-                            index: i as u16,
-                            range: *range,
-                            status: StmtStatus::Pending,
-                            outputs: Vec::new(),
-                        })
-                        .collect(),
-                };
-                console.publish(&mut inner, s);
+                console.start_run(&mut inner, s, run_id, &ranges);
                 drop(inner);
 
                 let plan = RunPlan {

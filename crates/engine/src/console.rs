@@ -332,6 +332,25 @@ impl Console {
         state
     }
 
+    pub fn start_run(&self, inner: &mut ConsoleInner, shared: &Shared, run_id: RunId, ranges: &[DocRange]) {
+        self.results.lock().clear();
+        inner.run = RunState::Running {
+            run_id,
+            started_at_ms: now_ms(),
+            statements: ranges
+                .iter()
+                .enumerate()
+                .map(|(i, range)| StatementRun {
+                    index: i as u16,
+                    range: *range,
+                    status: StmtStatus::Pending,
+                    outputs: Vec::new(),
+                })
+                .collect(),
+        };
+        self.publish(inner, shared);
+    }
+
     pub fn output(&self, shared: &Shared, run_id: RunId, body: OutputBody) {
         self.output_all(shared, run_id, vec![body]);
     }
