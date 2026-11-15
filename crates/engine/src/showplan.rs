@@ -22,8 +22,6 @@ const CANCEL_LOST: &str = "Cancelled during explain. The session was retired so 
 pub(crate) struct Prepared {
     analyze: bool,
     batch: String,
-    on_sql: &'static str,
-    off_sql: &'static str,
     checked: writes::WritesChecked,
 }
 
@@ -32,8 +30,6 @@ pub(crate) struct Launch {
     stop: Arc<AtomicBool>,
     analyze: bool,
     batch: String,
-    on_sql: &'static str,
-    off_sql: &'static str,
     writes_stay_unasked: bool,
     schema: Option<String>,
     run_id: RunId,
@@ -70,7 +66,7 @@ pub(crate) fn prepare(
         writes::check(target, &[batch.as_str()], confirmed)
             .map_err(|confirmation| RunError::ConfirmWrites { confirmation })?
     };
-    Ok(Prepared { analyze, batch, on_sql, off_sql, checked })
+    Ok(Prepared { analyze, batch, checked })
 }
 
 #[expect(clippy::too_many_arguments, reason = "predates the clippy gate; group these arguments into a struct")]
@@ -84,25 +80,12 @@ pub(crate) fn launch(
     database: String,
     entered: TxnState,
 ) -> Result<Launch, RunError> {
-    let Prepared { analyze, batch, on_sql, off_sql, checked } = prepared;
+    let Prepared { analyze, batch, checked } = prepared;
     let writes_stay_unasked = checked.writes_stay_unasked();
     let Some((session, stop)) = console.take_session(inner, run_id, Work::Run(checked)) else {
         return Err(RunError::Busy);
     };
-    Ok(Launch {
-        session,
-        stop,
-        analyze,
-        batch,
-        on_sql,
-        off_sql,
-        writes_stay_unasked,
-        schema,
-        run_id,
-        connection,
-        database,
-        entered,
-    })
+    Ok(Launch { session, stop, analyze, batch, writes_stay_unasked, schema, run_id, connection, database, entered })
 }
 
 pub(crate) async fn run(console: Arc<Console>, shared: Arc<Shared>, launch: Launch) -> Result<(), Orphaned> {
@@ -111,8 +94,6 @@ pub(crate) async fn run(console: Arc<Console>, shared: Arc<Shared>, launch: Laun
         stop,
         analyze,
         batch,
-        on_sql,
-        off_sql,
         writes_stay_unasked,
         schema,
         run_id,
@@ -123,140 +104,93 @@ pub(crate) async fn run(console: Arc<Console>, shared: Arc<Shared>, launch: Laun
     let started = Instant::now();
     let settings = shared.settings();
     let caps = Caps { max_rows: settings.max_rows, max_bytes: settings.max_result_bytes };
+    let (on_sql, off_sql) = sets(analyze);
 
-    if let Err(error) = session.batch(on_sql).await {
-        let lost = session.closed_reason();
-        let end =
-            if stop.load(Ordering::Relaxed) { console::PlanEnd::Cancelled } else { console::PlanEnd::Failed(error) };
-        return finish(&console, &shared, session, run_id, &batch, &connection, &database, started, entered, lost, end)
-            .await;
-    }
-    if analyze {
-        console
-            .edit(&shared, run_id, |inner| inner.invalidate(DatabaseKind::SqlServer, sql::tsql::invalidates(&batch)))
-            .await?;
-    }
-    console.output(&shared, run_id, statement_line(0, &batch));
-    let read = read_showplan(&mut session, &batch, &stop).await;
-    console.output_all(&shared, run_id, console::notice_lines(&mut session));
-    if matches!(read, Read::Cancelled) {
-        if session.closed_reason().is_none() {
-            session.retire(CANCEL_LOST.to_owned());
-        }
-        let lost = session.closed_reason();
-        return finish(
-            &console,
-            &shared,
-            session,
-            run_id,
-            &batch,
-            &connection,
-            &database,
-            started,
-            entered,
-            lost,
-            console::PlanEnd::Cancelled,
-        )
-        .await;
-    }
-    if let Err(error) = session.batch(off_sql).await {
-        let (retire, reason) = lost_after_failed_off(session.closed_reason());
-        if retire {
-            session.retire(reason.clone());
-        }
-        let lost = Some(reason);
-        let end = match read {
-            Read::Failed(error) => console::PlanEnd::Failed(error),
-            Read::Ready { .. } => console::PlanEnd::Failed(error),
-            Read::Cancelled => console::PlanEnd::Cancelled,
-        };
-        return finish(&console, &shared, session, run_id, &batch, &connection, &database, started, entered, lost, end)
-            .await;
-    }
-    let txn = session.observed_txn().unwrap_or(entered);
-    match read {
-        Read::Cancelled => unreachable!("cancel returns before OFF"),
-        Read::Failed(error) => {
-            finish(
-                &console,
-                &shared,
-                session,
-                run_id,
-                &batch,
-                &connection,
-                &database,
-                started,
-                txn,
-                None,
-                console::PlanEnd::Failed(error),
-            )
-            .await
-        }
-        Read::Ready { cell, columns } => {
-            if analyze {
-                let write = crate::text::is_write(&batch, DatabaseKind::SqlServer);
-                let ended = txn == TxnState::Idle;
-                console
-                    .edit(&shared, run_id, |inner| {
-                        if writes_stay_unasked && write {
-                            inner.unasked.add(&batch);
-                        }
-                        if ended {
-                            inner.unasked = WriteList::default();
-                        }
-                    })
-                    .await?;
-            }
-            let output = match crate::results::plan_output(
-                console.tab,
-                run_id,
-                DatabaseKind::SqlServer,
-                PlanFormat::Xml,
-                &schema,
-                connection.id,
-                &database,
-                &cell,
-                columns,
-                &caps,
-                started,
-            ) {
-                Ok((set, output)) => {
-                    console.results.lock().push(set);
-                    output
-                }
-                Err(error) => {
-                    return finish(
-                        &console,
-                        &shared,
-                        session,
-                        run_id,
-                        &batch,
-                        &connection,
-                        &database,
-                        started,
-                        txn,
-                        None,
-                        console::PlanEnd::Failed(error),
-                    )
-                    .await;
-                }
+    let (txn, lost, end) = 'end: {
+        if let Err(error) = session.batch(on_sql).await {
+            let end = if stop.load(Ordering::Relaxed) {
+                console::PlanEnd::Cancelled
+            } else {
+                console::PlanEnd::Failed(error)
             };
-            finish(
-                &console,
-                &shared,
-                session,
-                run_id,
-                &batch,
-                &connection,
-                &database,
-                started,
-                txn,
-                None,
-                console::PlanEnd::Ready(output),
-            )
-            .await
+            break 'end (entered, session.closed_reason(), end);
         }
-    }
+        if analyze {
+            console
+                .edit(&shared, run_id, |inner| {
+                    inner.invalidate(DatabaseKind::SqlServer, sql::tsql::invalidates(&batch))
+                })
+                .await?;
+        }
+        console.output(&shared, run_id, statement_line(0, &batch));
+        let read = read_showplan(&mut session, &batch, &stop).await;
+        console.output_all(&shared, run_id, console::notice_lines(&mut session));
+        let read = match read {
+            Read::Cancelled => {
+                if session.closed_reason().is_none() {
+                    session.retire(CANCEL_LOST.to_owned());
+                }
+                break 'end (entered, session.closed_reason(), console::PlanEnd::Cancelled);
+            }
+            Read::Failed(error) => Err(error),
+            Read::Ready { cell, columns } => Ok((cell, columns)),
+        };
+        if let Err(error) = session.batch(off_sql).await {
+            let (retire, reason) = lost_after_failed_off(session.closed_reason());
+            if retire {
+                session.retire(reason.clone());
+            }
+            let error = read.err().unwrap_or(error);
+            break 'end (entered, Some(reason), console::PlanEnd::Failed(error));
+        }
+        let txn = session.observed_txn().unwrap_or(entered);
+        let (cell, columns) = match read {
+            Ok(ready) => ready,
+            Err(error) => break 'end (txn, None, console::PlanEnd::Failed(error)),
+        };
+        if analyze {
+            let write = crate::text::is_write(&batch, DatabaseKind::SqlServer);
+            let ended = txn == TxnState::Idle;
+            console
+                .edit(&shared, run_id, |inner| {
+                    if writes_stay_unasked && write {
+                        inner.unasked.add(&batch);
+                    }
+                    if ended {
+                        inner.unasked = WriteList::default();
+                    }
+                })
+                .await?;
+        }
+        let end = match crate::results::plan_output(
+            console.tab,
+            run_id,
+            DatabaseKind::SqlServer,
+            PlanFormat::Xml,
+            &schema,
+            connection.id,
+            &database,
+            &cell,
+            columns,
+            &caps,
+            started,
+        ) {
+            Ok((set, output)) => {
+                console.results.lock().push(set);
+                console::PlanEnd::Ready(output)
+            }
+            Err(error) => console::PlanEnd::Failed(error),
+        };
+        (txn, None, end)
+    };
+    console::finish_plan(
+        &console,
+        &shared,
+        &connection,
+        &database,
+        console::PlanFinish { session, run_id, sql: batch, started, txn, lost, end },
+    )
+    .await
 }
 
 enum Read {
@@ -333,30 +267,6 @@ fn plan_cell(columns: &[ColumnMeta], row: &[Option<String>]) -> Option<(String, 
         let text = cell.as_ref()?.trim_start();
         if text.starts_with("<ShowPlan") { Some((cell.clone()?, index)) } else { None }
     })
-}
-
-#[expect(clippy::too_many_arguments, reason = "predates the clippy gate; group these arguments into a struct")]
-async fn finish(
-    console: &Console,
-    shared: &Arc<Shared>,
-    session: Session,
-    run_id: RunId,
-    sql: &str,
-    connection: &ConnectionConfig,
-    database: &str,
-    started: Instant,
-    txn: TxnState,
-    lost: Option<String>,
-    end: console::PlanEnd,
-) -> Result<(), Orphaned> {
-    console::finish_plan(
-        console,
-        shared,
-        connection,
-        database,
-        console::PlanFinish { session, run_id, sql: sql.to_owned(), started, txn, lost, end },
-    )
-    .await
 }
 
 fn lost_after_failed_off(already_closed: Option<String>) -> (bool, String) {
