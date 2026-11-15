@@ -191,14 +191,6 @@ async function writesConfirmed(tab: Tab, asked: WriteConfirmation, mode: RunMode
   return ok && ws().tabs[tab.id]?.console === tab.console;
 }
 
-export function explainSupported(kind: DatabaseKind): boolean {
-  switch (kind) {
-    case "Postgres":
-    case "SqlServer":
-      return true;
-  }
-}
-
 async function runTab(tabId: TabId, target?: PageTarget, script?: RunTarget, mode: RunMode = "Run"): Promise<void> {
   const tab = ws().tabs[tabId];
   if (!tab) return;
@@ -296,7 +288,7 @@ async function sendRun(tab: Tab, request: RunRequest, digest: WriteDigest | null
 export function explainActive(mode: "Explain" | "ExplainAnalyze"): void {
   const id = activeId(ws());
   const tab = id ? ws().tabs[id] : undefined;
-  if (!id || !tab || isBrowsing(tab) || !explainSupported(databaseKindFor(tabTarget(tab), ws().configs))) return;
+  if (!id || !tab || isBrowsing(tab)) return;
   void runTab(id, undefined, undefined, mode);
 }
 
