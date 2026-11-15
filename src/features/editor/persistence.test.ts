@@ -1,7 +1,7 @@
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useWorkspace } from "../../state/workspace";
-import { flushBeforeClose } from "./persistence";
+import { flushBeforeClose, flushWorkspaceSave } from "./persistence";
 
 let saves: number;
 
@@ -41,6 +41,26 @@ it("lets the window go after two seconds when the engine never answers", async (
   const closing = flushBeforeClose(() => new Promise(() => {}));
   expect(await settledAfter(1_999, closing)).toBe(false);
   expect(await settledAfter(1, closing)).toBe(true);
+});
+
+it("reports a refused workspace save once until a save succeeds", async () => {
+  let refuse = true;
+  mockIPC((cmd) => {
+    if (cmd === "workspace_save" && refuse) return Promise.reject({ kind: "Store", message: "sqlite: database or disk is full" });
+  });
+  const toast = () => useWorkspace.getState().toast;
+  const text = "Couldn't save the workspace: sqlite: database or disk is full. Changes since the last save won't reopen after you quit.";
+
+  await flushWorkspaceSave();
+  const first = toast();
+  await flushWorkspaceSave();
+  expect([first?.text, toast()]).toEqual([text, first]);
+
+  refuse = false;
+  await flushWorkspaceSave();
+  refuse = true;
+  await flushWorkspaceSave();
+  expect(toast()).toEqual({ id: first!.id + 1, text });
 });
 
 it("lets the window go when the workspace save fails", async () => {

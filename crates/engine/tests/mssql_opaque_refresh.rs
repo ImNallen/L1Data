@@ -323,7 +323,7 @@ async fn implicit_procedure_calls_refresh_tables_and_appear_in_write_history() {
     check(|h| {
         async move {
             let before = h.table_procedure().await;
-            h.engine.clear_history();
+            h.engine.clear_history().unwrap();
             h.ok(h.tab, &format!("/* first code token */ dbo.[{}] @create=1", h.procedure)).await;
             let created = h.table_after(before, true).await;
             let history = h

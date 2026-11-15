@@ -1067,7 +1067,7 @@ async fn big_result_truncates_at_max_rows_and_keeps_counting() {
 async fn aggregate_orders_total_matches_sql_sum_only_when_every_row_is_stored() {
     let mut h = Harness::start().await;
     let tab = h.sql_tab(TxnMode::AutoCommit).await;
-    h.engine.set_settings(Settings { max_rows: 241_000, ..h.engine.settings() });
+    h.engine.set_settings(Settings { max_rows: 241_000, ..h.engine.settings() }).unwrap();
     let state = h.run_ok(tab, "select total from public.orders").await;
     let meta = Harness::result(&state, 0);
     assert_eq!(meta.truncated, None, "the cap has to hold every orders row");
@@ -1080,7 +1080,7 @@ async fn aggregate_orders_total_matches_sql_sum_only_when_every_row_is_stored() 
     let CellAggregate::Numeric { sum, .. } = full else { panic!("expected a numeric total, got {full:?}") };
     let sql_sum = h.scalar(tab, "select sum(total) from public.orders").await;
     assert_eq!(sum, sql_sum);
-    h.engine.set_settings(Settings { max_rows: 200_000, ..h.engine.settings() });
+    h.engine.set_settings(Settings { max_rows: 200_000, ..h.engine.settings() }).unwrap();
     let state = h.run_ok(tab, "select total from public.orders").await;
     let meta = Harness::result(&state, 0);
     assert_eq!(meta.row_count, 200_000);
@@ -1244,7 +1244,7 @@ async fn loaded_exports_type_json_draw_markdown_and_round_trip_inserts() {
 #[tokio::test]
 async fn all_rows_streams_past_the_cap_inside_an_open_transaction_and_leaves_it_writable() {
     let mut h = Harness::start().await;
-    h.engine.set_settings(Settings { max_rows: 1_000, ..h.engine.settings() });
+    h.engine.set_settings(Settings { max_rows: 1_000, ..h.engine.settings() }).unwrap();
     let probe = unique("t_writable");
     let oracle = h.oracle().await;
     oracle.batch_execute(&format!("create table public.{probe} (id int)")).await.unwrap();
@@ -1282,7 +1282,7 @@ async fn all_rows_streams_past_the_cap_inside_an_open_transaction_and_leaves_it_
 #[tokio::test]
 async fn esc_during_all_rows_leaves_the_target_untouched_and_the_session_alive() {
     let mut h = Harness::start().await;
-    h.engine.set_settings(Settings { max_rows: 100, ..h.engine.settings() });
+    h.engine.set_settings(Settings { max_rows: 100, ..h.engine.settings() }).unwrap();
     let tab = h.sql_tab(TxnMode::AutoCommit).await;
     let state = h.run_ok(tab, "select g, pg_sleep(0.001) from generate_series(1, 2000) g").await;
     let meta = Harness::result(&state, 0);
@@ -1372,7 +1372,7 @@ async fn all_rows_refuses_a_write_and_a_nextval_rerun_fails_without_advancing() 
 #[tokio::test]
 async fn a_table_tabs_all_rows_is_the_whole_filtered_table_in_page_order() {
     let mut h = Harness::start().await;
-    h.engine.set_settings(Settings { table_page_size: 10, ..h.engine.settings() });
+    h.engine.set_settings(Settings { table_page_size: 10, ..h.engine.settings() }).unwrap();
     let tab = h.sql_tab(TxnMode::AutoCommit).await;
     let query =
         TableQuery { r#where: "status <> 'cancelled'".into(), order_by: "total DESC".into(), ..Default::default() };
@@ -1509,7 +1509,7 @@ async fn history_survives_reopen_on_the_same_dir() {
         assert_eq!(page.entries[0].connection_name, "dev");
         assert_eq!(page.entries[0].database, "shop");
         assert!(h2.engine.boot().consoles.is_empty(), "consoles are not persisted");
-        h2.engine.clear_history();
+        h2.engine.clear_history().unwrap();
         assert!(
             h2.engine
                 .history(HistoryQuery { text: None, connection_id: None, before_id: None, limit: 5 })

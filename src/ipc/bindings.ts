@@ -60,13 +60,13 @@ export const commands = {
 	historyList: (query: HistoryQuery) => __TAURI_INVOKE<HistoryPage>("history_list", { query }),
 	historyBrowse: (query: HistoryBrowseQuery) => typedError<HistoryBrowsePage, HistoryError>(__TAURI_INVOKE("history_browse", { query })),
 	historyGroup: (query: HistoryGroupQuery) => typedError<HistoryGroupPage, HistoryError>(__TAURI_INVOKE("history_group", { query })),
-	historyClear: () => __TAURI_INVOKE<void>("history_clear"),
+	historyClear: () => typedError<null, HistoryClearError>(__TAURI_INVOKE("history_clear")),
 	savedQuerySave: (text: string, target: RunTarget, databaseKind: DatabaseKind) => typedError<SaveQueryReply, SavedQueryError>(__TAURI_INVOKE("saved_query_save", { text, target, databaseKind })),
 	savedQueryUpdate: (id: SavedQueryId, edit: SavedQueryEdit) => typedError<SavedQueries, SavedQueryError>(__TAURI_INVOKE("saved_query_update", { id, edit })),
 	savedQueryDelete: (id: SavedQueryId) => typedError<SavedQueries, SavedQueryError>(__TAURI_INVOKE("saved_query_delete", { id })),
 	savedQueryUsed: (id: SavedQueryId) => typedError<SavedQueries, SavedQueryError>(__TAURI_INVOKE("saved_query_used", { id })),
-	workspaceSave: (workspace: Workspace) => __TAURI_INVOKE<void>("workspace_save", { workspace }),
-	settingsSet: (settings: Settings) => __TAURI_INVOKE<void>("settings_set", { settings }),
+	workspaceSave: (workspace: Workspace) => typedError<null, WorkspaceError>(__TAURI_INVOKE("workspace_save", { workspace })),
+	settingsSet: (settings: Settings) => typedError<null, SettingsError>(__TAURI_INVOKE("settings_set", { settings })),
 	assistantOpen: (chatId: ChatId) => typedError<ChatView, ChatError>(__TAURI_INVOKE("assistant_open", { chatId })),
 	assistantConfigure: (chatId: ChatId, options: ChatOptions) => typedError<ChatState, ChatError>(__TAURI_INVOKE("assistant_configure", { chatId, options })),
 	assistantSend: (chatId: ChatId, request: SendRequest) => typedError<TurnAccepted, SendError>(__TAURI_INVOKE("assistant_send", { chatId, request })),
@@ -86,6 +86,9 @@ export const commands = {
 } | null) => typedError<InstallReply, UpdateError>(__TAURI_INVOKE("update_install", { version, accepted })),
 	updateSetTrack: (track: UpdateTrack) => typedError<null, UpdateError>(__TAURI_INVOKE("update_set_track", { track })),
 };
+
+/* Constants */
+export const DEFAULT_LAYOUT = {"assistantChat":null,"results":true,"resultsHeight":320,"rightPanel":"Assistant","rightPanelWidth":341,"sidebar":true,"sidebarSplit":50,"sidebarWidth":280} as const;
 
 /* Types */
 export type AgentError = { kind: "NotFound"; binary: string } | { kind: "SignedOut" } | 
@@ -845,6 +848,10 @@ export type HistoryBrowseQuery = {
 	limit: number,
 	revision: number | null,
 };
+
+export type HistoryClearError = 
+/**  Nothing was removed. */
+{ kind: "Store"; message: string };
 
 export type HistoryCounts = {
 	all: number,
@@ -1718,6 +1725,10 @@ export type Settings = {
 	providerHealthCheckSecs: number,
 };
 
+export type SettingsError = 
+/**  The settings apply until the app quits, and the next launch loads the ones last saved. */
+{ kind: "Unsaved"; message: string };
+
 export type SourceLimits = {
 	source: ProviderKind,
 	/**  The provider's display name. */
@@ -2058,6 +2069,10 @@ export type Workspace = {
 	/**  `None` shows the start commands. */
 	shown: NotebookId | null,
 };
+
+export type WorkspaceError = 
+/**  The next launch restores the workspace last saved. */
+{ kind: "Store"; message: string };
 
 /**  The engine ran nothing. Ask the user, then send the same request again with `digest`. */
 export type WriteConfirmation = {

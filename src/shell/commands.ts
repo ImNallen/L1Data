@@ -6,7 +6,7 @@ import { openNotebookSwitcher } from "../features/notebooks/notebookActions";
 import { openNotebookFiles, saveNotebook, type SaveMode } from "../features/notebooks/notebookFiles";
 import { adjacentCell } from "../state/notebooks";
 import { pendingCount, useTableEdits } from "../state/tableEdits";
-import { activeId, activeTab, shownDb, shownNotebook, useWorkspace, type Overlay } from "../state/workspace";
+import { activeId, activeTab, DEFAULT_PANEL_SIZES, shownDb, shownNotebook, useWorkspace, type Overlay } from "../state/workspace";
 import { isMac } from "./hostedWindow";
 
 export type CommandGroup = "Query" | "Connections" | "Workspace";
@@ -209,7 +209,7 @@ export const COMMANDS: Command[] = [
     id: "reset-panels",
     group: "Workspace",
     label: "Reset panel sizes",
-    run: () => ws().setLayout({ sidebarWidth: 240, sidebarSplit: 50, rightPanelWidth: 360, resultsHeight: 320 }),
+    run: () => ws().setLayout(DEFAULT_PANEL_SIZES),
   },
   SWITCH_NOTEBOOK,
   CLOSE_TAB,

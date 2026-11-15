@@ -22,7 +22,7 @@ import { useIsPickerOpen, type PickerTarget } from "./VisibilityPopover";
 export const INDENT = 12;
 
 /** A connection whose rows share one shaded block while tinting is on. Every row of the connection holds the same object. */
-export type TintGroup = { name: string; hex: string };
+export type TintGroup = { id: string; name: string; hex: string };
 
 export type RowView = {
   icon?: ReactNode;
@@ -35,10 +35,9 @@ export type RowView = {
 
 type NodeBase = { key: string; depth: number; tint: TintGroup | null };
 
-/** A tree row. Its `key` is its path, which names it in `tree-node-<path>`, unless `path` sets that name apart from the key. */
+/** A tree row. Its `key` is its identity, and `path`, when set, names it in `tree-node-<path>` in place of the key. */
 export type RowNode = NodeBase & {
   kind: "row";
-  /** Overloaded routines share a path, so their keys add the OID to stay unique while the test id keeps the path. */
   path?: string;
   /** What type-ahead matches. */
   name: string;
@@ -413,7 +412,7 @@ export function VirtualTree({ nodes, scrollRef }: { nodes: readonly TreeNode[]; 
     const top = measures[span.first]?.start ?? 0;
     const bottom = (measures[span.last]?.end ?? top) - GROUP_GAP;
     lines.push(
-      <div key={`tint-${tint.name}`} className="absolute inset-x-3 top-0" style={{ transform: `translateY(${top}px)`, height: bottom - top }}>
+      <div key={`tint-${tint.id}`} className="absolute inset-x-3 top-0" style={{ transform: `translateY(${top}px)`, height: bottom - top }}>
         <div
           data-testid={`conn-tint-${tint.name}`}
           className="absolute inset-0 rounded-lg"

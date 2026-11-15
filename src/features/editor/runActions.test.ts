@@ -130,6 +130,18 @@ it("writes settings one at a time, so the write that lands last carries every ch
   expect({ overlapped, persisted }).toMatchObject({ overlapped: false, persisted: { maxRows: 5, colorScheme: "Dark" } });
 });
 
+it("keeps a setting the store refused and says it lasts until quit", async () => {
+  vi.stubGlobal("window", { crypto });
+  mockIPC((cmd) => (cmd === "settings_set" ? Promise.reject({ kind: "Unsaved", message: "sqlite: database or disk is full" }) : null));
+
+  await saveSettings({ maxRows: 5 });
+
+  expect([useWorkspace.getState().settings.maxRows, useWorkspace.getState().toast?.text]).toEqual([
+    5,
+    "Couldn't save settings: sqlite: database or disk is full. They apply until you quit.",
+  ]);
+});
+
 it("shows a query in the table's open tab, or in a second tab while the first holds staged edits or edited text", async () => {
   const pages: unknown[] = [];
   mockIPC((cmd, args) => {

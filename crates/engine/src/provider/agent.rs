@@ -519,10 +519,12 @@ mod tests {
         })
         .await
         .unwrap();
-        engine.set_settings(crate::model::Settings {
-            assistant_access: crate::model::AssistantAccess::Full,
-            ..engine.settings()
-        });
+        engine
+            .set_settings(crate::model::Settings {
+                assistant_access: crate::model::AssistantAccess::Full,
+                ..engine.settings()
+            })
+            .unwrap();
         for kind in ["initial_prompt", "tool_result"] {
             let lease = *engine.shared.access.lock();
             let spec = LaunchSpec {
@@ -539,14 +541,18 @@ mod tests {
             drop(write);
             let remaining = agent.pipes.outbox.len();
             assert!(remaining > 0);
-            engine.set_settings(crate::model::Settings {
-                assistant_access: crate::model::AssistantAccess::SchemaOnly,
-                ..engine.settings()
-            });
-            engine.set_settings(crate::model::Settings {
-                assistant_access: crate::model::AssistantAccess::Full,
-                ..engine.settings()
-            });
+            engine
+                .set_settings(crate::model::Settings {
+                    assistant_access: crate::model::AssistantAccess::SchemaOnly,
+                    ..engine.settings()
+                })
+                .unwrap();
+            engine
+                .set_settings(crate::model::Settings {
+                    assistant_access: crate::model::AssistantAccess::Full,
+                    ..engine.settings()
+                })
+                .unwrap();
             let error = agent.flush_for(&engine.shared.access, lease).await.unwrap_err();
             assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
             assert_eq!(agent.pipes.outbox.len(), remaining, "no further byte was delivered");

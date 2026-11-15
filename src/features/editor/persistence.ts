@@ -1,6 +1,7 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { commands } from "../../ipc/bindings";
+import { workspaceErrorText } from "../../ipc/errors";
 import { useWorkspace, workspaceSnapshot } from "../../state/workspace";
 import { notebookDirty } from "../notebooks/notebookDirty";
 import { onBuffersChanged, textOf } from "./editorStates";
@@ -12,7 +13,16 @@ const CLOSE_FLUSH_MS = 2_000;
 
 let timer: ReturnType<typeof setTimeout> | undefined;
 
-const save = () => commands.workspaceSave(workspaceSnapshot(useWorkspace.getState(), { textOf, isNotebookDirty: notebookDirty }));
+let refusalShown = false;
+
+const save = async () => {
+  const res = await commands.workspaceSave(workspaceSnapshot(useWorkspace.getState(), { textOf, isNotebookDirty: notebookDirty }));
+  if (res.status === "ok") refusalShown = false;
+  else if (!refusalShown) {
+    refusalShown = true;
+    useWorkspace.getState().notify(workspaceErrorText(res.error));
+  }
+};
 
 /** A background cell's reload from disk changes no store field, so buffer changes schedule too. */
 export function startPersistence(): void {
