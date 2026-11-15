@@ -255,16 +255,7 @@ impl Session {
     pub async fn list_databases(&mut self) -> Result<(Vec<DatabaseInfo>, String), QueryError> {
         match &mut self.driver {
             Driver::Postgres(p) => p.list_databases().await,
-            Driver::SqlServer(s) => {
-                let (databases, _) = s.list_databases().await?;
-                let rows = s.rows("SELECT DB_NAME()").await?;
-                let home = rows
-                    .first()
-                    .and_then(|row| row.first())
-                    .and_then(Clone::clone)
-                    .ok_or_else(|| error("SQL Server returned no database name"))?;
-                Ok((databases, home))
-            }
+            Driver::SqlServer(s) => s.list_databases().await,
         }
     }
     pub async fn count_schemas(&mut self) -> Result<u32, QueryError> {
