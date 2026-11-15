@@ -18,6 +18,7 @@ import { CELL_SCROLL_MARGIN, cellHeights, EDITOR_MIN, pinnedTop, type DraggedHei
 import { closeTab } from "./closeTab";
 import { goToCell } from "../notebooks/cellNavigation";
 import { ParamsStrip } from "../notebooks/ParamsStrip";
+import { warnsOnRun } from "../notebooks/NotebookRunButton";
 import { staleReason } from "../notebooks/cellReferences";
 import { activateEditor, onBuffersChanged, textOf } from "./editorStates";
 import { cancelActive, formatActive, openSqlTab, runActive } from "./runActions";
@@ -271,7 +272,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
           <IconButton
             data-testid={active ? (cancellable ? "cancel-btn" : "run-btn") : undefined}
             data-environment={cancellable ? undefined : (environment ?? undefined)}
-            className={cancellable ? undefined : "run-environment bg-run hover:bg-run-hover"}
+            className={cancellable ? undefined : cx("run-environment", warnsOnRun(environment) && "bg-run hover:bg-run-hover")}
             aria-label={cancellable ? "Stop" : "Run cell"}
             title={cancellable ? "Stop" : "Run cell"}
             disabled={busy && !cancellable}

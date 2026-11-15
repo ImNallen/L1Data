@@ -447,6 +447,13 @@ it("colors a cell's Run button by its connection's environment", async () => {
   expect(run.dataset.environment).toBe("Production");
 });
 
+it("keeps a cell's Run button neutral when its connection has no environment", async () => {
+  useWorkspace.setState({ configs: { c1: { ...connectionConfig("c1", "dev"), environment: null } } });
+  await renderNotebook();
+  const run = within(cell("a")).getByRole("button", { name: "Run cell" });
+  expect(run.classList.contains("bg-run")).toBe(false);
+});
+
 describe("a collapsed cell", () => {
   const toggle = (id: TabId) => within(cell(id)).getByRole("button", { name: /^(Collapse|Expand) cell$/ });
 

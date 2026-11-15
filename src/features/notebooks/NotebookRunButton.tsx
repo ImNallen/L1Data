@@ -4,6 +4,10 @@ import { Button } from "../../ui/primitives";
 import { runNotebook, stopNotebookRun, useNotebookRun } from "./notebookRun";
 import { progressText } from "./runbook";
 
+export function warnsOnRun(environment: Environment | null): boolean {
+  return environment === "Staging" || environment === "Production";
+}
+
 export function NotebookRunButton({ id, environment }: { id: NotebookId; environment: Environment | null }) {
   const run = useNotebookRun(id);
   if (!run)
@@ -11,7 +15,7 @@ export function NotebookRunButton({ id, environment }: { id: NotebookId; environ
       <Button
         data-testid="run-all-btn"
         data-environment={environment ?? undefined}
-        variant="primary"
+        variant={warnsOnRun(environment) ? "primary" : undefined}
         title="Run every cell in order, and stop at the first that fails"
         className="run-environment @max-[520px]:px-2.5"
         onClick={() => void runNotebook(id, "all")}
