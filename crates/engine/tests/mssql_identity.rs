@@ -147,12 +147,14 @@ async fn restored_targets_catalogs_table_results_and_history_share_the_canonical
         file: None,
     };
     let notebooks = vec![notebook("SHOP", vec![table.id]), notebook("Shop", vec![distinct.id])];
-    engine.save_workspace(Workspace {
-        tabs: vec![table.clone(), distinct.clone()],
-        active: Some(table.id),
-        notebooks: notebooks.clone(),
-        ..Workspace::default()
-    });
+    engine
+        .save_workspace(Workspace {
+            tabs: vec![table.clone(), distinct.clone()],
+            active: Some(table.id),
+            notebooks: notebooks.clone(),
+            ..Workspace::default()
+        })
+        .unwrap();
     let before = engine.console_configure(table.id, console(config.id, "SHOP")).await.unwrap();
     assert_eq!(before.config.database, "SHOP");
     let state = run(
@@ -206,13 +208,15 @@ async fn restored_targets_catalogs_table_results_and_history_share_the_canonical
     let databases =
         |w: &Workspace| w.notebooks.iter().map(|n| n.db.as_ref().unwrap().database.clone()).collect::<Vec<_>>();
     assert_eq!(databases(&restored), ["shop", "Shop"], "a notebook resolves as its cells do");
-    engine.save_workspace(Workspace {
-        tabs: vec![table, distinct],
-        active: restored.active,
-        layout: restored.layout,
-        notebooks,
-        shown: None,
-    });
+    engine
+        .save_workspace(Workspace {
+            tabs: vec![table, distinct],
+            active: restored.active,
+            layout: restored.layout,
+            notebooks,
+            shown: None,
+        })
+        .unwrap();
     engine.disconnect(config.id, true).await.unwrap();
     drop(engine);
     let reopened = open(dir.path(), keys).await;

@@ -11,14 +11,17 @@ import type {
   ImportError,
   FileReadError,
   FileWriteError,
+  HistoryClearError,
   RunError,
   SavedQueryError,
   SaveTarget,
   SendError,
+  SettingsError,
   SshError,
   TxnError,
   UpdateError,
   UpdateFailure,
+  WorkspaceError,
 } from "./bindings";
 
 export function connectErrorText(e: ConnectError): string {
@@ -267,6 +270,39 @@ export function savedQueryErrorText(e: SavedQueryError): string {
       return `Couldn't save the query: ${e.message}`;
     default: {
       const unreachable: never = e;
+      return unreachable;
+    }
+  }
+}
+
+export function settingsErrorText(e: SettingsError): string {
+  switch (e.kind) {
+    case "Unsaved":
+      return `Couldn't save settings: ${e.message}. They apply until you quit.`;
+    default: {
+      const unreachable: never = e.kind;
+      return unreachable;
+    }
+  }
+}
+
+export function workspaceErrorText(e: WorkspaceError): string {
+  switch (e.kind) {
+    case "Store":
+      return `Couldn't save the workspace: ${e.message}. Changes since the last save won't reopen after you quit.`;
+    default: {
+      const unreachable: never = e.kind;
+      return unreachable;
+    }
+  }
+}
+
+export function historyClearErrorText(e: HistoryClearError): string {
+  switch (e.kind) {
+    case "Store":
+      return `Couldn't clear history: ${e.message}`;
+    default: {
+      const unreachable: never = e.kind;
       return unreachable;
     }
   }

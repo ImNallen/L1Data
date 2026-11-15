@@ -246,7 +246,7 @@ async fn select_only_login_keeps_relation_detail_and_actual_assistant_descriptio
             assert!(!script.text.contains(&left_out), "The extended property on a constraint the script leaves out replays without it: {}", script.text);
         }
         let detail = h.engine.relation_detail(db(reader), relation.oid).await;
-        h.engine.set_settings(Settings { assistant_access: AssistantAccess::Full, ..h.engine.settings() });
+        h.engine.set_settings(Settings { assistant_access: AssistantAccess::Full, ..h.engine.settings() }).unwrap();
         let access = *h.engine.shared.access.lock();
         let described = tools::execute(&h.engine.shared, Some(&db(reader)), ParsedCall::DescribeTables { tables: vec![format!("dbo.{table}")] }, access).await;
         eprintln!("Public relation_detail {detail:?}\nActual describe_tables {:?}\n{}", described.status, described.for_model.text);

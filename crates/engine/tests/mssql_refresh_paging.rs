@@ -66,7 +66,7 @@ impl Harness {
             .unwrap();
         let mut settings = engine.settings();
         settings.table_page_size = 2;
-        engine.set_settings(settings);
+        engine.set_settings(settings).unwrap();
         Self { engine, events, connection, tab, _dir: dir }
     }
 
