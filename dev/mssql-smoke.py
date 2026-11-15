@@ -90,6 +90,11 @@ def draft(url, kind, name):
     }
 
 
+def history_groups(bridge, connection_id):
+    page = bridge.invoke("history_browse", query={"text": None, "filter": "All", "beforeId": None, "limit": 100, "revision": None})
+    return [group for group in page["groups"] if group["connectionId"] == connection_id]
+
+
 def check_assistant(bridge, db, tab):
     binary = Path("target/debug/fake-claude").resolve()
     assert binary.is_file(), "build fake-claude with cargo build -p engine before this smoke"
@@ -279,8 +284,8 @@ def check(bridge, work, assistant=True):
 
         if assistant:
             check_assistant(bridge, db, tab)
-        history = bridge.invoke("history_list", query={"text": None, "connectionId": ms["id"], "beforeId": None, "limit": 100})
-        assert history["entries"] and all(h["databaseKind"] == "SqlServer" for h in history["entries"])
+        history = history_groups(bridge, ms["id"])
+        assert history and all(h["databaseKind"] == "SqlServer" for h in history)
     finally:
         for current in (tab, observer):
             bridge.response("console_rollback", tabId=current)
@@ -291,8 +296,8 @@ def check(bridge, work, assistant=True):
             bridge.invoke("console_close", tabId=current, force=True)
         bridge.invoke("connection_delete", id=ms["id"])
         bridge.invoke("connection_delete", id=pg["id"])
-    history = bridge.invoke("history_list", query={"text": None, "connectionId": ms["id"], "beforeId": None, "limit": 100})
-    assert history["entries"] and all(h["databaseKind"] == "SqlServer" for h in history["entries"])
+    history = history_groups(bridge, ms["id"])
+    assert history and all(h["databaseKind"] == "SqlServer" for h in history)
     print("PASS historical database kind after connection deletion")
 
 

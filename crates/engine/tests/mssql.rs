@@ -724,13 +724,6 @@ async fn connection_kind_is_immutable_and_history_records_sql_server() {
     assert!(matches!(h.engine.save_connection(changed).await, Err(SaveError::Invalid { .. })));
     assert!(h.engine.boot().connections.iter().find(|c| c.id == h.connection).unwrap().has_password);
     h.ok("SELECT 1 AS history_example").await;
-    let history = h.engine.history(HistoryQuery {
-        text: Some("history_example".into()),
-        connection_id: None,
-        before_id: None,
-        limit: 10,
-    });
-    assert_eq!(history.entries[0].database_kind, DatabaseKind::SqlServer);
     let page = h
         .engine
         .history_browse(HistoryBrowseQuery {
@@ -1905,13 +1898,22 @@ async fn a_reference_chain_runs_inside_a_batch_with_hoisted_ctes() {
     let sets = Harness::rowsets(&state);
     assert_eq!(sets.len(), 1);
     assert_eq!(h.rows(sets[0]), vec![vec![Some("Europe".into()), Some("125.50".into())]]);
-    let history = h.engine.history(HistoryQuery {
-        text: Some("{{paid regions}}".into()),
-        connection_id: Some(h.connection),
-        before_id: None,
-        limit: 10,
-    });
-    let ran = &history.entries.first().expect("the batch is in history").sql;
+    let history = h
+        .engine
+        .history_browse(HistoryBrowseQuery {
+            text: Some("{{paid regions}}".into()),
+            filter: HistoryFilter::All,
+            before_id: None,
+            limit: 10,
+            revision: None,
+        })
+        .unwrap();
+    let group = history.groups.first().expect("the batch is in history");
+    let ran = &h
+        .engine
+        .history_group(HistoryGroupQuery { id: group.id, before_id: None, limit: 1, revision: history.revision })
+        .unwrap()
+        .sql;
     assert!(ran.starts_with("DECLARE @min decimal(10, 2) = 10\n;WITH p AS (SELECT customer_id, total FROM dbo.orders WHERE status = N'paid'),\n[{{paid}}] AS (\nSELECT customer_id, total FROM p\n),"), "{ran}");
 
     let refused = h.engine.console_run(h.tab, request("IF 1 = 1 SELECT * FROM {{paid}}"), None).await.unwrap_err();
