@@ -64,7 +64,7 @@ import { PickerPill, type PickerTarget } from "./VisibilityPopover";
 import { INDENT, VirtualTree, type RowNode, type TintGroup, type TreeNode } from "./VirtualTree";
 import type { ShownCount } from "./pickers";
 
-type Expanded = { has(path: string): boolean; toggle(path: string, open?: boolean): void };
+type Expanded = { has(key: string): boolean; toggle(key: string, open?: boolean): void };
 
 /**
  * What the builders below need to flatten the tree into rows. `out` collects the rows in the order the user sees them.
@@ -87,18 +87,36 @@ function build(expanded: Expanded, selected: RelationRef | null = null, entries:
   return { out: [], expanded, tint: null, selected, entries, details: [], idle: [], browse: null, total: null };
 }
 
-function row(b: Build, node: Omit<RowNode, "kind" | "tint">): void {
+/**
+ * A row's place in the tree. `key` is its identity and its expand-state key: the connection's ID, then each name
+ * escaped, so connections that share a name, and names that hold a slash, never collide. `shown` spells the same place
+ * with the names, for the row's test ID, and `title` lists only the names.
+ */
+export type TreePath = { key: string; shown: string; title: string };
+
+/** An escaped name never holds `/` and never starts with `#` or `!`, which mark groups and notes. */
+const segment = (name: string) => encodeURIComponent(name).replaceAll("!", "%21");
+
+export const connectionPath = (id: ConnectionId, name: string): TreePath => ({ key: segment(id), shown: name, title: name });
+
+const child = (p: TreePath, name: string): TreePath => ({ key: `${p.key}/${segment(name)}`, shown: `${p.shown}/${name}`, title: `${p.title} / ${name}` });
+
+/** A group or a note under `p`, such as `#columns` or `!error`. */
+const part = (p: TreePath, id: string): TreePath => ({ key: `${p.key}/${id}`, shown: `${p.shown}/${id}`, title: p.title });
+
+const databasePath = (configs: Record<ConnectionId, ConnectionConfig>, db: DatabaseRef) =>
+  child(connectionPath(db.connectionId, configs[db.connectionId]?.name ?? ""), db.database);
+
+function row(b: Build, at: TreePath, node: Omit<RowNode, "kind" | "tint" | "key" | "path">): void {
   b.out.push({
     kind: "row",
     tint: b.tint,
+    key: at.key,
+    path: at.shown,
     ...node,
     view: (active) => {
       const view = node.view(active);
-      const qualified = (node.path ?? node.key)
-        .split("/")
-        .filter((part) => !part.startsWith("#"))
-        .join(" / ");
-      return { ...view, title: view.title && view.title !== node.name ? `${qualified} · ${view.title}` : qualified };
+      return { ...view, title: view.title && view.title !== node.name ? `${at.title} · ${view.title}` : at.title };
     },
   });
 }
@@ -202,9 +220,8 @@ function DetailName({
   );
 }
 
-function columnRow(b: Build, path: string, depth: number, column: ColumnInfo, ranges?: readonly TextRange[]) {
-  row(b, {
-    key: `${path}/${column.name}`,
+function columnRow(b: Build, path: TreePath, depth: number, column: ColumnInfo, ranges?: readonly TextRange[]) {
+  row(b, child(path, column.name), {
     depth,
     name: column.name,
     expandable: false,
@@ -235,9 +252,8 @@ const KEY_GLYPHS: Record<KeyKind["kind"], ReactNode> = {
   Check: glyph(CheckCheckIcon),
 };
 
-function textRow(b: Build, key: string, depth: number, icon: ReactNode, name: string, text: RowText, menu?: () => ReactNode) {
-  row(b, {
-    key,
+function textRow(b: Build, at: TreePath, depth: number, icon: ReactNode, name: string, text: RowText, menu?: () => ReactNode) {
+  row(b, at, {
     depth,
     name,
     expandable: false,
@@ -249,15 +265,14 @@ function textRow(b: Build, key: string, depth: number, icon: ReactNode, name: st
 }
 
 /** A row that opens and closes the rows `children` adds under it. `count` is null while it loads. */
-function group(b: Build, path: string, depth: number, label: string, count: number | null, icon: ReactNode | undefined, children: () => void) {
-  const open = b.expanded.has(path);
-  row(b, {
-    key: path,
+function group(b: Build, path: TreePath, depth: number, label: string, count: number | null, icon: ReactNode | undefined, children: () => void) {
+  const open = b.expanded.has(path.key);
+  row(b, path, {
     depth,
     name: label,
     expandable: true,
     open,
-    onClick: () => b.expanded.toggle(path),
+    onClick: () => b.expanded.toggle(path.key),
     view: () => ({
       icon,
       label,
@@ -270,13 +285,13 @@ function group(b: Build, path: string, depth: number, label: string, count: numb
 type DetailGroup = { id: string; label: string; count: number | null; rows: () => void };
 
 /** Columns come from the catalog. The other groups wait for `relation_detail` and hide when empty. */
-function detailGroups(b: Build, path: string, depth: number, db: DatabaseRef, schema: string, rel: Relation, detail: RelationDetail | null): DetailGroup[] {
-  const at = (group: string, name: string) => `${path}/#${group}/${name}`;
+function detailGroups(b: Build, path: TreePath, depth: number, db: DatabaseRef, schema: string, rel: Relation, detail: RelationDetail | null): DetailGroup[] {
+  const at = (group: string, name: string) => child(part(path, `#${group}`), name);
   const columns: DetailGroup = {
     id: "columns",
     label: "Columns",
     count: rel.columns.length,
-    rows: () => rel.columns.forEach((c) => columnRow(b, `${path}/#columns`, depth, c)),
+    rows: () => rel.columns.forEach((c) => columnRow(b, part(path, "#columns"), depth, c)),
   };
   if (!detail) {
     const pending = (id: string, label: string): DetailGroup => ({ id, label, count: null, rows: () => {} });
@@ -289,8 +304,7 @@ function detailGroups(b: Build, path: string, depth: number, db: DatabaseRef, sc
       count: detail.defaults.length,
       rows: () =>
         detail.defaults.forEach((d) =>
-          row(b, {
-            key: at("defaults", d.column),
+          row(b, at("defaults", d.column), {
             depth,
             name: d.column,
             expandable: false,
@@ -332,16 +346,16 @@ function detailGroups(b: Build, path: string, depth: number, db: DatabaseRef, sc
 }
 
 /** An open relation's groups. The tree fetches its detail on first open and again whenever the catalog version moves. */
-function relationGroups(b: Build, path: string, depth: number, db: DatabaseRef, schema: string, rel: Relation, version: number) {
+function relationGroups(b: Build, path: TreePath, depth: number, db: DatabaseRef, schema: string, rel: Relation, version: number) {
   b.details.push({ db, version, oid: rel.oid });
   const entry = b.entries[detailKey(db, rel.oid)];
   for (const g of detailGroups(b, path, depth + 1, db, schema, rel, entry?.detail ?? null)) {
-    group(b, `${path}/#${g.id}`, depth, g.label, g.count, undefined, g.rows);
+    group(b, part(path, `#${g.id}`), depth, g.label, g.count, undefined, g.rows);
   }
   const error = entry?.error;
   if (error) {
-    note(b, `${path}/!detail-error`, depth, 20, () => (
-      <div data-testid={`detail-error-${path}`} style={{ paddingLeft: 30 + depth * INDENT }} className="mb-1 pr-2 text-ui-11.5 leading-4 text-danger/90">
+    note(b, part(path, "!detail-error").key, depth, 20, () => (
+      <div data-testid={`detail-error-${path.shown}`} style={{ paddingLeft: 30 + depth * INDENT }} className="mb-1 pr-2 text-ui-11.5 leading-4 text-danger/90">
         {error}
       </div>
     ));
@@ -409,11 +423,10 @@ function RelationName({ name, ranges }: { name: string; ranges?: readonly TextRa
   );
 }
 
-function relationRow(b: Build, path: string, depth: number, db: DatabaseRef, schema: string, rel: Relation, version: number) {
-  const me = `${path}/${rel.name}`;
-  const open = b.expanded.has(me);
-  row(b, {
-    key: me,
+function relationRow(b: Build, path: TreePath, depth: number, db: DatabaseRef, schema: string, rel: Relation, version: number) {
+  const me = child(path, rel.name);
+  const open = b.expanded.has(me.key);
+  row(b, me, {
     depth,
     name: rel.name,
     expandable: true,
@@ -422,8 +435,8 @@ function relationRow(b: Build, path: string, depth: number, db: DatabaseRef, sch
     selected: isSelected(b.selected, db, schema, rel),
     ...relationActions(db, schema, rel),
     onToggle: () => {
-      if (!open) b.expanded.toggle(`${me}/#columns`, true);
-      b.expanded.toggle(me);
+      if (!open) b.expanded.toggle(part(me, "#columns").key, true);
+      b.expanded.toggle(me.key);
     },
     view: () => {
       const selected = isSelected(b.selected, db, schema, rel);
@@ -463,10 +476,11 @@ export function insertRoutine(db: DatabaseRef, fn: FunctionInfo): void {
   insertAtCursor(active.id, fn.insertText);
 }
 
-function functionRow(b: Build, path: string, depth: number, db: DatabaseRef, fn: FunctionInfo, ranges?: readonly TextRange[]) {
-  row(b, {
-    key: `${path}/${fn.name}#${fn.oid}`,
-    path: `${path}/${fn.name}`,
+function functionRow(b: Build, path: TreePath, depth: number, db: DatabaseRef, fn: FunctionInfo, ranges?: readonly TextRange[]) {
+  const named = child(path, fn.name);
+  // Overloaded routines share a path, so their keys add the OID to stay unique while the test ID keeps the path.
+  const at = { ...named, key: `${named.key}#${fn.oid}` };
+  row(b, at, {
     depth,
     name: fn.name,
     expandable: false,
@@ -503,13 +517,12 @@ function typeDetail(kind: TypeKind): string | undefined {
 
 type ObjectRow = { oid: number; name: string; detail?: string; ranges?: readonly TextRange[]; target: ScriptTarget };
 
-function objectGroup(b: Build, path: string, depth: number, db: DatabaseRef, label: string, icon: LucideIcon, rows: ObjectRow[]) {
+function objectGroup(b: Build, path: TreePath, depth: number, db: DatabaseRef, label: string, icon: LucideIcon, rows: ObjectRow[]) {
   if (rows.length === 0) return;
   group(b, path, depth, label, rows.length, glyph(icon), () => {
     for (const r of rows) {
       const title = <Highlight text={r.name} ranges={r.ranges} />;
-      row(b, {
-        key: `${path}/${r.name}`,
+      row(b, child(path, r.name), {
         depth: depth + 1,
         name: r.name,
         expandable: false,
@@ -524,18 +537,17 @@ function objectGroup(b: Build, path: string, depth: number, db: DatabaseRef, lab
   });
 }
 
-function schemaRows(b: Build, path: string, depth: number, db: DatabaseRef, schema: SchemaInfo, version: number) {
-  const me = `${path}/${schema.name}`;
-  const open = b.expanded.has(me);
-  row(b, {
-    key: me,
+function schemaRows(b: Build, path: TreePath, depth: number, db: DatabaseRef, schema: SchemaInfo, version: number) {
+  const me = child(path, schema.name);
+  const open = b.expanded.has(me.key);
+  row(b, me, {
     depth,
     name: schema.name,
     expandable: true,
     open,
     strong: true,
     height: 28,
-    onClick: () => b.expanded.toggle(me),
+    onClick: () => b.expanded.toggle(me.key),
     menu: () => <NewMenu db={db} />,
     view: () => ({ label: <SchemaName name={schema.name} />, trailing: <Count>{schema.tableCount}</Count> }),
   });
@@ -544,14 +556,14 @@ function schemaRows(b: Build, path: string, depth: number, db: DatabaseRef, sche
   const views = schema.relations.filter((r) => isViewKind(r.kind));
   for (const rel of [...tables, ...views]) relationRow(b, me, depth + 1, db, schema.name, rel, version);
   if (schema.functions.length > 0) {
-    const functions = `${me}/#functions`;
+    const functions = part(me, "#functions");
     group(b, functions, depth + 1, "Functions", schema.functions.length, <BracesIcon size={14} className="text-muted" />, () =>
       schema.functions.forEach((fn) => functionRow(b, functions, depth + 2, db, fn)),
     );
   }
   objectGroup(
     b,
-    `${me}/#sequences`,
+    part(me, "#sequences"),
     depth + 1,
     db,
     "Sequences",
@@ -560,7 +572,7 @@ function schemaRows(b: Build, path: string, depth: number, db: DatabaseRef, sche
   );
   objectGroup(
     b,
-    `${me}/#types`,
+    part(me, "#types"),
     depth + 1,
     db,
     "Types",
@@ -569,7 +581,7 @@ function schemaRows(b: Build, path: string, depth: number, db: DatabaseRef, sche
   );
   objectGroup(
     b,
-    `${me}/#synonyms`,
+    part(me, "#synonyms"),
     depth + 1,
     db,
     "Synonyms",
@@ -579,7 +591,7 @@ function schemaRows(b: Build, path: string, depth: number, db: DatabaseRef, sche
 }
 
 /** One schema's rows in the unfiltered tree. */
-export function schemaNodes(path: string, depth: number, db: DatabaseRef, schema: SchemaInfo, version: number, expanded: Expanded): TreeNode[] {
+export function schemaNodes(path: TreePath, depth: number, db: DatabaseRef, schema: SchemaInfo, version: number, expanded: Expanded): TreeNode[] {
   const b = build(expanded);
   schemaRows(b, path, depth, db, schema, version);
   return b.out;
@@ -625,15 +637,14 @@ function NotebookMarker({ db, testId }: { db: DatabaseRef; testId: string }) {
 type CatalogNews = { loading: string[]; failed: string[] };
 
 /** One shown database of a connected instance: its row, then its schemas once the catalog is in. */
-function databaseRows(b: Build, news: CatalogNews, path: string, db: DatabaseRef, state: DatabaseState, views: Record<DbKey, CatalogView>) {
-  const me = `${path}/${db.database}`;
-  const open = b.expanded.has(me);
+function databaseRows(b: Build, news: CatalogNews, path: TreePath, db: DatabaseRef, state: DatabaseState, views: Record<DbKey, CatalogView>) {
+  const me = child(path, db.database);
+  const open = b.expanded.has(me.key);
   const view = viewFor(views, db);
   const count = schemaCount(state, view?.catalog);
   const target: PickerTarget = { kind: "schemas", db };
   const picked = b.browse !== null && sameDb(b.browse.selected, db);
-  row(b, {
-    key: me,
+  row(b, me, {
     depth: 1,
     name: db.database,
     expandable: b.browse === null,
@@ -642,7 +653,7 @@ function databaseRows(b: Build, news: CatalogNews, path: string, db: DatabaseRef
     picker: target,
     // Browsing, a database sits under its connection's icon, tied to it by a guide line, rather than a full level in.
     ...(b.browse && { height: 28, indent: 26, guide: true }),
-    onClick: () => (b.browse ? b.browse.select(db) : b.expanded.toggle(me)),
+    onClick: () => (b.browse ? b.browse.select(db) : b.expanded.toggle(me.key)),
     menu: () => <NewMenu db={db} />,
     view: (active) => ({
       icon: <DatabaseIcon size={14} className={picked ? "text-keyword" : "text-dim"} />,
@@ -651,12 +662,12 @@ function databaseRows(b: Build, news: CatalogNews, path: string, db: DatabaseRef
         <>
           {b.browse ? (
             <Swap
-              rest={<NotebookMarker db={db} testId={`notebook-marker-${me}`} />}
-              control={count && <PickerPill target={target} count={count} active={active} testId={`schema-pill-${me}`} label={schemasText(count)} />}
+              rest={<NotebookMarker db={db} testId={`notebook-marker-${me.shown}`} />}
+              control={count && <PickerPill target={target} count={count} active={active} testId={`schema-pill-${me.shown}`} label={schemasText(count)} />}
               held={active}
             />
           ) : (
-            count && <PickerPill target={target} count={count} active={active} testId={`schema-pill-${me}`} />
+            count && <PickerPill target={target} count={count} active={active} testId={`schema-pill-${me.shown}`} />
           )}
         </>
       ),
@@ -674,15 +685,15 @@ function databaseRows(b: Build, news: CatalogNews, path: string, db: DatabaseRef
   const catalog = state.catalog;
   if (catalog.kind === "Failed") {
     news.failed.push(`${db.database}: ${view ? "Refresh failed: " : ""}${catalog.message}`);
-    note(b, `${me}/!error`, 1, 20, () => (
-      <div data-testid={`db-error-${me}`} className="mb-1 flex items-baseline gap-2 pr-2 pl-[52px] text-ui-11.5 leading-4 text-danger/90">
+    note(b, part(me, "!error").key, 1, 20, () => (
+      <div data-testid={`db-error-${me.shown}`} className="mb-1 flex items-baseline gap-2 pr-2 pl-[52px] text-ui-11.5 leading-4 text-danger/90">
         <span className="min-w-0 flex-1 truncate" title={catalog.message}>
           {view ? "Refresh failed: " : ""}
           {catalog.message}
         </span>
         <button
           type="button"
-          data-testid={`db-retry-${me}`}
+          data-testid={`db-retry-${me.shown}`}
           onClick={() => void refreshCatalog(db)}
           className="shrink-0 rounded px-1 text-fg/80 underline-offset-2 hover:bg-control hover:underline"
         >
@@ -694,7 +705,7 @@ function databaseRows(b: Build, news: CatalogNews, path: string, db: DatabaseRef
   if (!view) {
     if (catalog.kind !== "Failed") {
       news.loading.push(db.database);
-      note(b, `${me}/!loading`, 1, 28, () => (
+      note(b, part(me, "!loading").key, 1, 28, () => (
         <div className="flex h-7 items-center gap-2 pl-[44px] text-ui-12 text-dim">
           <Spinner /> Loading catalog
         </div>
@@ -704,8 +715,8 @@ function databaseRows(b: Build, news: CatalogNews, path: string, db: DatabaseRef
   }
   const schemas = state.shownSchemas.flatMap((name) => view.catalog.schemas.find((s) => s.name === name) ?? []);
   if (schemas.length === 0 && view.catalog.extensions.length === 0) {
-    note(b, `${me}/!empty`, 1, 28, () => (
-      <div data-testid={`db-empty-${me}`} className="flex h-7 items-center pl-[44px] text-ui-12 text-muted">
+    note(b, part(me, "!empty").key, 1, 28, () => (
+      <div data-testid={`db-empty-${me.shown}`} className="flex h-7 items-center pl-[44px] text-ui-12 text-muted">
         No schemas shown
       </div>
     ));
@@ -713,7 +724,7 @@ function databaseRows(b: Build, news: CatalogNews, path: string, db: DatabaseRef
   for (const s of schemas) schemaRows(b, me, 2, db, s, view.catalog.version);
   objectGroup(
     b,
-    `${me}/#extensions`,
+    part(me, "#extensions"),
     2,
     db,
     "Extensions",
@@ -908,22 +919,21 @@ type Revealed = Map<ConnectionId, "database" | "schema">;
 /** The shading a connection's rows share, or null while tinting is off or the connection has no color. */
 function tintOf(config: ConnectionConfig, tinting: boolean): TintGroup | null {
   const hex = tinting ? connectionColor(config.color) : null;
-  return hex ? { name: config.name, hex } : null;
+  return hex ? { id: config.id, name: config.name, hex } : null;
 }
 
 function connectionRows(b: Build, news: CatalogNews, config: ConnectionConfig, state: ConnectionState | undefined, views: Record<DbKey, CatalogView>) {
   const instance = instanceOf(state);
   const tone = connectionTone(state);
-  const path = config.name;
-  const open = b.expanded.has(path);
+  const path = connectionPath(config.id, config.name);
+  const open = b.expanded.has(path.key);
   const connected = instance !== null;
   const shown = instance?.databases.filter((d) => d.shown) ?? [];
   const target: PickerTarget = { kind: "databases", id: config.id };
   const failure =
     state?.status.kind === "Failed" ? connectErrorText(state.status.error) : state?.status.kind === "Lost" ? `Connection lost: ${state.status.reason}` : null;
   const tinted = b.tint !== null;
-  row(b, {
-    key: path,
+  row(b, path, {
     depth: 0,
     name: config.name,
     expandable: true,
@@ -932,7 +942,7 @@ function connectionRows(b: Build, news: CatalogNews, config: ConnectionConfig, s
     ...(b.browse && { height: 30, indent: 6, gapBefore: b.out.length > 0 }),
     picker: target,
     onClick: () => {
-      if (connected || state?.status.kind === "Connecting") b.expanded.toggle(path);
+      if (connected || state?.status.kind === "Connecting") b.expanded.toggle(path.key);
       else void connect(config.id);
     },
     menu: () => <ConnectionMenu config={config} shown={instance && shown.map((d) => ({ connectionId: config.id, database: d.name }))} />,
@@ -951,9 +961,9 @@ function connectionRows(b: Build, news: CatalogNews, config: ConnectionConfig, s
       trailing: <ConnectionTrailing config={config} tone={tone} instance={instance} target={target} active={active} browse={b.browse !== null} />,
     }),
   });
-  if (failure && b.browse) note(b, `${path}/!error`, 0, 64, () => <ConnectionError config={config} failure={failure} />);
+  if (failure && b.browse) note(b, part(path, "!error").key, 0, 64, () => <ConnectionError config={config} failure={failure} />);
   else if (failure) {
-    note(b, `${path}/!error`, 0, 20, () => (
+    note(b, part(path, "!error").key, 0, 20, () => (
       <div data-testid={`conn-error-${config.name}`} title={failure} className="mb-1 line-clamp-2 pr-2 pl-[36px] text-ui-11 leading-4 text-danger/90">
         {failure}
       </div>
@@ -964,25 +974,23 @@ function connectionRows(b: Build, news: CatalogNews, config: ConnectionConfig, s
 }
 
 /** A container row while filtering: it opens and closes and matches nothing itself. */
-function foldRow(b: Build, path: string, depth: number, name: string, icon: ReactNode, label: ReactNode = name, strong = false) {
-  row(b, {
-    key: path,
+function foldRow(b: Build, path: TreePath, depth: number, name: string, icon: ReactNode, label: ReactNode = name, strong = false) {
+  row(b, path, {
     depth,
     name,
     expandable: true,
-    open: b.expanded.has(path),
+    open: b.expanded.has(path.key),
     strong,
-    onClick: () => b.expanded.toggle(path),
+    onClick: () => b.expanded.toggle(path.key),
     view: () => ({ icon, label }),
   });
 }
 
-function filteredRelationRows(b: Build, path: string, db: DatabaseRef, schema: string, { rel, ranges, columns }: FilteredRelation) {
-  const me = `${path}/${rel.name}`;
+function filteredRelationRows(b: Build, path: TreePath, db: DatabaseRef, schema: string, { rel, ranges, columns }: FilteredRelation) {
+  const me = child(path, rel.name);
   const expandable = columns.length > 0;
-  const open = expandable && b.expanded.has(me);
-  row(b, {
-    key: me,
+  const open = expandable && b.expanded.has(me.key);
+  row(b, me, {
     depth: 3,
     name: rel.name,
     expandable,
@@ -991,7 +999,7 @@ function filteredRelationRows(b: Build, path: string, db: DatabaseRef, schema: s
     open,
     selected: isSelected(b.selected, db, schema, rel),
     ...relationActions(db, schema, rel),
-    onToggle: expandable ? () => b.expanded.toggle(me) : undefined,
+    onToggle: expandable ? () => b.expanded.toggle(me.key) : undefined,
     view: () => {
       const selected = isSelected(b.selected, db, schema, rel);
       return {
@@ -1005,32 +1013,31 @@ function filteredRelationRows(b: Build, path: string, db: DatabaseRef, schema: s
       };
     },
   });
-  if (open) for (const c of columns) columnRow(b, `${me}/#columns`, 4, c.column, c.ranges);
+  if (open) for (const c of columns) columnRow(b, part(me, "#columns"), 4, c.column, c.ranges);
 }
 
-function filteredSchemaRows(b: Build, path: string, db: DatabaseRef, match: FilteredSchema) {
-  const me = `${path}/${match.name}`;
-  const functions = `${me}/#functions`;
+function filteredSchemaRows(b: Build, path: TreePath, db: DatabaseRef, match: FilteredSchema) {
+  const me = child(path, match.name);
+  const functions = part(me, "#functions");
   const total = b.total?.(db, match.name) ?? null;
   const kept = match.relations.length;
-  row(b, {
-    key: me,
+  row(b, me, {
     depth: 2,
     name: match.name,
     expandable: true,
-    open: b.expanded.has(me),
+    open: b.expanded.has(me.key),
     strong: true,
     height: 28,
-    onClick: () => b.expanded.toggle(me),
+    onClick: () => b.expanded.toggle(me.key),
     view: () => ({ label: <SchemaName name={match.name} />, trailing: kept > 0 && <Count>{total === null ? kept : `${kept} of ${total}`}</Count> }),
   });
-  if (!b.expanded.has(me)) return;
+  if (!b.expanded.has(me.key)) return;
   for (const r of match.relations) filteredRelationRows(b, me, db, match.name, r);
   if (match.functions.length > 0) foldRow(b, functions, 3, "Functions", <BracesIcon size={14} className="text-muted" />);
-  if (b.expanded.has(functions)) for (const f of match.functions) functionRow(b, functions, 4, db, f.fn, f.ranges);
+  if (b.expanded.has(functions.key)) for (const f of match.functions) functionRow(b, functions, 4, db, f.fn, f.ranges);
   objectGroup(
     b,
-    `${me}/#sequences`,
+    part(me, "#sequences"),
     3,
     db,
     "Sequences",
@@ -1039,7 +1046,7 @@ function filteredSchemaRows(b: Build, path: string, db: DatabaseRef, match: Filt
   );
   objectGroup(
     b,
-    `${me}/#types`,
+    part(me, "#types"),
     3,
     db,
     "Types",
@@ -1048,7 +1055,7 @@ function filteredSchemaRows(b: Build, path: string, db: DatabaseRef, match: Filt
   );
   objectGroup(
     b,
-    `${me}/#synonyms`,
+    part(me, "#synonyms"),
     3,
     db,
     "Synonyms",
@@ -1058,7 +1065,7 @@ function filteredSchemaRows(b: Build, path: string, db: DatabaseRef, match: Filt
 }
 
 /** One schema's rows in the tree narrowed to a search. */
-export function filteredSchemaNodes(path: string, db: DatabaseRef, match: FilteredSchema, expanded: Expanded): TreeNode[] {
+export function filteredSchemaNodes(path: TreePath, db: DatabaseRef, match: FilteredSchema, expanded: Expanded): TreeNode[] {
   const b = build(expanded);
   filteredSchemaRows(b, path, db, match);
   return b.out;
@@ -1068,23 +1075,24 @@ export function filteredSchemaNodes(path: string, db: DatabaseRef, match: Filter
 function filteredTree(b: Build, filter: TreeFilter, tinting: boolean) {
   for (const { config, databases } of filter.connections) {
     b.tint = tintOf(config, tinting);
+    const root = connectionPath(config.id, config.name);
     foldRow(
       b,
-      config.name,
+      root,
       0,
       config.name,
       <EnvironmentIcon environment={config.environment} size={15} testId={`env-icon-${config.name}`} />,
       <span className="font-medium">{config.name}</span>,
     );
-    if (!b.expanded.has(config.name)) continue;
+    if (!b.expanded.has(root.key)) continue;
     for (const { db, schemas, extensions } of databases) {
-      const path = `${config.name}/${db.database}`;
+      const path = child(root, db.database);
       foldRow(b, path, 1, db.database, <DatabaseIcon size={15} className="text-muted" />);
-      if (!b.expanded.has(path)) continue;
+      if (!b.expanded.has(path.key)) continue;
       for (const s of schemas) filteredSchemaRows(b, path, db, s);
       objectGroup(
         b,
-        `${path}/#extensions`,
+        part(path, "#extensions"),
         2,
         db,
         "Extensions",
@@ -1203,7 +1211,7 @@ export function ConnectionTree({
         const start = b.out.length;
         connectionRows(b, { loading: [], failed: [] }, config, connections[config.id], views);
         if (!all) {
-          const allowed = new Set(databases.map((d) => `${config.name}/${d.name}`));
+          const allowed = new Set(databases.map((d) => child(connectionPath(config.id, config.name), d.name).key));
           b.out = [...b.out.slice(0, start), ...b.out.slice(start).filter((n) => n.depth === 0 || allowed.has(n.key))];
         }
       }
@@ -1219,7 +1227,7 @@ export function ConnectionTree({
           );
       filteredTree(b, filter, tinting);
       if (scope?.kind === "objects") {
-        const prefix = `${configs[scope.db.connectionId]?.name}/${scope.db.database}/`;
+        const prefix = `${databasePath(configs, scope.db).key}/`;
         b.out = objectIndent(b.out.filter((n) => n.key.startsWith(prefix)).map((n) => ({ ...n, depth: Math.max(0, n.depth - 2) })));
         if (b.out.length > 0)
           note(b, "objects-hint", 0, 36, () => <p className="px-3 pt-2.5 text-ui-11 text-dim">Enter opens the first match. Esc clears the filter.</p>);
@@ -1252,12 +1260,12 @@ export function ConnectionTree({
                   synonyms: [],
                   types: [],
                 };
-          schemaRows(b, `${configs[scope.db.connectionId]?.name}/${scope.db.database}`, 0, scope.db, shown, view.catalog.version);
+          schemaRows(b, databasePath(configs, scope.db), 0, scope.db, shown, view.catalog.version);
         }
       if (view && scope.category === "all")
         objectGroup(
           b,
-          `${configs[scope.db.connectionId]?.name}/${scope.db.database}/#extensions`,
+          part(databasePath(configs, scope.db), "#extensions"),
           0,
           scope.db,
           "Extensions",
@@ -1277,10 +1285,10 @@ export function ConnectionTree({
 
   const objectsDb = scope?.kind === "objects" ? scope.db : null;
   const objectDefault = viewFor(views, objectsDb)?.catalog.defaultSchema;
-  const objectConnection = objectsDb ? configs[objectsDb.connectionId]?.name : null;
+  const objectDefaultKey = objectsDb && objectDefault ? child(databasePath(configs, objectsDb), objectDefault).key : null;
   useEffect(() => {
-    if (objectsDb && objectDefault) toggle(`${objectConnection}/${objectsDb.database}/${objectDefault}`, true);
-  }, [objectsDb, objectDefault, objectConnection, toggle]);
+    if (objectDefaultKey) toggle(objectDefaultKey, true);
+  }, [objectsDb, objectDefaultKey, toggle]);
 
   // The first connect opens the connection and its home database, then that database's default schema once its catalog says which.
   useEffect(() => {
@@ -1288,16 +1296,16 @@ export function ConnectionTree({
     for (const config of list) {
       const home = instanceOf(connections[config.id])?.home;
       if (!home) continue;
-      const path = config.name;
+      const path = connectionPath(config.id, config.name);
       if (!revealed.has(config.id)) {
         revealed.set(config.id, "database");
-        toggle(path, true);
-        toggle(`${path}/${home}`, true);
+        toggle(path.key, true);
+        toggle(child(path, home).key, true);
       }
       const homeDefault = viewFor(views, { connectionId: config.id, database: home })?.catalog.defaultSchema;
       if (revealed.get(config.id) === "database" && homeDefault !== undefined) {
         revealed.set(config.id, "schema");
-        if (homeDefault) toggle(`${path}/${home}/${homeDefault}`, true);
+        if (homeDefault) toggle(child(child(path, home), homeDefault).key, true);
       }
     }
   }, [filter, list, connections, views, toggle, revealed]);

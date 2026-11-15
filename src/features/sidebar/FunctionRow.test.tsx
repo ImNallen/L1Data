@@ -4,7 +4,7 @@ import type { DatabaseRef, FunctionInfo, SchemaInfo } from "../../ipc/bindings";
 import { activeId, shownNotebook, useWorkspace, type Tab } from "../../state/workspace";
 import { connectionConfig } from "../../testing/connections";
 import { dropEditor, editorStateOf, insertAtCursor, moveCursor, seedEditor, textOf } from "../editor/editorStates";
-import { filteredSchemaNodes, insertRoutine, schemaNodes } from "./ConnectionTree";
+import { connectionPath, filteredSchemaNodes, insertRoutine, schemaNodes } from "./ConnectionTree";
 import { cellsState, moveCell } from "../../testing/notebooks";
 
 const postgres = { connectionId: "pg", database: "shop" };
@@ -163,9 +163,9 @@ it.each(
   };
   const nodes =
     tree === "normal"
-      ? schemaNodes("unrelated/display/path", 2, source, schema, 1, expanded)
+      ? schemaNodes(connectionPath("c", "unrelated/display/path"), 2, source, schema, 1, expanded)
       : filteredSchemaNodes(
-          "unrelated/display/path",
+          connectionPath("c", "unrelated/display/path"),
           source,
           { name: schema.name, relations: [], functions: [{ fn, ranges: [] }], sequences: [], types: [], synonyms: [] },
           expanded,
@@ -200,9 +200,9 @@ it.each(["normal", "filtered"])("keys overloaded routines apart in the %s tree w
   };
   const nodes =
     tree === "normal"
-      ? schemaNodes("conn", 2, postgres, schema, 1, expanded)
+      ? schemaNodes(connectionPath("c", "conn"), 2, postgres, schema, 1, expanded)
       : filteredSchemaNodes(
-          "conn",
+          connectionPath("c", "conn"),
           postgres,
           { name: schema.name, relations: [], functions: overloads.map((fn) => ({ fn, ranges: [] })), sequences: [], types: [], synonyms: [] },
           expanded,
