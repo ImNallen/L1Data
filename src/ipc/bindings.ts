@@ -87,6 +87,9 @@ export const commands = {
 	updateSetTrack: (track: UpdateTrack) => typedError<null, UpdateError>(__TAURI_INVOKE("update_set_track", { track })),
 };
 
+/* Constants */
+export const DEFAULT_LAYOUT = {"assistantChat":null,"results":true,"resultsHeight":320,"rightPanel":"Assistant","rightPanelWidth":341,"sidebar":true,"sidebarSplit":50,"sidebarWidth":280} as const;
+
 /* Types */
 export type AgentError = { kind: "NotFound"; binary: string } | { kind: "SignedOut" } | 
 /**  `detail` is the end of its stderr. */
