@@ -28,7 +28,7 @@ it("runs every cell, shows Stop with which cell runs, and stops on Stop", async 
   const user = userEvent.setup();
   const engine = fakeEngine({ outcomes: { "select pg_sleep(5)": "hold" } });
   const cells = ["select 1", "select pg_sleep(5)", "select 3"].map((text) => openSqlTab({ db: RUN_DB, text }));
-  render(<NotebookRunButton id={notebookOf(ws().notebooks, cells[0]!)!.id} />);
+  render(<NotebookRunButton id={notebookOf(ws().notebooks, cells[0]!)!.id} environment={null} />);
 
   await user.click(screen.getByTestId("run-all-btn"));
   await waitFor(() => expect(screen.getByTestId("run-progress").textContent).toBe("2 of 3"));
