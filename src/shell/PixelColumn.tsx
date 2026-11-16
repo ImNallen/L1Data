@@ -22,7 +22,7 @@ const COLUMNS = {
     edge: "left",
     handle: "right-panel-resize",
     label: "Resize right panel",
-    line: "bg-border",
+    line: "bg-control",
   },
 } as const;
 
