@@ -1,19 +1,19 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import { BookOpenIcon, CheckIcon, EllipsisIcon, PlusIcon, SearchIcon } from "lucide-react";
-import { Fragment, useEffect, useId, useRef, useState, type KeyboardEvent, type SyntheticEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type SyntheticEvent } from "react";
 import type { NotebookId } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
 import { activeId, useWorkspace } from "../../state/workspace";
-import { isMac } from "../../shell/hostedWindow";
+import { MAC } from "../../shell/hostedWindow";
 import { ACTIVE_OPTION, cx, DialogSurface, Kbd, MenuContent, MenuItem } from "../../ui/primitives";
+import { useListSelection } from "../../ui/useListSelection";
 import { plural } from "../editor/writeQuestions";
 import { focusDestination } from "../navigation/navigationActions";
 import { deleteNotebook, startNotebook } from "./notebookActions";
 import { useRunningNotebooks } from "./notebookRun";
 import { switcherGroups, type SwitcherRow } from "./switcherItems";
 
-const MAC = typeof navigator !== "undefined" && isMac(navigator.userAgent);
 const DELETE_KEY = MAC ? "⌘⌫" : "Ctrl+Backspace";
 
 const ws = () => useWorkspace.getState();
@@ -71,26 +71,16 @@ function SwitcherBrowser({ renaming, setRenaming }: { renaming: Renaming | null;
   const homeDir = useLive((s) => s.homeDir);
   const renameNotebook = useWorkspace((s) => s.renameNotebook);
   const [query, setQuery] = useState("");
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const composing = useRef(false);
-  const listId = useId();
   const { groups, total } = switcherGroups({ notebooks, shown, configs, consoles, running, homeDir }, query);
   const rows = groups.flatMap((g) => g.rows);
   const matching = rows.filter((r) => r.kind === "notebook").length;
-  const found = rows.findIndex((r) => r.key === selectedKey);
-  const selectedIndex =
-    found >= 0
-      ? found
-      : Math.max(
-          0,
-          rows.findIndex((r) => !(r.kind === "notebook" && r.open)),
-        );
-  const selected = rows[selectedIndex];
-  const optionId = (index: number) => `${listId}-${index}`;
-  useEffect(() => {
-    document.getElementById(optionId(selectedIndex))?.scrollIntoView({ block: "nearest" });
-  });
+  const firstClosed = Math.max(
+    0,
+    rows.findIndex((r) => !(r.kind === "notebook" && r.open)),
+  );
+  const { listId, optionId, selected, selectedIndex, select, move } = useListSelection(rows, (r) => r.key, firstClosed);
 
   const startRename = (row: SwitcherRow | undefined) => {
     if (row?.kind === "notebook") setRenaming({ id: row.notebook.id, draft: row.notebook.title });
@@ -104,8 +94,7 @@ function SwitcherBrowser({ renaming, setRenaming }: { renaming: Renaming | null;
     if (composing.current || event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      const next = rows[(selectedIndex + (event.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length];
-      if (next) setSelectedKey(next.key);
+      move(event.key === "ArrowDown" ? 1 : -1);
     } else if (event.key === "Enter" && selected) {
       event.preventDefault();
       activate(selected);
@@ -162,7 +151,7 @@ function SwitcherBrowser({ renaming, setRenaming }: { renaming: Renaming | null;
                   aria-selected={isSelected}
                   aria-label={title}
                   data-testid={`notebook-switcher-${row.kind === "new" ? "new" : row.notebook.id}`}
-                  onMouseMove={(event) => inRow(event) && setSelectedKey(row.key)}
+                  onMouseMove={(event) => inRow(event) && select(row.key)}
                   onMouseDown={(event) => inRow(event) && !editing && event.preventDefault()}
                   onClick={(event) => inRow(event) && !editing && activate(row)}
                   className={cx("group flex min-h-12 cursor-default items-center gap-3 rounded-lg px-3 py-1.5", isSelected ? ACTIVE_OPTION : "hover:bg-hover")}

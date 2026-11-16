@@ -2,7 +2,7 @@ import { memo, useDeferredValue, useLayoutEffect, useRef, type ReactNode } from 
 import type { OutputEntry, QueryError } from "../../ipc/bindings";
 import { OUTPUT_LIMIT, type OutputLog } from "../../state/live";
 import { cx } from "../../ui/primitives";
-import { formatClock, formatElapsed, groupDigits, pluralRows } from "./format";
+import { formatClock, formatElapsed, groupCount, pluralRows } from "./format";
 
 export function ErrorBlock({ error, label }: { error: QueryError; label?: ReactNode }) {
   return (
@@ -138,7 +138,7 @@ export const OutputPanel = memo(function OutputPanel({ log }: { log: OutputLog }
     >
       {dropped > 0 && (
         <Line time="" runStart={false}>
-          <div className="text-dim">Only the last {groupDigits(String(OUTPUT_LIMIT))} lines are kept.</div>
+          <div className="text-dim">Only the last {groupCount(OUTPUT_LIMIT)} lines are kept.</div>
         </Line>
       )}
       {chunks}

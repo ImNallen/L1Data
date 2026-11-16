@@ -66,17 +66,13 @@ export const emptyLive: LiveData = {
   homeDir: null,
 };
 
-function keepHigher<K extends PropertyKey, V extends { rev: number }, M extends Partial<Record<K, V>>>(map: M, key: K, next: V): M {
-  const prev = map[key];
-  return prev && prev.rev >= next.rev ? map : { ...map, [key]: next };
-}
-
-function newerUpdate(prev: UpdateState | null, next: UpdateState): UpdateState {
+function newer<V extends { rev: number }>(prev: V | null | undefined, next: V): V {
   return prev && prev.rev >= next.rev ? prev : next;
 }
 
-function newerSaved(prev: SavedQueries, next: SavedQueries): SavedQueries {
-  return prev.rev >= next.rev ? prev : next;
+function keepHigher<K extends PropertyKey, V extends { rev: number }, M extends Partial<Record<K, V>>>(map: M, key: K, next: V): M {
+  const prev = map[key];
+  return newer(prev, next) === prev ? map : { ...map, [key]: next };
 }
 
 function withChat(s: LiveData, chat: ChatState): LiveData {
@@ -163,7 +159,7 @@ export function applyEvent(s: LiveData, e: AppEvent): LiveData {
     }
     case "UpdateChanged": {
       const { kind: _, ...state } = e;
-      return { ...s, updates: newerUpdate(s.updates, state) };
+      return { ...s, updates: newer(s.updates, state) };
     }
     case "SavedQueriesChanged": {
       const { kind: _, ...queries } = e;
@@ -182,11 +178,11 @@ export function hydrateLive(s: LiveData, b: BootSnapshot): LiveData {
   for (const c of b.consoles) if (!next.forgotten.has(c.tabId)) next = { ...next, consoles: keepHigher(next.consoles, c.tabId, c) };
   for (const p of b.providers) next = { ...next, providers: keepHigher(next.providers, p.provider, p) };
   for (const c of b.chats) next = withChat(next, c);
-  return { ...next, updates: newerUpdate(next.updates, b.updates), savedQueries: newerSaved(next.savedQueries, b.savedQueries), homeDir: b.homeDir };
+  return { ...next, updates: newer(next.updates, b.updates), savedQueries: newer(next.savedQueries, b.savedQueries), homeDir: b.homeDir };
 }
 
 export function hydrateSavedLive(s: LiveData, queries: SavedQueries): LiveData {
-  const savedQueries = newerSaved(s.savedQueries, queries);
+  const savedQueries = newer(s.savedQueries, queries);
   return savedQueries === s.savedQueries ? s : { ...s, savedQueries };
 }
 

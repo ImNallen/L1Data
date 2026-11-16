@@ -20,7 +20,7 @@ import { useLive, type OutputLog } from "../../state/live";
 import {
   isBusy,
   outputTone,
-  resultKey,
+  refKey,
   resultView,
   rowResults,
   runStatements,
@@ -35,7 +35,7 @@ import { databaseKindFor } from "../../state/databaseKind";
 import { NO_EDITS, pendingCount, useTableEdits } from "../../state/tableEdits";
 import { isFiltered, isTableTab, useWorkspace, type ResultDisplayPref, type Tab, type TableTab } from "../../state/workspace";
 import { Button, cx, IconButton, MenuContent, MenuItem, Spinner } from "../../ui/primitives";
-import { isMac } from "../../shell/hostedWindow";
+import { MAC } from "../../shell/hostedWindow";
 import { useNow } from "../../ui/useNow";
 import {
   isBrowsing,
@@ -52,7 +52,7 @@ import { defaultChart, type ChartSpec } from "./chart";
 import { ChartView } from "./ChartView";
 import { ExportMenu } from "./ExportMenu";
 import { FilterBar } from "./FilterBar";
-import { groupDigits, hasResultPager, PAGE_SIZES, pageStatus, pluralRows, resultPage, type RowWindow } from "./format";
+import { groupCount, hasResultPager, PAGE_SIZES, pageStatus, pluralRows, resultPage, type RowWindow } from "./format";
 import { ErrorBlock, OutputPanel } from "./OutputPanel";
 import { PlanView } from "./PlanView";
 import { gridEditing, ResultGrid, type GridActions, type GridEditing, type GridQuery } from "./ResultGrid";
@@ -102,7 +102,7 @@ function PagerBar({
         <MenuContent align="end">
           {PAGE_SIZES.map((n) => (
             <MenuItem key={n} testId={`page-size-${n}`} checked={n === size} onSelect={() => void saveSettings({ tablePageSize: n })}>
-              {groupDigits(String(n))} per page
+              {groupCount(n)} per page
             </MenuItem>
           ))}
         </MenuContent>
@@ -297,7 +297,7 @@ function RunTail({ run }: { run: RunState }) {
     return (
       <div className="px-4 text-center">
         <p className="text-ui-13.5 text-muted">Results appear here</p>
-        <p className="mt-1">Run a statement with {isMac(navigator.userAgent) ? "⌘↵" : "Ctrl+Enter"}.</p>
+        <p className="mt-1">Run a statement with {MAC ? "⌘↵" : "Ctrl+Enter"}.</p>
       </div>
     );
   if (run.kind === "Running") {
@@ -399,7 +399,7 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
   const shown = shownResult(run, picked);
   const summary = runSummary(run, picked, now);
   const output = useLive((s) => (tabId ? s.output[tabId] : undefined)) ?? NO_OUTPUT;
-  const shownRef = shown ? resultKey(shown) : "";
+  const shownRef = shown ? refKey(shown.meta.ref) : "";
   const storedPref = useWorkspace((s) => (tabId ? s.resultDisplay[tabId]?.[shownRef] : undefined));
   const pref: ResultDisplayPref = storedPref ?? { key: shownRef, display: "default", chart: null };
   const setDisplayPref = (next: ResultDisplayPref) => {

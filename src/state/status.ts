@@ -1,5 +1,5 @@
-import type { ConnectionState, ConsoleState, OutputEntry, ResultMeta, RowsState, RunState, StatementRun, TabId } from "../ipc/bindings";
-import { formatElapsed, groupDigits, pluralRows } from "../features/results/format";
+import type { ConnectionState, ConsoleState, OutputEntry, ResultMeta, ResultRef, RowsState, RunState, StatementRun, TabId } from "../ipc/bindings";
+import { formatElapsed, groupCount, pluralRows } from "../features/results/format";
 
 export function hasUncommittedWork(console: ConsoleState | undefined): boolean {
   return console !== undefined && console.txn !== "Idle";
@@ -80,8 +80,8 @@ export type ResultView =
   | { kind: "output" }
   | { kind: "tail" };
 
-export function resultKey(result: RowResult): string {
-  return `${result.meta.ref.tabId}:${result.meta.ref.runId}:${result.index}`;
+export function refKey(ref: ResultRef): string {
+  return `${ref.tabId}:${ref.runId}:${ref.index}`;
 }
 
 /** How the shown result asks to be drawn. "default" is the plan for a plan result, else rows. */
@@ -108,7 +108,7 @@ export type Summary = { tone: "ok" | "error" | "running" | "muted"; text: string
 function rowsText(meta: ResultMeta): string {
   if (meta.truncated === null) return pluralRows(meta.rowCount);
   const why = meta.truncated === "RowLimit" ? "row limit" : "size limit";
-  return `${groupDigits(String(meta.rowCount))} of ${groupDigits(String(meta.rowsSeen))} rows (${why})`;
+  return `${groupCount(meta.rowCount)} of ${groupCount(meta.rowsSeen)} rows (${why})`;
 }
 
 export function runSummary(run: RunState, picked: ResultPick | undefined, nowMs: number): Summary | null {

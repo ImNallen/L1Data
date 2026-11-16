@@ -1,7 +1,7 @@
 import { ChevronRightIcon } from "lucide-react";
 import { Fragment, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
-import { commands, type Plan, type PlanBuffers, type PlanNode, type ResultRef } from "../../ipc/bindings";
-import type { RowResult } from "../../state/status";
+import { commands, type Plan, type PlanBuffers, type PlanNode } from "../../ipc/bindings";
+import { refKey, type RowResult } from "../../state/status";
 import { treeKey, type TreeItem } from "../sidebar/treeKeys";
 import { cx } from "../../ui/primitives";
 
@@ -43,21 +43,17 @@ function flatten(plan: Plan, collapsed: ReadonlySet<string>): Flat[] {
   return out;
 }
 
-function refKeyOf(ref: ResultRef): string {
-  return `${ref.tabId}:${ref.runId}:${ref.index}`;
-}
-
 export function PlanView({ result }: { result: RowResult }) {
   const ref = result.meta.ref;
-  const refKey = refKeyOf(ref);
+  const key = refKey(ref);
   const [loaded, setLoaded] = useState<{ key: string; plan?: Plan; error?: string } | null>(null);
   const [tree, setTree] = useState<TreeState>({ key: "", collapsed: new Set(), focusId: "0" });
   const marked = useRef("");
   const treeRef = useRef<HTMLDivElement>(null);
   const nodeIds = useId();
 
-  const active: TreeState = tree.key === refKey ? tree : { key: refKey, collapsed: new Set(), focusId: "0" };
-  if (tree.key !== refKey) setTree(active);
+  const active: TreeState = tree.key === key ? tree : { key, collapsed: new Set(), focusId: "0" };
+  if (tree.key !== key) setTree(active);
 
   useEffect(() => {
     let cancelled = false;
@@ -66,30 +62,30 @@ export function PlanView({ result }: { result: RowResult }) {
         if (cancelled) return;
         if (res.status === "ok") {
           performance.mark("plan-data");
-          setLoaded({ key: refKey, plan: res.data });
-        } else setLoaded({ key: refKey, error: res.error.kind === "NotAPlan" ? res.error.what : "The plan could not be read." });
+          setLoaded({ key, plan: res.data });
+        } else setLoaded({ key, error: res.error.kind === "NotAPlan" ? res.error.what : "The plan could not be read." });
       },
       () => {
-        if (!cancelled) setLoaded({ key: refKey, error: "The plan could not be read." });
+        if (!cancelled) setLoaded({ key, error: "The plan could not be read." });
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [ref, refKey]);
+  }, [ref, key]);
 
-  const plan = loaded?.key === refKey ? loaded.plan : undefined;
-  const error = loaded?.key === refKey ? loaded.error : undefined;
+  const plan = loaded?.key === key ? loaded.plan : undefined;
+  const error = loaded?.key === key ? loaded.error : undefined;
   const rows = plan ? flatten(plan, active.collapsed) : [];
   const found = rows.findIndex((row) => row.id === active.focusId);
   const at = found === -1 ? 0 : found;
 
   useEffect(() => {
-    if (!plan || marked.current === refKey) return;
-    marked.current = refKey;
+    if (!plan || marked.current === key) return;
+    marked.current = key;
     performance.mark("plan-paint");
     if (performance.getEntriesByName("plan-data").length > 0) performance.measure("plan-paint-ms", "plan-data", "plan-paint");
-  }, [plan, refKey]);
+  }, [plan, key]);
 
   useEffect(() => {
     if (!plan) return;
@@ -121,7 +117,7 @@ export function PlanView({ result }: { result: RowResult }) {
     event.preventDefault();
     if (action.kind === "focus") {
       const next = rows[action.index];
-      if (next) setTree({ key: refKey, collapsed: active.collapsed, focusId: next.id });
+      if (next) setTree({ key, collapsed: active.collapsed, focusId: next.id });
       return;
     }
     const collapsed = new Set(active.collapsed);
@@ -131,7 +127,7 @@ export function PlanView({ result }: { result: RowResult }) {
     else collapsed.add(focused.id);
     const visible = flatten(plan, collapsed);
     const still = visible.some((row) => row.id === focused.id);
-    setTree({ key: refKey, collapsed, focusId: still ? focused.id : (visible[Math.min(at, visible.length - 1)]?.id ?? "0") });
+    setTree({ key, collapsed, focusId: still ? focused.id : (visible[Math.min(at, visible.length - 1)]?.id ?? "0") });
   };
 
   return (
@@ -174,7 +170,7 @@ export function PlanView({ result }: { result: RowResult }) {
                   data-focused={index === at ? "true" : undefined}
                   style={{ paddingLeft: 8 + (row.level - 1) * INDENT }}
                   onClick={() => {
-                    setTree({ key: refKey, collapsed: active.collapsed, focusId: row.id });
+                    setTree({ key, collapsed: active.collapsed, focusId: row.id });
                     treeRef.current?.focus();
                   }}
                   className={cx(

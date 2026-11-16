@@ -1,4 +1,4 @@
-import { isMac } from "../shell/hostedWindow";
+import { MAC } from "../shell/hostedWindow";
 
 export type FontKind = "interface" | "code";
 
@@ -12,8 +12,6 @@ const FALLBACK: Record<FontKind, string> = {
   interface: "ui-sans-serif, system-ui, sans-serif",
   code: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
 };
-
-const APPLE = typeof navigator !== "undefined" && isMac(navigator.userAgent);
 
 const installed = (kind: FontKind, family: string): FontEntry => ({ family, stack: `"${family}", ${FALLBACK[kind]}`, probe: `"${family}"` });
 
@@ -33,7 +31,7 @@ const FONTS: Record<FontKind, readonly FontEntry[]> = {
     {
       family: "SF Mono",
       stack: '"SF Mono", SFMono-Regular, ui-monospace, Menlo, monospace',
-      probe: APPLE ? 'ui-monospace, "SF Mono", SFMono-Regular' : '"SF Mono", SFMono-Regular',
+      probe: MAC ? 'ui-monospace, "SF Mono", SFMono-Regular' : '"SF Mono", SFMono-Regular',
     },
     installed("code", "Menlo"),
     installed("code", "Monaco"),

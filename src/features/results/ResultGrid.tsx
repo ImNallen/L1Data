@@ -49,8 +49,9 @@ import {
   type TypeCategory,
 } from "../../ipc/bindings";
 import { DENSITY_FACTOR, gridRowHeight } from "../../shell/appearance";
-import { isMac } from "../../shell/hostedWindow";
+import { MAC, MOD_LABEL } from "../../shell/hostedWindow";
 import { rowCacheFor, windowedRows, type Row, type RowView } from "../../state/rowCache";
+import { refKey } from "../../state/status";
 import { findRelation, isPrimaryKey, useCatalog, viewFor, type CatalogView } from "../../state/catalog";
 import { sameDb, type DbKey } from "../../state/dbKey";
 import {
@@ -73,7 +74,7 @@ import { openTableTab } from "../editor/runActions";
 import { useKeyLinks, type KeyLink } from "./foreignKeys";
 import { ColumnProfilePopover } from "./ColumnProfile";
 import { cellAt, DEFAULT, EMPTY_MARK, GridEditor, GridRow, NULL_MARK, rowNumberAt, type Cell } from "./GridRows";
-import { groupDigits, isNumeric, toTsv, type RowWindow } from "./format";
+import { groupCount, groupDigits, isNumeric, toTsv, type RowWindow } from "./format";
 import { formatSelectionTotals, type SelectionSlot } from "./selectionTotals";
 import { useResultFind } from "./useResultFind";
 import { referencedRows, type SortKey } from "./tableQuery";
@@ -91,8 +92,6 @@ const PREFETCH = 64;
 const COPY_ROW_LIMIT = 50_000;
 const RESIZE_STEP = 16;
 
-const MAC = typeof navigator !== "undefined" && isMac(navigator.userAgent);
-const MOD_KEY = MAC ? "⌘" : "Ctrl+";
 const ALT_KEY = MAC ? "⌥" : "Alt+";
 
 type Selection = { anchor: Cell; focus: Cell } | null;
@@ -320,7 +319,7 @@ async function copySelection(
   const c0 = Math.min(sel.anchor.col, sel.focus.col);
   const c1 = Math.max(sel.anchor.col, sel.focus.col);
   if (r1 - r0 + 1 > COPY_ROW_LIMIT) {
-    notify(`Copy is limited to ${groupDigits(String(COPY_ROW_LIMIT))} rows. Use Export for the full result.`);
+    notify(`Copy is limited to ${groupCount(COPY_ROW_LIMIT)} rows. Use Export for the full result.`);
     return;
   }
   if (r0 < rowCount) await cache.ensure({ start: r0, end: Math.min(r1, rowCount - 1) + 1 }, rowCount);
@@ -338,7 +337,7 @@ async function copySelection(
   }
   await navigator.clipboard.writeText(toTsv(rows));
   const cells = (r1 - r0 + 1) * (c1 - c0 + 1);
-  if (cells > 1) notify(`Copied ${groupDigits(String(cells))} cells.`);
+  if (cells > 1) notify(`Copied ${groupCount(cells)} cells.`);
 }
 
 /** Which columns are primary keys, per the catalog of the database the rows came from. */
@@ -683,7 +682,7 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
   const queuedTotal = useRef<{ epoch: number; rows: RowSpan; cols: ColSpan; pending: boolean } | null>(null);
   const dragPosted = useRef(false);
   const lastPublished = useRef<string | null>(null);
-  const resultKey = `${meta.ref.tabId}:${meta.ref.runId}:${meta.ref.index}`;
+  const resultKey = refKey(meta.ref);
   const publishTotals = (epoch: number, text: string | null) => {
     lastPublished.current = text;
     onSelectionTotalsRef.current?.({ key: resultKey, epoch, text });
@@ -1159,7 +1158,7 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
               ))}
               <ContextMenuItem testId="grid-menu-record" keyShortcuts="Meta+I" disabled={menuCell.row >= rowCount} onSelect={() => openRecord(menuCell.row)}>
                 View as record
-                <KeyHint>{MOD_KEY}I</KeyHint>
+                <KeyHint>{MOD_LABEL}I</KeyHint>
               </ContextMenuItem>
               <ContextMenuItem testId="grid-menu-cell-profile" onSelect={() => setProfiled(menuCell.col)}>
                 Profile {menuColumn}
@@ -1275,7 +1274,7 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
               </IconButton>
             </>
           ) : (
-            <button onClick={showFind} title={`${MOD_KEY}F`}>
+            <button onClick={showFind} title={`${MOD_LABEL}F`}>
               Find in results
             </button>
           )}

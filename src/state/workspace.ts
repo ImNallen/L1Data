@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { DEFAULT_LAYOUT as FRESH_LAYOUT } from "../ipc/bindings";
+import { DEFAULT_LAYOUT as FRESH_LAYOUT, DEFAULT_SETTINGS as FRESH_SETTINGS } from "../ipc/bindings";
 import type {
   ConnectionConfig,
   ConnectionId,
@@ -118,7 +118,7 @@ export type WorkspaceData = {
   layout: Layout;
   configs: Record<ConnectionId, ConnectionConfig>;
   activeResult: Record<TabId, ResultPick>;
-  /** Rows, plan, or chart for each result of the tab's latest run, keyed by `resultKey`. A new run starts from the default. */
+  /** Rows, plan, or chart for each result of the tab's latest run, keyed by `refKey`. A new run starts from the default. */
   resultDisplay: Record<TabId, Record<string, ResultDisplayPref>>;
   /** The cells the tab's latest run inlined through `{{name}}`, with the text it used. Kept in memory, as results are. */
   runSources: Record<TabId, Source[]>;
@@ -139,23 +139,9 @@ export const DEFAULT_PANEL_SIZES = { resultsHeight, sidebarWidth, sidebarSplit, 
 
 const DEFAULT_LAYOUT: Layout = { sidebar: true, results: true, rightPanel: null, assistantChat: null, ...DEFAULT_PANEL_SIZES };
 export const DEFAULT_SETTINGS: Settings = {
-  assistantAccess: "SchemaOnly",
-  maxRows: 200_000,
-  maxResultBytes: 512 * 1024 * 1024,
-  tablePageSize: 500,
-  stopOnError: true,
-  colorScheme: "System",
-  lightTheme: "l1-light",
-  darkTheme: "l1-dark",
-  customThemes: [],
-  interfaceFont: { family: "Inter", size: 13 },
-  codeFont: { family: "JetBrains Mono", size: 13 },
-  density: "Standard",
-  panelMotionMs: 150,
-  reduceMotion: "System",
-  tintConnections: false,
-  providers: [{ provider: "Claude", enabled: true, displayName: "Claude", binaryPath: "", configDir: "", launchArgs: "" }],
-  providerHealthCheckSecs: 300,
+  ...FRESH_SETTINGS,
+  customThemes: [...FRESH_SETTINGS.customThemes],
+  providers: [...FRESH_SETTINGS.providers],
 };
 
 /**

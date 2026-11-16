@@ -2,11 +2,11 @@ import * as Menu from "@radix-ui/react-dropdown-menu";
 import { ChevronDownIcon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { commands, type ChartSeries, type ResultMeta } from "../../ipc/bindings";
-import type { RowResult } from "../../state/status";
+import { refKey, type RowResult } from "../../state/status";
 import { cx, MenuContent, MenuItem } from "../../ui/primitives";
 import { openDrill } from "../editor/runActions";
 import { niceTicks, yColumns, type ChartKind, type ChartSpec } from "./chart";
-import { groupDigits } from "./format";
+import { groupCount } from "./format";
 
 const MAX_POINTS = 2_000;
 const STREAM_REFETCH_MS = 300;
@@ -72,7 +72,7 @@ type Drill = { hint: string; open: ((row: number) => void) | null };
  * when the engine can rewrite the result's SQL for it, which it answers once per result.
  */
 function useDrill(meta: ResultMeta, x: number | null, onFilter: ((column: string, value: string | null) => void) | undefined): Drill | null {
-  const refKey = `${meta.ref.tabId}:${meta.ref.runId}:${meta.ref.index}`;
+  const key = refKey(meta.ref);
   const filters = onFilter !== undefined;
   const [probe, setProbe] = useState<{ key: string; drill: Drill | null } | null>(null);
   useEffect(() => {
@@ -86,13 +86,13 @@ function useDrill(meta: ResultMeta, x: number | null, onFilter: ((column: string
           : res.error.kind === "Unsupported"
             ? { hint: res.error.reason, open: null }
             : null;
-      setProbe({ key: refKey, drill });
+      setProbe({ key, drill });
     });
     return () => {
       live = false;
     };
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- the key names the ref's fields; each console snapshot brings a new ref object
-  }, [refKey, filters]);
+  }, [key, filters]);
   if (onFilter) {
     const column = x === null ? undefined : meta.columns[x]?.name;
     if (x === null || column === undefined) return null;
@@ -102,7 +102,7 @@ function useDrill(meta: ResultMeta, x: number | null, onFilter: ((column: string
     };
     return { hint: "Click to filter the table to this value", open: (row) => void filter(row) };
   }
-  return probe?.key === refKey ? probe.drill : null;
+  return probe?.key === key ? probe.drill : null;
 }
 
 function Plot({ series, kind, xName, yName, drill }: { series: ChartSeries; kind: ChartKind; xName: string; yName: string; drill: Drill | null }) {
@@ -258,7 +258,7 @@ export function ChartView({
   const { meta } = result;
   const drill = useDrill(meta, spec.x, onFilter);
   const columns = meta.columns;
-  const key = `${meta.ref.tabId}:${meta.ref.runId}:${meta.ref.index}:${spec.x}:${spec.y}`;
+  const key = `${refKey(meta.ref)}:${spec.x}:${spec.y}`;
   const [loaded, setLoaded] = useState<{ key: string; series: ChartSeries } | null>(null);
   const issued = useRef(0);
   const lastAt = useRef(-Infinity);
@@ -284,8 +284,8 @@ export function ChartView({
   const note = !series
     ? ""
     : series.capped
-      ? `First ${groupDigits(String(count))} of ${groupDigits(String(meta.rowCount))} stored rows`
-      : `All ${groupDigits(String(count))} stored ${count === 1 ? "row" : "rows"}`;
+      ? `First ${groupCount(count)} of ${groupCount(meta.rowCount)} stored rows`
+      : `All ${groupCount(count)} stored ${count === 1 ? "row" : "rows"}`;
 
   return (
     <div data-testid="chart-view" className="flex min-h-0 flex-1 flex-col bg-bg">

@@ -104,6 +104,8 @@ export const commands = {
 /* Constants */
 export const DEFAULT_LAYOUT = {"assistantChat":null,"results":true,"resultsHeight":320,"rightPanel":"Assistant","rightPanelWidth":341,"sidebar":true,"sidebarSplit":50,"sidebarWidth":280} as const;
 
+export const DEFAULT_SETTINGS = {"assistantAccess":"SchemaOnly","codeFont":{"family":"JetBrains Mono","size":13},"colorScheme":"System","customThemes":[],"darkTheme":"l1-dark","density":"Standard","interfaceFont":{"family":"Inter","size":13},"lightTheme":"l1-light","maxResultBytes":536870912,"maxRows":200000,"panelMotionMs":150,"providerHealthCheckSecs":300,"providers":[{"binaryPath":"","configDir":"","displayName":"Claude","enabled":true,"launchArgs":"","provider":"Claude"}],"reduceMotion":"System","stopOnError":true,"tablePageSize":500,"tintConnections":false} as const;
+
 /* Types */
 export type AgentError = { kind: "NotFound"; binary: string } | { kind: "SignedOut" } | 
 /**  `detail` is the end of its stderr. */

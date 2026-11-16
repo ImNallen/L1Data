@@ -1,5 +1,4 @@
-/** A cell a run inlined through `{{name}}`, with the text it used. */
-export type Source = { name: string; text: string };
+import type { CellSource } from "../../ipc/bindings";
 
 export type Staleness = { name: string; why: "changed" | "missing" | "ambiguous" };
 
@@ -8,7 +7,7 @@ export type Staleness = { name: string; why: "changed" | "missing" | "ambiguous"
  * two references away shows here too. Re-running a referenced cell alone changes nothing: the referencing cell runs
  * that cell's SQL itself.
  */
-export function staleness(sources: readonly Source[], cells: readonly Source[]): Staleness[] {
+export function staleness(sources: readonly CellSource[], cells: readonly CellSource[]): Staleness[] {
   return sources.flatMap((source): Staleness[] => {
     const named = cells.filter((c) => c.name === source.name);
     if (named.length === 0) return [{ name: source.name, why: "missing" }];

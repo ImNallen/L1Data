@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { commands, type ColumnFilter, type FilterOp, type TabId, type TableOrderView, type TableQuery, type TableSortKey } from "../../ipc/bindings";
 import { useCatalog, viewFor } from "../../state/catalog";
 import { sameDb } from "../../state/dbKey";
-import { EMPTY_QUERY, isTableTab, useWorkspace, type TableTab } from "../../state/workspace";
+import { EMPTY_QUERY, isTableTab, useWorkspace, type Tab, type TableTab } from "../../state/workspace";
 import { updateTableQuery } from "../editor/runActions";
 
 export type SortKey = TableSortKey;
@@ -50,30 +50,21 @@ const orderQueues = new Map<TabId, OrderQueue>();
 
 export function cycleTableOrder(tab: TableTab, column: string, additive: boolean): Promise<void> {
   const queue = orderQueues.get(tab.id) ?? { query: tab.table.query, tail: Promise.resolve() };
+  const unchanged = (t: Tab | undefined): t is TableTab =>
+    isTableTab(t) &&
+    sameDb(t.console.db, tab.console.db) &&
+    t.table.schema === tab.table.schema &&
+    t.table.table === tab.table.table &&
+    t.table.query === queue.query;
   const write = queue.tail.then(async () => {
     const current = useWorkspace.getState().tabs[tab.id];
-    if (
-      !isTableTab(current) ||
-      !sameDb(current.console.db, tab.console.db) ||
-      current.table.schema !== tab.table.schema ||
-      current.table.table !== tab.table.table ||
-      current.table.query !== queue.query
-    )
-      return;
+    if (!unchanged(current)) return;
     const res = await commands.tableOrder(current.console.db, current.table.schema, current.table.table, queue.query.orderBy, {
       kind: "Cycle",
       column,
       additive,
     });
-    const latest = useWorkspace.getState().tabs[tab.id];
-    if (
-      !isTableTab(latest) ||
-      !sameDb(latest.console.db, current.console.db) ||
-      latest.table.schema !== current.table.schema ||
-      latest.table.table !== current.table.table ||
-      latest.table.query !== queue.query
-    )
-      return;
+    if (!unchanged(useWorkspace.getState().tabs[tab.id])) return;
     if (res.status === "error") return useWorkspace.getState().notify(res.error);
     if (res.data.sql !== queue.query.orderBy) {
       queue.query = { ...queue.query, orderBy: res.data.sql };

@@ -40,7 +40,10 @@ import {
   type RelationDetail,
   type SchemaInfo,
   type ScriptTarget,
+  type SequenceInfo,
+  type SynonymInfo,
   type TypeCategory,
+  type TypeInfo,
   type TypeKind,
 } from "../../ipc/bindings";
 import { isViewKind, useCatalog, viewFor, type CatalogView } from "../../state/catalog";
@@ -538,6 +541,46 @@ function objectGroup(b: Build, path: TreePath, depth: number, db: DatabaseRef, l
   });
 }
 
+type Ranged = { ranges?: readonly TextRange[] };
+
+function schemaObjectGroups(
+  b: Build,
+  me: TreePath,
+  depth: number,
+  db: DatabaseRef,
+  sequences: (Ranged & { seq: SequenceInfo })[],
+  types: (Ranged & { type: TypeInfo })[],
+  synonyms: (Ranged & { syn: SynonymInfo })[],
+) {
+  objectGroup(
+    b,
+    part(me, "#sequences"),
+    depth,
+    db,
+    "Sequences",
+    HashIcon,
+    sequences.map(({ seq, ranges }) => ({ oid: seq.oid, name: seq.name, detail: seq.typeName, ranges, target: { kind: "Sequence", oid: seq.oid } })),
+  );
+  objectGroup(
+    b,
+    part(me, "#types"),
+    depth,
+    db,
+    "Types",
+    TypeIcon,
+    types.map(({ type, ranges }) => ({ oid: type.oid, name: type.name, detail: typeDetail(type.kind), ranges, target: { kind: "Type", oid: type.oid } })),
+  );
+  objectGroup(
+    b,
+    part(me, "#synonyms"),
+    depth,
+    db,
+    "Synonyms",
+    LinkIcon,
+    synonyms.map(({ syn, ranges }) => ({ oid: syn.oid, name: syn.name, detail: syn.target, ranges, target: { kind: "Synonym", oid: syn.oid } })),
+  );
+}
+
 function schemaRows(b: Build, path: TreePath, depth: number, db: DatabaseRef, schema: SchemaInfo, version: number) {
   const me = child(path, schema.name);
   const open = b.expanded.has(me.key);
@@ -562,32 +605,14 @@ function schemaRows(b: Build, path: TreePath, depth: number, db: DatabaseRef, sc
       schema.functions.forEach((fn) => functionRow(b, functions, depth + 2, db, fn)),
     );
   }
-  objectGroup(
+  schemaObjectGroups(
     b,
-    part(me, "#sequences"),
+    me,
     depth + 1,
     db,
-    "Sequences",
-    HashIcon,
-    schema.sequences.map((seq) => ({ oid: seq.oid, name: seq.name, detail: seq.typeName, target: { kind: "Sequence", oid: seq.oid } })),
-  );
-  objectGroup(
-    b,
-    part(me, "#types"),
-    depth + 1,
-    db,
-    "Types",
-    TypeIcon,
-    schema.types.map((type) => ({ oid: type.oid, name: type.name, detail: typeDetail(type.kind), target: { kind: "Type", oid: type.oid } })),
-  );
-  objectGroup(
-    b,
-    part(me, "#synonyms"),
-    depth + 1,
-    db,
-    "Synonyms",
-    LinkIcon,
-    schema.synonyms.map((syn) => ({ oid: syn.oid, name: syn.name, detail: syn.target, target: { kind: "Synonym", oid: syn.oid } })),
+    schema.sequences.map((seq) => ({ seq })),
+    schema.types.map((type) => ({ type })),
+    schema.synonyms.map((syn) => ({ syn })),
   );
 }
 
@@ -1044,33 +1069,7 @@ function filteredSchemaRows(b: Build, path: TreePath, db: DatabaseRef, match: Fi
   for (const r of match.relations) filteredRelationRows(b, me, db, match.name, r);
   if (match.functions.length > 0) foldRow(b, functions, 3, "Functions", <BracesIcon size={14} className="text-muted" />);
   if (b.expanded.has(functions.key)) for (const f of match.functions) functionRow(b, functions, 4, db, f.fn, f.ranges);
-  objectGroup(
-    b,
-    part(me, "#sequences"),
-    3,
-    db,
-    "Sequences",
-    HashIcon,
-    match.sequences.map(({ seq, ranges }) => ({ oid: seq.oid, name: seq.name, detail: seq.typeName, ranges, target: { kind: "Sequence", oid: seq.oid } })),
-  );
-  objectGroup(
-    b,
-    part(me, "#types"),
-    3,
-    db,
-    "Types",
-    TypeIcon,
-    match.types.map(({ type, ranges }) => ({ oid: type.oid, name: type.name, detail: typeDetail(type.kind), ranges, target: { kind: "Type", oid: type.oid } })),
-  );
-  objectGroup(
-    b,
-    part(me, "#synonyms"),
-    3,
-    db,
-    "Synonyms",
-    LinkIcon,
-    match.synonyms.map(({ syn, ranges }) => ({ oid: syn.oid, name: syn.name, detail: syn.target, ranges, target: { kind: "Synonym", oid: syn.oid } })),
-  );
+  schemaObjectGroups(b, me, 3, db, match.sequences, match.types, match.synonyms);
 }
 
 /** One schema's rows in the tree narrowed to a search. */

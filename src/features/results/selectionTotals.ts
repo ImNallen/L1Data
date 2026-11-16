@@ -1,5 +1,5 @@
 import type { CellAggregate } from "../../ipc/bindings";
-import { groupDigits } from "./format";
+import { groupCount } from "./format";
 
 export type SelectionSlot = { key: string; epoch: number; text: string | null };
 
@@ -10,7 +10,7 @@ export function acceptSelectionTotals(current: SelectionSlot | null, next: Selec
 }
 
 export function formatSelectionTotals(agg: CellAggregate, pending: boolean): string {
-  const counts = `${groupDigits(String(agg.count))} cells · ${groupDigits(String(agg.nonNull))} non-null`;
+  const counts = `${groupCount(agg.count)} cells · ${groupCount(agg.nonNull)} non-null`;
   const stats = agg.kind === "Numeric" ? ` · Sum ${agg.sum} · Avg ${agg.avg} · Min ${agg.min} · Max ${agg.max}` : "";
   const text = counts + stats;
   return pending ? `${text} · excludes pending edits` : text;

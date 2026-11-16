@@ -6,7 +6,7 @@ import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, useSyncEx
 import { flushSync } from "react-dom";
 import type { RunState, TabId } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
-import { canCancel, hasUncommittedWork, isBusy, resultKey, rowResults, runSummary, shownResult, type ResultPick } from "../../state/status";
+import { canCancel, hasUncommittedWork, isBusy, refKey, rowResults, runSummary, shownResult, type ResultPick } from "../../state/status";
 import { activeId, isFiltered, shownNotebook, useWorkspace } from "../../state/workspace";
 import { cx, IconButton } from "../../ui/primitives";
 import { useNow } from "../../ui/useNow";
@@ -101,7 +101,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
   const total = tab?.table ? (tab.table.exactRowCount ?? (isFiltered(tab.table.query) ? null : estimate)) : null;
   const picked = useWorkspace((s) => s.activeResult[id]);
   const shown = console ? shownResult(console.run, picked) : undefined;
-  const shownKey = shown ? resultKey(shown) : "";
+  const shownKey = shown ? refKey(shown.meta.ref) : "";
   const chart = useWorkspace((s) => s.resultDisplay[id]?.[shownKey]?.display === "chart");
   const collapsed = tab?.collapsed === true;
   const sizing = {
