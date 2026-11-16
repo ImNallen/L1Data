@@ -421,12 +421,6 @@ pub async fn notebook_save(
 
 #[tauri::command]
 #[specta::specta]
-pub fn history_list(engine: State<'_, Arc<Engine>>, query: HistoryQuery) -> HistoryPage {
-    engine.history(query)
-}
-
-#[tauri::command]
-#[specta::specta]
 pub fn history_browse(
     engine: State<'_, Arc<Engine>>,
     query: HistoryBrowseQuery,

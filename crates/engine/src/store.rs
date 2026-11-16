@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{
     ChatId, ChatOptions, ConnectionConfig, ConnectionId, DatabaseKind, Entry, HistoryEntry, HistoryOutcome,
-    HistoryPage, HistoryQuery, ProviderKind,
+    ProviderKind,
 };
 use crate::secrets::{Sealed, SecretSlot};
 use crate::view::ConnectionView;
@@ -339,57 +339,6 @@ impl Store {
         })
     }
 
-    pub fn history(&self, q: &HistoryQuery) -> Result<HistoryPage, StoreError> {
-        self.with(|c| {
-            let limit = i64::from(q.limit.max(1));
-            let pattern = q.text.as_deref().filter(|t| !t.trim().is_empty()).map(|t| format!("%{}%", t.trim()));
-            let mut stmt = c.prepare(
-                "SELECT id, at_ms, connection_id, connection_name, database, sql, elapsed_ms, outcome_json, database_kind
-                 FROM history
-                 WHERE (?1 IS NULL OR id < ?1)
-                   AND (?2 IS NULL OR connection_id = ?2)
-                   AND (?3 IS NULL OR sql LIKE ?3)
-                 ORDER BY id DESC LIMIT ?4",
-            )?;
-            let rows = stmt.query_map(
-                params![q.before_id, q.connection_id.map(|id| id.0.to_string()), pattern, limit + 1],
-                |r| {
-                    Ok((
-                        r.get::<_, i64>(0)?,
-                        r.get::<_, i64>(1)?,
-                        r.get::<_, String>(2)?,
-                        r.get::<_, String>(3)?,
-                        r.get::<_, String>(4)?,
-                        r.get::<_, String>(5)?,
-                        r.get::<_, u32>(6)?,
-                        r.get::<_, String>(7)?,
-                        r.get::<_, String>(8)?,
-                    ))
-                },
-            )?;
-            let mut entries = Vec::new();
-            for row in rows {
-                let (id, at_ms, connection_id, connection_name, database, sql, elapsed_ms, outcome, database_kind) = row?;
-                entries.push(HistoryEntry {
-                    database_kind: serde_json::from_value(serde_json::Value::String(database_kind))?,
-                    id,
-                    at_ms,
-                    connection_id: ConnectionId(connection_id.parse().map_err(|_| {
-                        rusqlite::Error::InvalidColumnType(2, "connection_id".into(), rusqlite::types::Type::Text)
-                    })?),
-                    connection_name,
-                    database,
-                    sql,
-                    elapsed_ms,
-                    outcome: serde_json::from_str(&outcome)?,
-                });
-            }
-            let has_more = entries.len() as i64 > limit;
-            entries.truncate(limit as usize);
-            Ok(HistoryPage { entries, has_more })
-        })
-    }
-
     pub fn clear_history(&self) -> Result<(), StoreError> {
         self.with_history(|c, revision| {
             c.execute("DELETE FROM history", [])?;
@@ -591,12 +540,8 @@ mod tests {
         assert_eq!((loaded[0].id, loaded[0].port), (config.id, 5433));
         assert_eq!(s.kv_get::<Settings>("settings").unwrap().unwrap().max_rows, 7);
         assert!(s.kv_get::<Settings>("missing").unwrap().is_none());
-        assert_eq!(
-            s.history(&HistoryQuery { text: None, connection_id: None, before_id: None, limit: 10 }).unwrap().entries
-                [0]
-            .sql,
-            "select 1"
-        );
+        let sql: String = s.with(|c| Ok(c.query_row("SELECT sql FROM history", [], |r| r.get(0))?)).unwrap();
+        assert_eq!(sql, "select 1");
         s.delete_connection(config.id).unwrap();
         assert!(s.connections().unwrap().configs.is_empty());
     }
@@ -654,50 +599,6 @@ mod tests {
     }
 
     #[test]
-    fn history_pages_newest_first_and_filters() {
-        let (s, _dir) = store();
-        for i in 0..5 {
-            s.insert_history_and_prune(entry(&format!("select {i}"))).unwrap();
-        }
-        let other = HistoryInsert { connection_id: ConnectionId(uuid::Uuid::new_v4()), ..entry("select other") };
-        let other_id = other.connection_id;
-        s.insert_history_and_prune(other).unwrap();
-
-        let page = s.history(&HistoryQuery { text: None, connection_id: None, before_id: None, limit: 2 }).unwrap();
-        assert_eq!(page.entries.iter().map(|e| e.sql.as_str()).collect::<Vec<_>>(), ["select other", "select 4"]);
-        assert!(page.has_more);
-        let next = s
-            .history(&HistoryQuery { text: None, connection_id: None, before_id: Some(page.entries[1].id), limit: 10 })
-            .unwrap();
-        assert_eq!(next.entries.len(), 4);
-        assert!(!next.has_more);
-
-        let filtered = s
-            .history(&HistoryQuery {
-                text: Some("other".into()),
-                connection_id: Some(other_id),
-                before_id: None,
-                limit: 10,
-            })
-            .unwrap();
-        assert_eq!(filtered.entries.len(), 1);
-        assert_eq!(filtered.entries[0].connection_id, other_id);
-        assert!(matches!(filtered.entries[0].outcome, HistoryOutcome::Rows { rows: 1 }));
-        let none = s
-            .history(&HistoryQuery { text: Some("zzz".into()), connection_id: None, before_id: None, limit: 10 })
-            .unwrap();
-        assert!(none.entries.is_empty());
-
-        s.clear_history().unwrap();
-        assert!(
-            s.history(&HistoryQuery { text: None, connection_id: None, before_id: None, limit: 10 })
-                .unwrap()
-                .entries
-                .is_empty()
-        );
-    }
-
-    #[test]
     fn history_is_pruned_to_the_newest_rows() {
         let (s, _dir) = store();
         for i in 0..(HISTORY_KEEP + 5) {
@@ -705,9 +606,9 @@ mod tests {
         }
         let count: i64 = s.with(|c| Ok(c.query_row("SELECT count(*) FROM history", [], |r| r.get(0))?)).unwrap();
         assert_eq!(count, HISTORY_KEEP);
-        let all =
-            s.history(&HistoryQuery { text: None, connection_id: None, before_id: None, limit: u16::MAX }).unwrap();
-        assert_eq!(all.entries.last().unwrap().sql, "q5", "the five oldest rows are gone");
+        let oldest: String =
+            s.with(|c| Ok(c.query_row("SELECT sql FROM history ORDER BY id LIMIT 1", [], |r| r.get(0))?)).unwrap();
+        assert_eq!(oldest, "q5", "the five oldest rows are gone");
     }
 
     fn chat_id(n: u128) -> ChatId {

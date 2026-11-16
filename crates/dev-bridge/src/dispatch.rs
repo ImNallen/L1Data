@@ -135,7 +135,6 @@ routes! { e;
     result_export(result_ref: ResultRef, format: ExportFormat, scope: ExportScope, path: String) => e.result_export(result_ref, format, scope, path).await;
     notebook_open(path: String) => e.notebook_open(path).await;
     notebook_save(target: SaveTarget, notebook: NotebookText) => e.notebook_save(target, notebook).await;
-    history_list(query: HistoryQuery) => ok(e.history(query));
     history_browse(query: HistoryBrowseQuery) => e.history_browse(query);
     history_group(query: HistoryGroupQuery) => e.history_group(query);
     history_clear() => e.clear_history();

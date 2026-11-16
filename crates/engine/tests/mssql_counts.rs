@@ -219,13 +219,14 @@ async fn native_settings_and_uncommitted_rows_match_pages_without_replacing_resu
             assert_eq!(h.rows(&before)[0][0].as_deref(), Some(expected));
             let history = h
                 .engine
-                .history(HistoryQuery {
+                .history_browse(HistoryBrowseQuery {
                     text: None,
-                    connection_id: Some(h.db.connection_id),
+                    filter: HistoryFilter::All,
                     before_id: None,
                     limit: 100,
+                    revision: None,
                 })
-                .entries;
+                .unwrap();
             assert_eq!(h.count(query).await.unwrap(), 1, "{settings} {predicate}");
             let after = h.state(h.tab);
             assert_eq!(after.work, None);
@@ -238,13 +239,14 @@ async fn native_settings_and_uncommitted_rows_match_pages_without_replacing_resu
             assert_eq!(
                 serde_json::to_value(
                     h.engine
-                        .history(HistoryQuery {
+                        .history_browse(HistoryBrowseQuery {
                             text: None,
-                            connection_id: Some(h.db.connection_id),
+                            filter: HistoryFilter::All,
                             before_id: None,
-                            limit: 100
+                            limit: 100,
+                            revision: None,
                         })
-                        .entries
+                        .unwrap()
                 )
                 .unwrap(),
                 serde_json::to_value(history).unwrap()

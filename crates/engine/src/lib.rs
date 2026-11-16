@@ -2284,13 +2284,6 @@ impl Engine {
             .unwrap_or_else(|e| Err(FileWriteError::Io { message: e.to_string() }))
     }
 
-    pub fn history(&self, q: HistoryQuery) -> HistoryPage {
-        self.shared.store.history(&q).unwrap_or_else(|e| {
-            eprintln!("history query failed: {e}");
-            HistoryPage { entries: Vec::new(), has_more: false }
-        })
-    }
-
     pub fn history_browse(&self, q: HistoryBrowseQuery) -> Result<HistoryBrowsePage, HistoryError> {
         self.shared.store.history_browse(&q)
     }

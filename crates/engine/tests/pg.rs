@@ -360,8 +360,30 @@ impl Harness {
         }
     }
 
-    fn history_len(&self) -> usize {
-        self.engine.history(HistoryQuery { text: None, connection_id: None, before_id: None, limit: 500 }).entries.len()
+    fn history(&self, text: Option<&str>) -> HistoryBrowsePage {
+        let page = self
+            .engine
+            .history_browse(HistoryBrowseQuery {
+                text: text.map(Into::into),
+                filter: HistoryFilter::All,
+                before_id: None,
+                limit: 100,
+                revision: None,
+            })
+            .unwrap();
+        assert!(!page.has_more, "a test's history fits on one page");
+        page
+    }
+
+    fn history_sql(&self, page: &HistoryBrowsePage, group: &HistoryGroupSummary) -> String {
+        self.engine
+            .history_group(HistoryGroupQuery { id: group.id, before_id: None, limit: 1, revision: page.revision })
+            .unwrap()
+            .sql
+    }
+
+    fn history_len(&self) -> u32 {
+        self.history(None).groups.iter().map(|g| g.run_count).sum()
     }
 
     async fn oracle(&self) -> tokio_postgres::Client {
@@ -721,12 +743,11 @@ async fn multi_statement_run_tags_notices_and_history() {
         "temp table sticks to the tab's session"
     );
 
-    let history =
-        h.engine.history(HistoryQuery { text: None, connection_id: Some(h.conn), before_id: None, limit: 10 });
-    assert_eq!(history.entries.len(), 6);
-    assert!(matches!(history.entries[0].outcome, HistoryOutcome::Rows { rows: 1 }));
-    assert!(matches!(&history.entries[3].outcome, HistoryOutcome::Command { tag } if tag == "UPDATE 3"));
-    assert_eq!(history.entries[5].sql, "create temp table t_multi (id int, v text)");
+    let history = h.history(None);
+    assert_eq!(history.groups.iter().map(|g| g.run_count).collect::<Vec<_>>(), [1; 6]);
+    assert!(matches!(history.groups[0].representative.outcome, HistoryOutcome::Rows { rows: 1 }));
+    assert!(matches!(&history.groups[3].representative.outcome, HistoryOutcome::Command { tag } if tag == "UPDATE 3"));
+    assert_eq!(h.history_sql(&history, &history.groups[5]), "create temp table t_multi (id int, v text)");
     assert!(h.seen.iter().filter(|e| matches!(e, AppEvent::HistoryAppended(_))).count() >= 6);
 }
 
@@ -1498,24 +1519,15 @@ async fn history_survives_reopen_on_the_same_dir() {
         let tab = h.sql_tab(TxnMode::AutoCommit).await;
         h.run_ok(tab, &sql).await;
         let h2 = Harness::start_in(h.dir).await;
-        let page = h2.engine.history(HistoryQuery {
-            text: Some(marker.clone()),
-            connection_id: None,
-            before_id: None,
-            limit: 5,
-        });
-        assert_eq!(page.entries.len(), 1);
-        assert_eq!(page.entries[0].sql, sql);
-        assert_eq!(page.entries[0].connection_name, "dev");
-        assert_eq!(page.entries[0].database, "shop");
+        let page = h2.history(Some(&marker));
+        assert_eq!(page.groups.len(), 1);
+        assert_eq!(page.groups[0].run_count, 1);
+        assert_eq!(h2.history_sql(&page, &page.groups[0]), sql);
+        assert_eq!(page.groups[0].representative.connection_name, "dev");
+        assert_eq!(page.groups[0].database, "shop");
         assert!(h2.engine.boot().consoles.is_empty(), "consoles are not persisted");
         h2.engine.clear_history().unwrap();
-        assert!(
-            h2.engine
-                .history(HistoryQuery { text: None, connection_id: None, before_id: None, limit: 5 })
-                .entries
-                .is_empty()
-        );
+        assert!(h2.history(None).groups.is_empty());
     }
 }
 
@@ -2183,9 +2195,8 @@ async fn history_records_console_database() {
     let marker = unique("select 'db");
     h.run_ok(shop, &format!("{marker}'")).await;
     h.run_ok(reporting, &format!("{marker}'")).await;
-    let page =
-        h.engine.history(HistoryQuery { text: Some(marker), connection_id: Some(h.conn), before_id: None, limit: 10 });
-    let databases: Vec<&str> = page.entries.iter().map(|e| e.database.as_str()).collect();
+    let page = h.history(Some(&marker));
+    let databases: Vec<&str> = page.groups.iter().map(|g| g.database.as_str()).collect();
     assert_eq!(databases, ["reporting", "shop"], "newest first, each with the database its console ran in");
 }
 
@@ -4838,13 +4849,8 @@ fn find_node<'a>(node: &'a PlanNode, operation: &str) -> Option<&'a PlanNode> {
 async fn wait_for_history(h: &Harness, sql: &str) {
     let started = Instant::now();
     loop {
-        let page = h.engine.history(HistoryQuery {
-            text: Some(sql.into()),
-            connection_id: Some(h.conn),
-            before_id: None,
-            limit: 20,
-        });
-        if page.entries.iter().any(|entry| entry.sql == sql) {
+        let page = h.history(Some(sql));
+        if page.groups.iter().any(|group| h.history_sql(&page, group) == sql) {
             return;
         }
         assert!(started.elapsed() < Duration::from_secs(2), "history never recorded {sql}");
@@ -5610,13 +5616,8 @@ async fn a_reference_chain_runs_as_ctes_and_names_the_cells_it_inlined() {
     assert!(expected.len() > 1, "the seed has paid orders in several regions");
     assert_eq!(rows, expected);
 
-    let history = h.engine.history(HistoryQuery {
-        text: Some("{{revenue by customer}}".into()),
-        connection_id: Some(h.conn),
-        before_id: None,
-        limit: 10,
-    });
-    let ran = &history.entries.first().expect("the run is in history").sql;
+    let history = h.history(Some("{{revenue by customer}}"));
+    let ran = &h.history_sql(&history, history.groups.first().expect("the run is in history"));
     assert!(ran.starts_with("WITH \"{{paid}}\" AS (\nSELECT customer_id, total FROM orders WHERE status = 'paid'\n),\n\"{{revenue by customer}}\" AS (\n-- per customer\n"), "{ran}");
     assert!(
         ran.ends_with(

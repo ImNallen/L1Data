@@ -196,11 +196,18 @@ async fn restored_targets_catalogs_table_results_and_history_share_the_canonical
     let state = run(&engine, table.id, query()).await;
     assert_eq!(result(&state).db, db);
     assert_eq!(engine.result_page(result(&state).r#ref, 0, 1).unwrap().rows, vec![vec![Some("shop".into())]]);
-    let history =
-        engine.history(HistoryQuery { text: None, connection_id: Some(config.id), before_id: None, limit: 10 });
-    assert_eq!(history.entries.len(), 2);
+    let history = engine
+        .history_browse(HistoryBrowseQuery {
+            text: None,
+            filter: HistoryFilter::All,
+            before_id: None,
+            limit: 10,
+            revision: None,
+        })
+        .unwrap();
+    assert_eq!(history.groups.iter().map(|g| g.run_count).sum::<u32>(), 2);
     assert!(
-        history.entries.iter().all(|entry| entry.database == "shop" && entry.database_kind == DatabaseKind::SqlServer)
+        history.groups.iter().all(|group| group.database == "shop" && group.database_kind == DatabaseKind::SqlServer)
     );
     let restored = engine.boot().workspace;
     assert_eq!(restored.tabs[0].console.database.as_deref(), Some("shop"));
