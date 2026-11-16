@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { CellWrite, ChangeRef, TabId, TableChanges } from "../ipc/bindings";
 
 export type CellValue = string | null;
-export type RowKey = string;
+type RowKey = string;
 export type RowId = readonly Readonly<CellWrite>[];
 
 export type NewRow = { id: number; values: Record<string, CellValue> };

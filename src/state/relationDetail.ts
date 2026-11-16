@@ -10,7 +10,7 @@ import { dbKey, type DbKey } from "./dbKey";
  */
 export type DetailEntry = { version: number; detail: RelationDetail | null; error: string | null };
 
-export type DetailKey = string & { readonly __brand: "DetailKey" };
+type DetailKey = string & { readonly __brand: "DetailKey" };
 
 export function detailKey(db: DatabaseRef, oid: number): DetailKey {
   return `${dbKey(db)}\u0000${oid}` as DetailKey;

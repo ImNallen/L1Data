@@ -93,7 +93,7 @@ function build(expanded: Expanded, selected: RelationRef | null = null, entries:
  * escaped, so connections that share a name, and names that hold a slash, never collide. `shown` spells the same place
  * with the names, for the row's test ID, and `title` lists only the names.
  */
-export type TreePath = { key: string; shown: string; title: string };
+type TreePath = { key: string; shown: string; title: string };
 
 /** An escaped name never holds `/` and never starts with `#` or `!`, which mark groups and notes. */
 const segment = (name: string) => encodeURIComponent(name).replaceAll("!", "%21");

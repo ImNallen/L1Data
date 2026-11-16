@@ -42,13 +42,13 @@ import type { CellSource as Source } from "../ipc/bindings";
 import type { ChartSpec } from "../features/results/chart";
 import type { ResultDisplay, ResultPick } from "./status";
 
-/** A tab's console target. A tab never names a connection without a database. */
 export type ResultDisplayPref = { key: string; display: ResultDisplay; chart: ChartSpec | null };
 
+/** A tab's console target. A tab never names a connection without a database. */
 export type ConsoleTarget = { db: DatabaseRef | null; mode: TxnMode; schema?: string | null };
 
 /** The table a tab opened from the sidebar browses, in the tab's console database. */
-export type TableBrowse = { schema: string; table: string; page: number; query: TableQuery; exactRowCount?: number };
+type TableBrowse = { schema: string; table: string; page: number; query: TableQuery; exactRowCount?: number };
 
 /**
  * One cell of a notebook. A file belongs to the notebook, not to a cell. A `collapsed` cell shows only its header; the

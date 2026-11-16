@@ -80,7 +80,7 @@ export const START_COMMANDS: Command[] = [
   },
 ];
 
-export const SWITCH_NOTEBOOK: Command = { id: "switch-notebook", group: "Workspace", label: "Switch notebook…", run: openNotebookSwitcher };
+const SWITCH_NOTEBOOK: Command = { id: "switch-notebook", group: "Workspace", label: "Switch notebook…", run: openNotebookSwitcher };
 
 const startCommand = (id: string) => START_COMMANDS.find((c) => c.id === id)!;
 

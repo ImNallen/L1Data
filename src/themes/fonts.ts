@@ -17,7 +17,7 @@ const APPLE = typeof navigator !== "undefined" && isMac(navigator.userAgent);
 
 const installed = (kind: FontKind, family: string): FontEntry => ({ family, stack: `"${family}", ${FALLBACK[kind]}`, probe: `"${family}"` });
 
-export const FONTS: Record<FontKind, readonly FontEntry[]> = {
+const FONTS: Record<FontKind, readonly FontEntry[]> = {
   interface: [
     { family: "Inter", stack: `"Inter Variable", ${FALLBACK.interface}`, probe: null },
     { family: "System", stack: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', probe: null },

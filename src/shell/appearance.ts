@@ -30,7 +30,7 @@ export function appearanceVars(s: AppearanceSettings): Record<string, string> {
 const changed = (s: AppearanceSettings, prev: AppearanceSettings) =>
   s.interfaceFont !== prev.interfaceFont || s.codeFont !== prev.codeFont || s.density !== prev.density || s.panelMotionMs !== prev.panelMotionMs;
 
-export function paintAppearance(s: AppearanceSettings): void {
+function paintAppearance(s: AppearanceSettings): void {
   const root = document.documentElement.style;
   for (const [name, value] of Object.entries(appearanceVars(s))) root.setProperty(name, value);
 }

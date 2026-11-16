@@ -86,7 +86,7 @@ export type SettingId = (typeof SETTINGS_INDEX)[number]["settings"][number]["id"
 
 export type SettingEntry = { id: SettingId; label: string; group: string | null; keywords: string; section: SettingsSectionId; sectionLabel: string };
 
-export const SETTINGS: readonly SettingEntry[] = SETTINGS_INDEX.flatMap(({ id: section, label: sectionLabel, settings }) =>
+const SETTINGS: readonly SettingEntry[] = SETTINGS_INDEX.flatMap(({ id: section, label: sectionLabel, settings }) =>
   settings.map((s) => ({ ...s, section, sectionLabel })),
 );
 

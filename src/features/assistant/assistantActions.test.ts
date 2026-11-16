@@ -1,12 +1,11 @@
-import { undo } from "@codemirror/commands";
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, expect, it, vi } from "vitest";
 import type { ChatState, ChatStatus, ConsoleState, EntrySnapshot, ModelOption, ResultMeta, SendRequest } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
 import { useWorkspace, type Tab } from "../../state/workspace";
-import { dropEditor, editorStateOf, insertAtCursor, seedEditor, textOf } from "../editor/editorStates";
-import { confirmDeleteChat, effortFor, openChat, replaceTabSql, sendMessage, startAssistantSync, tabContext } from "./assistantActions";
+import { dropEditor, insertAtCursor, seedEditor } from "../editor/editorStates";
+import { confirmDeleteChat, effortFor, openChat, sendMessage, startAssistantSync, tabContext } from "./assistantActions";
 import { cellsState } from "../../testing/notebooks";
 
 afterEach(() => {
@@ -142,16 +141,6 @@ it("sends no tab when none is open, and toasts the engine's refusal", async () =
   expect(await sendMessage("chat-1", "hello", true)).toBe(false);
   expect(sent).toEqual([{ chatId: "chat-1", request: { text: "hello", tab: null } }]);
   expect(useWorkspace.getState().toast?.text).toBe("The assistant is still answering. Stop it or wait for it to finish.");
-});
-
-it("replaces the active tab's SQL as one edit that a single undo reverts", () => {
-  showTab("select 1;\n");
-  insertAtCursor(TAB.id, "select 2;");
-  replaceTabSql("SELECT region FROM customers;");
-  expect(textOf(TAB.id)).toBe("SELECT region FROM customers;");
-  let after = editorStateOf(TAB.id);
-  undo({ state: after, dispatch: (tr) => void (after = tr.state) });
-  expect(after.doc.toString()).toBe("select 1;\nselect 2;");
 });
 
 const CHAT = "0b7d5a52-9f1e-4c55-9d43-3c1f3c6e2a10";

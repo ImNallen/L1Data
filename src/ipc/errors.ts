@@ -47,7 +47,7 @@ function knownHostsName(host: string, port: number): string {
   return port === 22 ? host : `[${host}]:${port}`;
 }
 
-export function sshErrorText(e: SshError): string {
+function sshErrorText(e: SshError): string {
   switch (e.kind) {
     case "Network":
     case "KnownHosts":

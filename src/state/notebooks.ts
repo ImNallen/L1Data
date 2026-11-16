@@ -90,7 +90,7 @@ export function newNotebook(existing: Iterable<Notebook>, db: DatabaseRef | null
 }
 
 /** Marks `id` shown later than every other notebook, at the current time unless the clock has not moved past them. */
-export function stampShown(notebooks: Notebooks, id: NotebookId, now = Date.now()): Notebooks {
+function stampShown(notebooks: Notebooks, id: NotebookId, now = Date.now()): Notebooks {
   const notebook = notebooks[id];
   if (!notebook) return notebooks;
   const latest = Math.max(...Object.values(notebooks).map((n) => (n === notebook ? -Infinity : n.shownAtMs)));

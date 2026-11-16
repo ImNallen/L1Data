@@ -50,7 +50,7 @@ export function ExportMenu({
   );
 }
 
-export async function exportResult(tab: Tab, meta: ResultMeta, format: ExportFormat, scope: ExportScope): Promise<void> {
+async function exportResult(tab: Tab, meta: ResultMeta, format: ExportFormat, scope: ExportScope): Promise<void> {
   const notify = useWorkspace.getState().notify;
   if (scope === "All" && meta.allRows.kind === "Confirm") {
     const { calls } = meta.allRows;

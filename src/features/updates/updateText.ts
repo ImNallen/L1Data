@@ -100,7 +100,7 @@ export function changeSections(status: UpdateStatus): ChangeSection[] {
   }));
 }
 
-export function disabledText(reason: UpdatesOff): string {
+function disabledText(reason: UpdatesOff): string {
   switch (reason) {
     case "DevBuild":
       return "Development builds don't update themselves.";

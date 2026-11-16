@@ -73,7 +73,7 @@ function EndBody({
     case "Completed":
       if (!last) return null;
       return end.suggestions.length > 0 ? (
-        <ChatChoices options={end.suggestions} disabled={!idle} multiple onContinue={(choices) => void sendMessage(chatId, choices.join("\n"), false)} />
+        <ChatChoices options={end.suggestions} disabled={!idle} onContinue={(choices) => void sendMessage(chatId, choices.join("\n"), false)} />
       ) : null;
     case "Stopped":
       return <p className="text-ui-12.5 text-dim">Stopped</p>;

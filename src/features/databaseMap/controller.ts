@@ -51,7 +51,7 @@ function versionFor(db: DatabaseRef): number | undefined {
   return wantedCatalogs(useLive.getState().connections).get(dbKey(db))?.version;
 }
 
-export function mapErrorText(error: MapError): string {
+function mapErrorText(error: MapError): string {
   switch (error.kind) {
     case "Gone":
       return "This table is gone or its metadata is no longer visible. Refresh the catalog.";
