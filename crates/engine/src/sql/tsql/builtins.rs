@@ -8,16 +8,22 @@ pub(crate) struct Builtin {
     pub(crate) name: &'static str,
     /// Whether the same arguments give the same result in another session at a later time. A clock or
     /// the session's user does not. `SET` options such as `LANGUAGE` and `DATEFIRST` are left out: the
-    /// docs say a new cell's session does not carry them over.
+    /// docs say a new cell's session does not carry them over. Drill-down reads this.
     pub(crate) reproducible: bool,
+    /// Whether the function can read or reach anything outside the connected database's data: files,
+    /// the registry, the network, another server, or server state. The assistant's read-only query
+    /// path refuses any built-in that can, since a read-only database does not fence the host. Every
+    /// entry below stays inside the database, so this is `false` throughout; it exists so a future
+    /// entry added for drill-down must declare its reach and the assistant refuses it if it reaches out.
+    pub(crate) reaches_outside: bool,
 }
 
 const fn pure(name: &'static str) -> Builtin {
-    Builtin { name, reproducible: true }
+    Builtin { name, reproducible: true, reaches_outside: false }
 }
 
 const fn varies(name: &'static str) -> Builtin {
-    Builtin { name, reproducible: false }
+    Builtin { name, reproducible: false, reaches_outside: false }
 }
 
 /// Random functions such as `NEWID` and `RAND`, and session functions such as `USER_NAME` and

@@ -3,6 +3,7 @@ pub(crate) mod builtins;
 pub(crate) mod drill;
 mod expression;
 mod format;
+pub(crate) mod read;
 mod table;
 
 pub(crate) use expression::validate_expression;
