@@ -22,6 +22,7 @@ pub(crate) enum Refusal {
     Variable,
     TempTable,
     Unvetted,
+    Sample,
     For,
     Option,
     Pivot,
@@ -58,6 +59,7 @@ impl fmt::Display for Refusal {
                 "The chart's query reads a #temporary table, which the new cell's session cannot see."
             }
             Refusal::Unvetted => "The chart's query calls functions that may not be safe to run again.",
+            Refusal::Sample => "The chart's query uses TABLESAMPLE, so a new cell would read another sample.",
             Refusal::For => "The chart's query has a FOR XML, FOR JSON, or FOR BROWSE clause.",
             Refusal::Option => "The chart's query has an OPTION clause.",
             Refusal::Pivot => "The chart's query uses PIVOT or UNPIVOT.",
@@ -468,8 +470,8 @@ impl Tokens<'_> {
         if self.word(i, "SELECT") { Ok(i) } else { Err(Refusal::NotSelect) }
     }
 
-    /// Refuses what the new cell cannot read the same way: a variable, a session's temporary table, and
-    /// a call to anything but a built-in.
+    /// Refuses what the new cell cannot read the same way: a variable, a session's temporary table, a
+    /// sample, and a call to anything but a built-in.
     fn vet(&self, ctes: &[usize]) -> Result<(), Refusal> {
         for (i, t) in self.t.iter().enumerate() {
             if matches!(t.kind, Kind::Variable | Kind::Reference) {
@@ -477,6 +479,9 @@ impl Tokens<'_> {
             }
             if t.name().is_some_and(|n| n.starts_with('#') && !n.starts_with("##")) {
                 return Err(Refusal::TempTable);
+            }
+            if t.word("TABLESAMPLE") {
+                return Err(Refusal::Sample);
             }
             if self.sym(i + 1, "(") && matches!(t.kind, Kind::Word | Kind::Ident) && !ctes.contains(&i) {
                 let after = |text: &str| i > 0 && self.t[i - 1].text == text;
@@ -1014,6 +1019,9 @@ mod tests {
             ("SELECT a, COUNT(*) FROM t WHERE h.GetLevel() = 1 GROUP BY a", Unvetted),
             ("SELECT a, COUNT(*) FROM t WHERE geography::Point(1, 2, 4326) IS NOT NULL GROUP BY a", Unvetted),
             ("SELECT a, COUNT(*) FROM t WHERE [f](a) = 1 GROUP BY a", Unvetted),
+            ("SELECT a, COUNT(*) FROM t TABLESAMPLE (10 PERCENT) GROUP BY a", Sample),
+            ("SELECT a, COUNT(*) FROM t TABLESAMPLE SYSTEM (100 ROWS) REPEATABLE (1) GROUP BY a", Sample),
+            ("WITH s AS (SELECT * FROM t TABLESAMPLE (5 PERCENT)) SELECT a, COUNT(*) FROM s GROUP BY a", Sample),
             ("SELECT *, COUNT(*) FROM t GROUP BY a", Star),
             ("SELECT t.*, a, COUNT(*) FROM t GROUP BY a", Star),
             ("SELECT a, COUNT(*) FROM t GROUP BY a, b", NotSelected),

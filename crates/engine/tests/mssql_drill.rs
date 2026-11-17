@@ -230,6 +230,7 @@ async fn a_drilled_group_reads_exactly_the_rows_it_counted() {
             (format!("SELECT flag, COUNT(*) AS n FROM dbo.[{table}] GROUP BY flag WITH ROLLUP"), "The chart's query uses GROUPING SETS, ROLLUP, or CUBE."),
             (format!("SELECT flag, COUNT(*) AS n FROM dbo.[{table}] WHERE dbo.order_count(id) >= 0 GROUP BY flag"), "The chart's query calls functions that may not be safe to run again."),
             (format!("SELECT flag, COUNT(*) AS n FROM dbo.[{table}] GROUP BY flag OPTION (MAXDOP 1)"), "The chart's query has an OPTION clause."),
+            (format!("SELECT flag, COUNT(*) AS n FROM dbo.[{table}] TABLESAMPLE (50 PERCENT) GROUP BY flag"), "The chart's query uses TABLESAMPLE, so a new cell would read another sample."),
             (format!("SELECT UPPER(word) AS word, COUNT(*) AS n FROM dbo.[{table}] GROUP BY word"), "A GROUP BY column has the name of another column's alias. Rename the alias."),
         ] {
             let meta = h.sql(tab, &sql).await.remove(0);
