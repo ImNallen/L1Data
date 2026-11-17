@@ -193,12 +193,11 @@ async fn a_drilled_group_reads_exactly_the_rows_it_counted() {
         )).await;
         // The drill must not lean on the session's date format to read its literals.
         h.sql(rows_tab, "SET DATEFORMAT dmy").await;
-        for column in ["word", "legacy", "padded", "amount", "price", "ratio", "small", "flag", "day", "old", "modern", "moment", "tick", "uid", "bytes"] {
+        for column in ["word", "padded", "amount", "price", "ratio", "small", "flag", "day", "old", "modern", "moment", "tick", "uid", "bytes"] {
             let meta = h.sql(tab, &format!("SELECT [{column}], COUNT(*) AS n FROM dbo.[{table}] GROUP BY [{column}]")).await.remove(0);
             let exact: &[(&str, &str)] = match column {
-                // Text groups compare under the column's collation, where a SQL collation keeps varchar
-                // `Straße` and `strasse` apart but not as nvarchar. Datetimeoffset groups by instant.
-                "word" | "legacy" | "padded" | "moment" => &[],
+                // Text groups compare under the column's collation. Datetimeoffset groups by instant.
+                "word" | "padded" | "moment" => &[],
                 _ => &[(column, column)],
             };
             h.drills_exactly(rows_tab, &meta, exact).await;

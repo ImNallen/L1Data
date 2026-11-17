@@ -35,6 +35,7 @@ pub(crate) enum Refusal {
     NotSelected,
     KeyType(String),
     KeyValue,
+    NonAscii,
 }
 
 impl Refusal {
@@ -70,6 +71,9 @@ impl fmt::Display for Refusal {
             Refusal::NotSelected => "Each GROUP BY key must also be a column of the result.",
             Refusal::KeyType(t) => return write!(f, "A grouped {t} column cannot be compared to its text."),
             Refusal::KeyValue => "A grouped value cannot be read back as its type.",
+            Refusal::NonAscii => {
+                "A grouped varchar value is not plain ASCII, so its literal could spell another value in the column's code page."
+            }
         };
         f.write_str(reason)
     }
@@ -219,7 +223,8 @@ enum Clause {
 enum Literal {
     /// The text is already a T-SQL number of the type: an integer, a decimal with its scale, or a bit.
     Number,
-    /// A `varchar` literal, so a SQL collation compares it by its non-Unicode rules, as it grouped.
+    /// A `varchar` literal, so a SQL collation compares it by its non-Unicode rules, as it grouped. The
+    /// literal is read in the database's code page, so only ASCII spells the same in every column's.
     Varchar,
     Nvarchar,
     /// `mssql_value::input_sql`, which converts with an explicit style.
@@ -255,7 +260,8 @@ fn literal(display: &str, value: &str) -> Result<String, Refusal> {
     match literal_kind(display)? {
         Literal::Number if number(value) => Ok(value.to_owned()),
         Literal::Number => Err(Refusal::KeyValue),
-        Literal::Varchar => Ok(format!("'{}'", value.replace('\'', "''"))),
+        Literal::Varchar if value.is_ascii() => Ok(format!("'{}'", value.replace('\'', "''"))),
+        Literal::Varchar => Err(Refusal::NonAscii),
         Literal::Nvarchar => Ok(quote_literal(value)),
         Literal::Converted => input_sql(display, value).map_err(|_| Refusal::KeyValue),
     }
@@ -843,6 +849,16 @@ mod tests {
             Some("WHERE (k) IS NULL"),
             "NULL needs no literal"
         );
+    }
+
+    #[test]
+    fn a_varchar_value_outside_ascii_is_refused() {
+        let sql = "SELECT k, COUNT(*) FROM t GROUP BY k";
+        for value in ["Ω", "Straße", "é", "旅", "a\u{a0}b"] {
+            assert_eq!(drill(sql, &[("varchar", Some(value))]), Err(Refusal::NonAscii), "{value}");
+            assert!(drill(sql, &[("nvarchar", Some(value))]).is_ok(), "{value}");
+        }
+        assert!(drill(sql, &[("varchar", Some("~ ?\t"))]).unwrap().ends_with("= '~ ?\t'"));
     }
 
     #[test]
