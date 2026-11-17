@@ -84,6 +84,9 @@ impl Tokens<'_> {
     fn sym(&self, i: usize, text: &str) -> bool {
         self.t.get(i).is_some_and(|t| t.kind == Kind::Symbol && t.text == text)
     }
+    fn name(&self, i: usize) -> bool {
+        self.t.get(i).is_some_and(|t| matches!(t.kind, Kind::Word | Kind::Ident))
+    }
     fn reserved(&self, i: usize) -> bool {
         self.word_in(i, RESERVED)
     }
@@ -212,21 +215,21 @@ fn set_operand(tk: &Tokens<'_>, i: usize) -> bool {
     op.is_some_and(|j| tk.word_in(j, &["UNION", "INTERSECT", "EXCEPT"]))
 }
 
-/// A run of four or more names joined by dots, the linked-server form `server.db.schema.object`. A
-/// three-part `db.schema.object` cross-database read stays allowed, gated by the login's permissions.
+/// A dotted name of four or more parts, the linked-server form `server.db.schema.object`. Every dot
+/// separates two parts, so an omitted part still counts: `srv.db..t`, `srv...t`, and `.db.dbo.t` are
+/// four. A trailing `.*` is a column list, not a part. A three-part `db.schema.object` cross-database
+/// read stays allowed, gated by the login's permissions.
 fn four_part_name(tk: &Tokens<'_>) -> bool {
-    let name = |i: usize| tk.t.get(i).is_some_and(|t| matches!(t.kind, Kind::Word | Kind::Ident));
+    let mut dots = 0;
     (0..tk.t.len()).any(|i| {
-        if !name(i) || tk.qualified(i) {
+        if !tk.sym(i, ".") {
+            if !(tk.name(i) && i > 0 && tk.sym(i - 1, ".")) {
+                dots = 0;
+            }
             return false;
         }
-        let mut parts = 1;
-        let mut j = i;
-        while tk.sym(j + 1, ".") && name(j + 2) {
-            parts += 1;
-            j += 2;
-        }
-        parts >= 4
+        dots += 1;
+        dots + usize::from(!tk.sym(i + 1, "*")) >= 4
     })
 }
 
@@ -339,5 +342,26 @@ mod tests {
         assert_eq!(refusal("SELECT @x"), Some(Refusal::Variable));
         assert_eq!(refusal("SELECT (1"), Some(Refusal::Unclosed));
         assert_eq!(refusal("SELECT 'x"), Some(Refusal::Unclosed));
+    }
+
+    #[test]
+    fn a_linked_server_name_counts_omitted_parts() {
+        for sql in [
+            "SELECT * FROM linked_server.remote_db..orders",
+            "SELECT * FROM a.b..c",
+            "SELECT * FROM a..b.c",
+            "SELECT * FROM a...b",
+            "SELECT * FROM [a].[b]..[c]",
+            "SELECT * FROM [a] . [b] . . [c]",
+            "SELECT * FROM a /* x */ . b . /* y */ . c",
+            "SELECT * FROM a.\nb..c",
+            "SELECT * FROM .db.dbo.t",
+            "SELECT srv.db.dbo.t.* FROM dbo.t",
+        ] {
+            assert_eq!(refusal(sql), Some(Refusal::LinkedServerName), "{sql}");
+        }
+        for sql in ["SELECT * FROM db..t", "SELECT db.dbo.t.* FROM db.dbo.t", "SELECT t.* FROM dbo.t AS t"] {
+            assert_eq!(read_refusal(sql), Ok(()), "{sql}");
+        }
     }
 }

@@ -322,6 +322,7 @@ async fn the_assistant_reads_only_a_read_only_sql_server_database() {
             ("SELECT * FROM OPENQUERY(srv, 'select 1')".into(), "OPENQUERY"),
             ("SELECT * FROM OPENDATASOURCE('a', 'b')".into(), "OPENDATASOURCE"),
             ("SELECT * FROM srv.db.dbo.tbl".into(), "four-part"),
+            ("SELECT * FROM linked_server.remote_db..orders".into(), "four-part"),
             ("SELECT 1; SELECT 2".into(), "one statement"),
             ("USE master".into(), "SELECT"),
             ("SELECT dbo.my_udf(1)".into(), "my_udf"),
