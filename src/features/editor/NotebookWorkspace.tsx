@@ -1,18 +1,7 @@
 import { DENSITY_FACTOR, gridRowHeight } from "../../shell/appearance";
 import { StartCommands } from "../../shell/StartCommands";
 import { EditorView } from "@codemirror/view";
-import {
-  ChevronRightIcon,
-  CircleAlertIcon,
-  CopyPlusIcon,
-  ListIndentIncreaseIcon,
-  NetworkIcon,
-  PlayIcon,
-  PlusIcon,
-  RefreshCwIcon,
-  SquareIcon,
-  XIcon,
-} from "lucide-react";
+import { ChevronRightIcon, CircleAlertIcon, CopyPlusIcon, ListIndentIncreaseIcon, NetworkIcon, PlayIcon, RefreshCwIcon, SquareIcon, XIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import type { RunState, TabId } from "../../ipc/bindings";
@@ -23,6 +12,7 @@ import { cx, IconButton } from "../../ui/primitives";
 import { useNow } from "../../ui/useNow";
 import { hasResultPager, pageRows } from "../results/format";
 import { ResultsPane, useRowEstimate } from "../results/ResultsPane";
+import { AddCellMenu } from "./AddCellMenu";
 import { CellGrip } from "./CellGrip";
 import { CellResizeHandle } from "./CellResizeHandle";
 import { CELL_SCROLL_MARGIN, cellHeights, EDITOR_MIN, pinnedTop, type DraggedHeights } from "./cellSizing";
@@ -45,9 +35,7 @@ const MOVE_KEYS: Partial<Record<string, -1 | 1>> = { ArrowUp: -1, ArrowDown: 1 }
 function AddCell({ after }: { after?: TabId }) {
   return (
     <div className="notebook-add">
-      <IconButton aria-label="Add SQL cell" data-testid="add-cell" onClick={() => openSqlTab({ after })} title="Add SQL cell">
-        <PlusIcon size={14} />
-      </IconButton>
+      <AddCellMenu after={after} testId="add-cell" />
     </div>
   );
 }
