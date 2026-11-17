@@ -4504,7 +4504,7 @@ mod database_compatibility_tests {
 
     #[test]
     fn a_production_connection_round_trips() {
-        let saved = serde_json::json!({"databaseKind":"Postgres", "id":Uuid::nil(), "name":"prod-postgres", "host":"db.internal", "port":5432, "database":"shop", "user":"reader", "sslMode":"VerifyFull", "caCertPath":null, "hasPassword":true, "color":"red", "ssh":null, "environment":"Production", "sqlServerAuth":null});
+        let saved = serde_json::json!({"databaseKind":"Postgres", "id":Uuid::nil(), "name":"prod-postgres", "host":"db.internal", "port":5432, "database":"shop", "user":"reader", "sslMode":"VerifyFull", "caCertPath":null, "hasPassword":true, "color":"red", "ssh":null, "environment":"Production", "sqlServerAuth":null, "assistantReadOnly":false});
         let config: ConnectionConfig = serde_json::from_value(saved.clone()).unwrap();
         assert_eq!(config.environment, Some(Environment::Production));
         assert_eq!(serde_json::to_value(&config).unwrap(), saved);
@@ -4520,7 +4520,7 @@ mod database_compatibility_tests {
 
     #[test]
     fn each_sql_server_auth_round_trips_and_a_newer_one_loads_as_unknown() {
-        let mut saved = serde_json::json!({"databaseKind":"SqlServer", "id":Uuid::nil(), "name":"azure", "host":"db.example.net", "port":1433, "database":"shop", "user":"", "sslMode":"VerifyFull", "caCertPath":null, "hasPassword":false, "color":null, "ssh":null, "environment":null, "sqlServerAuth":null});
+        let mut saved = serde_json::json!({"databaseKind":"SqlServer", "id":Uuid::nil(), "name":"azure", "host":"db.example.net", "port":1433, "database":"shop", "user":"", "sslMode":"VerifyFull", "caCertPath":null, "hasPassword":false, "color":null, "ssh":null, "environment":null, "sqlServerAuth":null, "assistantReadOnly":false});
         for (wire, auth) in [
             (serde_json::Value::Null, None),
             ("SqlLogin".into(), Some(SqlServerAuth::SqlLogin)),
