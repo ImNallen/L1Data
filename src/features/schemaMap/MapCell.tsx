@@ -1,5 +1,16 @@
 import * as Menu from "@radix-ui/react-dropdown-menu";
-import { ChevronDownIcon, KeyRoundIcon, LayoutGridIcon, Link2Icon, PlayIcon, PlusIcon, RefreshCwIcon, SearchIcon, Table2Icon } from "lucide-react";
+import {
+  ChevronDownIcon,
+  KeyRoundIcon,
+  LayoutGridIcon,
+  Link2Icon,
+  PlayIcon,
+  PlusIcon,
+  RefreshCwIcon,
+  SearchIcon,
+  Table2Icon,
+  TriangleAlertIcon,
+} from "lucide-react";
 import { useRef, type KeyboardEvent, type ReactNode } from "react";
 import type { MapColumns } from "../../ipc/bindings";
 import { Button, cx, IconButton, Kbd, MenuContent, MenuItem, Spinner } from "../../ui/primitives";
@@ -7,8 +18,9 @@ import { useNow } from "../../ui/useNow";
 import { timeAgo } from "../assistant/assistantText";
 import { browseTemplate, openSqlTab, openTableTab } from "../editor/runActions";
 import { plural } from "../editor/writeQuestions";
+import { groupCount } from "../results/format";
 import { compactCount, SchemaCanvas } from "./SchemaCanvas";
-import type { ErTable } from "./model";
+import type { ErModel, ErTable } from "./model";
 import type { SchemaMapView } from "./useSchemaMap";
 
 const COLUMN_MODES: Record<MapColumns, string> = { All: "All", Keys: "Keys" };
@@ -85,6 +97,31 @@ function CrowsFoot() {
   );
 }
 
+// The engine's schema_map limits.
+const TABLE_LIMIT = 500;
+const KEY_LIMIT = 2_000;
+const PARTITION_LIMIT = 10_000;
+
+function partialMapText({ omittedTables, keysTruncated, partitionsTruncated }: ErModel): string | null {
+  const left: [string, string][] = [];
+  if (omittedTables > 0) left.push([`${groupCount(omittedTables)} ${omittedTables === 1 ? "table" : "tables"}`, `${groupCount(TABLE_LIMIT)} tables`]);
+  if (keysTruncated) left.push(["some keys", `${groupCount(KEY_LIMIT)} keys`]);
+  const parts = left.length ? [`${left.map(([what]) => what).join(" and ")} left out (limit ${left.map(([, limit]) => limit).join(", ")})`] : [];
+  if (partitionsTruncated) parts.push(`partitions past ${groupCount(PARTITION_LIMIT)} drawn as tables`);
+  return parts.length ? `Partial map: ${parts.join("; ")}` : null;
+}
+
+function PartialMapNote({ model, short = false }: { model: ErModel | null; short?: boolean }) {
+  const text = model && partialMapText(model);
+  if (!text) return null;
+  return (
+    <span data-testid="map-partial" title={text} className={cx("flex min-w-0 items-center gap-1 text-amber", short && "shrink-0")}>
+      <TriangleAlertIcon size={12} aria-hidden className="shrink-0" />
+      <span className="truncate">{short ? "Partial map" : text}</span>
+    </span>
+  );
+}
+
 export function MapLegend({ map }: { map: SchemaMapView }) {
   const now = useNow(true, 30_000);
   const model = map.model;
@@ -105,6 +142,7 @@ export function MapLegend({ map }: { map: SchemaMapView }) {
         <span aria-hidden className="w-6 border-t border-dashed border-amber" /> Inferred by name
       </span>
       <span className="flex-1" />
+      <PartialMapNote model={model} />
       {model && (
         <span data-testid="map-size" className="tabular-nums">
           {plural(model.tables.size, "table")} · {plural(declared, "key")}
@@ -147,6 +185,7 @@ export function FocusStrip({ map }: { map: SchemaMapView }) {
         <span className="text-dim">·</span>
         Possible <b className="font-semibold text-amber">{counts.possible}</b>
       </span>
+      <PartialMapNote model={map.model} short />
       <span className="flex-1" />
       <button
         type="button"

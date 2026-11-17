@@ -87,6 +87,7 @@ describe("a schema map cell", () => {
     expect(within(cell).getByTestId("tab-m").textContent).toBe("shop · publicSchema map");
     expect(cell.querySelectorAll("[data-map-card]")).toHaveLength(15);
     expect(screen.getByTestId("map-size").textContent).toBe("15 tables · 12 keys");
+    expect(screen.queryByTestId("map-partial")).toBeNull();
     expect(
       within(cell)
         .getAllByRole("button")
@@ -202,6 +203,16 @@ describe("a schema map cell's states", () => {
       render(<NotebookWorkspace />);
     });
     expect(screen.getByRole("status").textContent).toBe("Connect to shop to draw this schema's map.");
+  });
+
+  it("warns that a truncated map is partial, also while a table is focused", async () => {
+    reply = async () => ({ ...SHOP_SCHEMA_MAP, omittedTables: 1_120, keysTruncated: true, partitionsTruncated: true });
+    await renderMap();
+    const warning = "Partial map: 1,120 tables and some keys left out (limit 500 tables, 2,000 keys); partitions past 10,000 drawn as tables";
+    expect(within(screen.getByTestId("map-legend")).getByTestId("map-partial").textContent).toBe(warning);
+    click(card("orders"));
+    const strip = within(screen.getByTestId("map-focus-strip")).getByTestId("map-partial");
+    expect([strip.textContent, strip.title]).toEqual(["Partial map", warning]);
   });
 
   it("says when the schema has no tables", async () => {
