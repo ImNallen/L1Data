@@ -58,8 +58,7 @@ import { ContextMenuItem, ContextMenuSeparator, ContextSubmenu, Highlight, Spinn
 import { matchRanges, parseQuery, type TextRange } from "../../ui/textMatch";
 import { connect, confirmDelete, disconnect, refreshCatalog, refreshConnection } from "../connections/connectionActions";
 import { ConnectionColorDot, EnvironmentBadge, EnvironmentIcon, connectionColor } from "../connections/connectionColors";
-import { insertAtCursor } from "../editor/editorStates";
-import { openSqlTab, openTableTab } from "../editor/runActions";
+import { insertIntoActive, openSqlTab, openTableTab } from "../editor/runActions";
 import { useRunningNotebooks } from "../notebooks/notebookRun";
 import { columnType, defaultText, indexText, keyText, triggerText, type RowText } from "./detailText";
 import { databaseCount, schemaCount } from "./pickers";
@@ -477,7 +476,7 @@ export function insertRoutine(db: DatabaseRef, fn: FunctionInfo): void {
     notify(`Choose a ${DATABASE_LABEL[sourceKind]} tab to insert this routine.`);
     return;
   }
-  insertAtCursor(active.id, fn.insertText);
+  insertIntoActive(fn.insertText);
 }
 
 function functionRow(b: Build, path: TreePath, depth: number, db: DatabaseRef, fn: FunctionInfo, ranges?: readonly TextRange[]) {

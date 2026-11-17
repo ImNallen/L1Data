@@ -23,6 +23,7 @@ import { applyErrorText, configureErrorText, runErrorText, settingsErrorText, tx
 import { databaseKindFor } from "../../state/databaseKind";
 import { homeDb, resolveDb, sameDb } from "../../state/dbKey";
 import { useLive } from "../../state/live";
+import { MAP_TITLE } from "../../state/notebookFile";
 import { notebookOf } from "../../state/notebooks";
 import { dropRowCaches } from "../../state/rowCache";
 import { canCancel, isBusy } from "../../state/status";
@@ -30,14 +31,19 @@ import { NO_EDITS, pendingCount, toChanges, useTableEdits, type TableEdits } fro
 import {
   EMPTY_QUERY,
   activeId,
+  activeQueryTab,
   activeTab,
   confirm,
+  isMapCell,
+  isSqlTab,
   isTableTab,
   nextUntitled,
   tabTarget,
   useWorkspace,
   type ConsoleTarget,
+  type MapCell,
   type RelationRef,
+  type SqlTab,
   type Tab,
   type TableTab,
 } from "../../state/workspace";
@@ -48,6 +54,7 @@ import {
   dropEditor,
   editorStateOf,
   flashRanges,
+  insertAtCursor,
   installEditorBehavior,
   onBuffersChanged,
   seedEditor,
@@ -73,7 +80,7 @@ function sameConfig(a: ConsoleConfig, b: ConsoleConfig): boolean {
   return a.connectionId === b.connectionId && a.database === b.database && a.schema === b.schema && a.mode === b.mode;
 }
 
-export async function ensureConsole(tab: Tab): Promise<boolean> {
+export async function ensureConsole(tab: SqlTab): Promise<boolean> {
   const config = consoleConfig(tab.console);
   if (!config) {
     notify("Choose a connection for this tab.");
@@ -135,9 +142,9 @@ export function selectionTarget(state: EditorState): RunTarget {
 
 /** Formats the statements the selection touches, or the statement ⌘↵ would run, as one undoable edit. */
 export async function formatActive(): Promise<void> {
-  const id = activeId(ws());
-  const tab = id ? ws().tabs[id] : undefined;
-  if (!id || !tab || isBrowsing(tab)) return;
+  const tab = activeQueryTab(ws());
+  if (!tab || isBrowsing(tab)) return;
+  const id = tab.id;
   const state = editorStateOf(id);
   const target = textTarget(tab);
   const res = await commands.editorFormat(state.doc.toString(), selectionTarget(state), target.databaseKind);
@@ -193,7 +200,7 @@ async function writesConfirmed(tab: Tab, asked: WriteConfirmation, mode: RunMode
 
 async function runTab(tabId: TabId, target?: PageTarget, script?: RunTarget, mode: RunMode = "Run"): Promise<void> {
   const tab = ws().tabs[tabId];
-  if (!tab) return;
+  if (!isSqlTab(tab)) return;
   if (target && queuedPages.get(tabId)?.intent !== target.intent) return;
   if (target?.countContext && !isCurrentCount(target.countContext)) return;
   if (target && !isBrowsing(tab)) return;
@@ -257,7 +264,7 @@ export function scriptRequest(tabId: TabId, text: string, target: RunTarget, mod
 /** Runs the whole cell, as a notebook run does: no prompt and no focus checks. */
 export async function runCell(id: TabId, digest: WriteDigest | null, valid: () => boolean): Promise<Sent> {
   const tab = ws().tabs[id];
-  if (!tab || !(await ensureConsole(tab)) || !valid()) return { kind: "dropped" };
+  if (!isSqlTab(tab) || !(await ensureConsole(tab)) || !valid()) return { kind: "dropped" };
   const request = scriptRequest(id, textOf(id), { kind: "all" }, "Run");
   return sendRun(tab, request, digest, () => valid() && ws().tabs[id]?.console === tab.console);
 }
@@ -286,16 +293,15 @@ async function sendRun(tab: Tab, request: RunRequest, digest: WriteDigest | null
 }
 
 export function explainActive(mode: "Explain" | "ExplainAnalyze"): void {
-  const id = activeId(ws());
-  const tab = id ? ws().tabs[id] : undefined;
-  if (!id || !tab || isBrowsing(tab)) return;
-  void runTab(id, undefined, undefined, mode);
+  const tab = activeQueryTab(ws());
+  if (!tab || isBrowsing(tab)) return;
+  void runTab(tab.id, undefined, undefined, mode);
 }
 
 /** Runs the selection or the statement at the cursor, or `script` when given. A browsing table tab loads its page. */
 export function runActive(script?: RunTarget): void {
-  const id = activeId(ws());
-  if (id) void runTab(id, undefined, script);
+  const tab = activeQueryTab(ws());
+  if (tab) void runTab(tab.id, undefined, script);
 }
 
 /**
@@ -303,9 +309,9 @@ export function runActive(script?: RunTarget): void {
  * statements, it opens the chooser instead.
  */
 export async function runOrChoose(ask = false): Promise<void> {
-  const id = activeId(ws());
-  const tab = id ? ws().tabs[id] : undefined;
-  if (!id || !tab) return;
+  const tab = activeQueryTab(ws());
+  if (!tab) return;
+  const id = tab.id;
   const state = editorStateOf(id);
   const sel = state.selection.main;
   if (isBrowsing(tab) || !sel.empty) return runActive();
@@ -325,7 +331,7 @@ export async function runOrChoose(ask = false): Promise<void> {
 }
 
 export function cancelActive(): boolean {
-  const id = activeId(ws());
+  const id = activeQueryTab(ws())?.id;
   if (!id || !canCancel(useLive.getState().consoles[id])) return false;
   cancelCell(id);
   return true;
@@ -398,26 +404,45 @@ function defaultTarget(): DatabaseRef | null {
   return config ? homeDb(config, live[config.id]) : null;
 }
 
+function newConsole(opts: { db?: DatabaseRef | null; schema?: string | null }): ConsoleTarget {
+  const schema = newSchema(opts);
+  const target = opts.db === undefined ? defaultTarget() : opts.db;
+  const db = target && resolveDb(target, useLive.getState().connections[target.connectionId]);
+  return { db, mode: "AutoCommit", ...(schema && { schema }) };
+}
+
+function newSchema(opts: { db?: DatabaseRef | null; schema?: string | null }): string | null | undefined {
+  if (opts.schema !== undefined) return opts.schema;
+  if (opts.db !== undefined) return undefined;
+  return activeTab(ws())?.console.schema;
+}
+
 /** Opens a SQL cell in the notebook for its database, at the end or right after `after`, and shows that notebook. */
 /** `newNotebook` starts a notebook with the cell even when its database has one. */
 export function openSqlTab(
   opts: { db?: DatabaseRef | null; schema?: string | null; text?: string; title?: string; after?: TabId; newNotebook?: boolean } = {},
 ): TabId {
   const id = crypto.randomUUID();
-  const inheritedSchema = activeTab(ws())?.console.schema;
-  const schema = opts.schema !== undefined ? opts.schema : opts.db === undefined ? inheritedSchema : undefined;
-  const target = opts.db === undefined ? defaultTarget() : opts.db;
-  const db = target && resolveDb(target, useLive.getState().connections[target.connectionId]);
   seedEditor(id, opts.text ?? "");
-  const tab: Tab = {
-    id,
-    title: opts.title ?? nextUntitled(Object.values(ws().tabs)),
-    console: { db, mode: "AutoCommit", ...(schema && { schema }) },
-    table: null,
-  };
+  const tab: Tab = { id, title: opts.title ?? nextUntitled(Object.values(ws().tabs)), console: newConsole(opts), table: null };
   if (opts.newNotebook) ws().addNotebook(tab);
   else ws().addTab(tab, opts.after);
   return id;
+}
+
+export function openMapTab(opts: { db?: DatabaseRef | null; schema?: string | null; after?: TabId; title?: string; map?: MapCell } = {}): TabId {
+  const id = crypto.randomUUID();
+  const map = { columns: opts.map?.columns ?? "All" };
+  ws().addTab({ id, title: opts.title ?? MAP_TITLE, console: newConsole(opts), table: null, map }, opts.after);
+  return id;
+}
+
+export function insertIntoActive(text: string): boolean {
+  const tab = activeTab(ws());
+  if (!tab) return false;
+  if (isMapCell(tab)) openSqlTab({ text, after: tab.id });
+  else insertAtCursor(tab.id, text);
+  return true;
 }
 
 /** Opens the rows behind one row of a query result in a new cell after the result's own, and runs it. */
@@ -676,9 +701,9 @@ async function markRunTarget(): Promise<void> {
 }
 
 async function markOnce(): Promise<void> {
-  const id = activeId(ws());
-  const tab = id ? ws().tabs[id] : undefined;
-  if (!id || !tab) return;
+  const tab = activeQueryTab(ws());
+  if (!tab) return;
+  const id = tab.id;
   const state = editorStateOf(id);
   const sel = state.selection.main;
   if (isBrowsing(tab) || !sel.empty) return showRunTarget(id, null);

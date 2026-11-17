@@ -38,6 +38,7 @@ export async function boot(): Promise<void> {
   useLive.getState().hydrate(snapshot);
   const configs = Object.fromEntries(snapshot.connections.map((config) => [config.id, config]));
   for (const saved of snapshot.workspace.tabs) {
+    if (saved.map) continue;
     const tab = tabFromSnapshot(saved, configs);
     const db = tabTarget(tab);
     const template = tab?.table && db ? await browseTemplate(db, tab.table.schema, tab.table.table) : null;

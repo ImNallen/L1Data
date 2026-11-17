@@ -3151,6 +3151,7 @@ mod tests {
                     table: None,
                     file: None,
                     collapsed: false,
+                    map: None,
                     console: ConsoleConfigSnapshot {
                         connection_id: Some(connection.id),
                         database: Some("shop".into()),

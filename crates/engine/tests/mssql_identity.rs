@@ -63,6 +63,7 @@ fn saved(connection_id: ConnectionId, database: &str, table: bool) -> TabSnapsho
         }),
         file: None,
         collapsed: false,
+        map: None,
     }
 }
 

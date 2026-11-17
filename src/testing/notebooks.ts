@@ -3,7 +3,7 @@ import type { DatabaseRef, FileBinding, NotebookId, TabId } from "../ipc/binding
 import { cellMeta, metaKey } from "../state/notebookFile";
 import { paramsKey } from "../state/notebookParams";
 import { followActive, notebookOf, settle } from "../state/notebooks";
-import { useWorkspace, type Tab, type WorkspaceData } from "../state/workspace";
+import { isMapCell, useWorkspace, type Tab, type WorkspaceData } from "../state/workspace";
 
 /** Store fields with `tabs` grouped into a notebook per database in order, showing the notebook that holds `active`. */
 export function cellsState(tabs: Tab[], active: TabId | null = tabs[0]?.id ?? null): Pick<WorkspaceData, "tabs" | "notebooks" | "shown"> {
@@ -39,7 +39,7 @@ export function moveCell(id: TabId, db: DatabaseRef | null): void {
 export function bindToFile(id: NotebookId, path = "/q/a.sql", plain = false): FileBinding {
   const { notebooks, tabs } = useWorkspace.getState();
   const binding: FileBinding = { path, stamp: "s1", format: { bom: false, crlf: false } };
-  const cells = (notebooks[id]?.cells ?? []).map((c) => ({ text: textOf(c), meta: metaKey(cellMeta(tabs[c]!)) }));
+  const cells = (notebooks[id]?.cells ?? []).map((c) => ({ text: isMapCell(tabs[c]) ? "" : textOf(c), meta: metaKey(cellMeta(tabs[c]!)) }));
   const saved = { cells, params: paramsKey(notebooks[id]?.params ?? []) };
   useWorkspace.getState().setNotebookFile(id, { binding, health: "ok", plain, unknown: { header: [], cells: {} }, saved });
   return binding;

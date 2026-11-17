@@ -263,12 +263,14 @@ export type CellAggregate = { kind: "Counts"; count: number; nonNull: number } |
 
 export type CellMeta = {
 	title: string | null,
-	/**  The schema the cell runs in. */
+	/**  The schema the cell runs in, or the one a map cell draws. */
 	schema: string | null,
 	/**  The table a browse cell shows. */
 	table: CellTable | null,
 	/**  The cell commits by hand. */
 	manual: boolean,
+	/**  The cell is a schema map, with no table, no manual mode, and no text. */
+	map: MapCell | null,
 	/**  Keys this build does not read, and known keys whose value it cannot, written back as they were. */
 	unknown: MetaPair[],
 };
@@ -1073,10 +1075,18 @@ export type LinkBasis =
  */
 "Inferred";
 
+export type MapCell = {
+	columns: MapColumns,
+};
+
 export type MapColumnPair = {
 	source: string,
 	target: string,
 };
+
+export type MapColumns = "All" | 
+/**  Only the primary and foreign key columns. */
+"Keys";
 
 export type MapCursor = {
 	db: DatabaseRef,
@@ -1950,6 +1960,8 @@ export type TabSnapshot = {
 	file: FileSnapshot | null,
 	/**  The notebook shows only the cell's header. Kept with the workspace, never in a notebook file. */
 	collapsed: boolean,
+	/**  `Some` for a schema map cell, which draws `console.schema` of its database and holds no SQL, so its `text` is empty. */
+	map: MapCell | null,
 };
 
 /**  Staged edits to one table, applied together by `table_apply`. Rows to update or delete are found by primary key. */

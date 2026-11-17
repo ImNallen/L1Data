@@ -151,3 +151,29 @@ it("puts Run all in the notebook context row, before the notebooks button", () =
   expect(runAll).toBeGreaterThan(-1);
   expect(runAll).toBeLessThan(html.indexOf('data-testid="notebook-switcher-btn"'));
 });
+
+it("shows a schema map cell's schema picker, and no transaction mode, Commit, Rollback, or count", () => {
+  const db = { connectionId: "c1", database: "shop" };
+  const map: Tab = { id: "m", title: "Schema map", console: { db, mode: "AutoCommit", schema: "sales" }, table: null, map: { columns: "All" } };
+  const sql: Tab = { id: "q", title: "Query", console: { db, mode: "AutoCommit" }, table: null };
+  const busy = (tabId: string): ConsoleState => ({
+    tabId,
+    rev: 1,
+    config: { ...db, schema: null, mode: "AutoCommit" },
+    session: { kind: "Open", backendPid: 1 },
+    txn: "Open",
+    txnDepth: null,
+    work: "Count",
+    export: null,
+    import: null,
+    run: { kind: "Idle" },
+  });
+  live.consoles = { m: busy("m"), q: busy("q") };
+  const shows = (active: string) => {
+    Object.assign(workspace, { ...cellsState([map, sql], active), configs: { c1: connectionConfig("c1", "local") } });
+    const html = renderToStaticMarkup(<TopBar hosted={null} />);
+    return ["tab-schema", "tx-mode", "commit-btn", "rollback-btn", "counting-status"].filter((id) => html.includes(`data-testid="${id}"`));
+  };
+  expect(shows("m")).toEqual(["tab-schema"]);
+  expect(shows("q")).toEqual(["tab-schema", "tx-mode", "commit-btn", "rollback-btn", "counting-status"]);
+});

@@ -494,6 +494,7 @@ it.each(["SELECT * FROM public.orders", "SELECT * FROM public.orders;", "\n SELE
       table: { schema: "public", table: "orders", page: 2, query },
       file: null,
       collapsed: false,
+      map: null,
     };
     const ws = useWorkspace.getState();
     seedEditor(id, text);

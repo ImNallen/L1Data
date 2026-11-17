@@ -26,6 +26,7 @@ function saved(database: string | null, table = false, connectionId = config.id)
     table: table ? { schema: "dbo", table: "orders", page: 3, query: EMPTY_QUERY } : null,
     file: null,
     collapsed: false,
+    map: null,
   };
 }
 

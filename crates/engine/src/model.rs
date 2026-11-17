@@ -1993,6 +1993,30 @@ pub struct TabSnapshot {
     pub file: Option<FileSnapshot>,
     /// The notebook shows only the cell's header. Kept with the workspace, never in a notebook file.
     pub collapsed: bool,
+    /// `Some` for a schema map cell, which draws `console.schema` of its database and holds no SQL, so its `text` is empty.
+    pub map: Option<MapCell>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MapCell {
+    pub columns: MapColumns,
+}
+
+impl MapCell {
+    fn lenient(value: serde_json::Value) -> Self {
+        serde_json::from_value(value)
+            .inspect_err(|e| eprintln!("reset a map cell's settings this build cannot read: {e}"))
+            .unwrap_or_default()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub enum MapColumns {
+    #[default]
+    All,
+    /// Only the primary and foreign key columns.
+    Keys,
 }
 
 /// The table a tab opened from the sidebar browses, in the tab's console database.
@@ -2042,6 +2066,7 @@ impl<'de> Deserialize<'de> for TabSnapshot {
             file: Option<serde_json::Value>,
             #[serde(default)]
             collapsed: bool,
+            map: Option<serde_json::Value>,
         }
         #[derive(Deserialize)]
         #[serde(untagged)]
@@ -2050,11 +2075,18 @@ impl<'de> Deserialize<'de> for TabSnapshot {
             Current(Current),
         }
         Ok(match Saved::deserialize(d)? {
-            Saved::Current(Current { id, title, text, console, table, file, collapsed }) => {
-                Self { id, title, text, console, table, file: file.and_then(FileSnapshot::lenient), collapsed }
-            }
+            Saved::Current(Current { id, title, text, console, table, file, collapsed, map }) => Self {
+                id,
+                title,
+                text,
+                console,
+                table,
+                file: file.and_then(FileSnapshot::lenient),
+                collapsed,
+                map: map.map(MapCell::lenient),
+            },
             Saved::Legacy(Legacy::Sql { id, title, text, console }) => {
-                Self { id, title, text: Some(text), console, table: None, file: None, collapsed: false }
+                Self { id, title, text: Some(text), console, table: None, file: None, collapsed: false, map: None }
             }
             Saved::Legacy(Legacy::Table { id, connection_id, database, schema, table, page, query }) => Self {
                 id,
@@ -2069,6 +2101,7 @@ impl<'de> Deserialize<'de> for TabSnapshot {
                 table: Some(TableSnapshot { schema, table, page, query }),
                 file: None,
                 collapsed: false,
+                map: None,
             },
         })
     }
@@ -3096,12 +3129,14 @@ pub struct NotebookCell {
 #[serde(rename_all = "camelCase")]
 pub struct CellMeta {
     pub title: Option<String>,
-    /// The schema the cell runs in.
+    /// The schema the cell runs in, or the one a map cell draws.
     pub schema: Option<String>,
     /// The table a browse cell shows.
     pub table: Option<CellTable>,
     /// The cell commits by hand.
     pub manual: bool,
+    /// The cell is a schema map, with no table, no manual mode, and no text.
+    pub map: Option<MapCell>,
     /// Keys this build does not read, and known keys whose value it cannot, written back as they were.
     pub unknown: Vec<MetaPair>,
 }
@@ -3754,7 +3789,7 @@ mod tests {
             "id": TAB, "title": "orders", "text": "select * from orders",
             "console": { "connectionId": CONN, "database": "shop", "schema": null, "mode": "Manual" },
             "table": { "schema": "public", "table": "orders", "page": 1, "query": { "orderBy": "", "filters": [], "where": "total > 0" } },
-            "file": null, "collapsed": false
+            "file": null, "collapsed": false, "map": null
         });
         let tab: TabSnapshot = serde_json::from_value(value.clone()).unwrap();
         assert_eq!((tab.text.as_deref(), tab.console.mode), (Some("select * from orders"), TxnMode::Manual));
@@ -3764,7 +3799,7 @@ mod tests {
         let plain = json!({
             "id": TAB, "title": "Untitled-1.sql", "text": "",
             "console": { "connectionId": null, "database": null, "schema": null, "mode": "AutoCommit" }, "table": null, "file": null,
-            "collapsed": true
+            "collapsed": true, "map": null
         });
         let tab: TabSnapshot = serde_json::from_value(plain.clone()).unwrap();
         assert_eq!(serde_json::to_value(&tab).unwrap(), plain);
@@ -3804,6 +3839,7 @@ mod tests {
         assert_eq!(tab.file, Some(FileSnapshot { binding, dirty: true }));
         let mut written = value;
         written["collapsed"] = json!(false);
+        written["map"] = json!(null);
         assert_eq!(serde_json::to_value(&tab).unwrap(), written);
     }
 
@@ -3812,6 +3848,7 @@ mod tests {
         assert!(!serde_json::from_value::<TabSnapshot>(file_tab(json!(null))).unwrap().collapsed);
         let mut value = file_tab(json!(null));
         value["collapsed"] = json!(true);
+        value["map"] = json!(null);
         let tab: TabSnapshot = serde_json::from_value(value.clone()).unwrap();
         assert!(tab.collapsed);
         assert_eq!(serde_json::to_value(&tab).unwrap(), value);
@@ -3846,6 +3883,45 @@ mod tests {
             serde_json::from_value(file_tab(json!({ "binding": binding, "dirty": false, "watched": true }))).unwrap();
         let file = tab.file.expect("the binding survives fields this build does not know");
         assert_eq!((file.binding.format, file.dirty), (FileFormat { bom: true, crlf: false }, false));
+    }
+
+    fn map_tab(map: serde_json::Value) -> serde_json::Value {
+        let mut tab = file_tab(json!(null));
+        tab["title"] = json!("Schema map");
+        tab["text"] = json!("");
+        tab["console"]["schema"] = json!("sales");
+        tab["map"] = map;
+        tab
+    }
+
+    #[test]
+    fn a_map_cell_round_trips() {
+        let mut value = map_tab(json!({ "columns": "Keys" }));
+        value["collapsed"] = json!(false);
+        let tab: TabSnapshot = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(tab.map, Some(MapCell { columns: MapColumns::Keys }));
+        assert_eq!(serde_json::to_value(&tab).unwrap(), value);
+    }
+
+    #[test]
+    fn a_tab_saved_before_map_cells_or_with_a_null_map_loads_as_a_query_cell() {
+        assert_eq!(serde_json::from_value::<TabSnapshot>(file_tab(json!(null))).unwrap().map, None);
+        assert_eq!(serde_json::from_value::<TabSnapshot>(map_tab(json!(null))).unwrap().map, None);
+    }
+
+    #[test]
+    fn a_map_this_build_cannot_read_stays_a_map_with_the_defaults() {
+        for map in [json!({ "columns": "Grid" }), json!("x"), json!(7), json!({})] {
+            let tab: TabSnapshot = serde_json::from_value(map_tab(map.clone())).unwrap();
+            assert_eq!(tab.map, Some(MapCell { columns: MapColumns::All }), "{map}");
+        }
+        let later: TabSnapshot =
+            serde_json::from_value(map_tab(json!({ "columns": "Keys", "positions": { "orders": [1, 2] } }))).unwrap();
+        assert_eq!(
+            later.map,
+            Some(MapCell { columns: MapColumns::Keys }),
+            "fields a later build adds keep the columns"
+        );
     }
 
     /// Stable's `TabSnapshot` and `Workspace` from before file tabs. Update this copy only when a release changes
@@ -4040,6 +4116,16 @@ mod tests {
         );
         assert_eq!((tab.console.connection_id, &tab.table), (Some(ConnectionId(uuid(CONN))), &None));
         assert_eq!((stable.active, stable.layout.sidebar), (Some(TabId(uuid(TAB))), true));
+    }
+
+    #[test]
+    fn the_previous_stable_build_opens_a_map_cell_as_an_empty_query_cell() {
+        let tab: TabSnapshot = serde_json::from_value(map_tab(json!({ "columns": "Keys" }))).unwrap();
+        let workspace = Workspace { tabs: vec![tab], active: Some(TabId(uuid(TAB))), ..Workspace::default() };
+        let stable: StableWorkspace = serde_json::from_value(serde_json::to_value(&workspace).unwrap()).unwrap();
+        let tab = &stable.tabs[0];
+        assert_eq!((tab.id, tab.title.as_str(), tab.text.as_deref()), (TabId(uuid(TAB)), "Schema map", Some("")));
+        assert_eq!((tab.console.schema.as_deref(), &tab.table), (Some("sales"), &None));
     }
 
     #[test]

@@ -5,7 +5,7 @@ import { commands } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
 import { useWorkspace, type QueriesOverlay, type QueriesTab } from "../../state/workspace";
 import { cx, DialogSurface, Kbd } from "../../ui/primitives";
-import { focusEditor } from "../editor/editorStates";
+import { focusActiveCell } from "../notebooks/cellNavigation";
 import { HistoryBrowser } from "../history/HistoryBrowser";
 import { firstPageQuery } from "../history/historyList";
 import { SavedBrowser } from "../saved/SavedBrowser";
@@ -113,7 +113,7 @@ export function QueriesDialog() {
             if (!restoreFocus.current) return;
             event.preventDefault();
             restoreFocus.current = false;
-            focusEditor();
+            focusActiveCell();
           }}
           className="flex h-[640px] w-[960px] flex-col overflow-hidden"
         >

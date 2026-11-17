@@ -2,7 +2,7 @@ import type { NotebookId, TabId } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
 import type { Notebook } from "../../state/notebooks";
 import { hasUncommittedWork } from "../../state/status";
-import { confirm, useWorkspace } from "../../state/workspace";
+import { confirm, isMapCell, useWorkspace } from "../../state/workspace";
 import { closeTab } from "../editor/closeTab";
 import { textOf } from "../editor/editorStates";
 import { openSqlTab } from "../editor/runActions";
@@ -30,7 +30,7 @@ export function holdsTransaction(cells: readonly TabId[]): boolean {
 function isBlank(notebook: Notebook): boolean {
   const { tabs } = ws();
   if (holdsTransaction(notebook.cells)) return false;
-  return notebook.file ? !notebookDirty(notebook.id) : notebook.cells.every((id) => !tabs[id]?.table && textOf(id).trim() === "");
+  return notebook.file ? !notebookDirty(notebook.id) : notebook.cells.every((id) => !tabs[id]?.table && !isMapCell(tabs[id]) && textOf(id).trim() === "");
 }
 
 /**
