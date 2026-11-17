@@ -280,6 +280,12 @@ impl Session {
             Driver::SqlServer(s) => s.map_neighborhood(oid, after).await,
         }
     }
+    pub async fn schema_keys(&mut self, schema: &str) -> Result<crate::schema_map::SchemaKeys, QueryError> {
+        match &mut self.driver {
+            Driver::Postgres(p) => p.schema_keys(schema).await,
+            Driver::SqlServer(s) => s.schema_keys(schema).await,
+        }
+    }
     pub async fn detail(
         &mut self,
         db: DatabaseRef,

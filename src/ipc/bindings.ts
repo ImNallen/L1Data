@@ -25,6 +25,7 @@ export const commands = {
 	lastConstraint: number,
 } | null) => typedError<MapNeighborhood, MapError>(__TAURI_INVOKE("database_map_neighborhood", { db, oid, catalogVersion, after })),
 	databaseMapQuery: (db: DatabaseRef, text: string, cursor: DocOffset, catalogVersion: number) => typedError<MapQuery, MapError>(__TAURI_INVOKE("database_map_query", { db, text, cursor, catalogVersion })),
+	schemaMap: (db: DatabaseRef, schema: string | null, catalogVersion: number) => typedError<SchemaMap, MapError>(__TAURI_INVOKE("schema_map", { db, schema, catalogVersion })),
 	objectScript: (db: DatabaseRef, target: ScriptTarget) => typedError<ObjectScript, DetailError>(__TAURI_INVOKE("object_script", { db, target })),
 	exactRowCount: (tabId: TabId, db: DatabaseRef, schema: string, table: string, query: TableQuery) => typedError<number, CountError>(__TAURI_INVOKE("exact_row_count", { tabId, db, schema, table, query })),
 	consoleConfigure: (tabId: TabId, config: ConsoleConfig) => typedError<ConsoleState, ConfigureError>(__TAURI_INVOKE("console_configure", { tabId, config })),
@@ -1063,6 +1064,15 @@ export type LimitsReport = {
 	sources: SourceLimits[],
 };
 
+export type LinkBasis = 
+/**  A foreign key the server holds. */
+"Declared" | 
+/**
+ *  No key is declared. The source column's name and type match the target's single-column primary key by the
+ *  rules in `schema_map::infer`.
+ */
+"Inferred";
+
 export type MapColumnPair = {
 	source: string,
 	target: string,
@@ -1655,6 +1665,78 @@ export type SchemaInfo = {
 	types: TypeInfo[],
 	/**  SQL Server only, by name. Empty on PostgreSQL, and no query runs there. */
 	synonyms: SynonymInfo[],
+};
+
+/**
+ *  One schema's tables, columns, and references at `catalog_version`. Tables and columns come from the catalog the
+ *  slot held at that version, and declared keys from one read under the same metadata lock. Every oid in `links`
+ *  names a table in `tables`, and every column a link names is in that table's `columns`.
+ */
+export type SchemaMap = {
+	db: DatabaseRef,
+	catalogVersion: number,
+	/**  The schema asked for, or the catalog's `default_schema` when the request named none. */
+	schema: string,
+	/**
+	 *  The schema's tables in catalog order, then the other schemas' tables a declared key reaches, by schema and
+	 *  name. No views, and no partitions: each counts toward its top-most partitioned table's `partitions`.
+	 */
+	tables: SchemaMapTable[],
+	/**  Declared keys by constraint id, then inferred references by source table and column. */
+	links: SchemaMapLink[],
+	/**  More than `schema_map::KEY_LIMIT` declared keys touch the schema. The ones past it are not drawn. */
+	keysTruncated: boolean,
+	/**  More than `schema_map::PARTITION_LIMIT` partitions touch the schema. The ones past it draw as tables. */
+	partitionsTruncated: boolean,
+	/**  Tables past `schema_map::TABLE_LIMIT`, left out with every link that touches them. */
+	omittedTables: number,
+};
+
+export type SchemaMapColumn = {
+	attnum: number,
+	name: string,
+	typeDisplay: string,
+	category: TypeCategory,
+	notNull: boolean,
+	pk: boolean,
+};
+
+/**  A reference from `source` (the many side) to `target` (the one side). */
+export type SchemaMapLink = {
+	/**
+	 *  Unique in the reply and stable across versions: `k<constraint id>` for a declared key, `i<source oid>.<attnum>`
+	 *  for an inferred one.
+	 */
+	id: string,
+	basis: LinkBasis,
+	/**  The constraint's name. `None` when inferred. */
+	name: string | null,
+	source: number,
+	target: number,
+	/**  In constraint order. One pair when inferred. */
+	columns: MapColumnPair[],
+	/**  The server enforces the key on new rows. Always false when inferred. */
+	enabled: boolean,
+	/**  The server has checked the existing rows. Always false when inferred. */
+	validated: boolean,
+};
+
+export type SchemaMapTable = {
+	oid: number,
+	schema: string,
+	name: string,
+	kind: RelKind,
+	/**  `None` when never analyzed. */
+	rowEstimate: number | null,
+	/**  Partitions folded into this table at any depth. 0 on SQL Server. */
+	partitions: number,
+	/**
+	 *  In another schema, drawn because a declared key reaches it. Lists only its primary key and the columns its
+	 *  links name.
+	 */
+	external: boolean,
+	/**  In `attnum` order. */
+	columns: SchemaMapColumn[],
 };
 
 export type ScopeRelation = {

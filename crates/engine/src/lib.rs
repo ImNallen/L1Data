@@ -19,6 +19,7 @@ mod profile;
 mod provider;
 mod results;
 mod saved;
+mod schema_map;
 mod script;
 mod secrets;
 mod session;
