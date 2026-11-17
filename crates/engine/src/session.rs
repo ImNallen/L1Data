@@ -1,6 +1,7 @@
 mod mssql;
 mod postgres;
 mod stream;
+pub(crate) use mssql::FirstResult;
 pub(crate) use mssql::import::{ImportRows, ImportTargetShape, InsertPlan};
 
 use crate::connection::{ConnectParams, DatabaseInfo};
@@ -291,6 +292,13 @@ impl Session {
         match &mut self.driver {
             Driver::Postgres(p) => p.script(target).await,
             Driver::SqlServer(s) => s.script(target).await,
+        }
+    }
+    /// SQL Server's description of the first result set `sql` returns. PostgreSQL results carry their sources.
+    pub(crate) async fn first_result(&mut self, sql: &str) -> Result<Option<FirstResult>, QueryError> {
+        match &mut self.driver {
+            Driver::Postgres(_) => Ok(None),
+            Driver::SqlServer(s) => s.first_result(sql).await,
         }
     }
     pub async fn count(&mut self, sql: &str) -> Result<u64, QueryError> {
