@@ -138,7 +138,15 @@ pub fn completion_context(text: &str, cursor: DocOffset, database_kind: Database
 pub fn format_edit(text: &str, target: RunTarget, database_kind: DatabaseKind) -> Result<FormatEdit, FormatError> {
     if database_kind == DatabaseKind::SqlServer {
         let map = OffsetMap::new(text);
-        let spans = sql::tsql::pick(text, map.target(target)).map_err(|_| FormatError::Unsupported)?;
+        let spans = match map.target(target) {
+            ByteTarget::Selection { from, to } if from < to => sql::tsql::split_batches(text).and_then(|spans| {
+                let touched: Vec<_> = spans.into_iter().filter(|s| s.start < to && from < s.end).collect();
+                touched.iter().try_for_each(|s| sql::tsql::validate_batch(s.text(text)))?;
+                Ok(touched)
+            }),
+            target => sql::tsql::pick(text, target),
+        }
+        .map_err(|_| FormatError::Unsupported)?;
         let (Some(first), Some(last)) = (spans.first(), spans.last()) else {
             return Err(FormatError::NothingToFormat);
         };
@@ -377,7 +385,8 @@ mod tests {
             format!("-- 😀\nSELECT 1;\nGO -- boundary\n{expected}\nGO\nDELETE FROM t\nWHERE id = 2;")
         );
         let fragment = RunTarget::Selection { from: map.to_utf16(start + 3), to: map.to_utf16(start + 8) };
-        assert!(matches!(format_edit(text, fragment, DatabaseKind::SqlServer), Err(FormatError::Unsupported)));
+        let edit = format_edit(text, fragment, DatabaseKind::SqlServer).unwrap();
+        assert_eq!((edit.from, edit.to, edit.insert.as_str()), (map.to_utf16(start), map.to_utf16(end), expected));
         let unsupported = "UPDATE t SET n=1; EXEC dbo.p";
         assert!(matches!(
             format_edit(unsupported, cursor_at(unsupported, "UPDATE"), DatabaseKind::SqlServer),
@@ -385,6 +394,40 @@ mod tests {
         ));
         let go_line = "SELECT a, go FROM t";
         assert!(matches!(format_edit(go_line, RunTarget::All, DatabaseKind::SqlServer), Err(FormatError::Unsafe)));
+    }
+
+    /// The document after the edit `format_edit` returns for a selection of `needle`.
+    fn tsql_format_selected(text: &str, needle: &str) -> Result<String, FormatError> {
+        let map = OffsetMap::new(text);
+        let from = text.find(needle).unwrap();
+        let target = RunTarget::Selection { from: map.to_utf16(from), to: map.to_utf16(from + needle.len()) };
+        let edit = format_edit(text, target, DatabaseKind::SqlServer)?;
+        Ok(format!("{}{}{}", &text[..map.to_byte(edit.from)], edit.insert, &text[map.to_byte(edit.to)..]))
+    }
+
+    #[test]
+    fn a_tsql_selection_inside_a_string_comment_or_name_formats_the_batch_around_it() {
+        let inner = "select   1   from   t";
+        for text in [
+            "select 'x' as a, 'select   1   from   t' as b",
+            "select a /* select   1   from   t */ from t",
+            "select a -- select   1   from   t\nfrom t",
+            "select [select   1   from   t] from t",
+        ] {
+            let all = format_edit(text, RunTarget::All, DatabaseKind::SqlServer).unwrap().insert;
+            assert!(all.contains(inner), "{all:?}");
+            assert_eq!(tsql_format_selected(text, inner).as_ref(), Ok(&all), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_tsql_selection_formats_every_batch_it_touches_and_no_other() {
+        let text = "select  1 from a\nGO\nselect  2 from b\nGO\nselect  3 from c\n";
+        assert_eq!(
+            tsql_format_selected(text, "from a\nGO\nselect").as_deref(),
+            Ok("SELECT 1\nFROM a\nGO\nSELECT 2\nFROM b\nGO\nselect  3 from c\n")
+        );
+        assert!(matches!(tsql_format_selected(text, "\nGO\n"), Err(FormatError::NothingToFormat)));
     }
 
     #[test]
