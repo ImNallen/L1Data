@@ -4,7 +4,7 @@ mod format;
 mod table;
 
 pub(crate) use expression::validate_expression;
-pub(crate) use format::format;
+pub(crate) use format::{Refusal, format};
 pub(crate) use table::{browse_sql, count_sql, format_order_by, parse_order_by};
 
 use super::scope::{Class, Lexeme};

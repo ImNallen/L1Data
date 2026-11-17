@@ -142,7 +142,11 @@ pub fn format_edit(text: &str, target: RunTarget, database_kind: DatabaseKind) -
         let (Some(first), Some(last)) = (spans.first(), spans.last()) else {
             return Err(FormatError::NothingToFormat);
         };
-        let insert = sql::tsql::format(&text[first.start..last.end]).map_err(|_| FormatError::Unsupported)?;
+        let insert = sql::tsql::format(&text[first.start..last.end]).map_err(|refusal| match refusal {
+            sql::tsql::Refusal::ChangesTokens => FormatError::Unsafe,
+            sql::tsql::Refusal::NoBatch => FormatError::NothingToFormat,
+            _ => FormatError::Unsupported,
+        })?;
         return Ok(FormatEdit { from: map.to_utf16(first.start), to: map.to_utf16(last.end), insert });
     }
     let map = OffsetMap::new(text);
@@ -354,7 +358,7 @@ mod tests {
         let map = OffsetMap::new(text);
         let start = text.find("insert").unwrap();
         let end = text.find(";\nGO\n").unwrap() + 1;
-        let expected = "insert dbo.t(id)\nselect id\nfrom s;\nupdate dbo.t\nset n = @n\nwhere id = 1;";
+        let expected = "INSERT dbo.t(id)\nSELECT id\nFROM s;\nUPDATE dbo.t\nSET n = @n\nWHERE id = 1;";
         for target in
             [cursor_at(text, "set"), RunTarget::Selection { from: map.to_utf16(start), to: map.to_utf16(end) }]
         {
@@ -374,11 +378,13 @@ mod tests {
         );
         let fragment = RunTarget::Selection { from: map.to_utf16(start + 3), to: map.to_utf16(start + 8) };
         assert!(matches!(format_edit(text, fragment, DatabaseKind::SqlServer), Err(FormatError::Unsupported)));
-        let unsafe_batch = "UPDATE t SET n=1; SET NOCOUNT ON";
+        let unsupported = "UPDATE t SET n=1; EXEC dbo.p";
         assert!(matches!(
-            format_edit(unsafe_batch, cursor_at(unsafe_batch, "UPDATE"), DatabaseKind::SqlServer),
+            format_edit(unsupported, cursor_at(unsupported, "UPDATE"), DatabaseKind::SqlServer),
             Err(FormatError::Unsupported)
         ));
+        let go_line = "SELECT a, go FROM t";
+        assert!(matches!(format_edit(go_line, RunTarget::All, DatabaseKind::SqlServer), Err(FormatError::Unsafe)));
     }
 
     #[test]
