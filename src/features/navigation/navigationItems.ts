@@ -3,7 +3,7 @@ import { findRelation, isViewKind, type CatalogView } from "../../state/catalog"
 import { dbKey, homeDb, type DbKey } from "../../state/dbKey";
 import { instanceOf, type LiveData } from "../../state/live";
 import { notebookFor } from "../../state/notebooks";
-import { activeId, allCells, type RelationRef, type WorkspaceData } from "../../state/workspace";
+import { activeId, allCells, isMapCell, type RelationRef, type WorkspaceData } from "../../state/workspace";
 import { parseQuery, startsWords } from "../../ui/textMatch";
 
 export type Destination = { kind: "tab"; tabId: TabId } | { kind: "database"; db: DatabaseRef } | { kind: "relation"; ref: RelationRef };
@@ -29,11 +29,12 @@ export function navigationItems(source: NavigationSource): NavigationItem[] {
     if (!tab) continue;
     const db = tab.console.db;
     const relation = tab.table && db && findRelation(source.views[dbKey(db)], tab.table.schema, tab.table.table);
-    const kindLabel = tab.table ? (relation && isViewKind(relation.kind) ? "View tab" : "Table tab") : "Query tab";
+    const map = isMapCell(tab);
+    const kindLabel = map ? "Schema map" : tab.table ? (relation && isViewKind(relation.kind) ? "View tab" : "Table tab") : "Query tab";
     items.push({
       id: JSON.stringify(["tab", id]),
       label: tab.title,
-      context: [db ? `${connectionName(db)} / ${db.database}` : "No database", tab.table?.schema].filter(Boolean).join(" / "),
+      context: [db ? `${connectionName(db)} / ${db.database}` : "No database", map ? tab.console.schema : tab.table?.schema].filter(Boolean).join(" / "),
       kindLabel,
       action: active === id ? "Focus active tab" : "Switch to tab",
       destination: { kind: "tab", tabId: id },

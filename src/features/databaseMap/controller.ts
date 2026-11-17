@@ -3,7 +3,7 @@ import { commands, type DatabaseRef, type MapCursor, type MapError, type MapQuer
 import { useCatalog, viewFor } from "../../state/catalog";
 import { dbKey, sameDb } from "../../state/dbKey";
 import { useLive, wantedCatalogs } from "../../state/live";
-import { activeId, activeTab, tabTarget, useWorkspace } from "../../state/workspace";
+import { activeId, activeQueryTab, activeTab, tabTarget, useWorkspace } from "../../state/workspace";
 import { clearMapHighlights, editorContextOf, highlightMapSource, onEditorContextChanged, sameEditorContext, type EditorContext } from "../editor/editorStates";
 import { EDGE_LIMIT, emptyGraph, mergeNeighborhood, type Graph, type Page, type Point, type Viewport } from "./graph";
 
@@ -195,7 +195,7 @@ export function moveMapNode(oid: number, position: Point): void {
 }
 
 function contextFor(map: Exploring): EditorContext | null {
-  const tab = activeTab(useWorkspace.getState());
+  const tab = activeQueryTab(useWorkspace.getState());
   return tab && sameDb(tabTarget(tab), map.db) ? editorContextOf(tab.id) : null;
 }
 

@@ -12,9 +12,9 @@ import { savedQueryErrorText } from "../../ipc/errors";
 import { databaseKindFor } from "../../state/databaseKind";
 import { homeDb } from "../../state/dbKey";
 import { useLive } from "../../state/live";
-import { activeId, activeTab, tabTarget, useWorkspace } from "../../state/workspace";
-import { editorStateOf, insertAtCursor } from "../editor/editorStates";
-import { isBrowsing, openSqlTab, selectionTarget, textTarget } from "../editor/runActions";
+import { activeQueryTab, activeTab, tabTarget, useWorkspace } from "../../state/workspace";
+import { editorStateOf } from "../editor/editorStates";
+import { insertIntoActive, isBrowsing, openSqlTab, selectionTarget, textTarget } from "../editor/runActions";
 
 const ws = () => useWorkspace.getState();
 
@@ -26,7 +26,7 @@ function showSaved(reply: SaveQueryReply) {
 export async function saveActiveQuery(): Promise<void> {
   const s = ws();
   if (s.screen.kind !== "workspace" || s.overlay.kind !== "none") return;
-  const tab = activeTab(s);
+  const tab = activeQueryTab(s);
   if (!tab || isBrowsing(tab)) return s.notify("Open a query tab to save a query.");
   const state = editorStateOf(tab.id);
   const res = await commands.savedQuerySave(state.doc.toString(), selectionTarget(state), textTarget(tab).databaseKind);
@@ -53,10 +53,7 @@ function markUsed(id: SavedQueryId): void {
 }
 
 export function insertSaved(q: SavedQuery): void {
-  const id = activeId(ws());
-  if (!id) return;
-  insertAtCursor(id, q.sql);
-  markUsed(q.id);
+  if (insertIntoActive(q.sql)) markUsed(q.id);
 }
 
 function targetFor(kind: DatabaseKind): DatabaseRef | null {

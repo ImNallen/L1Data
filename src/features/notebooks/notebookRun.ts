@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { commands, type NotebookId, type Param, type RunTarget, type TabId, type WriteDigest } from "../../ipc/bindings";
 import { whenFinished } from "../../state/live";
-import { confirm, shownNotebook, useWorkspace } from "../../state/workspace";
+import { confirm, isMapCell, isSqlTab, shownNotebook, useWorkspace } from "../../state/workspace";
 import { textOf } from "../editor/editorStates";
 import { resolveParams } from "../editor/paramsState";
 import { cancelCell, ensureConsole, isBrowsing, runCell, scriptRequest, textTarget } from "../editor/runActions";
@@ -38,7 +38,7 @@ function live(run: NotebookRun): boolean {
 
 function runnable(id: TabId): boolean {
   const tab = ws().tabs[id];
-  return tab !== undefined && textOf(id).trim() !== "" && !isBrowsing(tab);
+  return tab !== undefined && !isMapCell(tab) && textOf(id).trim() !== "" && !isBrowsing(tab);
 }
 
 /**
@@ -97,7 +97,7 @@ async function preflight(run: NotebookRun): Promise<Map<TabId, WriteDigest> | nu
   for (const id of reach) {
     const tab = ws().tabs[id];
     if (!tab) continue;
-    if (!(await ensureConsole(tab))) break;
+    if (!isSqlTab(tab) || !(await ensureConsole(tab))) break;
     const res = await commands.consoleCheckRun(id, scriptRequest(id, textOf(id), ALL, "Run"));
     if (!live(run)) return null;
     if (res.status === "ok" && res.data) asks.push({ id, title: tab.title, confirmation: res.data });

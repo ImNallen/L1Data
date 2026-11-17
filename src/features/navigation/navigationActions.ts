@@ -2,8 +2,9 @@ import type { TabId } from "../../ipc/bindings";
 import { homeDb, resolveDb, sameDb } from "../../state/dbKey";
 import { instanceOf, useLive } from "../../state/live";
 import { notebookFor } from "../../state/notebooks";
-import { activeId, useWorkspace } from "../../state/workspace";
+import { activeId, isMapCell, useWorkspace } from "../../state/workspace";
 import { focusEditor } from "../editor/editorStates";
+import { focusMapCell } from "../notebooks/cellNavigation";
 import { openSqlTab, openTableTab } from "../editor/runActions";
 import { type Destination } from "./navigationItems";
 
@@ -54,6 +55,7 @@ export function focusDestination(tabId: TabId): void {
     if (activeId(workspace) !== tabId || workspace.overlay.kind !== "none" || workspace.screen.kind !== "workspace") return;
     const grid = workspace.tabs[tabId]?.table && document.querySelector<HTMLElement>(`[data-testid="notebook-cell-${tabId}"] [data-testid="result-grid"]`);
     if (grid) grid.focus();
+    else if (isMapCell(workspace.tabs[tabId])) focusMapCell(tabId);
     else focusEditor();
   });
 }

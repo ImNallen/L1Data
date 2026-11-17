@@ -4,8 +4,12 @@ import { EditorView } from "@codemirror/view";
 import { flushSync } from "react-dom";
 import type { TabId } from "../../ipc/bindings";
 import { adjacentCell, notebookOf } from "../../state/notebooks";
-import { activeId, useWorkspace } from "../../state/workspace";
+import { activeId, isMapCell, useWorkspace } from "../../state/workspace";
 import { activateEditor, editorStateOf, focusEditor, moveCursor } from "../editor/editorStates";
+
+export function focusMapCell(id: TabId): void {
+  document.querySelector<HTMLElement>(`[data-testid="map-cell-${CSS.escape(id)}"]`)?.focus();
+}
 
 /** Makes `id` the active cell, expanded, with the editor focused in it, and puts its cursor at `at` when given. */
 export function goToCell(id: TabId, at?: (state: EditorState) => number): void {
@@ -14,6 +18,7 @@ export function goToCell(id: TabId, at?: (state: EditorState) => number): void {
     useWorkspace.getState().setCollapsed([id], false);
     useWorkspace.getState().setActive(id);
   });
+  if (isMapCell(useWorkspace.getState().tabs[id])) return focusMapCell(id);
   activateEditor(id);
   if (at) moveCursor(id, at(editorStateOf(id)));
   focusEditor();
@@ -25,6 +30,7 @@ export function focusActiveCell(): void {
   const id = activeId(s);
   if (!id) return;
   if (s.tabs[id]?.collapsed) document.querySelector<HTMLElement>(`button[data-tab-id="${CSS.escape(id)}"]`)?.focus();
+  else if (isMapCell(s.tabs[id])) focusMapCell(id);
   else focusEditor();
 }
 

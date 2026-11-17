@@ -11,7 +11,7 @@ import { notebookFor } from "../state/notebooks";
 import { openNotebookSwitcher } from "../features/notebooks/notebookActions";
 import { useNotebookDirty } from "../features/notebooks/notebookDirty";
 import { NotebookRunButton } from "../features/notebooks/NotebookRunButton";
-import { activeTab, shownDb, shownNotebook, useWorkspace } from "../state/workspace";
+import { activeQueryTab, activeTab, shownDb, shownNotebook, useWorkspace } from "../state/workspace";
 import { Button, CONNECTION_TONE_LABEL, MenuContent, MenuItem, MenuLabel, StatusDot, IconButton, cx } from "../ui/primitives";
 import { windowEdgeClearance, windowEdgeInset, windowLeadingClearance } from "./WindowEdgeActions";
 import type { HostedWindow } from "./hostedWindow";
@@ -66,6 +66,7 @@ function DatabaseMenu({ db }: { db: DatabaseRef }) {
 
 export function TopBar({ hosted }: { hosted: HostedWindow | null }) {
   const tab = useWorkspace(activeTab);
+  const queryTab = useWorkspace(activeQueryTab);
   const db = useWorkspace(shownDb);
   const unconnected = useWorkspace((s) => notebookFor(s.notebooks, null) !== undefined);
   const notebookId = useWorkspace((s) => shownNotebook(s)?.id);
@@ -185,8 +186,8 @@ export function TopBar({ hosted }: { hosted: HostedWindow | null }) {
             expandedActions ? "@max-[760px]:basis-full @max-[760px]:flex-wrap" : "@max-[520px]:basis-full @max-[520px]:flex-wrap",
           )}
         >
-          {tab && <span aria-hidden className={cx("h-5 w-px shrink-0 bg-border", expandedActions ? "@max-[760px]:hidden" : "@max-[520px]:hidden")} />}
-          {tab && (
+          {queryTab && <span aria-hidden className={cx("h-5 w-px shrink-0 bg-border", expandedActions ? "@max-[760px]:hidden" : "@max-[520px]:hidden")} />}
+          {queryTab && (
             <Menu.Root modal={false}>
               <Menu.Trigger
                 data-testid="tx-mode"
@@ -196,7 +197,7 @@ export function TopBar({ hosted }: { hosted: HostedWindow | null }) {
                 }
                 className="inline-flex h-7 items-center gap-1 rounded-md pr-1.5 pl-2 text-ui-12.5 text-muted hover:bg-hover hover:text-fg data-[state=open]:bg-hover data-[state=open]:text-fg"
               >
-                {MODE_LABEL[tab.console.mode]}
+                {MODE_LABEL[queryTab.console.mode]}
                 {txn && txn !== "Idle" && (
                   <span className={txn === "Aborted" ? "text-danger" : "text-amber"}>
                     {" "}
@@ -212,9 +213,9 @@ export function TopBar({ hosted }: { hosted: HostedWindow | null }) {
                   <MenuItem
                     key={m}
                     testId={`tx-mode-${m}`}
-                    checked={m === tab.console.mode}
+                    checked={m === queryTab.console.mode}
                     disabled={sqlServer && m === "Manual"}
-                    onSelect={() => void setTabMode(tab.id, m)}
+                    onSelect={() => void setTabMode(queryTab.id, m)}
                   >
                     {MODE_LABEL[m]}
                     {sqlServer && m === "Manual" ? " (unavailable for SQL Server)" : ""}
@@ -225,23 +226,23 @@ export function TopBar({ hosted }: { hosted: HostedWindow | null }) {
             </Menu.Root>
           )}
 
-          {tab && pending && (
+          {queryTab && pending && (
             <>
               <Button
                 data-testid="commit-btn"
                 title={sqlServer ? "Commit all transaction nesting levels" : undefined}
                 disabled={busy}
-                onClick={() => void endTransaction(tab.id, "commit")}
+                onClick={() => void endTransaction(queryTab.id, "commit")}
               >
                 Commit
               </Button>
-              <Button data-testid="rollback-btn" disabled={busy} onClick={() => void endTransaction(tab.id, "rollback")}>
+              <Button data-testid="rollback-btn" disabled={busy} onClick={() => void endTransaction(queryTab.id, "rollback")}>
                 Rollback
               </Button>
             </>
           )}
 
-          {tab && liveConsole?.work === "Count" && (
+          {queryTab && liveConsole?.work === "Count" && (
             <span data-testid="counting-status" role="status" className="text-ui-13 text-dim">
               Counting…
             </span>

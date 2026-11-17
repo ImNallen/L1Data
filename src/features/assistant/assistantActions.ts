@@ -18,7 +18,7 @@ import { approveErrorText, chatErrorText, sendErrorText } from "../../ipc/errors
 import { useLive } from "../../state/live";
 import { resultView, type ResultPick, type RowResult } from "../../state/status";
 import { needsResync } from "../../state/transcript";
-import { activeTab, confirm, useWorkspace, type Tab } from "../../state/workspace";
+import { activeTab, confirm, isMapCell, useWorkspace, type MapTab, type Tab } from "../../state/workspace";
 import { editorStateOf } from "../editor/editorStates";
 import { flushSettings, openSqlTab } from "../editor/runActions";
 
@@ -62,6 +62,10 @@ function shownResultRef(tabId: TabId): ResultRef | null {
   return gridResult(live.consoles[tabId]?.run, ws().activeResult[tabId], (live.output[tabId]?.entries.length ?? 0) > 0)?.meta.ref ?? null;
 }
 
+function mapCellContext(tab: MapTab): TabContext {
+  return { tabId: tab.id, title: tab.title, db: tab.console.db, text: "", target: { kind: "all" }, attach: null };
+}
+
 export function tabContext(tab: Tab, editor: EditorState, attach: ResultRef | null): TabContext {
   const sel = editor.selection.main;
   return {
@@ -84,7 +88,7 @@ export async function sendMessage(chatId: ChatId, text: string, attach: boolean)
   const { settings } = ws();
   const tab = activeTab(ws());
   const full = settings.assistantAccess === "Full";
-  const context = tab ? tabContext(tab, editorStateOf(tab.id), full && attach ? shownResultRef(tab.id) : null) : null;
+  const context = !tab ? null : isMapCell(tab) ? mapCellContext(tab) : tabContext(tab, editorStateOf(tab.id), full && attach ? shownResultRef(tab.id) : null);
   if (context && !full) {
     context.text = "";
     context.title = "";

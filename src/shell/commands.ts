@@ -9,7 +9,7 @@ import { notebookRunning, runNotebook } from "../features/notebooks/notebookRun"
 import type { RunScope } from "../features/notebooks/runbook";
 import { adjacentCell, type Notebook } from "../state/notebooks";
 import { pendingCount, useTableEdits } from "../state/tableEdits";
-import { activeId, activeTab, DEFAULT_PANEL_SIZES, shownDb, shownNotebook, useWorkspace, type Overlay } from "../state/workspace";
+import { activeId, activeQueryTab, activeTab, DEFAULT_PANEL_SIZES, shownDb, shownNotebook, useWorkspace, type Overlay } from "../state/workspace";
 import { MAC } from "./hostedWindow";
 
 export type CommandGroup = "Query" | "Connections" | "Workspace";
@@ -155,7 +155,7 @@ export const SAVE_QUERY: Command = {
   key: "e",
   shift: true,
   available: () => {
-    const tab = activeTab(ws());
+    const tab = activeQueryTab(ws());
     return hasWorkspaceTab() && tab !== undefined && !isBrowsing(tab);
   },
   run: () => void saveActiveQuery(),
