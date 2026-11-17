@@ -1472,6 +1472,216 @@ CSV import. PostgreSQL table menus, including filtered tree results, open the de
 - Admission consumes the draft once and takes `Work::Import { checked, progress }`. Progress derives only from Busy ownership. The blocking producer feeds four bounded chunks, normally 256 KiB each, and carries source-byte checkpoints. Bytes mean source bytes represented by submitted COPY chunks, not parser read-ahead. A large record can exceed the normal chunk size but stays within the record limit. The status remains Finishing until the transaction fence completes. `session/postgres.rs` owns the COPY protocol and its native types, drains notices, and drops COPY before rollback. Every outcome closes the channel and joins the producer.
 - Idle AutoCommit uses BEGIN/COPY/COMMIT. Idle Manual uses BEGIN/COPY and leaves Active. Existing Active uses SAVEPOINT/COPY/RELEASE, with ROLLBACK TO and RELEASE on failure or cancellation, preserving earlier writes. Aborted and unexpected Open states are refused. Stop is checked before and during COPY and before finalization. Cancellation while awaiting the table lock is reported as cancellation after rollback. A successful COMMIT wins late cancellation. A normal server rejection at COMMIT, such as a deferred constraint violation, leaves a rolled-back import and reusable session. Ambiguous commit or unverified cleanup reports OutcomeUnknown and retires the session. A dropped IPC waiter does not stop the cleanup task. Console edits and session return require the original run ID, so an orphan cannot overwrite a new run. Pending successful imports off Production enter `unasked`; savepoint outcomes preserve prior entries. Only actual full transaction boundaries, confirmed settlement, and session end clear them. Output records final rows and committed or pending status. The frontend refreshes only the captured table while it still has the same session and no staged edits.
 
+SQL Server staged grid edits (design for gap 3, not built yet). A SQL Server table tab gets the PostgreSQL grid's add, edit, delete, `NULL`, and `DEFAULT` (on new rows, as on PostgreSQL), with **Submit** and **Revert**, under the same promise: Submit applies every staged change or none, and says so when it cannot know which. A trigger can end and replace the transaction without an error. On the dev SQL Server 2022, a cascaded delete fired a child trigger that ran `COMMIT; BEGIN TRANSACTION`: `@@TRANCOUNT` stayed 1, the statement reported success, and an earlier staged update survived the later `ROLLBACK`. No client wrapper can undo that. So the design does what CSV import does: it refuses every table where server code could run during the edit, proves those facts under locks held until `COMMIT`, and fences every statement on the transaction's identity. When it ships, it replaces "SQL Server table browsing is read-only" in the reconciliation list above, and `docs/features.md` lists what stays refused. Facts marked *measured* were checked on the dev container's SQL Server 2022 (16.0.4315) while designing; each one becomes a test below.
+
+- **What can run code during an edit.** `INSERT`, `UPDATE`, and `DELETE` run the table's DML triggers (T-SQL and CLR, `AFTER` and `INSTEAD OF`), row-level security predicates, user functions called from computed columns, `CHECK` constraints, and defaults, and bound rules and defaults. A user function can reach outside the transaction through an extended procedure or a CLR connection, so it is code the edit cannot roll back. `UPDATE` and `DELETE` also run foreign key referential actions: `CASCADE`, `SET NULL`, and `SET DEFAULT` write rows in the referencing table, which fires that table's triggers and evaluates its constraints, defaults, and computed columns, and its own actions continue the chain. A foreign key check that only reads the other table runs none of that. *Measured:* a child insert succeeded against a parent row that a filter predicate hid, so the check bypassed the predicate.
+
+- **Edit support: advisory in the grid, authoritative at Submit.** A new command `table_edit_support(tab, schema, table) -> Result<EditSupport, ApplyError>` runs the check module (P2 below) on the database's metadata session, outside a transaction, and returns:
+
+  ```rust
+  pub enum EditSupport {
+      Refused { reason: EditRefusal },        // grid read-only; the strip under the results header says why
+      Editable {
+          row_check: RowCheck,                // Rowversion { column } | Values
+          columns: Vec<ColumnEdit>,           // one per table column: Writable | ReadOnly { reason: ReadOnlyReason }
+          delete: Option<EditRefusal>,        // Some: Delete rows is disabled, with this reason
+      },
+  }
+  pub enum EditRefusal {
+      NeedsSqlServer2022, Permission { missing: String }, HiddenMetadata, NoPrimaryKey, MaskedKey { column: String },
+      TableKind { table: String, kind: TableKind },             // memory-optimized, temporal, graph, ledger, FileTable,
+                                                               // external, replicated, Stretch
+      Trigger { table: String, trigger: String }, SecurityPolicy { table: String, policy: String },
+      IndexedView { table: String, view: String }, IgnoreDupKey { table: String, index: String },
+      Function { table: String, object: String }, ColumnType { table: String, column: String, issue: ColumnTypeIssue },
+      CascadeTooWide,                                          // more than 64 tables in the cascade closure
+      Cascade { foreign_key: String, table: String, cause: Box<EditRefusal> },
+  }
+  ```
+
+  The frontend fetches it when a SQL Server table page shows and again when the catalog version moves. It only shapes the grid: `gridEditing` takes its writable columns from `columns`, the Delete action from `delete`, and the strip text from `Refused`. `table_apply` runs the same module on the tab's own session inside the edit transaction, after its locks, and acts only on that answer. The two can differ when the tab ran `EXECUTE AS`, or when DDL landed in between; Submit then refuses with the reason and the frontend refetches.
+
+- **Table checks.** Every table the edit can write, the target and every table in its cascade closure, must pass the checks import runs, with one narrowing. Import scans the expression dependencies of every child object of the table, triggers included. Edits scan the table itself (its computed columns) and its `CHECK` and default constraints, and leave disabled triggers' bodies out, because a disabled trigger cannot run, and `ENABLE TRIGGER` needs the schema-modification lock that the edit's lock blocks (see Locks). The gate needs database `VIEW DEFINITION`, and for a user other than `dbo` or sysadmin also `VIEW SECURITY DEFINITION` and no `DENY VIEW DEFINITION` or `DENY CONTROL` in `sys.database_permissions`, because the catalog hides a trigger or policy from a user who cannot see it. Each closure table also needs object `VIEW DEFINITION`. The module reads 2022 catalog columns (`ledger_type`), so on an older server it fails to compile, and the engine reports that failure as `NeedsSqlServer2022` when `ServerInfo.version_num` is below 160000. Azure SQL reports version 12 but has these columns, so the module compiles there and the checks decide. A table without a primary key is refused, as on PostgreSQL, and so is a table whose primary key has a masked column, because its keys show masked.
+
+- **Cascade closure.** The closure is every table reachable from the target through enabled foreign keys whose delete or update action is not `NO ACTION`, followed through every table reached. A table is locked before its incoming foreign keys are read, so the closure cannot grow behind the check: *measured*, adding a cascading foreign key that references a locked table, or `NOCHECK` on a foreign key that references it, waits for the lock. SQL Server refuses cascade cycles and multiple cascade paths, so the walk ends; a cap of 64 tables bounds it. Rust then decides per operation from the edges the module returns. A delete is refused when any table reachable through an edge with a delete action fails a check (`Cascade { foreign_key, table, cause }`). A key column is read-only when an edge with an update action references it and its closure fails. Inserts never cascade. So a parent whose cascade child has an audit trigger keeps inserts and ordinary updates, and only Delete is disabled, with the trigger named.
+
+- **Columns.** A column that alone cannot be written or compared exactly is read-only in the grid, and the table stays editable: identity, computed, `rowversion`, `GENERATED ALWAYS`, a sparse column set, a masked column, `sql_variant` (the grid text drops the base type, so writing it back would change the type), and `text`, `ntext`, and `image`. A column type or binding that can run code or hide values refuses the table, as import does: CLR types (the built-in `hierarchyid`, `geometry`, and `geography` included), alias types, Always Encrypted columns, and bound rules and defaults. `binary`, `varbinary`, and `xml` are writable through the same canonical text the grid shows. A forged `TableChanges` that writes a read-only column fails before anything is sent.
+
+- **Refusal text.** The strip reads "Edits are unavailable here: dbo.tickets has an enabled trigger, dbo.tickets_touch, which could commit or roll back them. Use a SQL script to change these rows." Delete's tooltip reads "Delete is unavailable: FK_items_order deletes rows in dbo.order_items, which has an enabled trigger, dbo.items_audit." A read-only column's header tooltip names its reason, for example "Read-only: identity" or "Read-only: changing it cascades through FK_x to dbo.y, which has row-level security policy dbo.p." `applyErrorText` gains the same wording for the new `ApplyError` kinds.
+
+- **Admission.** `table_apply` on SQL Server takes the console lock, requires the tab's native state `Idle` (SQL Server has only Auto-commit), plans the statements from the cached catalog relation, runs the Production check, and takes `Work::Edit(checked)`. `take_session` gives a SQL Server `Work::Edit` no cancel handle, as it gives `Work::Import`, so Cancel only sets `stop` and never sends Attention in the middle of a statement. The task runs through `spawn_holding`, as import's does, so a dropped IPC waiter cannot abandon the cleanup. The driver moves the client into a `Lease`, so a dropped future discards the client rather than returning it half used. Output logs each change as its display statement with its count, then one line for the outcome.
+
+- **The batches.** Plain batches go through `simple_query`. A module is a parameterized query, which the driver sends as one `sp_executesql` RPC.
+
+  ```text
+  P0  plain   DECLARE @c int = @@TRANCOUNT; DECLARE @s int = XACT_STATE(); DECLARE @o int = @@OPTIONS; SELECT @c, @s, @o, @@TEXTSIZE
+              needs exactly one result row: 0, 0, IMPLICIT_TRANSACTIONS (bit 2) clear, TEXTSIZE unlimited, and the TDS
+              descriptor Idle; anything else refuses, and nothing more is sent
+  P1  plain   BEGIN TRANSACTION; DECLARE @c int = @@TRANCOUNT; DECLARE @s int = XACT_STATE(); SELECT @c, @s, CURRENT_TRANSACTION_ID()
+              needs 1, 1; the id becomes the fence
+  P2  module  lock the closure and check it (SQL below); a refusal, or a planned column whose type changed, goes to undo
+  P3  module  lock and read every row to update or delete; Rust compares (see changed rows); one module per 2,000 parameters
+  P4  module  one per change: deletes, then updates, then inserts, as on PostgreSQL; each returns its row count and the fence
+  P5  plain   COMMIT TRANSACTION; then P0's probe must read 0, 0 with the descriptor Idle
+  undo plain  IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION; DECLARE @c int = @@TRANCOUNT; DECLARE @s int = XACT_STATE(); SELECT @c, @s
+              needs 0, 0 with the descriptor Idle
+  ```
+
+  Every module starts with this prelude, and the stop flag is checked before each batch from P2 on:
+
+  ```sql
+  SET XACT_ABORT ON; SET NOCOUNT ON; SET ANSI_WARNINGS ON; SET ROWCOUNT 0; SET TEXTSIZE -1;
+  SET LOCK_TIMEOUT 5000; SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+  IF @fence IS NOT NULL AND (@@TRANCOUNT <> 1 OR XACT_STATE() <> 1 OR CURRENT_TRANSACTION_ID() <> @fence)
+      THROW 50001, N'L1 Data edit fence', 1;
+  ```
+
+- **Why these settings, and why nothing needs restoring.** A `SET` inside `sp_executesql` reverts when the module returns (*measured* for `XACT_ABORT`, `ROWCOUNT`, `TEXTSIZE`, `LOCK_TIMEOUT`, the isolation level, and `ANSI_WARNINGS`). The edit never runs a `SET` in a plain batch, so the tab keeps every setting it had, and there is no restore step that can fail after a commit, unlike import. `XACT_ABORT ON` makes any run-time error roll the whole transaction back and end the batch (*measured* for a primary key violation, a conversion error, and a truncation: the next batch read `@@TRANCOUNT` 0). A compile error is not covered (*measured*: invalid column 207 left the transaction open and committable), so undo always runs after a failure and verifies 0, 0. A deadlock victim (1205) and a lock timeout (1222) roll back the same way. `ANSI_WARNINGS ON` makes over-long text an error, not a silent cut (*measured*: error 2628). `ROWCOUNT 0` and `TEXTSIZE -1` keep the tab's `SET ROWCOUNT` and `SET TEXTSIZE` from shortening the reads and writes. `READ COMMITTED` makes a tab on `SNAPSHOT` still take locking reads (*measured*: a `SNAPSHOT` session began, ran `READ COMMITTED` modules, and committed, back on `SNAPSHOT` after each module). `LOCK_TIMEOUT 5000` turns a wait behind another session's open transaction into a verified rollback within 5 seconds, "a row or table is locked by another session", instead of a wait only Cancel can end. P0 and undo read `XACT_STATE()` into a variable in a statement that touches no table, because a `SELECT` that reads a table reports its own autocommit transaction as 1 while `@@TRANCOUNT` is 0 (*measured*).
+
+- **Open transactions and session state.** Submit refuses, before `BEGIN`, when the tab has an open native transaction ("Commit or roll back this tab's transaction before submitting edits"), when `IMPLICIT_TRANSACTIONS` is on, when `@@TEXTSIZE` is limited, or when P0 returns anything but its one row, as `SHOWPLAN`, `NOEXEC`, `FMTONLY`, `PARSEONLY`, or `STATISTICS XML` make it do. There is no savepoint mode. PostgreSQL's savepoint keeps the outer transaction as it was after a failure, and SQL Server cannot promise that: `XACT_ABORT`, a deadlock, or a severe error rolls back the whole outer transaction, with the user's earlier work in it. `IMPLICIT_TRANSACTIONS ON` makes the page's own `SELECT` open a transaction and makes `BEGIN TRANSACTION` nest at 2, so `COMMIT` would leave the edits uncommitted; a refusal with the setting's name is simpler and safer than switching it off and restoring it. A limited `TEXTSIZE` means the page itself holds cut values, which the row check could not trust.
+
+- **Statements.** Identifiers are bracket-quoted with `tsql::quote_ident`. Values reach the server as parameters, typed with `mssql_value::input_sql` over the parameter in place of the literal, the same explicit styles the filters use, so `DATEFORMAT` and `LANGUAGE` cannot change a value. `float` and `real` are parsed in Rust and sent as typed float parameters: Rust prints the shortest text that parses back to the same value and parses it correctly rounded, so the value is exact, which SQL Server's text conversion does not promise. Key expressions convert to the column's own type, `CONVERT(<type_display>, …)`, and `char` and `varchar` keys add `COLLATE <the column's collation>`, so the read can seek. A new `char` or `varchar` value must be ASCII, import's rule, because a code page can turn other characters into `?`. Extra fractional digits round as SQL Server rounds them, as PostgreSQL rounds `numeric`. `DEFAULT` on a new row leaves the column out; a row of only defaults is `INSERT … DEFAULT VALUES`.
+
+  ```sql
+  -- P3
+  SELECT k.ord, t.[id], t.[name]
+  FROM [dbo].[customers] AS t WITH (UPDLOCK, HOLDLOCK, ROWLOCK, FORCESEEK)
+  JOIN (VALUES (1, CONVERT(int, @P1)), (2, CONVERT(int, @P2))) AS k(ord, c1) ON t.[id] = k.c1;
+  -- P4, one change each
+  UPDATE [dbo].[customers] SET [name] = @P2 WHERE [id] = CONVERT(int, @P1);
+  SELECT @@ROWCOUNT, @@TRANCOUNT, XACT_STATE(), CURRENT_TRANSACTION_ID();
+  DELETE [dbo].[customers] WHERE [id] = CONVERT(int, @P1);
+  SELECT @@ROWCOUNT, @@TRANCOUNT, XACT_STATE(), CURRENT_TRANSACTION_ID();
+  INSERT [dbo].[customers] ([name], [region]) VALUES (@P1, @P2);
+  SELECT @@ROWCOUNT, @@TRANCOUNT, XACT_STATE(), CURRENT_TRANSACTION_ID();
+  ```
+
+- **Row counts and the fence.** Each P4 needs a count of exactly 1, inserts included, and P3 needs exactly one row per ordinal. `NOCOUNT ON` stops the server from sending DONE counts, but `@@ROWCOUNT` is set for every statement whatever `NOCOUNT` says, and the `SELECT` right after the statement reads it before anything can reset it. Triggers are refused, and a cascade does not add to it (*measured*: deleting one parent with two cascaded children read 1). The module sets `NOCOUNT` itself, so the tab's setting cannot change the outcome. Each P4 also returns `@@TRANCOUNT`, `XACT_STATE()`, and `CURRENT_TRANSACTION_ID()`, which must read 1, 1, and the fence. Anything else means server code ended or replaced the transaction despite the checks (*measured*: a trigger's `COMMIT; BEGIN TRANSACTION` changed the id and left the count at 1), so earlier changes may have committed: the outcome is unknown, undo runs, and the session retires.
+
+- **Locks.** P2 locks each closure table with `SELECT TOP (0) 1 FROM <table> WITH (REPEATABLEREAD)`, in waves, in `object_id` order inside a wave. *Measured*: on an empty table and a populated one it holds one table `IS` lock until the transaction ends and no page or key lock. `IS` conflicts with the schema-modification lock that every relevant DDL needs: *measured* with `LOCK_TIMEOUT 1000`, `CREATE TRIGGER`, `DISABLE TRIGGER`, `ALTER TABLE … ADD CONSTRAINT`, `CREATE SECURITY POLICY` on the table, adding a cascading foreign key that references it, and `NOCHECK` on a foreign key that references it all timed out with 1222, while other sessions' `INSERT` and `UPDATE` ran. So every fact P2 checks holds until `COMMIT`. This is lighter than import's `TABLOCKX`: other writers keep going, and P3's `UPDLOCK, HOLDLOCK` row locks keep every checked row unchanged from the read to the write. `FORCESEEK` keeps P3 from locking a scanned range; a plan without a seek fails and rolls back.
+
+- **P2.** Parameters: `@fence bigint` (null on the metadata session), `@target int` (the tab relation's native `object_id`), and `@name nvarchar(max)` (the bracket-quoted `schema.table`). It returns five result sets, and Rust builds `EditSupport` from them, so the grid and Submit decide from one query.
+
+  ```sql
+  DECLARE @gate TABLE (reason sysname);
+  IF ISNULL(HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'VIEW DEFINITION'), 0) <> 1 INSERT @gate VALUES (N'VIEW DEFINITION');
+  IF ISNULL(IS_SRVROLEMEMBER('sysadmin'), 0) <> 1 AND USER_NAME() <> N'dbo'
+  BEGIN
+      IF ISNULL(HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'VIEW SECURITY DEFINITION'), 0) <> 1
+          INSERT @gate VALUES (N'VIEW SECURITY DEFINITION');
+      IF EXISTS (SELECT 1 FROM sys.database_permissions WHERE state = 'D' AND permission_name IN ('VIEW DEFINITION', 'CONTROL'))
+          INSERT @gate VALUES (N'deny');
+  END;
+  IF ISNULL(OBJECT_ID(@name, N'U'), 0) <> @target INSERT @gate VALUES (N'identity');
+  SELECT reason FROM @gate;                                                                  -- 1: gate
+  IF EXISTS (SELECT 1 FROM @gate) RETURN;
+  DECLARE @locked TABLE (object_id int PRIMARY KEY, depth int NOT NULL);
+  DECLARE @wave TABLE (object_id int PRIMARY KEY);
+  DECLARE @id int, @depth int = 0, @lock nvarchar(max);
+  INSERT @wave VALUES (@target);
+  WHILE EXISTS (SELECT 1 FROM @wave) AND (SELECT COUNT(*) FROM @locked) < 64
+  BEGIN
+      SELECT @id = MIN(object_id) FROM @wave;
+      WHILE @id IS NOT NULL
+      BEGIN
+          SET @lock = N'SELECT TOP (0) 1 FROM ' + QUOTENAME(OBJECT_SCHEMA_NAME(@id)) + N'.' + QUOTENAME(OBJECT_NAME(@id))
+              + N' WITH (REPEATABLEREAD)';
+          EXEC sys.sp_executesql @lock;
+          INSERT @locked VALUES (@id, @depth);
+          SELECT @id = MIN(object_id) FROM @wave WHERE object_id > @id;
+      END;
+      DELETE @wave;
+      SET @depth += 1;
+      INSERT @wave SELECT DISTINCT fk.parent_object_id
+      FROM sys.foreign_keys fk JOIN @locked l ON l.object_id = fk.referenced_object_id
+      WHERE fk.is_disabled = 0 AND (fk.delete_referential_action <> 0 OR fk.update_referential_action <> 0)
+        AND NOT EXISTS (SELECT 1 FROM @locked x WHERE x.object_id = fk.parent_object_id);
+  END;
+  SELECT l.object_id, OBJECT_SCHEMA_NAME(l.object_id), OBJECT_NAME(l.object_id), l.depth,
+      (SELECT COUNT(*) FROM @wave) AS unlocked                                               -- unlocked > 0: CascadeTooWide
+  FROM @locked l;                                                                            -- 2: closure
+  SELECT fk.name, fk.parent_object_id, fk.referenced_object_id, fk.delete_referential_action, fk.update_referential_action,
+      (SELECT c.name FROM sys.foreign_key_columns fc
+       JOIN sys.columns c ON c.object_id = fc.referenced_object_id AND c.column_id = fc.referenced_column_id
+       WHERE fc.constraint_object_id = fk.object_id ORDER BY fc.constraint_column_id FOR JSON PATH)
+  FROM sys.foreign_keys fk JOIN @locked p ON p.object_id = fk.parent_object_id JOIN @locked r ON r.object_id = fk.referenced_object_id
+  WHERE fk.is_disabled = 0 AND (fk.delete_referential_action <> 0 OR fk.update_referential_action <> 0);  -- 3: edges
+  SELECT l.object_id, v.reason, v.detail FROM @locked l CROSS APPLY (
+      SELECT N'kind', CASE WHEN t.is_memory_optimized = 1 THEN N'memory-optimized' WHEN t.temporal_type <> 0 THEN N'temporal'
+          WHEN t.is_node = 1 OR t.is_edge = 1 THEN N'graph' WHEN t.ledger_type <> 0 THEN N'ledger'
+          WHEN t.is_filetable = 1 THEN N'FileTable' WHEN t.is_remote_data_archive_enabled = 1 THEN N'Stretch' ELSE N'replicated' END
+      FROM sys.tables t WHERE t.object_id = l.object_id AND (t.is_memory_optimized = 1 OR t.temporal_type <> 0 OR t.is_node = 1
+          OR t.is_edge = 1 OR t.is_filetable = 1 OR t.is_replicated = 1 OR t.is_merge_published = 1
+          OR t.is_sync_tran_subscribed = 1 OR t.is_remote_data_archive_enabled = 1 OR t.ledger_type <> 0)
+      UNION ALL SELECT N'kind', N'external' FROM sys.external_tables e WHERE e.object_id = l.object_id
+      UNION ALL SELECT N'trigger', tr.name FROM sys.triggers tr WHERE tr.parent_id = l.object_id AND tr.is_disabled = 0
+      UNION ALL SELECT N'policy', OBJECT_SCHEMA_NAME(sp.object_id) + N'.' + OBJECT_NAME(sp.object_id)
+          FROM sys.security_predicates sp WHERE sp.target_object_id = l.object_id            -- disabled policies too
+      UNION ALL SELECT N'ignore_dup_key', i.name FROM sys.indexes i WHERE i.object_id = l.object_id AND i.ignore_dup_key = 1
+      UNION ALL SELECT N'indexed_view', OBJECT_SCHEMA_NAME(v.object_id) + N'.' + v.name
+          FROM sys.sql_expression_dependencies d JOIN sys.views v ON v.object_id = d.referencing_id
+          JOIN sys.indexes i ON i.object_id = v.object_id AND i.index_id = 1 WHERE d.referenced_id = l.object_id
+      UNION ALL SELECT N'column', c.name FROM sys.columns c JOIN sys.types ty ON ty.user_type_id = c.user_type_id
+          WHERE c.object_id = l.object_id AND (ty.is_assembly_type = 1 OR ty.is_user_defined = 1 OR c.encryption_type IS NOT NULL
+              OR c.rule_object_id <> 0 OR ty.rule_object_id <> 0 OR ty.default_object_id <> 0
+              OR (c.default_object_id <> 0 AND NOT EXISTS (SELECT 1 FROM sys.default_constraints dc WHERE dc.object_id = c.default_object_id)))
+      UNION ALL SELECT N'function', COALESCE(d.referenced_schema_name + N'.', N'') + d.referenced_entity_name
+          FROM sys.sql_expression_dependencies d
+          WHERE (d.referencing_id = l.object_id
+                 OR d.referencing_id IN (SELECT o.object_id FROM sys.objects o WHERE o.parent_object_id = l.object_id AND o.type IN ('C', 'D')))
+            AND (d.is_ambiguous = 1 OR d.is_caller_dependent = 1 OR d.referenced_server_name IS NOT NULL
+                 OR d.referenced_database_name IS NOT NULL OR d.referenced_id IS NULL
+                 OR (d.referenced_id <> l.object_id AND NOT EXISTS (SELECT 1 FROM sys.sequences s WHERE s.object_id = d.referenced_id)))
+      UNION ALL SELECT N'permission', N'VIEW DEFINITION'
+          WHERE ISNULL(HAS_PERMS_BY_NAME(QUOTENAME(OBJECT_SCHEMA_NAME(l.object_id)) + N'.' + QUOTENAME(OBJECT_NAME(l.object_id)),
+              'OBJECT', 'VIEW DEFINITION'), 0) <> 1
+  ) AS v(reason, detail);                                                                    -- 4: violations
+  -- 5: the target's columns, read with the catalog's own column query (type_display, identity, computed,
+  -- GENERATED ALWAYS, rowversion, primary key) plus is_column_set, is_masked, collation_name,
+  -- and COLLATIONPROPERTY(collation_name, 'CodePage').
+  ```
+
+  At Submit, a column the plan writes, keys on, or compares whose name, `type_display`, or class differs from the cached catalog's gives `TableChanged` ("The table changed since it was read. Reload and try again."), and undo runs.
+
+- **Changed rows.** P3 reads each row to update or delete by its key, under the locks, and turns its cells into text with `values::text`, the code that rendered the grid. Rust compares `Option<String>` cells for equality, so NULL equals only NULL: the key cells, then the request's `expect` cells. With a `rowversion` column (`RowCheck::Rowversion`), `expect` is the row's rowversion as the page showed it, for updates and deletes, so any change to the row is caught. Without one (`RowCheck::Values`), `expect` holds the stored value of each edited column, taken when the user first staged that cell, and is empty for a delete, which then matches by key alone, as PostgreSQL does. No row gives `RowMismatch { rows: 0 }`. A row whose key or `expect` cells differ gives the new `RowChanged { change }` ("A row to update changed since it was read. Reload and try again."). Both roll back.
+  - The comparison runs in Rust, not as SQL `=`, because `=` is not exact. *Measured*: `0x01 = 0x0100` is true, `N'a' = N'a '` is true even under a `BIN2` collation, a case-insensitive collation equates `abc` and `ABC`, and `datetimeoffset` compares instants, so `10:00 +02:00` equals `08:00 +00:00`. `xml` cannot be compared with `=` at all, and text may parse to a neighboring `float`. Text equality on the driver's rendering has none of these gaps: two values the grid shows differently compare unequal.
+  - Types whose originals cannot be compared exactly: `sql_variant`, whose text drops the base type, is read-only, so it is never compared. `char`, `varchar`, and `text` in the double-byte code pages 932, 936, 949, and 950 can decode two different byte sequences to one character, so an edited original there must be ASCII unless the table has a rowversion; otherwise that cell's edit is refused with "Add a rowversion column, or change this value with SQL". `xml` compares as the server's serialization, so two stored forms that serialize alike count as unchanged. Masked columns are read-only.
+  - The page cuts cells at 2,000 characters, so the grid loads a cut cell's full value with `RowCache.loadFull` before it stages an edit of it, and refuses the edit if the result is gone. A cut key cell, possible only for a binary key over 999 bytes, is refused the same way.
+
+- **Cancel and lost connections.** These follow import. The toolbar offers **Cancel** and `Esc` while a SQL Server Submit runs (`canCancel` adds `work === "Edit"` for SQL Server; PostgreSQL stays as it is). Cancel before `BEGIN` sends nothing. Cancel after `BEGIN` waits for the running batch, then runs undo. Once `COMMIT` is sent, an acknowledged commit wins a late Cancel. If the work has not settled 10 seconds after Cancel, the lease drops, which sends Attention and discards the client, and the outcome is unknown. A `FATAL` error, a lost connection, an undo that cannot verify 0, 0, a `COMMIT` without an acknowledgement, and a fence mismatch are unknown too. Each unknown outcome retires the session with `TransactionLoss::Unknown`, so the toolbar says **session reset**. A connection lost before `COMMIT` was sent is reported as unknown, as import reports it, although the checks make a commit impossible there. Closing the tab or disconnecting during Submit sets `stop` and lets the task finish undo before the session drops.
+
+  | Outcome | When | UI | Staged edits |
+  | --- | --- | --- | --- |
+  | Applied | `COMMIT` acknowledged, then 0, 0 and descriptor Idle | "Saved 3 changes." The page reloads. | Cleared |
+  | Rolled back | undo verified 0, 0 after a refusal, a changed or missing row, a server error, a lock timeout, a deadlock, or Cancel | The reason, naming the change when there is one | Kept; `failedAt` marks the row the error names |
+  | Unknown | anything that leaves the outcome unverified | "The outcome of these edits is unknown. Verify the saved data before retrying." plus **session reset** | Kept, as on PostgreSQL |
+
+  Rollback does not rewind identity or sequence values, as with import. After an unknown outcome, a retry of the same updates and deletes cannot apply twice, because their keys and originals no longer match a row that already changed. A retried insert can add its row twice, as on PostgreSQL.
+
+- **Production.** `table_apply` keeps the existing confirmation path. Under the console lock, after the session slot is filled and before the session moves to the task, it calls a `writes` check shaped like `check_import`: the question's `sends` lists one display statement per change, rendered with literals for reading only, and the digest binds every batch and module text the edit sends, every parameter value, every `expect` cell, the relation's `object_id`, and the catalog version. Any changed value, original, or statement makes the digest stale, so the engine asks again. The frontend's `editsConfirmed` and its retry with the digest stay as they are. A SQL Server Submit always starts with no transaction and ends one, applied or rolled back, so it empties `unasked`; an unknown outcome retires the session, which empties it through `end_session`.
+
+- **Data shape.** `RowUpdate` gains `expect: Vec<CellWrite>`, and `TableChanges.deletes` becomes `Vec<RowDelete { key, expect }>`. PostgreSQL sends empty `expect`, and `plan_edits` refuses a non-empty one, so its behavior does not change and no field is silently ignored. `ApplyError` gains `Refused { reason: EditRefusal }`, `RowChanged { change }`, `TableChanged`, `Session { reason }` (open transaction, implicit transactions, limited `TEXTSIZE`, unexpected results), and `Cancelled`. `useTableEdits` keeps each edited cell's first stored value and, for a rowversion table, the row's rowversion, and `toChanges` sends them as `expect`.
+
+- **Tests.** Engine tests go in `crates/engine/tests/mssql/edits.rs`, included from `tests/mssql.rs` the way `mssql/import.rs` is, and use per-test tables. Lock tests drive the driver in `crates/engine/src/session/mssql/edit_tests.rs`, as `import_tests.rs` does, with a test-only pause after P2 so another session can run DDL against the held locks.
+  - `edits_apply_inserts_updates_deletes_null_and_default_in_one_transaction`: identity, defaults, computed, and rowversion columns; exact `decimal`, `money`, `float`, `datetime`, `datetime2`, `datetimeoffset`, `uniqueidentifier`, Unicode `nvarchar`, and `varbinary` values; a `DEFAULT` cell; a `NULL`; the Output lines; the session Idle afterwards.
+  - `edits_refuse_a_trigger_that_commits_or_rolls_back_before_sending_anything`: `AFTER UPDATE` triggers that run `COMMIT; BEGIN TRANSACTION` and `ROLLBACK`. `table_edit_support` and `table_apply` both return `Trigger`; no row changes and the trigger's audit table stays empty.
+  - `edits_refuse_deletes_that_cascade_into_a_trigger_and_keep_other_edits`: the measured case, a parent with an `ON DELETE CASCADE` child whose trigger commits. Delete is refused with `Cascade`, a Submit with an update and a delete applies neither, and a Submit with only the update applies. The same for `SET NULL` with an `UPDATE` trigger, and an `ON UPDATE CASCADE` key column that is read-only.
+  - `edits_cascade_into_clean_tables_and_roll_back_with_them`: a delete cascades into a trigger-free child and commits; a later change in the same Submit fails, and the child rows come back.
+  - `edits_detect_rows_another_session_changed_or_deleted`: with a rowversion, a change to another column gives `RowChanged`. Without one, a change to the edited column gives `RowChanged`, and a change to an unedited column applies and keeps the other session's value. A deletion gives `RowMismatch { rows: 0 }`. A key changed from `abc` to `ABC` under a case-insensitive collation, an added trailing space, `0x01` changed to `0x0100`, a `datetimeoffset` moved to another offset at the same instant, and a neighboring `float` each give `RowChanged`. Data is unchanged after each.
+  - `edits_roll_back_every_earlier_change_after_a_mid_batch_failure`: the third of three changes breaks a `CHECK`, a unique key, a foreign key, a length, or a conversion. `Failed` names the third; the first two are not applied; the session is Idle. A test-only hook sends a module with an invalid column, which leaves the transaction open, and undo rolls it back.
+  - `edits_cancel_during_submit`: a blocker holds the row; Cancel ends in a verified rollback within the lock timeout, with the session kept. With the lock timeout lifted by a test hook, the 10-second deadline gives an unknown outcome, a retired session, and no change once the blocker lets go. Cancel after the commit is acknowledged still applies.
+  - `edits_report_unknown_and_retire_the_session_when_the_connection_dies`: another session runs `KILL` on the tab's session id during the P2 pause; the outcome is unknown, `TransactionLoss::Unknown`, and no change.
+  - `edits_refuse_open_transactions_implicit_transactions_limited_textsize_and_showplan`: each is refused before `BEGIN`, and the tab's transaction and settings are as they were.
+  - `edits_keep_the_tabs_session_settings`: the tab sets `XACT_ABORT OFF`, `NOCOUNT OFF`, `ROWCOUNT 1`, `LOCK_TIMEOUT -1`, `SNAPSHOT` isolation, and `ANSI_WARNINGS OFF`. Submit still errors on an over-long value, and after it `@@OPTIONS`, `@@LOCK_TIMEOUT`, `@@TEXTSIZE`, and `sys.dm_exec_sessions.transaction_isolation_level` read as before.
+  - `edit_lock_blocks_ddl_on_the_target_and_cascade_tables_until_commit` (driver): during the pause, `CREATE TRIGGER`, `ENABLE TRIGGER`, `ALTER TABLE … ADD CONSTRAINT`, `CREATE SECURITY POLICY`, a new cascading foreign key, and `NOCHECK` time out on the target and on a cascade child, while plain DML runs. `sys.dm_tran_locks` shows only `IS` on the cascade tables.
+  - `edits_recheck_a_trigger_installed_after_the_page_loaded`: support says Editable, another session adds a committing trigger, Submit returns `Refused`, and the trigger never ran.
+  - `edits_refuse_every_import_reason`: a disabled security policy, an indexed view, `IGNORE_DUP_KEY`, a user function in a `CHECK`, a default, and a computed column, a bound rule, a bound default, alias, CLR, and encrypted columns, and temporal, graph, and ledger tables; the permission gate with a user without `VIEW DEFINITION` and with a `DENY`, as `mssql_metadata_visibility.rs` does. Memory-optimized, FileTable, Stretch, and external tables need features the container lacks, so a unit test checks P2's text for them.
+  - `edits_mark_server_owned_and_inexact_columns_read_only`: the `columns` verdicts, and a forged `TableChanges` that writes one fails before anything is sent.
+  - `edits_on_production_ask_once_and_bind_values_and_originals`: the first call returns `ConfirmWrites` and changes nothing; the digest applies; a changed value or `expect` cell makes it stale.
+  - Unit tests: statement text and parameter numbering with bracket quoting, the 2,000-parameter split, the Rust comparison, float parsing, and `EditRefusal` text. `dev/mssql-smoke.py` swaps its `refused_apply` checks for applied edits and a refused `dbo.tickets` (it has a trigger). `cargo test -p engine --features pg-tests` stays green, plus one test that PostgreSQL refuses a non-empty `expect`. Frontend tests cover `gridEditing` from `EditSupport`, `expect` capture on first staging, full values for cut cells, and Cancel for SQL Server Submit.
+
+- **App-managed Manual mode on SQL Server (note, out of scope).** Manual mode would wrap the user's own batches in a transaction the app owns and commit it on **Commit**. Detection is possible: the fence above, read before and after each batch, shows that a batch ended or replaced the transaction. Prevention is the hard part, and it would need all of these refusals. Refuse every batch that has transaction control, `EXEC` or dynamic SQL, a call to a procedure, DDL (a DDL trigger can roll back), or a `SET` that changes transaction behavior. Refuse every batch that writes a table failing the checks above, after resolving each DML target through synonyms and views, because a view can carry an `INSTEAD OF` trigger. And hold an `IS` lock on every table a batch touched until Commit, across the user's think time, which blocks all DDL on those tables for as long as the transaction stays open. Even then, a deadlock or a severe error rolls back the whole transaction, which the app could only report afterwards. The safe subset is close to single-table DML on tables that pass the edit checks, which staged edits already serve, and it needs a T-SQL name resolver far beyond the lexer. Detection alone is weaker than PostgreSQL's Manual mode, where server code inside a transaction block cannot commit it. So it stays out of scope, and native Auto-commit with explicit `BEGIN TRANSACTION` and `COMMIT` remains the way to hold a SQL Server transaction open.
+
 Query parameters. `script_params(text, target, databaseKind, cells)` is a pure synchronous lexical command. It runs `params::prepare`, the walk a run uses, with no values, so the names a prompt asks for are always the names a run needs. It selects the same original statements or GO batches as a run, expands their references, and returns unique names in first-use order: the units' own, then each referenced cell's in the order expansion reaches it. A broken reference fails discovery, before any prompt, since the run would refuse anyway. PostgreSQL accepts named `:name` and positive positional `$n` markers. Casts, array slices, quoted text, identifiers, and comments keep their meaning. Parameter occurrences must agree under both PostgreSQL string modes when the source contains backslashes. SQL Server excludes `@@` globals, variables declared in the selected batch, explicit and implicit procedure argument labels, and procedure, function, trigger, or rule definition batches. External parameter identity is exact-case because discovery cannot know the server's collation. Declaration exclusions ignore case to preserve existing scripts on case-insensitive servers. On a case-sensitive server, a differently cased reference to a declared variable remains SQL for the server to reject.
 
 - PostgreSQL positional references inside `PREPARE` and `CREATE [OR REPLACE] FUNCTION` or `PROCEDURE` belong to the server and stay unchanged. Named parameters in those statements still accept client values. A separate ordinary statement in the same script can use an external `$1` value.
