@@ -498,6 +498,11 @@ pub(crate) async fn run_query_mssql(
         let mut stream = session.query(&batch);
         while let Some(message) = stream.next().await {
             match message.map_err(|e| query_error_text(&e))? {
+                // SQL Server runs `SELECT 1 (SELECT 2)` as two statements, so a second result set is
+                // a second statement the allowlist did not see.
+                QueryEvent::Columns(_) if !columns.is_empty() => {
+                    return Err(sql::tsql::read::Refusal::SecondStatement.to_string());
+                }
                 QueryEvent::Columns(cols) => columns = cols.into_iter().map(|c| c.name).collect(),
                 QueryEvent::ServerError(e) => return Err(query_error_text(&e)),
                 QueryEvent::Row(row) => {

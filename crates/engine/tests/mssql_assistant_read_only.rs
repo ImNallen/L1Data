@@ -343,6 +343,13 @@ async fn the_assistant_reads_only_a_read_only_sql_server_database() {
             other => panic!("expected rows, got {other:?}"),
         }
 
+        // A parenthesized query the lexer reads as a column list still runs as a second statement on
+        // the server, so the session refuses its second result set.
+        match h.approved(on, "SELECT 1 AS x, (SELECT 1) d (SELECT 2 AS y)").await {
+            ToolStatus::Failed { message } => assert!(message.contains("one statement"), "{message}"),
+            other => panic!("a second result set must be refused, got {other:?}"),
+        }
+
         // A flip to READ_WRITE between calls is caught by the next call's guard. The fresh per-call
         // session re-reads Updateability, so the model's statement never runs against a writable base.
         h.engine.disconnect(off, true).await.unwrap();
