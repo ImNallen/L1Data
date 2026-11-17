@@ -258,6 +258,108 @@ async fn a_drilled_group_reads_exactly_the_rows_it_counted() {
 
 const UNREPRODUCIBLE: &str = "The chart's query reads the time or the session in a GROUP BY key, its WITH, or its FROM, which a new cell would read again with other values.";
 
+const NON_ASCII: &str =
+    "A grouped varchar value is not plain ASCII, so its literal could spell another value in the column's code page.";
+
+/// The sorted `id` column of `meta`, joined with commas, as `STRING_AGG(id) WITHIN GROUP (ORDER BY id)` shows it.
+fn ids_of(h: &Harness, meta: &ResultMeta) -> String {
+    let c = meta.columns.iter().position(|c| c.name == "id").expect("an id column");
+    let mut ids: Vec<i64> = h.rows(meta).iter().map(|r| r[c].as_deref().unwrap().parse().unwrap()).collect();
+    ids.sort();
+    ids.iter().map(i64::to_string).collect::<Vec<_>>().join(",")
+}
+
+/// Each grouped query's `ids` column lists the ids of the rows in each group. Every group must drill to
+/// exactly those rows, or refuse a non-ASCII varchar key with its reason.
+#[tokio::test]
+async fn every_group_drills_to_exactly_its_own_rows() {
+    let mut h = Harness::open().await;
+    let (tab, rows_tab) = (h.tab().await, h.tab().await);
+    let t = format!("l1_drill_ids_{}", uuid::Uuid::new_v4().simple());
+    let outcome = AssertUnwindSafe(async {
+        h.sql(tab, &format!(r#"
+CREATE TABLE dbo.[{t}] (
+  id int IDENTITY PRIMARY KEY,
+  g varchar(20) COLLATE Greek_CI_AS, c varchar(20) COLLATE Cyrillic_General_CI_AS, u8 varchar(20) COLLATE Latin1_General_100_CI_AS_SC_UTF8,
+  ai nvarchar(20) COLLATE Latin1_General_CI_AI, sqlv varchar(20), pad char(6), npad nchar(4), supp nvarchar(20),
+  cs nvarchar(20) COLLATE Latin1_General_CS_AS, bin2 varchar(20) COLLATE Latin1_General_BIN2,
+  f float, r real, d38 decimal(38,10), d38z decimal(38,0), m money, sm smallmoney,
+  dt datetime, dt2 datetime2(7), sdt smalldatetime, dto datetimeoffset(7), tm time(7), dd date, u uniqueidentifier,
+  b bit, vb varbinary(8), tiny tinyint, big bigint, cc AS (id % 3), [we ird] nvarchar(10)
+);
+INSERT dbo.[{t}] (g, c, u8, ai, sqlv, pad, npad, supp, cs, bin2, f, r, d38, d38z, m, sm, dt, dt2, sdt, dto, tm, dd, u, b, vb, tiny, big, [we ird]) VALUES
+ (N'Ω', N'Ж', N'Ω', N'é', 'Straße', 'ab', N'ab', N'😀', N'Ab', 'a', CAST(7930575147043188 AS float) * 4e0, 0.1, 1234567890123456789012345678.1234567890, 12345678901234567890123456789012345678, -922337203685477.5808, -214748.3648, '2024-01-02T03:04:05.997', '2024-01-02T03:04:05.1234567', '2024-01-02T03:04:00', '2024-01-02T03:04:05.1234567+02:00', '23:59:59.9999999', '0001-01-01', 'ABCD1234-5678-90AB-CDEF-1234567890AB', 1, 0x01, 0, -9223372036854775808, N'x y'),
+ (N'α', N'д', N'😀', N'E', 'strasse', 'ab   ', N'ab  ', N'😁', N'ab', 'A', CAST(7930575147043187 AS float) * 4e0, 0.3, 0.0000000001, -1, 0.0001, 0, '2024-01-02T03:04:05.993', '2024-01-02T03:04:05.1234568', '2024-01-02T03:05:00', '2024-01-02T01:04:05.1234567+00:00', '00:00:00', '9999-12-31', NULL, 0, 0x0100, 255, 9223372036854775807, N'x y'),
+ (N'a', N'a', N'?', N'e', 'STRASSE', '', N'', N'', N'AB', 'a ', CAST(7930575147043187 AS float) * 4e0, 1e-30, -0.5, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, '2024-02-29', NEWID(), NULL, 0x010000, NULL, NULL, N''),
+ (N'?', N'?', N'a', N'ê', '', NULL, NULL, NULL, NULL, NULL, -0e0, -0e0, NULL, NULL, NULL, NULL, '1753-01-01', '0001-01-01', NULL, NULL, NULL, NULL, NULL, NULL, 0x, NULL, NULL, NULL),
+ (N'Ψ', N'Я', N'é', NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0e0, 1e30, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+"#)).await;
+        // The drilled cell's own session settings must not change what its literals mean.
+        h.sql(rows_tab, "SET LANGUAGE French; SET DATEFORMAT dmy; SET DATEFIRST 1").await;
+        let agg = "COUNT(*) AS n, STRING_AGG(CONVERT(varchar(max), id), ',') WITHIN GROUP (ORDER BY id) AS ids";
+        let mut cases: Vec<String> = [
+            "g", "c", "u8", "ai", "sqlv", "pad", "npad", "supp", "cs", "bin2", "f", "r", "d38", "d38z", "m", "sm", "dt",
+            "dt2", "sdt", "dto", "tm", "dd", "u", "b", "vb", "tiny", "big", "cc", "[we ird]",
+        ]
+        .iter()
+        .map(|col| format!("SELECT {col}, {agg} FROM dbo.[{t}] GROUP BY {col}"))
+        .collect();
+        cases.extend([
+            format!("SELECT YEAR(dt) AS y, {agg} FROM dbo.[{t}] GROUP BY YEAR(dt)"),
+            format!("SELECT CAST(dt2 AS date) AS d, {agg} FROM dbo.[{t}] GROUP BY CAST(dt2 AS date)"),
+            format!("SELECT LEFT(g, 1) AS l, {agg} FROM dbo.[{t}] GROUP BY LEFT(g, 1)"),
+            format!("SELECT CAST(ai AS varchar(20)) AS l, {agg} FROM dbo.[{t}] GROUP BY CAST(ai AS varchar(20))"),
+            format!("SELECT g, b, {agg} FROM dbo.[{t}] GROUP BY g, b"),
+            format!("SELECT b, {agg} FROM dbo.[{t}] WHERE b = 1 OR b = 0 OR id = 3 GROUP BY b"),
+            format!("SELECT sqlv, {agg} FROM dbo.[{t}] WHERE ai <> N'zz' OR g = N'Ω' GROUP BY sqlv"),
+            format!("SELECT b, {agg} FROM dbo.[{t}] WHERE id < 3 OR id > 0 -- trailing\nGROUP BY b"),
+            format!("SELECT b, {agg} FROM dbo.[{t}] WHERE /* x */ id < 4 /* y GROUP BY id */ GROUP BY b"),
+            format!("SELECT b, {agg} FROM dbo.[{t}] WHERE dt2 < DATEADD(year, 1, SYSDATETIME()) OR dt2 IS NULL GROUP BY b"),
+            format!("WITH k AS (SELECT * FROM dbo.[{t}] WHERE id > 1) SELECT k.b, {agg} FROM k GROUP BY k.b"),
+            format!("SELECT TOP (50) PERCENT WITH TIES b, {agg} FROM dbo.[{t}] GROUP BY b ORDER BY b"),
+            format!("SELECT b, {agg} FROM dbo.[{t}] GROUP BY b ORDER BY b OFFSET 1 ROWS FETCH NEXT 5 ROWS ONLY"),
+            format!("SELECT b, {agg} FROM dbo.[{t}] GROUP BY b HAVING COUNT(*) < 3"),
+            format!("SELECT sqlv COLLATE Latin1_General_BIN AS s, {agg} FROM dbo.[{t}] GROUP BY sqlv COLLATE Latin1_General_BIN"),
+            format!("SELECT CASE WHEN b = 1 THEN 'y' ELSE 'n' END AS k, {agg} FROM dbo.[{t}] GROUP BY CASE WHEN b = 1 THEN 'y' ELSE 'n' END"),
+            format!("SELECT x.v, {agg} FROM dbo.[{t}] CROSS APPLY (SELECT tiny AS v) x GROUP BY x.v"),
+            format!("SELECT x.v, {agg} FROM dbo.[{t}] o OUTER APPLY (SELECT TOP (1) i.b AS v FROM dbo.[{t}] i WHERE i.id = o.id + 1) x GROUP BY x.v"),
+            format!("SELECT d.b, COUNT(*) AS n, STRING_AGG(CONVERT(varchar(max), d.id), ',') WITHIN GROUP (ORDER BY d.id) AS ids FROM (SELECT id, b FROM dbo.[{t}] WHERE id < 3 UNION ALL SELECT id, b FROM dbo.[{t}] WHERE id >= 3) d GROUP BY d.b"),
+            "SELECT c.region, COUNT(*) AS n, STRING_AGG(CONVERT(varchar(max), o.id), ',') WITHIN GROUP (ORDER BY o.id) AS ids FROM dbo.orders o JOIN dbo.customers c ON c.id = o.customer_id WHERE o.total > 0 OR c.name LIKE N'%' GROUP BY c.region".into(),
+        ]);
+        let mut refused_non_ascii = 0;
+        for sql in &cases {
+            let meta = h.sql(tab, sql).await.pop().unwrap();
+            h.engine.result_drill(meta.r#ref, DrillPoint::Probe).unwrap_or_else(|e| panic!("{sql}: {e:?}"));
+            let ids = meta.columns.iter().position(|c| c.name == "ids").unwrap();
+            let rows = h.rows(&meta);
+            assert!(rows.len() > 1, "groups to drill into in {sql}");
+            for (row, cells) in rows.iter().enumerate() {
+                let point = DrillPoint::Row { row: row as u32, title: "Untitled-1.sql".into() };
+                match h.engine.result_drill(meta.r#ref, point) {
+                    Ok(drilled) => {
+                        let behind = h.sql(rows_tab, &drilled.sql).await.remove(0);
+                        assert_eq!(Some(ids_of(&h, &behind)), cells[ids].clone(), "{sql}\n{}", drilled.sql);
+                    }
+                    Err(DrillError::Unsupported { reason }) => {
+                        assert_eq!(reason, NON_ASCII, "{sql} {cells:?}");
+                        assert!(cells[..ids - 1].iter().flatten().any(|v| !v.is_ascii()), "{sql} {cells:?}");
+                        refused_non_ascii += 1;
+                    }
+                    Err(e) => panic!("{sql} {cells:?}: {e:?}"),
+                }
+            }
+        }
+        assert!(refused_non_ascii >= 10, "the Greek, Cyrillic, UTF-8, and default-collation varchar keys refuse");
+    })
+    .catch_unwind()
+    .await;
+    h.sql(tab, &format!("DROP TABLE IF EXISTS dbo.[{t}]")).await;
+    h.engine.shutdown().await;
+    if let Err(panic) = outcome {
+        std::panic::resume_unwind(panic);
+    }
+}
+
 /// xorshift64*, so a failure names the seed that reproduces it.
 struct Rng(u64);
 
