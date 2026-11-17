@@ -13,6 +13,7 @@ import { browseTemplate, installRunBehavior, openSqlTab } from "./features/edito
 import { startAssistantSync } from "./features/assistant/assistantActions";
 import { startUpdateSync } from "./features/updates/updateActions";
 import { unreadableConnectionsNotice } from "./features/connections/connectionForm";
+import { useSchemaMapData } from "./features/schemaMap/data";
 
 /** The catalog store holds exactly the catalogs the connection snapshots serve, and the detail store only their relations. */
 function startCatalogSync() {
@@ -20,6 +21,7 @@ function startCatalogSync() {
     const wanted = wantedCatalogs(s.connections);
     const catalog = useCatalog.getState();
     catalog.prune(new Set(wanted.keys()));
+    useSchemaMapData.getState().prune(new Set(wanted.keys()));
     for (const { ref, version } of wanted.values()) void catalog.ensure(ref, version);
   };
   useLive.subscribe((s, prev) => {

@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import { commands, type DatabaseRef, type MapCursor, type MapError, type MapQuery, type MapQueryJoin, type MapOccurrence } from "../../ipc/bindings";
 import { useCatalog, viewFor } from "../../state/catalog";
-import { dbKey, sameDb } from "../../state/dbKey";
-import { useLive, wantedCatalogs } from "../../state/live";
+import { sameDb } from "../../state/dbKey";
+import { servedCatalogVersion, useLive } from "../../state/live";
 import { activeId, activeQueryTab, activeTab, tabTarget, useWorkspace } from "../../state/workspace";
 import { clearMapHighlights, editorContextOf, highlightMapSource, onEditorContextChanged, sameEditorContext, type EditorContext } from "../editor/editorStates";
 import { EDGE_LIMIT, emptyGraph, mergeNeighborhood, type Graph, type Page, type Point, type Viewport } from "./graph";
@@ -48,7 +48,7 @@ function clearHighlights(): void {
 }
 
 function versionFor(db: DatabaseRef): number | undefined {
-  return wantedCatalogs(useLive.getState().connections).get(dbKey(db))?.version;
+  return servedCatalogVersion(useLive.getState().connections, db);
 }
 
 function mapErrorText(error: MapError): string {

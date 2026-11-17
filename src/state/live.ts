@@ -122,6 +122,10 @@ export function wantedCatalogs(connections: Record<ConnectionId, ConnectionState
   return wanted;
 }
 
+export function servedCatalogVersion(connections: Record<ConnectionId, ConnectionState>, db: DatabaseRef): number | undefined {
+  return wantedCatalogs(connections).get(dbKey(db))?.version;
+}
+
 export function applyEvent(s: LiveData, e: AppEvent): LiveData {
   switch (e.kind) {
     case "ConnectionChanged": {
