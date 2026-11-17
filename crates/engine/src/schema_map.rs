@@ -172,21 +172,27 @@ pub(crate) fn build(catalog: &Catalog, schema: &SchemaInfo, read: SchemaKeys) ->
 }
 
 pub(crate) fn infer(tables: &[&Relation]) -> Vec<SchemaMapLink> {
-    let keyed: Vec<(&Relation, &ColumnInfo)> = tables.iter().filter_map(|t| single_key(t).map(|k| (*t, k))).collect();
+    let mut by_name: HashMap<String, Vec<Target>> = HashMap::new();
+    for table in tables {
+        let Some(key) = single_key(table) else {
+            continue;
+        };
+        for (name, matched) in referencing_names(table, key) {
+            by_name.entry(name).or_default().push(Target { table, key, matched });
+        }
+    }
     let mut links = vec![];
     for source in tables {
         for column in source.columns.iter().filter(|c| !c.fk) {
-            let name = column.name.to_ascii_lowercase();
-            let mut matches = keyed.iter().filter(|(target, key)| {
-                target.oid != source.oid
-                    && key.category == column.category
-                    && if key.name.eq_ignore_ascii_case("id") {
-                        stems(&target.name).iter().any(|s| name == format!("{s}_id") || name == format!("{s}id"))
-                    } else {
-                        own_key != Some(column.attnum) && name.ends_with("id") && key.name.eq_ignore_ascii_case(&name)
-                    }
+            let Some(candidates) = by_name.get(&column.name.to_ascii_lowercase()) else {
+                continue;
+            };
+            let mut matches = candidates.iter().filter(|t| {
+                t.table.oid != source.oid
+                    && t.key.category == column.category
+                    && !(t.matched == Match::SharedName && is_whole_key(source, column))
             });
-            if let (Some((target, key)), None) = (matches.next(), matches.next()) {
+            if let (Some(Target { table: target, key, .. }), None) = (matches.next(), matches.next()) {
                 links.push(SchemaMapLink {
                     id: format!("i{}.{}", source.oid, column.attnum),
                     basis: LinkBasis::Inferred,
@@ -201,6 +207,37 @@ pub(crate) fn infer(tables: &[&Relation]) -> Vec<SchemaMapLink> {
         }
     }
     links
+}
+
+struct Target<'a> {
+    table: &'a Relation,
+    key: &'a ColumnInfo,
+    matched: Match,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Match {
+    Stem,
+    SharedName,
+}
+
+fn referencing_names(table: &Relation, key: &ColumnInfo) -> Vec<(String, Match)> {
+    let key_name = key.name.to_ascii_lowercase();
+    if key_name == "id" {
+        stems(&table.name)
+            .into_iter()
+            .flat_map(|stem| [format!("{stem}_id"), format!("{stem}id")])
+            .map(|name| (name, Match::Stem))
+            .collect()
+    } else if key_name.ends_with("id") {
+        vec![(key_name, Match::SharedName)]
+    } else {
+        vec![]
+    }
+}
+
+fn is_whole_key(table: &Relation, column: &ColumnInfo) -> bool {
+    single_key(table).is_some_and(|k| k.attnum == column.attnum)
 }
 
 fn single_key(table: &Relation) -> Option<&ColumnInfo> {
