@@ -15,6 +15,7 @@ export const connectionConfig = (id: string, name: string): ConnectionConfig => 
   ssh: null,
   environment: null,
   sqlServerAuth: null,
+  assistantReadOnly: false,
 });
 
 export const databaseState = (name: string, shown: boolean, shownSchemas: string[]): DatabaseState => ({

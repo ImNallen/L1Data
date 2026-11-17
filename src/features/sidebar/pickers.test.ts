@@ -17,6 +17,7 @@ const config: ConnectionConfig = {
   ssh: null,
   environment: null,
   sqlServerAuth: null,
+  assistantReadOnly: false,
 };
 
 const db = (name: string, over: Partial<DatabaseState> = {}): DatabaseState => ({
