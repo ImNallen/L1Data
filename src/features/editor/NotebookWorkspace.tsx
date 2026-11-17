@@ -307,7 +307,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
   const firstLine = text.split("\n").find((line) => line.trim()) ?? "";
   const busy = isBusy(console);
   const pending = hasUncommittedWork(console);
-  const cancellable = canCancel(console);
+  const cancellable = canCancel(console, databaseKind);
   const editorHandle = {
     label: `Resize query in ${tab.title}`,
     testId: "cell-editor-resize",

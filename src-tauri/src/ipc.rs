@@ -240,6 +240,17 @@ pub async fn console_rollback(engine: State<'_, Arc<Engine>>, tab_id: TabId) -> 
 
 #[tauri::command]
 #[specta::specta]
+pub async fn table_edit_support(
+    engine: State<'_, Arc<Engine>>,
+    tab_id: TabId,
+    schema: String,
+    table: String,
+) -> Result<EditSupport, ApplyError> {
+    engine.table_edit_support(tab_id, schema, table).await
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn table_apply(
     engine: State<'_, Arc<Engine>>,
     tab_id: TabId,

@@ -115,6 +115,7 @@ routes! { e;
     console_cancel(tab_id: TabId) => { e.console_cancel(tab_id).await; ok(()) };
     console_commit(tab_id: TabId, confirmed: Option<WriteDigest>) => e.console_commit(tab_id, confirmed).await;
     console_rollback(tab_id: TabId) => e.console_rollback(tab_id).await;
+    table_edit_support(tab_id: TabId, schema: String, table: String) => e.table_edit_support(tab_id, schema, table).await;
     table_apply(tab_id: TabId, changes: TableChanges, confirmed: Option<WriteDigest>) => e.table_apply(tab_id, changes, confirmed).await;
     table_import_prepare(tab_id: TabId, target: ImportTarget, file: String) => e.table_import_prepare(tab_id, target, file).await;
     table_import_preview(tab_id: TabId, source: ImportSourceId, header: bool) => e.table_import_preview(tab_id, source, header).await;

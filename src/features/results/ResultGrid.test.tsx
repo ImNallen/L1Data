@@ -11,6 +11,7 @@ import {
   type ColumnMeta,
   type ColumnProfile,
   type DatabaseKind,
+  type EditSupport,
   type RelationDetail,
   type ResultMeta,
   type RowPage,
@@ -166,6 +167,36 @@ it("keeps generated columns read-only and requires database-scoped edit provenan
   expect(editing?.writableColumns.has("status")).toBe(true);
   expect(gridEditing(view, "public", "orders", { ...meta, db: { ...meta.db, database: "reporting" } })).toBeNull();
   expect(gridEditing(view, "public", "orders", { ...meta, columns: meta.columns.map((c) => ({ ...c, source: null })) })).toBeNull();
+});
+
+it("takes a SQL Server table's writable columns, read-only reasons, and Delete from its edit support", () => {
+  const catalog = { ...shopCatalog("ms", 1), databaseKind: "SqlServer" as const };
+  const relation = catalog.schemas[1]!.relations.find((r) => r.name === "orders")!;
+  const meta = {
+    databaseKind: "SqlServer" as const,
+    db: catalog.db,
+    columns: relation.columns.map((column) => ({
+      name: column.name,
+      type: { display: column.typeDisplay, category: column.category },
+      source: { tableOid: relation.oid, attnum: column.attnum },
+    })),
+  };
+  const view = buildCatalogView(catalog);
+  const trigger = { kind: "Trigger" as const, table: "dbo.items", trigger: "dbo.items_audit" };
+  const support: EditSupport = {
+    kind: "Editable",
+    rowCheck: { kind: "Values" },
+    columns: relation.columns.map((c) => ({ name: c.name, readOnly: c.name === "id" ? { kind: "Identity" } : null })),
+    delete: { kind: "Cascade", foreignKey: "FK_items", table: "dbo.items", cause: trigger },
+  };
+  const editing = gridEditing(view, "public", "orders", meta, support);
+  expect(editing?.writableColumns.has("id")).toBe(false);
+  expect(editing?.writableColumns.has("status")).toBe(true);
+  expect(editing?.readOnly?.get("id")).toBe("Read-only: identity");
+  expect(editing?.deleteRefusal).toMatch(/^Delete is unavailable: FK_items changes rows in dbo.items, and dbo.items has an enabled trigger/);
+  expect(editing?.rowCheck).toEqual({ kind: "Values" });
+  expect(gridEditing(view, "public", "orders", meta, { kind: "Refused", reason: trigger })).toBeNull();
+  expect(gridEditing(view, "public", "orders", meta, null)).toBeNull();
 });
 
 it.each<{ catalogKind: DatabaseKind; resultKind: DatabaseKind }>([

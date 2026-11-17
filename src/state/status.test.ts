@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ConnectionConfig, ConsoleState, OutputEntry, QueryError, ResultMeta, RunOutput, RunState, StatementRun, Workspace } from "../ipc/bindings";
-import { hasUncommittedWork, notebookActivity, outputTone, resultView, rowResults, runSummary, shownResult } from "./status";
+import { canCancel, hasUncommittedWork, notebookActivity, outputTone, resultView, rowResults, runSummary, shownResult } from "./status";
 import { nextUntitled, tabFromSnapshot, workspaceSnapshot, type Tab } from "./workspace";
 import { cellsState } from "../testing/notebooks";
 
@@ -397,4 +397,13 @@ it("keeps every result ordinal from one failed batch, including empty and partia
   expect(shownResult(run, 0)?.meta.rowCount).toBe(0);
   expect(resultView(run, 1, true, "default")).toMatchObject({ kind: "rows", result: { index: 1 } });
   expect(runSummary(run, 1, 0)).toEqual({ tone: "error", text: failure.message });
+});
+
+describe("canCancel", () => {
+  it("offers Cancel during a SQL Server Submit, which settles its own transaction, and keeps PostgreSQL's Submit as it was", () => {
+    const editing: ConsoleState = { ...consoleWith("AutoCommit", "Idle"), work: "Edit" };
+    expect(canCancel(editing, "SqlServer")).toBe(true);
+    expect(canCancel(editing, "Postgres")).toBe(false);
+    expect(canCancel({ ...editing, work: "Import" }, "Postgres")).toBe(true);
+  });
 });

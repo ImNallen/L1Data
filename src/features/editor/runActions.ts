@@ -28,6 +28,7 @@ import { notebookOf } from "../../state/notebooks";
 import { dropRowCaches } from "../../state/rowCache";
 import { canCancel, isBusy } from "../../state/status";
 import { NO_EDITS, pendingCount, toChanges, useTableEdits, type TableEdits } from "../../state/tableEdits";
+import { forgetEditSupport, useEditSupport } from "../../state/editSupport";
 import {
   EMPTY_QUERY,
   activeId,
@@ -333,7 +334,7 @@ export async function runOrChoose(ask = false): Promise<void> {
 
 export function cancelActive(): boolean {
   const id = activeQueryTab(ws())?.id;
-  if (!id || !canCancel(useLive.getState().consoles[id])) return false;
+  if (!id || !canCancel(useLive.getState().consoles[id], databaseKindFor(tabTarget(ws().tabs[id]), ws().configs))) return false;
   cancelCell(id);
   return true;
 }
@@ -341,7 +342,8 @@ export function cancelActive(): boolean {
 /** Says that a SQL Server cancel resets the session. The engine ignores a cancel of an idle cell. */
 export function cancelCell(id: TabId): void {
   queuedPages.delete(id);
-  if (databaseKindFor(tabTarget(ws().tabs[id]), ws().configs) === "SqlServer" && useLive.getState().consoles[id]?.work !== "Import")
+  const work = useLive.getState().consoles[id]?.work;
+  if (databaseKindFor(tabTarget(ws().tabs[id]), ws().configs) === "SqlServer" && work !== "Import" && work !== "Edit")
     notify("Cancelling SQL Server resets this session. Earlier commits remain committed; the last transaction outcome may be unknown.");
   void commands.consoleCancel(id);
 }
@@ -626,13 +628,15 @@ async function applyEdits(tab: TableTab, edits: TableEdits): Promise<void> {
   const tabId = tab.id;
   if (!(await ensureConsole(tab))) return;
   const count = pendingCount(edits);
-  const { changes, rowOf } = toChanges(edits, tab.table.schema, tab.table.table);
+  const support = useEditSupport.getState().byTab[tabId]?.support;
+  const { changes, rowOf } = toChanges(edits, tab.table.schema, tab.table.table, support?.kind === "Editable" ? support.rowCheck : null);
   let res = await commands.tableApply(tabId, changes, null);
   while (res.status === "error" && res.error.kind === "ConfirmWrites") {
     if (!(await editsConfirmed(tab, edits, res.error.confirmation))) return;
     res = await commands.tableApply(tabId, changes, res.error.confirmation.digest);
   }
   if (res.status === "error") {
+    if (res.error.kind === "Refused" || res.error.kind === "TableChanged") forgetEditSupport(tabId);
     const failedAt = "change" in res.error ? rowOf(res.error.change) : null;
     useTableEdits.setState((s) => ({ byTab: { ...s.byTab, [tabId]: { ...edits, failedAt } } }));
     notify(applyErrorText(res.error));
@@ -651,6 +655,7 @@ export function forgetTab(tabId: TabId) {
   dropRowCaches(tabId);
   dropEditor(tabId);
   useTableEdits.getState().clear(tabId);
+  forgetEditSupport(tabId);
   forgetMapView(tabId);
   ws().closeTab(tabId);
   useLive.getState().forgetTab(tabId);

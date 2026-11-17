@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import {
   addRow,
+  keepVersion,
   markDeleted,
   NO_EDITS,
   pendingCount,
@@ -34,8 +35,8 @@ it("turns pending edits into engine changes keyed by primary key", () => {
         { column: "note", value: null },
       ],
     ],
-    updates: [{ key: [{ column: "id", value: "2" }], set: [{ column: "name", value: "b2" }] }],
-    deletes: [[{ column: "id", value: "1" }]],
+    updates: [{ key: [{ column: "id", value: "2" }], set: [{ column: "name", value: "b2" }], expect: [] }],
+    deletes: [{ key: [{ column: "id", value: "1" }], expect: [] }],
   });
   expect(pendingCount(e)).toBe(3);
   expect(rowOf({ kind: "Insert", index: 0 })).toEqual({ insert: 7 });
@@ -77,10 +78,13 @@ it("keys composite primary keys in column order and removes new rows by id", () 
   const e = toggleDeletes(removeNewRows(addRow(addRow(NO_EDITS, 1), 2), [1]), [key]);
   expect(e.inserts.map((r) => r.id)).toEqual([2]);
   expect(toChanges(e, "s", "t").changes.deletes).toEqual([
-    [
-      { column: "order_id", value: "7" },
-      { column: "sku", value: "A-1" },
-    ],
+    {
+      key: [
+        { column: "order_id", value: "7" },
+        { column: "sku", value: "A-1" },
+      ],
+      expect: [],
+    },
   ]);
 });
 
@@ -122,8 +126,8 @@ it("keeps equal key values under different primary-key names separate", () => {
     schema: "public",
     table: "t",
     inserts: [],
-    updates: [{ key: row("1"), set: [{ column: "note", value: "edited" }] }],
-    deletes: [alternate],
+    updates: [{ key: row("1"), set: [{ column: "note", value: "edited" }], expect: [] }],
+    deletes: [{ key: alternate, expect: [] }],
   });
 });
 
@@ -134,10 +138,10 @@ it.each(["update", "delete"])("captures an immutable named original key for a st
   cell.column = "alternate";
   cell.value = "2";
   const submitted = toChanges(edits, "public", "t").changes;
-  const keys = change === "update" ? submitted.updates.map((u) => u.key) : submitted.deletes;
+  const keys = change === "update" ? submitted.updates.map((u) => u.key) : submitted.deletes.map((d) => d.key);
   expect(keys).toEqual([row("1")]);
   keys[0]![0]!.column = "mutated request";
-  expect(toChanges(edits, "public", "t").changes).toMatchObject(change === "update" ? { updates: [{ key: row("1") }] } : { deletes: [row("1")] });
+  expect(toChanges(edits, "public", "t").changes).toMatchObject(change === "update" ? { updates: [{ key: row("1") }] } : { deletes: [{ key: row("1") }] });
 });
 
 it("keeps the stored identity when the user edits a primary-key value", () => {
@@ -150,6 +154,24 @@ it("keeps the stored identity when the user edits a primary-key value", () => {
         { column: "id", value: "2" },
         { column: "note", value: "edited" },
       ],
+      expect: [],
     },
   ]);
+});
+
+it("sends a SQL Server row as the page showed it: each edited cell's first stored value, or the rowversion", () => {
+  let e = setCell(NO_EDITS, row("1"), "name", "x", "a");
+  e = setCell(e, row("1"), "name", "y", "x");
+  e = keepVersion(e, row("1"), "0x01");
+  e = keepVersion(e, row("1"), "0x02");
+  e = keepVersion(markDeleted(e, [row("2")], true), row("2"), "0x03");
+  expect(toChanges(e, "dbo", "t", { kind: "Values" }).changes).toMatchObject({
+    updates: [{ key: row("1"), set: [{ column: "name", value: "y" }], expect: [{ column: "name", value: "a" }] }],
+    deletes: [{ key: row("2"), expect: [] }],
+  });
+  expect(toChanges(e, "dbo", "t", { kind: "Rowversion", column: "stamp" }).changes).toMatchObject({
+    updates: [{ expect: [{ column: "stamp", value: "0x01" }] }],
+    deletes: [{ expect: [{ column: "stamp", value: "0x03" }] }],
+  });
+  expect(setCell(e, row("1"), "name", "a", "a").updates).toEqual({});
 });

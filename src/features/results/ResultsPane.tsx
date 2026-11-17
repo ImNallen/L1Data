@@ -32,6 +32,8 @@ import {
 } from "../../state/status";
 import { useCatalog, viewFor } from "../../state/catalog";
 import { databaseKindFor } from "../../state/databaseKind";
+import { loadEditSupport, useEditSupport } from "../../state/editSupport";
+import { applyErrorText, editRefusalText } from "../../ipc/errors";
 import { NO_EDITS, pendingCount, useTableEdits } from "../../state/tableEdits";
 import { isFiltered, isTableTab, useWorkspace, type ResultDisplayPref, type Tab, type TableTab } from "../../state/workspace";
 import { Button, cx, IconButton, MenuContent, MenuItem, Spinner } from "../../ui/primitives";
@@ -210,11 +212,13 @@ function EditBar({
   tabId,
   editable,
   canSubmit,
+  deleteRefusal,
   actions,
 }: {
   tabId: TabId | null;
   editable: boolean;
   canSubmit: boolean;
+  deleteRefusal: string | undefined;
   actions: RefObject<GridActions | null>;
 }) {
   const edits = useTableEdits((s) => (tabId ? s.byTab[tabId] : undefined) ?? NO_EDITS);
@@ -229,8 +233,8 @@ function EditBar({
       <IconButton
         data-testid="delete-rows"
         aria-label="Delete selected rows"
-        title="Delete or restore the selected rows (⌘⌫)"
-        disabled={!editable}
+        title={deleteRefusal ?? "Delete or restore the selected rows (⌘⌫)"}
+        disabled={!editable || deleteRefusal !== undefined}
         onClick={() => actions.current?.deleteSelectedRows()}
       >
         <MinusIcon size={16} />
@@ -256,7 +260,7 @@ function EditBar({
             data-testid="submit-edits"
             variant="primary"
             className="h-7 px-2.5"
-            title={canSubmit ? "Send the staged changes (⌘S)" : "SQL Server staged edits are unavailable. Use SQL scripts."}
+            title="Send the staged changes (⌘S)"
             disabled={!canSubmit || busy}
             onClick={() => tabId && void submitEdits(tabId)}
           >
@@ -433,14 +437,31 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
     if (tabId && isTable) loadTableOnce(tabId);
   }, [tabId, isTable]);
   const catalogView = useCatalog((s) => viewFor(s.views, browsingTable?.console.db));
+  // Asked again for each page the tab loads, which also comes after the tab's session exists.
+  const supportKey =
+    browsingTable && databaseKind === "SqlServer" && catalogView && shown
+      ? JSON.stringify([browsingTable.console.db, browsingTable.table.schema, browsingTable.table.table, catalogView.catalog.version, shown.meta.ref.runId])
+      : null;
+  const supportEntry = useEditSupport((s) => (tabId ? s.byTab[tabId] : undefined));
+  const support = supportKey !== null && supportEntry?.key === supportKey ? supportEntry : null;
+  useEffect(() => {
+    if (tabId && browsingTable && supportKey !== null && supportEntry?.key !== supportKey)
+      void loadEditSupport(tabId, browsingTable.table.schema, browsingTable.table.table, supportKey);
+  }, [tabId, browsingTable, supportKey, supportEntry?.key]);
   const editing = useMemo(
     () =>
-      browsingTable && shown && databaseKind === "Postgres"
-        ? gridEditing(catalogView, browsingTable.table.schema, browsingTable.table.table, shown.meta)
+      browsingTable && shown && (databaseKind === "Postgres" || support?.support)
+        ? gridEditing(catalogView, browsingTable.table.schema, browsingTable.table.table, shown.meta, support?.support ?? null)
         : null,
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- the deps name the fields the memo reads, not the objects that hold them
-    [browsingTable?.console.db, browsingTable?.table.schema, browsingTable?.table.table, catalogView, shown?.meta, databaseKind],
+    [browsingTable?.console.db, browsingTable?.table.schema, browsingTable?.table.table, catalogView, shown?.meta, databaseKind, support?.support],
   );
+  const refusal =
+    support?.support?.kind === "Refused"
+      ? `Edits are unavailable here: ${editRefusalText(support.support.reason)}. Use a SQL script to change these rows.`
+      : support?.error
+        ? `L1 Data could not check this table for edits. ${applyErrorText(support.error)}`
+        : null;
   const actions = useRef<GridActions | null>(null);
   const shownKeyRef = useRef(shownRef);
   shownKeyRef.current = shownRef;
@@ -471,7 +492,8 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
         <EditBar
           tabId={tabId}
           editable={!busy && editing !== null && tabId !== null}
-          canSubmit={!busy && databaseKind !== "SqlServer" && shown?.meta.databaseKind !== "SqlServer"}
+          canSubmit={!busy && editing !== null}
+          deleteRefusal={editing?.deleteRefusal}
           actions={actions}
         />
         {results.length > 1 && (
@@ -573,9 +595,9 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
         </div>
       </div>
 
-      {browsingTable && databaseKind === "SqlServer" && (
-        <p data-testid="sqlserver-edit-limit" className="border-b border-grid px-3 py-1 text-ui-11.5 text-dim">
-          SQL Server table results are read-only. Use SQL scripts to insert, update or delete rows.
+      {browsingTable && refusal && (
+        <p data-testid="edit-refusal" className="border-b border-grid px-3 py-1 text-ui-11.5 text-dim">
+          {refusal}
         </p>
       )}
       {exporting?.writeError && (

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { CellWrite, ChangeRef, TabId, TableChanges } from "../ipc/bindings";
+import type { CellWrite, ChangeRef, RowCheck, TabId, TableChanges } from "../ipc/bindings";
 
 export type CellValue = string | null;
 type RowKey = string;
@@ -10,7 +10,11 @@ export type NewRow = { id: number; values: Record<string, CellValue> };
 export type TableEdits = {
   inserts: NewRow[];
   updates: Record<RowKey, { key: RowId; values: Record<string, CellValue> }>;
+  /** Each edited cell's stored value from when it was first staged. */
+  originals?: Record<RowKey, Record<string, CellValue>>;
   deletes: Record<RowKey, RowId>;
+  /** A SQL Server rowversion table's staged rows, with the rowversion each showed when first staged. */
+  versions?: Record<RowKey, CellValue>;
   failedAt: { insert: number } | { key: RowKey } | null;
 };
 
@@ -52,7 +56,15 @@ export function setCell(e: TableEdits, row: RowId, column: string, value: CellVa
   const { [column]: _, ...rest } = current;
   const values = value === stored ? rest : { ...rest, [column]: value };
   const { [key]: __, ...others } = e.updates;
-  return { ...e, updates: Object.keys(values).length ? { ...others, [key]: { key: e.updates[key]?.key ?? copyKey(row), values } } : others };
+  const { [column]: original = stored, ...kept } = e.originals?.[key] ?? {};
+  const originals = { ...e.originals, [key]: value === stored ? kept : { ...kept, [column]: original } };
+  return { ...e, originals, updates: Object.keys(values).length ? { ...others, [key]: { key: e.updates[key]?.key ?? copyKey(row), values } } : others };
+}
+
+/** Keeps the rowversion `version` showed for `row` the first time one of its edits is staged. */
+export function keepVersion(e: TableEdits, row: RowId, version: CellValue): TableEdits {
+  const key = rowKey(row);
+  return key in (e.versions ?? {}) ? e : { ...e, versions: { ...e.versions, [key]: version } };
 }
 
 export function markDeleted(e: TableEdits, rows: RowId[], on: boolean): TableEdits {
@@ -71,15 +83,27 @@ export function toggleDeletes(e: TableEdits, rows: RowId[]): TableEdits {
 
 const entries = (values: Record<string, CellValue>): CellWrite[] => Object.entries(values).map(([column, value]) => ({ column, value }));
 
-export function toChanges(e: TableEdits, schema: string, table: string): { changes: TableChanges; rowOf: (ref: ChangeRef) => TableEdits["failedAt"] } {
+/**
+ * `rowCheck` is the SQL Server table's way of proving a row unchanged: its rowversion, or the stored value of each edited
+ * cell. PostgreSQL has none and sends no `expect`.
+ */
+export function toChanges(
+  e: TableEdits,
+  schema: string,
+  table: string,
+  rowCheck: RowCheck | null = null,
+): { changes: TableChanges; rowOf: (ref: ChangeRef) => TableEdits["failedAt"] } {
   const deleteKeys = Object.keys(e.deletes);
   const updateKeys = Object.keys(e.updates).filter((k) => !(k in e.deletes));
+  const version = (k: RowKey): CellWrite[] => (rowCheck?.kind === "Rowversion" ? [{ column: rowCheck.column, value: e.versions?.[k] ?? null }] : []);
+  const originals = (k: RowKey): CellWrite[] =>
+    rowCheck?.kind === "Values" ? Object.keys(e.updates[k]!.values).map((column) => ({ column, value: e.originals?.[k]?.[column] ?? null })) : version(k);
   const changes: TableChanges = {
     schema,
     table,
     inserts: e.inserts.map((r) => entries(r.values)),
-    updates: updateKeys.map((k) => ({ key: copyKey(e.updates[k]!.key), set: entries(e.updates[k]!.values) })),
-    deletes: deleteKeys.map((k) => copyKey(e.deletes[k]!)),
+    updates: updateKeys.map((k) => ({ key: copyKey(e.updates[k]!.key), set: entries(e.updates[k]!.values), expect: originals(k) })),
+    deletes: deleteKeys.map((k) => ({ key: copyKey(e.deletes[k]!), expect: version(k) })),
   };
   const rowOf = (ref: ChangeRef): TableEdits["failedAt"] => {
     if (ref.kind === "Insert") return { insert: e.inserts[ref.index]!.id };
