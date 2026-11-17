@@ -175,6 +175,9 @@ export function SchemaCanvas({ map, mode, height, testId, label }: { map: Schema
   const [box, setBox] = useState<Size>({ width: 0, height: 0 });
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, scale: 1 });
   const [fitted, setFitted] = useState<string | null>(null);
+  // Chromium matches :focus-visible on any key pressed after a click, so Esc after clicking a card would ring the whole
+  // canvas. The ring marks only focus that arrived from the keyboard.
+  const [keyboardFocus, setKeyboardFocus] = useState(false);
 
   useLayoutEffect(() => {
     const el = canvas.current;
@@ -210,6 +213,7 @@ export function SchemaCanvas({ map, mode, height, testId, label }: { map: Schema
   const fitAll = () => layout && box.width > 0 && setViewport(fitViewport(layout.bounds, box, { maxScale: 1 }));
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
+    setKeyboardFocus(false);
     if (e.button !== 0 || !layout || !model) return;
     const key = (e.target as Element).closest<HTMLElement>("[data-map-card]")?.dataset.mapCard as TableKey | undefined;
     const oid = key ? model.byKey.get(key) : undefined;
@@ -275,7 +279,10 @@ export function SchemaCanvas({ map, mode, height, testId, label }: { map: Schema
         tabIndex={0}
         role="region"
         aria-label={label}
-        className="map-canvas absolute inset-0 touch-none overflow-hidden outline-none focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset"
+        data-keyboard-focus={keyboardFocus || undefined}
+        className="map-canvas absolute inset-0 touch-none overflow-hidden outline-none data-[keyboard-focus]:ring-1 data-[keyboard-focus]:ring-focus data-[keyboard-focus]:ring-inset"
+        onFocus={(e) => e.target === e.currentTarget && setKeyboardFocus(e.currentTarget.matches(":focus-visible"))}
+        onBlur={(e) => e.target === e.currentTarget && setKeyboardFocus(false)}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
