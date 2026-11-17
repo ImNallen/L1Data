@@ -5785,3 +5785,53 @@ async fn the_catalog_loads_while_functions_are_dropped() {
         std::panic::resume_unwind(panic);
     }
 }
+
+#[path = "common/schema_map.rs"]
+mod schema_map_cases;
+
+#[tokio::test]
+async fn schema_map_joins_declared_and_inferred_references_at_one_version() {
+    let h = Harness::start().await;
+    h.engine.connect(h.conn).await.unwrap();
+    let schema = format!("sm_{}", uuid::Uuid::new_v4().simple());
+    let (oracle, connection) = tokio_postgres::connect(&url(), NoTls).await.unwrap();
+    tokio::spawn(connection);
+    for sql in schema_map_cases::fixture(&schema, "public", DatabaseKind::Postgres) {
+        oracle.batch_execute(&sql).await.unwrap();
+    }
+    schema_map_cases::verify(&h.engine, h.db(), &schema, "public").await;
+    oracle.batch_execute(&format!("DROP SCHEMA {schema} CASCADE")).await.unwrap();
+}
+
+#[tokio::test]
+async fn schema_map_draws_the_seed_shop_with_partitions_folded_and_no_views() {
+    use schema_map_cases::{links, pairs, table};
+    let h = Harness::start().await;
+    h.engine.connect(h.conn).await.unwrap();
+    let map = schema_map_cases::current(&h.engine, &h.db(), Some("public")).await;
+    let t = |name| table(&map, "public", name);
+    let (orders, categories) = (t("orders"), t("categories"));
+    let inferred = |column| [(LinkBasis::Inferred, None, pairs(&[(column, "id")]))];
+    assert_eq!(links(&map, t("order_audit"), orders), inferred("order_id"));
+    assert_eq!(links(&map, t("order_events"), orders), inferred("order_id"));
+    assert_eq!(links(&map, t("products"), categories), inferred("category_id"));
+    assert_eq!(
+        links(&map, orders, t("addresses")),
+        [(
+            LinkBasis::Declared,
+            Some("orders_customer_id_ship_address_id_fkey".into()),
+            pairs(&[("customer_id", "customer_id"), ("ship_address_id", "id")])
+        )]
+    );
+    assert_eq!(
+        links(&map, categories, categories),
+        [(LinkBasis::Declared, Some("categories_parent_id_fkey".into()), pairs(&[("parent_id", "id")]))]
+    );
+    let tickets = t("tickets");
+    assert!(map.links.iter().all(|l| l.source != tickets.oid), "tickets.code is no reference to coupons");
+    let events = t("order_events");
+    assert_eq!((events.kind, events.partitions), (RelKind::PartitionedTable, 2));
+    assert!(map.tables.iter().all(|t| !t.name.starts_with("order_events_2026")));
+    assert!(map.tables.iter().all(|t| !matches!(t.kind, RelKind::View | RelKind::MaterializedView)));
+    assert!(map.tables.iter().all(|t| t.name != "paid_orders" && t.name != "daily_revenue"));
+}

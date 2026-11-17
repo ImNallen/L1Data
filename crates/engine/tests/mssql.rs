@@ -1930,3 +1930,26 @@ async fn a_reference_chain_runs_inside_a_batch_with_hoisted_ctes() {
     assert!(matches!(state.run, RunState::Finished { outcome: RunOutcome::Ok, .. }), "{:?}", state.run);
     assert_eq!(h.rows(Harness::rowsets(&state)[0]), vec![vec![Some("1".into())]]);
 }
+
+#[path = "common/schema_map.rs"]
+mod schema_map_cases;
+
+#[tokio::test]
+async fn schema_map_joins_declared_and_inferred_references_at_one_version() {
+    use schema_map_cases::{links, pairs, table};
+    let mut h = Harness::open(TxnMode::AutoCommit).await;
+    let schema = format!("sm_{}", uuid::Uuid::new_v4().simple());
+    for sql in schema_map_cases::fixture(&schema, "dbo", DatabaseKind::SqlServer) {
+        h.ok(&sql).await;
+    }
+    schema_map_cases::verify(&h.engine, h.db(), &schema, "dbo").await;
+    let map = schema_map_cases::current(&h.engine, &h.db(), Some("dbo")).await;
+    let declared: Vec<_> = links(&map, table(&map, "dbo", "orders"), table(&map, "dbo", "customers"))
+        .into_iter()
+        .map(|(basis, _, columns)| (basis, columns))
+        .collect();
+    assert_eq!(declared, [(LinkBasis::Declared, pairs(&[("customer_id", "id")]))]);
+    assert!(map.tables.iter().all(|t| t.partitions == 0 && t.kind != RelKind::View));
+    h.ok(&format!("DROP TABLE {schema}.widget_parts, {schema}.pairs, {schema}.widgets")).await;
+    h.ok(&format!("DROP SCHEMA {schema}")).await;
+}
