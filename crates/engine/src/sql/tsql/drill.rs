@@ -6,7 +6,7 @@
 use std::fmt;
 use std::ops::Range;
 
-use super::expression::SCALAR_FUNCTIONS;
+use super::builtins::builtin;
 use super::{Kind, RESERVED, STATEMENT_WORDS, Token, lex, quote_literal};
 use crate::sql::drill::one_line;
 use crate::sql::mssql_value::input_sql;
@@ -23,6 +23,7 @@ pub(crate) enum Refusal {
     TempTable,
     Unvetted,
     Sample,
+    Unreproducible,
     For,
     Option,
     Pivot,
@@ -60,6 +61,9 @@ impl fmt::Display for Refusal {
             }
             Refusal::Unvetted => "The chart's query calls functions that may not be safe to run again.",
             Refusal::Sample => "The chart's query uses TABLESAMPLE, so a new cell would read another sample.",
+            Refusal::Unreproducible => {
+                "The chart's query reads the time or the session in a GROUP BY key, its WITH, or its FROM, which a new cell would read again with other values."
+            }
             Refusal::For => "The chart's query has a FOR XML, FOR JSON, or FOR BROWSE clause.",
             Refusal::Option => "The chart's query has an OPTION clause.",
             Refusal::Pivot => "The chart's query uses PIVOT or UNPIVOT.",
@@ -89,61 +93,10 @@ const OPERAND_AFTER: &[&str] = &[
 /// Trailing words that end an expression instead of naming it.
 const NEVER_ALIAS: &[&str] = &["END", "NULL"];
 
-/// Built-ins a drill-down may call, beyond the table filter's `SCALAR_FUNCTIONS` and the reserved
-/// words. A bare name is a built-in or a table-valued function of the default schema, so only
-/// these run; a qualified name or a method call is never vouched for.
-const BUILT_INS: &[&str] = &[
-    "APPROX_COUNT_DISTINCT",
-    "AVG",
-    "CAST",
-    "CEILING",
-    "CHECKSUM_AGG",
-    "CHOOSE",
-    "COUNT",
-    "COUNT_BIG",
-    "CUME_DIST",
-    "DATEFROMPARTS",
-    "DATETIME2FROMPARTS",
-    "DATETIMEFROMPARTS",
-    "DATETRUNC",
-    "DATE_BUCKET",
-    "DENSE_RANK",
-    "FIRST_VALUE",
-    "FORMAT",
-    "GENERATE_SERIES",
-    "GREATEST",
-    "IIF",
-    "ISDATE",
-    "ISJSON",
-    "ISNUMERIC",
-    "JSON_QUERY",
-    "JSON_VALUE",
-    "LAG",
-    "LAST_VALUE",
-    "LEAD",
-    "LEAST",
-    "MAX",
-    "MIN",
-    "NTILE",
-    "OPENJSON",
-    "PERCENT_RANK",
-    "QUOTENAME",
-    "RANK",
-    "ROW_NUMBER",
-    "SPACE",
-    "SQUARE",
-    "STDEV",
-    "STDEVP",
-    "STR",
-    "STRING_AGG",
-    "STRING_SPLIT",
-    "SUM",
-    "TIMEFROMPARTS",
-    "TRANSLATE",
-    "TRY_CAST",
-    "TRY_CONVERT",
-    "VAR",
-    "VARP",
+/// Words before `(` that are syntax, not calls. A bare name before `(` is a built-in or a table-valued
+/// function of the default schema, so only `builtins::BUILTINS` run; a qualified name or a method call
+/// is never vouched for.
+const SYNTAX: &[&str] = &[
     // Grouping grammar, refused with its own reason.
     "CUBE",
     "ROLLUP",
@@ -470,6 +423,10 @@ impl Tokens<'_> {
         if self.word(i, "SELECT") { Ok(i) } else { Err(Refusal::NotSelect) }
     }
 
+    fn qualified(&self, i: usize) -> bool {
+        i > 0 && matches!(self.t[i - 1].text, "." | "::")
+    }
+
     /// Refuses what the new cell cannot read the same way: a variable, a session's temporary table, a
     /// sample, and a call to anything but a built-in.
     fn vet(&self, ctes: &[usize]) -> Result<(), Refusal> {
@@ -484,11 +441,11 @@ impl Tokens<'_> {
                 return Err(Refusal::Sample);
             }
             if self.sym(i + 1, "(") && matches!(t.kind, Kind::Word | Kind::Ident) && !ctes.contains(&i) {
-                let after = |text: &str| i > 0 && self.t[i - 1].text == text;
-                let vetted = !after(".")
-                    && !after("::")
+                let vetted = !self.qualified(i)
                     && ((i > 0 && self.word(i - 1, "AS"))
-                        || [RESERVED, SCALAR_FUNCTIONS, BUILT_INS].iter().any(|list| self.word_in(i, list))
+                        || self.reserved(i)
+                        || builtin(t).is_some()
+                        || self.word_in(i, SYNTAX)
                         || (t.word("APPLY") && i > 0 && self.word_in(i - 1, &["CROSS", "OUTER"])));
                 if !vetted {
                     return Err(Refusal::Unvetted);
@@ -496,6 +453,16 @@ impl Tokens<'_> {
             }
         }
         Ok(())
+    }
+
+    /// Whether a token in `r` calls a built-in whose value another session at a later time may not
+    /// see, as `GETDATE()` does, or names one without parentheses, as `CURRENT_TIMESTAMP` does.
+    fn varies(&self, r: Range<usize>) -> bool {
+        r.into_iter().any(|i| {
+            !self.qualified(i)
+                && (self.sym(i + 1, "(") || self.reserved(i))
+                && builtin(&self.t[i]).is_some_and(|b| !b.reproducible)
+        })
     }
 
     /// Refuses a statement word at the top level after the main `SELECT`, where a batch without
@@ -608,7 +575,8 @@ pub(crate) fn plan(sql: &str) -> Result<Drill<'_>, Refusal> {
         return Err(Refusal::NotSelect);
     }
     let end = |n: Option<&(Clause, usize)>| n.map_or(len, |(_, i)| *i);
-    let from = tk.between(from_at, end(next.peek())).ok_or(Refusal::NoFrom)?;
+    let from_end = end(next.peek());
+    let from = tk.between(from_at, from_end).ok_or(Refusal::NoFrom)?;
     let filter = match next.next_if(|(c, _)| *c == Clause::Where) {
         Some((_, at)) => Some(tk.between(at, end(next.peek())).ok_or(Refusal::NotSelect)?),
         None => None,
@@ -621,6 +589,11 @@ pub(crate) fn plan(sql: &str) -> Result<Drill<'_>, Refusal> {
     }
     if keys_start >= keys_end {
         return Err(Refusal::NoGroupBy);
+    }
+    // A key, or a column of the WITH or the FROM that a key reads, would take other values in the new
+    // cell. The WHERE is kept as written and runs again at its own time, as on PostgreSQL.
+    if tk.varies(0..main) || tk.varies(from_at..from_end) || tk.varies(keys_start..keys_end) {
+        return Err(Refusal::Unreproducible);
     }
 
     let items: Vec<Item> = tk
@@ -941,6 +914,57 @@ mod tests {
         ] {
             assert_eq!(last(display, value), Err(Refusal::KeyValue), "{display} {value}");
         }
+    }
+
+    #[test]
+    fn a_key_of_the_time_or_the_session_is_refused() {
+        for key in [
+            "GETDATE()",
+            "getutcdate()",
+            "SYSDATETIME()",
+            "SYSUTCDATETIME()",
+            "SYSDATETIMEOFFSET()",
+            "CURRENT_TIMESTAMP",
+            "CURRENT_DATE",
+            "CURRENT_USER",
+            "SESSION_USER",
+            "SYSTEM_USER",
+            "USER",
+            "DATEDIFF(day, d, GETDATE())",
+            "CASE WHEN d < SYSDATETIME() THEN 1 ELSE 0 END",
+        ] {
+            let sql = format!("SELECT {key}, COUNT(*) FROM t GROUP BY {key}");
+            assert_eq!(plan(&sql).map(|_| ()), Err(Refusal::Unreproducible), "{sql}");
+        }
+        for (key, refusal) in [
+            ("NEWID()", Refusal::Unvetted),
+            ("NEWSEQUENTIALID()", Refusal::Unvetted),
+            ("RAND()", Refusal::Unvetted),
+            ("CRYPT_GEN_RANDOM(4)", Refusal::Unvetted),
+            ("USER_NAME()", Refusal::Unvetted),
+            ("SUSER_SNAME()", Refusal::Unvetted),
+            ("HOST_NAME()", Refusal::Unvetted),
+            ("APP_NAME()", Refusal::Unvetted),
+            ("CONTEXT_INFO()", Refusal::Unvetted),
+            ("SESSION_CONTEXT(N'k')", Refusal::Unvetted),
+            ("DB_NAME()", Refusal::Unvetted),
+            ("@@SPID", Refusal::Variable),
+            ("@@LANGUAGE", Refusal::Variable),
+        ] {
+            let sql = format!("SELECT {key}, COUNT(*) FROM t GROUP BY {key}");
+            assert_eq!(plan(&sql).map(|_| ()), Err(refusal), "{sql}");
+        }
+        for sql in [
+            "WITH k AS (SELECT GETDATE() AS now, a FROM t) SELECT k.now, COUNT(*) FROM k GROUP BY k.now",
+            "SELECT x.now, COUNT(*) FROM (SELECT SYSDATETIME() AS now FROM t) x GROUP BY x.now",
+            "SELECT x.u, COUNT(*) FROM t CROSS APPLY (SELECT CURRENT_USER AS u) x GROUP BY x.u",
+        ] {
+            assert_eq!(plan(sql).map(|_| ()), Err(Refusal::Unreproducible), "{sql}");
+        }
+        // The WHERE runs again at the new cell's own time, as on PostgreSQL.
+        let sql = "SELECT a, COUNT(*) FROM t WHERE d > DATEADD(day, -7, GETDATE()) AND u = CURRENT_USER GROUP BY a";
+        assert_eq!(columns(sql), [0]);
+        assert_eq!(columns("SELECT t.[user], t.getdate, COUNT(*) FROM t GROUP BY t.[user], t.getdate"), [0, 1]);
     }
 
     #[test]

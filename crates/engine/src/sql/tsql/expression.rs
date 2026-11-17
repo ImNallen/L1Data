@@ -50,7 +50,7 @@ pub(super) fn expression_name(token: &Token<'_>) -> bool {
                 .any(|w| token.word(w))
 }
 
-pub(super) const SCALAR_FUNCTIONS: &[&str] = &[
+const SCALAR_FUNCTIONS: &[&str] = &[
     "ABS",
     "ASCII",
     "CEILING",

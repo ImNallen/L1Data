@@ -231,6 +231,11 @@ async fn a_drilled_group_reads_exactly_the_rows_it_counted() {
             (format!("SELECT flag, COUNT(*) AS n FROM dbo.[{table}] WHERE dbo.order_count(id) >= 0 GROUP BY flag"), "The chart's query calls functions that may not be safe to run again."),
             (format!("SELECT flag, COUNT(*) AS n FROM dbo.[{table}] GROUP BY flag OPTION (MAXDOP 1)"), "The chart's query has an OPTION clause."),
             (format!("SELECT flag, COUNT(*) AS n FROM dbo.[{table}] TABLESAMPLE (50 PERCENT) GROUP BY flag"), "The chart's query uses TABLESAMPLE, so a new cell would read another sample."),
+            (format!("SELECT flag, COUNT(*) AS n FROM dbo.[{table}] WHERE CHECKSUM(NEWID()) % 2 = 0 GROUP BY flag"), "The chart's query calls functions that may not be safe to run again."),
+            (format!("SELECT DATEDIFF(day, modern, SYSDATETIME()) AS age, COUNT(*) AS n FROM dbo.[{table}] GROUP BY DATEDIFF(day, modern, SYSDATETIME())"), UNREPRODUCIBLE),
+            (format!("SELECT CONCAT(word, CURRENT_USER) AS who, COUNT(*) AS n FROM dbo.[{table}] GROUP BY CONCAT(word, CURRENT_USER)"), UNREPRODUCIBLE),
+            (format!("WITH k AS (SELECT GETDATE() AS now FROM dbo.[{table}]) SELECT k.now, COUNT(*) AS n FROM k GROUP BY k.now"), UNREPRODUCIBLE),
+            (format!("SELECT CONCAT(word, NEWID()) AS g, COUNT(*) AS n FROM dbo.[{table}] GROUP BY CONCAT(word, NEWID())"), "The chart's query calls functions that may not be safe to run again."),
             (format!("SELECT UPPER(word) AS word, COUNT(*) AS n FROM dbo.[{table}] GROUP BY word"), "A GROUP BY column has the name of another column's alias. Rename the alias."),
         ] {
             let meta = h.sql(tab, &sql).await.remove(0);
@@ -250,6 +255,8 @@ async fn a_drilled_group_reads_exactly_the_rows_it_counted() {
         std::panic::resume_unwind(panic);
     }
 }
+
+const UNREPRODUCIBLE: &str = "The chart's query reads the time or the session in a GROUP BY key, its WITH, or its FROM, which a new cell would read again with other values.";
 
 /// xorshift64*, so a failure names the seed that reproduces it.
 struct Rng(u64);
