@@ -22,3 +22,13 @@ export function zoomViewport(view: Viewport, factor: number, center: Point): Vie
   const ratio = scale / view.scale;
   return { scale, x: center.x - (center.x - view.x) * ratio, y: center.y - (center.y - view.y) * ratio };
 }
+
+export function fitWidth(bounds: Rect, box: Size, { maxScale }: { maxScale: number }): Viewport {
+  const scale = Math.min(maxScale, Math.max(MIN_SCALE, (box.width - 2 * MARGIN) / bounds.width));
+  const height = bounds.height * scale;
+  return {
+    x: (box.width - bounds.width * scale) / 2 - bounds.x * scale,
+    y: (height <= box.height - 2 * MARGIN ? (box.height - height) / 2 : MARGIN) - bounds.y * scale,
+    scale,
+  };
+}

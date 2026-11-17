@@ -1,11 +1,10 @@
 import { DENSITY_FACTOR, gridRowHeight } from "../../shell/appearance";
 import { StartCommands } from "../../shell/StartCommands";
 import { EditorView } from "@codemirror/view";
-import { ChevronRightIcon, CircleAlertIcon, CopyPlusIcon, ListIndentIncreaseIcon, PlayIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
+import { ChevronRightIcon, CircleAlertIcon, CopyPlusIcon, ListIndentIncreaseIcon, NetworkIcon, PlayIcon, RefreshCwIcon, SquareIcon, XIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import type { RunState, TabId } from "../../ipc/bindings";
-import { useCatalog, viewFor } from "../../state/catalog";
 import { useLive } from "../../state/live";
 import { canCancel, hasUncommittedWork, isBusy, refKey, rowResults, runSummary, shownResult, type ResultPick } from "../../state/status";
 import { activeId, isFiltered, isMapCell, shownNotebook, useWorkspace } from "../../state/workspace";
@@ -13,6 +12,7 @@ import { cx, IconButton } from "../../ui/primitives";
 import { useNow } from "../../ui/useNow";
 import { hasResultPager, pageRows } from "../results/format";
 import { ResultsPane, useRowEstimate } from "../results/ResultsPane";
+import { AddCellMenu } from "./AddCellMenu";
 import { CellGrip } from "./CellGrip";
 import { CellResizeHandle } from "./CellResizeHandle";
 import { CELL_SCROLL_MARGIN, cellHeights, EDITOR_MIN, pinnedTop, type DraggedHeights } from "./cellSizing";
@@ -22,19 +22,20 @@ import { ParamsStrip } from "../notebooks/ParamsStrip";
 import { warnsOnRun } from "../notebooks/NotebookRunButton";
 import { staleReason } from "../notebooks/cellReferences";
 import { activateEditor, onBuffersChanged, textOf } from "./editorStates";
-import { cancelActive, formatActive, openMapTab, openSqlTab, runActive } from "./runActions";
+import { cancelActive, formatActive, openSqlTab, runActive } from "./runActions";
 import { SqlEditor } from "./SqlEditor";
 import { SqlText } from "./SqlText";
 import { databaseKindFor } from "../../state/databaseKind";
+import { MAP_TITLE } from "../../state/notebookFile";
+import { MapCellBody } from "../schemaMap/MapCell";
+import { useSchemaMap } from "../schemaMap/useSchemaMap";
 
 const MOVE_KEYS: Partial<Record<string, -1 | 1>> = { ArrowUp: -1, ArrowDown: 1 };
 
 function AddCell({ after }: { after?: TabId }) {
   return (
     <div className="notebook-add">
-      <IconButton aria-label="Add SQL cell" data-testid="add-cell" onClick={() => openSqlTab({ after })} title="Add SQL cell">
-        <PlusIcon size={14} />
-      </IconButton>
+      <AddCellMenu after={after} testId="add-cell" />
     </div>
   );
 }
@@ -91,7 +92,7 @@ function CellTitle({
       value={draftTitle}
       onChange={(e) => setDraftTitle(e.target.value)}
       onBlur={() => {
-        if (draftTitle.trim()) useWorkspace.getState().renameTab(id, draftTitle.trim());
+        if (draftTitle.trim() && draftTitle.trim() !== title) useWorkspace.getState().renameTab(id, draftTitle.trim());
         setRenaming(false);
       }}
       onKeyDown={(e) => {
@@ -137,18 +138,23 @@ function CellTitle({
   );
 }
 
-function MapNotebookCell({ id, index, focused }: { id: TabId; index: number; focused: boolean }) {
-  const tab = useWorkspace((s) => s.tabs[id]);
+const MAP_HEIGHT = { min: 220, max: 600 };
+
+function MapNotebookCell({ id, index, viewport, focused }: { id: TabId; index: number; viewport: number; focused: boolean }) {
+  const map = useSchemaMap(id);
   const active = useWorkspace((s) => activeId(s) === id);
-  const defaultSchema = useCatalog((s) => viewFor(s.views, tab?.console.db ?? null)?.catalog.defaultSchema);
   const cell = useRef<HTMLElement>(null);
-  const collapsed = tab?.collapsed === true;
+  const [dragged, setDragged] = useState<number | null>(null);
+  const collapsed = map?.tab.collapsed === true;
   useEffect(() => {
     if (focused) cell.current?.scrollIntoView({ block: "nearest" });
   }, [focused, collapsed, index]);
-  if (!isMapCell(tab)) return null;
+  if (!map) return null;
+  const { tab, db } = map;
   const activate = () => useWorkspace.getState().setActive(id);
-  const schema = tab.console.schema ?? defaultSchema ?? "the default schema";
+  const title = tab.title === MAP_TITLE && db ? `${db.database} · ${map.schema ?? "default schema"}` : tab.title;
+  const automatic = Math.min(MAP_HEIGHT.max, Math.max(MAP_HEIGHT.min, Math.round(viewport * 0.7)));
+  const height = dragged ?? automatic;
   return (
     <>
       <section
@@ -161,36 +167,37 @@ function MapNotebookCell({ id, index, focused }: { id: TabId; index: number; foc
         onFocusCapture={() => {
           if (!active) activate();
         }}
+        onMouseDown={() => {
+          if (!active) activate();
+        }}
       >
         <div className="notebook-cell-heading">
           <CollapseButton id={id} collapsed={collapsed} />
           <CellGrip id={id} index={index} title={tab.title} />
-          <CellTitle id={id} index={index} title={tab.title} active={active} cell={cell} onActivate={activate} />
-          <IconButton
-            aria-label="Duplicate cell"
-            title="Duplicate cell"
-            onClick={() => openMapTab({ db: tab.console.db, schema: tab.console.schema, title: `${tab.title} copy`, map: tab.map })}
-          >
-            <CopyPlusIcon size={14} />
+          <NetworkIcon size={14} aria-hidden className="shrink-0 text-keyword" />
+          <CellTitle id={id} index={index} title={title} active={active} cell={cell} onActivate={activate}>
+            <span className="shrink-0 font-normal text-dim">Schema map</span>
+          </CellTitle>
+          <IconButton aria-label="Refresh catalog" title="Refresh catalog" disabled={!db} onClick={map.actions.refresh}>
+            <RefreshCwIcon size={14} />
           </IconButton>
           <IconButton aria-label="Close cell" title="Close cell" onClick={() => void closeTab(id)}>
             <XIcon size={14} />
           </IconButton>
         </div>
-        {!collapsed && (
-          <div
-            data-testid={`map-cell-${id}`}
-            tabIndex={0}
-            aria-label={`Schema map of ${schema}`}
-            onMouseDown={() => {
-              if (!active) activate();
-            }}
-            className="border-t border-border px-3 py-6 text-center text-ui-12 text-dim outline-none"
-          >
-            Schema map · {schema}
-          </div>
-        )}
+        {!collapsed && <MapCellBody map={map} height={height} />}
       </section>
+      {!collapsed && (
+        <CellResizeHandle
+          label={`Resize map in ${title}`}
+          testId="cell-map-resize"
+          value={height}
+          min={MAP_HEIGHT.min}
+          max={Math.max(MAP_HEIGHT.max, viewport - 120)}
+          lineColor="bg-transparent"
+          onResize={setDragged}
+        />
+      )}
       <AddCell after={id} />
     </>
   );
@@ -425,7 +432,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
 
 function CellOf(props: { id: TabId; index: number; viewport: number; focused: boolean }) {
   const map = useWorkspace((s) => isMapCell(s.tabs[props.id]));
-  return map ? <MapNotebookCell id={props.id} index={props.index} focused={props.focused} /> : <NotebookCell {...props} />;
+  return map ? <MapNotebookCell {...props} /> : <NotebookCell {...props} />;
 }
 
 function useFocusAfterClick(willFocus: (id: TabId) => void) {

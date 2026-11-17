@@ -1,7 +1,7 @@
-import type { DatabaseRef, LinkBasis, MapColumnPair, RelKind, SchemaMap, TypeCategory } from "../../ipc/bindings";
+import type { DatabaseRef, LinkBasis, MapColumnPair, MapColumns, RelKind, SchemaMap, TypeCategory } from "../../ipc/bindings";
 
+export type { MapColumns };
 export type Oid = number;
-export type MapColumns = "All" | "Keys";
 export type TableKey = `${string}.${string}`;
 
 export function tableKey(schema: string, name: string): TableKey {
@@ -55,6 +55,7 @@ export type ErModel = {
   incident: ReadonlyMap<Oid, readonly string[]>;
   isolated: readonly Oid[];
   keysTruncated: boolean;
+  partitionsTruncated: boolean;
   omittedTables: number;
 };
 
@@ -123,6 +124,7 @@ export function toModel(wire: SchemaMap): ErModel {
     incident,
     isolated: [...tables.values()].filter((t) => incident.get(t.oid)!.length === 0).map((t) => t.oid),
     keysTruncated: wire.keysTruncated,
+    partitionsTruncated: wire.partitionsTruncated,
     omittedTables: wire.omittedTables,
   };
 }

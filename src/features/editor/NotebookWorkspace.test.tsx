@@ -711,14 +711,14 @@ describe("a schema map cell", () => {
     for (const id of Object.keys(useWorkspace.getState().tabs)) dropEditor(id);
   });
 
-  it("shows its heading without Format or Run, and a focusable body naming its schema", async () => {
+  it("shows its heading without Format or Run, and a focusable canvas naming its schema", async () => {
     await renderNotebook();
     expect(
-      within(cell("m"))
+      within(cell("m").querySelector<HTMLElement>(".notebook-cell-heading")!)
         .getAllByRole("button")
         .map((b) => b.getAttribute("aria-label") ?? b.textContent),
-    ).toEqual(["Collapse cell", "Schema map", "Duplicate cell", "Close cell"]);
-    expect([body().textContent, body().tabIndex, body().getAttribute("aria-label")]).toEqual(["Schema map · sales", 0, "Schema map of sales"]);
+    ).toEqual(["Collapse cell", "shop · salesSchema map", "Refresh catalog", "Close cell"]);
+    expect([body().tabIndex, body().getAttribute("aria-label")]).toEqual([0, "Schema map of sales"]);
     expect([cell("m").querySelector(".notebook-editor"), docOf("m")]).toEqual([null, undefined]);
   });
 
@@ -743,12 +743,8 @@ describe("a schema map cell", () => {
     expect(document.activeElement).toBe(body());
   });
 
-  it("duplicates into another map cell of the same schema and columns, and closes with no session to end", async () => {
+  it("closes with no session to end", async () => {
     await renderNotebook();
-    fireEvent.click(within(cell("m")).getByRole("button", { name: "Duplicate cell" }));
-    const copy = Object.values(useWorkspace.getState().tabs).find((t) => t.title === "Schema map copy");
-    expect(copy && { ...copy, id: "copy" }).toEqual({ ...map, id: "copy", title: "Schema map copy" });
-    expect(docOf(copy!.id)).toBeUndefined();
     fireEvent.click(within(cell("m")).getByRole("button", { name: "Close cell" }));
     await waitFor(() => expect(useWorkspace.getState().tabs.m).toBeUndefined());
   });

@@ -1,7 +1,8 @@
 import * as Menu from "@radix-ui/react-dropdown-menu";
-import { BookOpenIcon, ChevronDownIcon, DatabaseIcon, PlusIcon } from "lucide-react";
+import { BookOpenIcon, ChevronDownIcon, DatabaseIcon } from "lucide-react";
 import { ConnectionColorDot } from "../features/connections/connectionColors";
-import { endTransaction, setTabMode, setTabSchema, openSqlTab } from "../features/editor/runActions";
+import { AddCellMenu } from "../features/editor/AddCellMenu";
+import { endTransaction, setTabMode, setTabSchema } from "../features/editor/runActions";
 import type { ConnectionState, DatabaseRef, TransactionLoss, TxnMode } from "../ipc/bindings";
 import { useCatalog, viewFor } from "../state/catalog";
 import { homeDb } from "../state/dbKey";
@@ -262,9 +263,7 @@ export function TopBar({ hosted }: { hosted: HostedWindow | null }) {
               <span data-testid="notebook-unsaved" aria-hidden className="absolute top-1 right-1 size-1.5 rounded-full border-[1.5px] border-focus bg-bg" />
             )}
           </IconButton>
-          <IconButton data-testid="new-query-cell" aria-label="Add SQL cell" title="Add SQL cell" onClick={() => openSqlTab()}>
-            <PlusIcon size={14} />
-          </IconButton>
+          <AddCellMenu testId="new-query-cell" />
         </div>
       </div>
     </header>

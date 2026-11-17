@@ -58,7 +58,7 @@ import { ContextMenuItem, ContextMenuSeparator, ContextSubmenu, Highlight, Spinn
 import { matchRanges, parseQuery, type TextRange } from "../../ui/textMatch";
 import { connect, confirmDelete, disconnect, refreshCatalog, refreshConnection } from "../connections/connectionActions";
 import { ConnectionColorDot, EnvironmentBadge, EnvironmentIcon, connectionColor } from "../connections/connectionColors";
-import { insertIntoActive, openSqlTab, openTableTab } from "../editor/runActions";
+import { insertIntoActive, openMapTab, openSqlTab, openTableTab } from "../editor/runActions";
 import { useRunningNotebooks } from "../notebooks/notebookRun";
 import { columnType, defaultText, indexText, keyText, triggerText, type RowText } from "./detailText";
 import { databaseCount, schemaCount } from "./pickers";
@@ -135,6 +135,17 @@ function NewMenu({ db }: { db: DatabaseRef }) {
         Query Console
       </ContextMenuItem>
     </ContextSubmenu>
+  );
+}
+
+function CellMenu({ db, schema }: { db: DatabaseRef; schema?: string }) {
+  return (
+    <>
+      <ContextMenuItem testId="tree-menu-schema-map" onSelect={() => openMapTab({ db, schema: schema ?? null })}>
+        Add schema map cell
+      </ContextMenuItem>
+      <NewMenu db={db} />
+    </>
   );
 }
 
@@ -591,7 +602,7 @@ function schemaRows(b: Build, path: TreePath, depth: number, db: DatabaseRef, sc
     strong: true,
     height: 28,
     onClick: () => b.expanded.toggle(me.key),
-    menu: () => <NewMenu db={db} />,
+    menu: () => <CellMenu db={db} schema={schema.name} />,
     view: () => ({ label: <SchemaName name={schema.name} />, trailing: <Count>{schema.tableCount}</Count> }),
   });
   if (!open) return;
@@ -687,7 +698,7 @@ function databaseRows(b: Build, news: CatalogNews, path: TreePath, db: DatabaseR
     // Browsing, a database sits under its connection's icon, tied to it by a guide line, rather than a full level in.
     ...(b.browse && { height: 28, indent: 26, guide: true }),
     onClick: () => (b.browse ? b.browse.select(db) : b.expanded.toggle(me.key)),
-    menu: () => <NewMenu db={db} />,
+    menu: () => <CellMenu db={db} />,
     view: (active) => ({
       icon: <DatabaseIcon size={14} className={picked ? "text-keyword" : "text-dim"} />,
       label: picked ? <span className="font-medium text-keyword">{db.database}</span> : db.database,
