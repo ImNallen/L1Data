@@ -263,12 +263,14 @@ export type CellAggregate = { kind: "Counts"; count: number; nonNull: number } |
 
 export type CellMeta = {
 	title: string | null,
-	/**  The schema the cell runs in. */
+	/**  The schema the cell runs in, or the one a map cell draws. */
 	schema: string | null,
 	/**  The table a browse cell shows. */
 	table: CellTable | null,
 	/**  The cell commits by hand. */
 	manual: boolean,
+	/**  The cell is a schema map, with no table, no manual mode, and no text. */
+	map: MapCell | null,
 	/**  Keys this build does not read, and known keys whose value it cannot, written back as they were. */
 	unknown: MetaPair[],
 };

@@ -2,6 +2,7 @@ import type { Text } from "@codemirror/state";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
   commands,
+  type CellMeta,
   type ConnectionConfig,
   type ConnectionId,
   type ConnectionState,
@@ -25,6 +26,7 @@ import {
   fileStem,
   hasDefaultTitle,
   judgeNotebook,
+  MAP_TITLE,
   metaKey,
   notebookText,
   openedNotebook,
@@ -33,7 +35,7 @@ import {
 } from "../../state/notebookFile";
 import { paramsKey } from "../../state/notebookParams";
 import { newNotebook, type FileHealth, type Notebook, type SavedNotebook } from "../../state/notebooks";
-import { ask, EMPTY_QUERY, nextUntitled, notebookWithFile, shownDb, useWorkspace, type Question, type Tab } from "../../state/workspace";
+import { ask, EMPTY_QUERY, isMapCell, nextUntitled, notebookWithFile, shownDb, useWorkspace, type Question, type Tab } from "../../state/workspace";
 import { docOf, replaceDoc, seedEditor, textOf } from "../editor/editorStates";
 import { flushWorkspaceSave } from "../editor/persistence";
 import { forgetTab } from "../editor/runActions";
@@ -65,7 +67,9 @@ async function openNotebookFile(path: string): Promise<void> {
     notify(`No connection named “${missing}”. ${db ? `Opened on ${db.database} · ${configs[db.connectionId]?.name}.` : "Opened with no connection."}`);
   const { notebook } = res.data;
   const tabs = cellTabs(notebook.cells, db);
-  tabs.forEach((t, i) => seedEditor(t.id, notebook.cells[i]?.text ?? ""));
+  tabs.forEach((t, i) => {
+    if (!isMapCell(t)) seedEditor(t.id, notebook.cells[i]?.text ?? "");
+  });
   ws().openNotebook(
     {
       ...newNotebook([], db),
@@ -102,6 +106,10 @@ export function notebookDatabase(
   return { db: first ? homeDb(first, connections[first.id]) : null, missing };
 }
 
+function sameKind(old: Tab | undefined, meta: CellMeta): old is Tab {
+  return old !== undefined && isMapCell(old) === (meta.map !== null);
+}
+
 /**
  * A cell the file does not title takes a new cell's title, or keeps the one `reuse` gave the cell at its place, as it keeps
  * that cell's collapse. A table cell browses only on a connection, and SQL Server cells commit automatically.
@@ -111,13 +119,15 @@ function cellTabs(cells: readonly NotebookCell[], db: DatabaseRef | null, reuse:
   const tabs: Tab[] = [];
   cells.forEach(({ meta }, i) => {
     const table = db && meta.table ? { schema: meta.table.schema, table: meta.table.table, page: 0, query: EMPTY_QUERY } : null;
-    const old = reuse[i];
-    const untitled = old && recordedTitle(old.title, table) === null ? old.title : nextUntitled([...Object.values(ws().tabs), ...tabs]);
+    const old = sameKind(reuse[i], meta) ? reuse[i] : undefined;
+    const fresh = meta.map ? MAP_TITLE : nextUntitled([...Object.values(ws().tabs), ...tabs]);
+    const untitled = old && recordedTitle(old.title, { table, map: meta.map }) === null ? old.title : fresh;
     tabs.push({
       id: old?.id ?? crypto.randomUUID(),
       title: meta.title ?? table?.table ?? untitled,
       console: { db, mode: meta.manual && manualOk ? "Manual" : "AutoCommit", ...(meta.schema && { schema: meta.schema }) },
       table,
+      ...(meta.map && { map: { columns: meta.map.columns } }),
       ...(old?.collapsed && { collapsed: true }),
     });
   });
@@ -180,7 +190,7 @@ function cellsOf(notebook: Notebook): NotebookCell[] {
   const { tabs } = ws();
   return notebook.cells.flatMap((id) => {
     const tab = tabs[id];
-    return tab ? [{ text: textOf(id), meta: cellMeta(tab, notebook.file?.unknown.cells[id]) }] : [];
+    return tab ? [{ text: isMapCell(tab) ? "" : textOf(id), meta: cellMeta(tab, notebook.file?.unknown.cells[id]) }] : [];
   });
 }
 
@@ -349,9 +359,14 @@ function reload(notebook: Notebook, opened: NotebookOpened): void {
   const { cells, header } = opened.notebook;
   const kept = notebook.cells.map((id) => ws().tabs[id]);
   const tabs = cellTabs(cells, notebook.db, kept);
-  tabs.forEach((t, i) => (i < notebook.cells.length ? replaceDoc(t.id, cells[i]?.text ?? "") : seedEditor(t.id, cells[i]?.text ?? "")));
+  tabs.forEach((t, i) => {
+    if (isMapCell(t)) return;
+    const text = cells[i]?.text ?? "";
+    if (notebook.cells.includes(t.id)) replaceDoc(t.id, text);
+    else seedEditor(t.id, text);
+  });
   ws().replaceCells(notebook.id, tabs, header.params);
-  for (const id of notebook.cells.slice(tabs.length)) forgetTab(id);
+  for (const id of notebook.cells) if (!tabs.some((t) => t.id === id)) forgetTab(id);
   ws().setNotebookFile(notebook.id, {
     binding: opened.binding,
     health: "ok",

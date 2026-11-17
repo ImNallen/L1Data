@@ -4,7 +4,8 @@
 //! The text here is LF-only with no BOM; `files.rs` puts the file's own line breaks and BOM back.
 
 use crate::model::{
-    CellMeta, CellTable, DatabaseKind, MetaPair, NotebookCell, NotebookHeader, NotebookText, ParamValue,
+    CellMeta, CellTable, DatabaseKind, MapCell, MapColumns, MetaPair, NotebookCell, NotebookHeader, NotebookText,
+    ParamValue,
 };
 
 const HEADER: &str = "-- l1 notebook:";
@@ -13,6 +14,10 @@ const MARKER: &str = "-- %%";
 /// after the first one. Older builds keep both as keys they do not read and write them back in order.
 const PARAM: &str = "param";
 const NULL: &str = "null";
+/// `cell="map"` makes a cell a schema map, and `columns="keys"` lists only its key columns.
+const CELL: &str = "cell";
+const MAP: &str = "map";
+const COLUMNS: &str = "columns";
 
 pub(crate) fn parse(text: &str) -> NotebookText {
     let mut lines: Vec<&str> = text.split('\n').collect();
@@ -29,18 +34,18 @@ pub(crate) fn parse(text: &str) -> NotebookText {
     }
     let body = &lines[usize::from(header.is_some())..];
     let mut cells = Vec::new();
-    let mut meta = None;
+    let mut marker = None;
     let mut cell: Vec<String> = Vec::new();
     for line in body {
         let Some(rest) = marker_rest(line) else {
             cell.push(unescape(line));
             continue;
         };
-        flush(&mut cells, meta.take(), &cell);
+        flush(&mut cells, marker.take(), &cell);
         cell.clear();
-        meta = Some(cell_meta(rest));
+        marker = Some(rest);
     }
-    flush(&mut cells, meta, &cell);
+    flush(&mut cells, marker, &cell);
     if cells.is_empty() {
         cells.push(NotebookCell::default());
     }
@@ -79,6 +84,8 @@ pub(crate) fn print(notebook: &NotebookText) -> (String, bool) {
             ("schema", m.schema.as_deref()),
             ("table", table.as_deref()),
             ("mode", m.manual.then_some("manual")),
+            (CELL, m.map.as_ref().map(|_| MAP)),
+            (COLUMNS, m.map.as_ref().and_then(|map| (map.columns == MapColumns::Keys).then_some("keys"))),
         ];
         write_pairs(&mut out, &known, &m.unknown);
         out.push('\n');
@@ -108,12 +115,18 @@ fn plain_text(notebook: &NotebookText) -> Option<&str> {
 }
 
 /// Text before the first marker is a cell only when it holds something.
-fn flush(cells: &mut Vec<NotebookCell>, meta: Option<CellMeta>, cell: &[String]) {
-    match meta {
-        Some(meta) => cells.push(NotebookCell { text: cell.join("\n"), meta }),
-        None if cell.iter().any(|l| !l.trim().is_empty()) => {
-            cells.push(NotebookCell { text: cell.join("\n"), meta: CellMeta::default() })
+fn flush(cells: &mut Vec<NotebookCell>, marker: Option<&str>, cell: &[String]) {
+    let blank = cell.iter().all(|l| l.trim().is_empty());
+    match marker {
+        Some(rest) => {
+            let (pairs, free) = pairs(rest);
+            let names_map = pairs.iter().any(|p| p.key == CELL && p.value == MAP);
+            let kind = if names_map && blank { Kind::Map } else { Kind::Query };
+            let meta = cell_meta(pairs, free, kind);
+            let text = if meta.map.is_some() { String::new() } else { cell.join("\n") };
+            cells.push(NotebookCell { text, meta })
         }
+        None if !blank => cells.push(NotebookCell { text: cell.join("\n"), meta: CellMeta::default() }),
         None => {}
     }
 }
@@ -170,6 +183,14 @@ fn param_of(pair: &MetaPair) -> Option<ParamValue> {
     named.then(|| ParamValue { name: name.to_owned(), value: value.map(str::to_owned) })
 }
 
+fn column_mode(value: &str) -> Option<MapColumns> {
+    match value {
+        "all" => Some(MapColumns::All),
+        "keys" => Some(MapColumns::Keys),
+        _ => None,
+    }
+}
+
 fn kind_of(value: &str) -> Option<DatabaseKind> {
     match value {
         "postgres" => Some(DatabaseKind::Postgres),
@@ -178,18 +199,34 @@ fn kind_of(value: &str) -> Option<DatabaseKind> {
     }
 }
 
+#[derive(PartialEq)]
+enum Kind {
+    Query,
+    Map,
+}
+
 /// Text after the marker that is not a pair is the cell's title, as Jupytext writes `# %% Title`.
-fn cell_meta(rest: &str) -> CellMeta {
-    let (pairs, free) = pairs(rest);
+fn cell_meta(pairs: Vec<MetaPair>, free: &str, kind: Kind) -> CellMeta {
+    let map = kind == Kind::Map;
     let mut meta = CellMeta::default();
+    let mut columns = None;
     for pair in pairs {
         match pair.key.as_str() {
             "title" if meta.title.is_none() => meta.title = Some(pair.value),
             "schema" if meta.schema.is_none() => meta.schema = Some(pair.value),
-            "table" if meta.table.is_none() && table_of(&pair.value).is_some() => meta.table = table_of(&pair.value),
-            "mode" if !meta.manual && pair.value == "manual" => meta.manual = true,
+            "table" if !map && meta.table.is_none() && table_of(&pair.value).is_some() => {
+                meta.table = table_of(&pair.value)
+            }
+            "mode" if !map && !meta.manual && pair.value == "manual" => meta.manual = true,
+            CELL if map && meta.map.is_none() && pair.value == MAP => meta.map = Some(MapCell::default()),
+            COLUMNS if map && columns.is_none() && column_mode(&pair.value).is_some() => {
+                columns = column_mode(&pair.value)
+            }
             _ => meta.unknown.push(pair),
         }
+    }
+    if let (Some(map), Some(columns)) = (&mut meta.map, columns) {
+        map.columns = columns;
     }
     if meta.title.is_none() && !free.is_empty() {
         meta.title = Some(free.to_owned());
@@ -670,6 +707,119 @@ select 1;
         let (text, as_plain) = print(&header_first);
         assert!(!as_plain, "a first line that reads as a header is not plain");
         assert_eq!(parse(&text).cells, header_first.cells);
+    }
+
+    fn map(columns: MapColumns, schema: Option<&str>) -> CellMeta {
+        CellMeta { schema: schema.map(str::to_owned), map: Some(MapCell { columns }), ..CellMeta::default() }
+    }
+
+    const MAPPED: &str = "\
+-- l1 notebook: connection=\"localhost / shop\" kind=\"postgres\" database=\"shop\"
+-- %% title=\"Orders\"
+select 1;
+-- %% schema=\"public\" cell=\"map\" columns=\"keys\"
+
+-- %% title=\"Sales tables\" schema=\"sales\" cell=\"map\"
+
+";
+
+    #[test]
+    fn a_map_cell_round_trips_with_its_schema_and_columns() {
+        let notebook = NotebookText {
+            plain: false,
+            header: shop(),
+            cells: vec![
+                cell("select 1;", titled("Orders")),
+                cell("", map(MapColumns::Keys, Some("public"))),
+                cell("", CellMeta { title: Some("Sales tables".into()), ..map(MapColumns::All, Some("sales")) }),
+            ],
+        };
+        assert_eq!(print(&notebook), (MAPPED.to_owned(), false));
+        assert_eq!(parse(MAPPED), notebook);
+    }
+
+    #[test]
+    fn map_keys_read_in_any_order_and_columns_without_a_map_stay_unknown() {
+        let reordered = parse("-- %% columns=\"keys\" cell=\"map\"\n\n  \n\n-- %% columns=\"all\" cell=\"map\"\n");
+        assert_eq!(
+            reordered.cells.iter().map(|c| c.text.as_str()).collect::<Vec<_>>(),
+            ["", ""],
+            "a map holds no text"
+        );
+        let metas: Vec<_> = reordered.cells.iter().map(|c| c.meta.clone()).collect();
+        assert_eq!(metas, [map(MapColumns::Keys, None), map(MapColumns::All, None)]);
+        let unread = parse("-- %% columns=\"keys\"\nselect 1;\n-- %% cell=\"map\" columns=\"wide\"\n");
+        assert_eq!(unread.cells[0].meta, CellMeta { unknown: vec![pair("columns", "keys")], ..CellMeta::default() });
+        assert_eq!(
+            unread.cells[1].meta,
+            CellMeta { unknown: vec![pair("columns", "wide")], ..map(MapColumns::All, None) },
+            "a columns value this build cannot read stays unknown and the cell stays a map"
+        );
+    }
+
+    #[test]
+    fn a_cell_kind_this_build_does_not_know_reads_as_sql() {
+        let notebook = parse("-- %% cell=\"chart\"\nselect 1;\n");
+        assert_eq!(
+            notebook.cells,
+            [cell("select 1;", CellMeta { unknown: vec![pair("cell", "chart")], ..CellMeta::default() })]
+        );
+    }
+
+    #[test]
+    fn a_map_cell_someone_typed_into_reads_as_sql_and_keeps_its_keys() {
+        let typed = "-- %% schema=\"public\" cell=\"map\" columns=\"keys\"\nselect 1;\n";
+        let notebook = parse(typed);
+        let meta = CellMeta {
+            schema: Some("public".into()),
+            unknown: vec![pair("cell", "map"), pair("columns", "keys")],
+            ..CellMeta::default()
+        };
+        assert_eq!(notebook.cells, [cell("select 1;", meta.clone())]);
+        assert_eq!(print(&notebook).0, format!("{HEADER}\n{typed}"), "the text and the keys are written back");
+        let cleared = NotebookText { cells: vec![cell("", meta)], ..notebook };
+        assert_eq!(
+            parse(&print(&cleared).0).cells[0].meta,
+            map(MapColumns::Keys, Some("public")),
+            "a cleared body is a map again"
+        );
+    }
+
+    #[test]
+    fn a_build_that_reads_map_keys_as_unknown_writes_them_back() {
+        let older = NotebookText {
+            plain: false,
+            header: shop(),
+            cells: vec![cell(
+                "",
+                CellMeta { unknown: vec![pair("cell", "map"), pair("columns", "keys")], ..CellMeta::default() },
+            )],
+        };
+        assert_eq!(parse(&print(&older).0).cells, [cell("", map(MapColumns::Keys, None))]);
+    }
+
+    #[test]
+    fn a_map_cell_leaves_table_and_mode_unknown() {
+        let notebook = parse("-- %% cell=\"map\" table=\"public.orders\" mode=\"manual\"\n");
+        assert_eq!(
+            notebook.cells[0].meta,
+            CellMeta {
+                unknown: vec![pair("table", "public.orders"), pair("mode", "manual")],
+                ..map(MapColumns::All, None)
+            }
+        );
+    }
+
+    #[test]
+    fn a_notebook_of_one_map_cell_is_never_plain() {
+        let notebook = NotebookText {
+            plain: true,
+            header: NotebookHeader::default(),
+            cells: vec![cell("", map(MapColumns::All, None))],
+        };
+        let (text, plain) = print(&notebook);
+        assert_eq!((text.as_str(), plain), ("-- l1 notebook:\n-- %% cell=\"map\"\n\n", false));
+        assert_eq!(parse(&text), NotebookText { plain: false, ..notebook });
     }
 
     #[test]

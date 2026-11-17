@@ -63,8 +63,6 @@ export type SqlTab = Tab & { map?: undefined };
 export type TableTab = SqlTab & { table: TableBrowse; console: ConsoleTarget & { db: DatabaseRef } };
 export type MapTab = Tab & { map: MapCell; table: null };
 
-export const MAP_TITLE = "Schema map";
-
 export function isTableTab(tab: Tab | undefined): tab is TableTab {
   return tab !== undefined && tab.table !== null && tab.console.db !== null;
 }

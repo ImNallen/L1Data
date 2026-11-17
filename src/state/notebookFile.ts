@@ -1,35 +1,33 @@
-import type {
-  CellMeta,
-  CellTable,
-  ConnectionConfig,
-  FileBinding,
-  FileReadError,
-  MetaPair,
-  NotebookCell,
-  NotebookOpened,
-  NotebookText,
-  ParamValue,
-} from "../ipc/bindings";
+import type { CellMeta, ConnectionConfig, FileBinding, FileReadError, MetaPair, NotebookCell, NotebookOpened, NotebookText, ParamValue } from "../ipc/bindings";
 import { paramsKey } from "./notebookParams";
 import { notebookTitle, type Notebook, type SavedNotebook } from "./notebooks";
 import type { Tab } from "./workspace";
 
 const UNTITLED = /^Untitled-\d+\.sql$/;
 
-/** A title a new cell or a table cell gets anyway is not worth writing to the file. */
-export function recordedTitle(title: string | null, table: CellTable | null): string | null {
-  return title === null || UNTITLED.test(title) || title === table?.table ? null : title;
+export const MAP_TITLE = "Schema map";
+
+export function recordedTitle(title: string | null, { table, map }: Pick<CellMeta, "table" | "map">): string | null {
+  return title === null || UNTITLED.test(title) || title === table?.table || (map !== null && title === MAP_TITLE) ? null : title;
 }
 
 /** What a save writes about a cell besides its text. `unknown` is the file's keys this build does not read. */
 export function cellMeta(tab: Tab, unknown: MetaPair[] = []): CellMeta {
   const table = tab.table && { schema: tab.table.schema, table: tab.table.table };
-  return { title: recordedTitle(tab.title, table), schema: tab.console.schema ?? null, table, manual: tab.console.mode === "Manual", unknown };
+  const map = tab.map ? { columns: tab.map.columns } : null;
+  return { title: recordedTitle(tab.title, { table, map }), schema: tab.console.schema ?? null, table, manual: tab.console.mode === "Manual", map, unknown };
 }
 
 /** Keys this build does not read never change here, so they are left out. */
 export function metaKey(meta: CellMeta): string {
-  return JSON.stringify([recordedTitle(meta.title, meta.table), meta.schema, meta.table?.schema ?? null, meta.table?.table ?? null, meta.manual]);
+  return JSON.stringify([
+    recordedTitle(meta.title, meta),
+    meta.schema,
+    meta.table?.schema ?? null,
+    meta.table?.table ?? null,
+    meta.manual,
+    meta.map?.columns ?? null,
+  ]);
 }
 
 export function savedNotebook(cells: readonly NotebookCell[], params: readonly ParamValue[]): SavedNotebook {

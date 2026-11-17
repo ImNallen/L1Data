@@ -16,14 +16,14 @@ import type {
 import { judgeNotebook, savedNotebook, type NotebookRead } from "../../state/notebookFile";
 import { activeId, DEFAULT_SETTINGS, shownNotebook, useWorkspace, workspaceSnapshot } from "../../state/workspace";
 import { closeTab } from "../editor/closeTab";
-import { dropEditor, insertAtCursor, seedEditor, textOf } from "../editor/editorStates";
+import { docOf, dropEditor, insertAtCursor, seedEditor, textOf } from "../editor/editorStates";
 import { forgetTab, openSqlTab } from "../editor/runActions";
 import { notebookDirty } from "./notebookDirty";
 import { defaultFileName, notebookDatabase, openNotebookFiles, reconcileNotebookFiles, saveNotebook } from "./notebookFiles";
 
 const ws = () => useWorkspace.getState();
 const PLAIN = { bom: false, crlf: false };
-const NO_META: CellMeta = { title: null, schema: null, table: null, manual: false, unknown: [] };
+const NO_META: CellMeta = { title: null, schema: null, table: null, manual: false, map: null, unknown: [] };
 const NO_HEADER: NotebookHeader = { connection: null, kind: null, database: null, params: [], unknown: [] };
 
 type Call = { cmd: string; args: Record<string, unknown> };
@@ -556,4 +556,53 @@ it("takes the keys another program changed when it keeps a file whose cells did 
   await saveNotebook(id);
   const written = saves().at(-1)?.notebook;
   expect([written?.header.unknown, written?.cells[0]?.meta.unknown]).toEqual([[{ key: "owner", value: "bo" }], [{ key: "tag", value: "new" }]]);
+});
+
+describe("a schema map cell", () => {
+  const keys = { map: { columns: "Keys" as const } };
+  const mapped = (): NotebookText => ({
+    plain: false,
+    header: NO_HEADER,
+    cells: [cell("select 1;"), cell("", { schema: "sales", ...keys }), cell("", { title: "All of it", map: { columns: "All" } })],
+  });
+
+  it("opens from its file with no editor, saves back what the file holds, and reads unsaved when it changes", async () => {
+    const id = await openFile("/q/m.sql", mapped());
+    const [, map, renamed] = shown().cells as [string, string, string];
+    expect([ws().tabs[map], ws().tabs[renamed]?.title, docOf(map), dirty()]).toEqual([
+      { id: map, title: "Schema map", console: { db: null, mode: "AutoCommit", schema: "sales" }, table: null, ...keys },
+      "All of it",
+      undefined,
+      false,
+    ]);
+    expect(await saveNotebook(id)).toBe(true);
+    expect(saves()[0]?.notebook.cells).toEqual(mapped().cells);
+    expect([docOf(map), dirty()]).toEqual([undefined, false]);
+    useWorkspace.setState((s) => ({ tabs: { ...s.tabs, [map]: { ...s.tabs[map]!, map: { columns: "All" } } } }));
+    expect(dirty()).toBe(true);
+    useWorkspace.setState((s) => ({ tabs: { ...s.tabs, [map]: { ...s.tabs[map]!, ...keys } } }));
+    expect(dirty()).toBe(false);
+    ws().renameTab(renamed, "Schema map");
+    expect(dirty()).toBe(true);
+    expect(await saveNotebook(id)).toBe(true);
+    expect(saves()[1]?.notebook.cells[2]?.meta.title).toBeNull();
+  });
+
+  it("reloads into new cells where the file turned a map into SQL or SQL into a map", async () => {
+    await openFile("/q/m.sql", mapped());
+    const [sql, map, kept] = shown().cells as [string, string, string];
+    writeDisk("/q/m.sql", { plain: false, header: NO_HEADER, cells: [cell("", keys), cell("select 2;"), cell("", { title: "All of it", ...keys })] });
+    await reconcileNotebookFiles();
+    const [first, second, third] = shown().cells as [string, string, string];
+    expect([first === sql, second === map, third]).toEqual([false, false, kept]);
+    expect([ws().tabs[sql], ws().tabs[map], docOf(sql)]).toEqual([undefined, undefined, undefined]);
+    expect([ws().tabs[first]?.map, docOf(first), textOf(second), ws().tabs[second]?.map, ws().tabs[kept]?.map]).toEqual([
+      { columns: "Keys" },
+      undefined,
+      "select 2;",
+      undefined,
+      { columns: "Keys" },
+    ]);
+    expect(dirty()).toBe(false);
+  });
 });

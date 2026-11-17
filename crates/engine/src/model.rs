@@ -3129,12 +3129,14 @@ pub struct NotebookCell {
 #[serde(rename_all = "camelCase")]
 pub struct CellMeta {
     pub title: Option<String>,
-    /// The schema the cell runs in.
+    /// The schema the cell runs in, or the one a map cell draws.
     pub schema: Option<String>,
     /// The table a browse cell shows.
     pub table: Option<CellTable>,
     /// The cell commits by hand.
     pub manual: bool,
+    /// The cell is a schema map, with no table, no manual mode, and no text.
+    pub map: Option<MapCell>,
     /// Keys this build does not read, and known keys whose value it cannot, written back as they were.
     pub unknown: Vec<MetaPair>,
 }
