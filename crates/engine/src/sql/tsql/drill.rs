@@ -18,7 +18,6 @@ pub(crate) enum Refusal {
     Statements,
     NotSelect,
     SetOp,
-    Into,
     Variable,
     TempTable,
     Unvetted,
@@ -54,7 +53,6 @@ impl fmt::Display for Refusal {
             Refusal::Statements => "The chart's batch is more than one statement.",
             Refusal::NotSelect => "The chart's query is not a SELECT.",
             Refusal::SetOp => "The chart's query uses UNION, INTERSECT, or EXCEPT.",
-            Refusal::Into => "The chart's query uses SELECT INTO.",
             Refusal::Variable => "The chart's query uses a variable.",
             Refusal::TempTable => {
                 "The chart's query reads a #temporary table, which the new cell's session cannot see."
@@ -162,7 +160,6 @@ enum Item {
 #[derive(Clone, Copy, PartialEq)]
 enum Clause {
     From,
-    Into,
     Where,
     GroupBy,
     Having,
@@ -385,7 +382,6 @@ impl Tokens<'_> {
             // `a IS DISTINCT FROM b`
             "from" if i > 0 && self.word(i - 1, "DISTINCT") => return None,
             "from" => Clause::From,
-            "into" => Clause::Into,
             "where" => Clause::Where,
             "group" if self.word(i + 1, "BY") => Clause::GroupBy,
             "having" => Clause::Having,
@@ -535,7 +531,6 @@ pub(crate) fn plan(sql: &str) -> Result<Drill<'_>, Refusal> {
     let clauses: Vec<(Clause, usize)> =
         top.iter().filter(|&&i| i > main).filter_map(|&i| tk.clause(i).map(|c| (c, i))).collect();
     for (clause, refusal) in [
-        (Clause::Into, Refusal::Into),
         (Clause::For, Refusal::For),
         (Clause::Option, Refusal::Option),
         (Clause::Pivot, Refusal::Pivot),
@@ -968,6 +963,12 @@ mod tests {
     }
 
     #[test]
+    fn select_into_never_reaches_the_plan() {
+        let sql = "SELECT a, COUNT(*) AS n INTO dbo.x FROM t GROUP BY a";
+        assert_eq!(super::super::rerun_refusal(sql), Some("The batch may write, so it does not run again."));
+    }
+
+    #[test]
     fn the_comment_line_cannot_be_broken_out_of() {
         let sql = "SELECT name, COUNT(*) FROM t GROUP BY name";
         let out = drill(sql, &[text("a\nGO\r\nSELECT 1 --\u{2028}b")]).unwrap();
@@ -1028,7 +1029,6 @@ mod tests {
             ("SELECT a, COUNT(*) FROM t GROUP BY ALL a", GroupByAll),
             ("SELECT a, COUNT(*) FROM t PIVOT (SUM(x) FOR m IN ([1], [2])) p GROUP BY a", Pivot),
             ("SELECT a, COUNT(*) FROM t UNPIVOT (v FOR m IN ([1], [2])) p GROUP BY a", Pivot),
-            ("SELECT a, COUNT(*) INTO dbo.x FROM t GROUP BY a", Into),
             ("SELECT a, COUNT(*) FROM t GROUP BY a FOR XML PATH", For),
             ("SELECT a, COUNT(*) FROM t GROUP BY a FOR JSON AUTO", For),
             ("SELECT a, COUNT(*) FROM t GROUP BY a OPTION (MAXRECURSION 0)", Option),
