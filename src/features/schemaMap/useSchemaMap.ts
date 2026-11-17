@@ -55,7 +55,7 @@ function layoutFor(model: ErModel, columns: MapColumns): MapLayout {
 const NO_SCHEMAS: readonly string[] = [];
 const NO_ROUTES: readonly LinkRoute[] = [];
 
-export function useSchemaMap(id: TabId): SchemaMapView | null {
+export function useSchemaMap(id: TabId, drawn: boolean): SchemaMapView | null {
   const tab = useWorkspace((s) => s.tabs[id]);
   const mapTab = isMapCell(tab) ? tab : null;
   const db = mapTab?.console.db ?? null;
@@ -64,11 +64,10 @@ export function useSchemaMap(id: TabId): SchemaMapView | null {
   const catalog = useCatalog((s) => viewFor(s.views, db)?.catalog);
   const entry = useSchemaMapData((s) => (db ? s.entries[mapKey(db, asked)] : undefined));
   const view = useMapView(id);
-  const expanded = mapTab !== null && !mapTab.collapsed;
 
   useEffect(() => {
-    if (db && version !== undefined && expanded) void useSchemaMapData.getState().ensure(db, asked, version);
-  }, [db, asked, version, expanded]);
+    if (db && version !== undefined && drawn) void useSchemaMapData.getState().ensure(db, asked, version);
+  }, [db, asked, version, drawn]);
 
   const model = entry?.lastModel ?? null;
   const columns = mapTab?.map.columns ?? "All";

@@ -11,7 +11,7 @@ import {
   Table2Icon,
   TriangleAlertIcon,
 } from "lucide-react";
-import { useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useRef, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import type { MapColumns } from "../../ipc/bindings";
 import { Button, cx, IconButton, Kbd, MenuContent, MenuItem, Spinner } from "../../ui/primitives";
 import { useNow } from "../../ui/useNow";
@@ -39,10 +39,10 @@ function ToolbarMenu({ label, value, testId, children }: { label: string; value:
   );
 }
 
-export function MapToolbar({ map, findRef }: { map: SchemaMapView; findRef?: React.Ref<HTMLInputElement> }) {
+export function MapToolbar({ map, findRef, className }: { map: SchemaMapView; findRef?: React.Ref<HTMLInputElement>; className?: string }) {
   const first = () => (map.model && map.matches ? [...map.model.tables.values()].find((t) => map.matches!.has(t.oid)) : undefined);
   return (
-    <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+    <div className={cx("flex items-center gap-2 border-b border-border px-3 py-2", className)}>
       <label className="flex h-7 w-60 min-w-0 shrink items-center gap-2 rounded-md border border-control bg-bg px-2 text-ui-12 focus-within:border-focus">
         <SearchIcon size={13} className="shrink-0 text-dim" />
         <input
@@ -158,7 +158,11 @@ export function MapLegend({ map }: { map: SchemaMapView }) {
   );
 }
 
-async function queryInNewCell(map: SchemaMapView, table: ErTable): Promise<void> {
+export async function browseRows(map: SchemaMapView, table: ErTable): Promise<void> {
+  if (map.db) await openTableTab({ db: map.db, schema: table.schema, relation: table.name }, undefined, map.tab.id);
+}
+
+export async function queryInNewCell(map: SchemaMapView, table: ErTable): Promise<void> {
   if (!map.db) return;
   const text = await browseTemplate(map.db, table.schema, table.name);
   if (text !== null) openSqlTab({ db: map.db, schema: map.tab.console.schema ?? null, text, after: map.tab.id });
@@ -191,7 +195,7 @@ export function FocusStrip({ map }: { map: SchemaMapView }) {
         type="button"
         className={cx(TOOL, "border-transparent bg-run text-run-fg hover:bg-run-hover disabled:opacity-40")}
         disabled={!db}
-        onClick={() => db && void openTableTab({ db, schema: table.schema, relation: table.name }, undefined, map.tab.id)}
+        onClick={() => void browseRows(map, table)}
       >
         <PlayIcon size={12} />
         Browse rows
@@ -212,19 +216,49 @@ function CanvasNote({ children, tone = "muted" }: { children: ReactNode; tone?: 
   );
 }
 
-export function MapCellBody({ map, height }: { map: SchemaMapView; height: number }) {
-  const find = useRef<HTMLInputElement>(null);
+export function findShortcut(e: KeyboardEvent, find: RefObject<HTMLInputElement | null>): boolean {
+  if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "f") return false;
+  e.preventDefault();
+  find.current?.focus();
+  find.current?.select();
+  return true;
+}
+
+export function CanvasStatus({ map }: { map: SchemaMapView }) {
   const { status, model } = map;
-  const onKeyDown = (e: KeyboardEvent) => {
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
-      e.preventDefault();
-      find.current?.focus();
-      find.current?.select();
-    }
-  };
   const db = map.db?.database;
   return (
-    <div className="border-t border-border" onKeyDown={onKeyDown}>
+    <>
+      {status.kind === "unconnected" && <CanvasNote>Connect to {db ?? "a database"} to draw this schema's map.</CanvasNote>}
+      {status.kind === "loading" && (
+        <CanvasNote>
+          <span className="flex items-center gap-2">
+            <Spinner /> Loading the schema map…
+          </span>
+        </CanvasNote>
+      )}
+      {status.kind === "error" && !model && (
+        <CanvasNote tone="error">
+          {status.message}
+          <Button className="h-7 text-ui-12" onClick={map.actions.refresh}>
+            Retry
+          </Button>
+        </CanvasNote>
+      )}
+      {status.kind === "error" && model && (
+        <p role="status" className="pointer-events-none absolute top-3 left-3 text-ui-11.5 text-danger">
+          Could not refresh: {status.message}
+        </p>
+      )}
+      {model && model.tables.size === 0 && <CanvasNote>No tables in {model.schema}.</CanvasNote>}
+    </>
+  );
+}
+
+export function MapCellBody({ map, height }: { map: SchemaMapView; height: number }) {
+  const find = useRef<HTMLInputElement>(null);
+  return (
+    <div className="border-t border-border" onKeyDown={(e) => findShortcut(e, find)}>
       <MapToolbar map={map} findRef={find} />
       <div className="relative">
         <SchemaCanvas
@@ -234,28 +268,7 @@ export function MapCellBody({ map, height }: { map: SchemaMapView; height: numbe
           testId={`map-cell-${map.tab.id}`}
           label={`Schema map of ${map.schema ?? "the default schema"}`}
         />
-        {status.kind === "unconnected" && <CanvasNote>Connect to {db ?? "a database"} to draw this schema's map.</CanvasNote>}
-        {status.kind === "loading" && (
-          <CanvasNote>
-            <span className="flex items-center gap-2">
-              <Spinner /> Loading the schema map…
-            </span>
-          </CanvasNote>
-        )}
-        {status.kind === "error" && !model && (
-          <CanvasNote tone="error">
-            {status.message}
-            <Button className="h-7 text-ui-12" onClick={map.actions.refresh}>
-              Retry
-            </Button>
-          </CanvasNote>
-        )}
-        {status.kind === "error" && model && (
-          <p role="status" className="pointer-events-none absolute top-3 left-3 text-ui-11.5 text-danger">
-            Could not refresh: {status.message}
-          </p>
-        )}
-        {model && model.tables.size === 0 && <CanvasNote>No tables in {model.schema}.</CanvasNote>}
+        <CanvasStatus map={map} />
       </div>
       <div className="border-t border-border">{map.focus ? <FocusStrip map={map} /> : <MapLegend map={map} />}</div>
     </div>

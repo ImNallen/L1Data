@@ -141,11 +141,11 @@ function CellTitle({
 const MAP_HEIGHT = { min: 220, max: 600 };
 
 function MapNotebookCell({ id, index, viewport, focused }: { id: TabId; index: number; viewport: number; focused: boolean }) {
-  const map = useSchemaMap(id);
+  const collapsed = useWorkspace((s) => s.tabs[id]?.collapsed === true);
+  const map = useSchemaMap(id, !collapsed);
   const active = useWorkspace((s) => activeId(s) === id);
   const cell = useRef<HTMLElement>(null);
   const [dragged, setDragged] = useState<number | null>(null);
-  const collapsed = map?.tab.collapsed === true;
   useEffect(() => {
     if (focused) cell.current?.scrollIntoView({ block: "nearest" });
   }, [focused, collapsed, index]);
