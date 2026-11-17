@@ -858,7 +858,7 @@ pub fn table_count(
 }
 
 #[cfg(test)]
-mod text_commands_never_panic {
+pub(crate) mod text_commands_never_panic {
     //! The editor's sync commands run on the desktop app's main thread, so a panic in one ends the app. Each test
     //! feeds its command random token sequences at every cursor offset, in both dialects. `L1_DATA_FUZZ_SEED` and
     //! `L1_DATA_FUZZ_ITERATIONS` rerun them on other inputs.
@@ -1071,21 +1071,26 @@ mod text_commands_never_panic {
         "_;\n_\nGO\n_",
     ];
 
-    fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {
+    pub(crate) fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {
         std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    }
+
+    /// An xorshift generator seeded from `L1_DATA_FUZZ_SEED`, so each run sees the same numbers.
+    pub(crate) fn random() -> impl FnMut() -> u64 {
+        let mut state: u64 = env_or("L1_DATA_FUZZ_SEED", 0x9E37_79B9_7F4A_7C15u64).max(1);
+        move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        }
     }
 
     /// Templates with random tokens in their holes, from an xorshift generator so each run sees the same texts.
     /// Each text draws from its own few tokens, so any two tokens meet often enough to find what they break
     /// together, and a quarter of the texts end at a random point.
-    fn texts(iterations: usize) -> impl Iterator<Item = String> {
-        let mut state: u64 = env_or("L1_DATA_FUZZ_SEED", 0x9E37_79B9_7F4A_7C15u64).max(1);
-        let mut next = move || {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            state
-        };
+    pub(crate) fn texts(iterations: usize) -> impl Iterator<Item = String> {
+        let mut next = random();
         (0..env_or("L1_DATA_FUZZ_ITERATIONS", iterations)).map(move |_| {
             let palette: Vec<&str> = (0..6).map(|_| TOKENS[(next() % TOKENS.len() as u64) as usize]).collect();
             let template = TEMPLATES[(next() % TEMPLATES.len() as u64) as usize];
@@ -1095,14 +1100,14 @@ mod text_commands_never_panic {
                 if i > 0 {
                     for _ in 0..next() % (1 + 12 / holes) {
                         text.push_str(palette[(next() % palette.len() as u64) as usize]);
-                        if next() % 3 != 0 {
+                        if !next().is_multiple_of(3) {
                             text.push(' ');
                         }
                     }
                 }
                 text.push_str(part);
             }
-            if next() % 4 == 0 {
+            if next().is_multiple_of(4) {
                 let cut = (next() % (text.len() as u64 + 1)) as usize;
                 text.truncate(text.floor_char_boundary(cut));
             }
