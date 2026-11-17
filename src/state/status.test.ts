@@ -254,6 +254,7 @@ describe("workspace snapshot", () => {
         },
         file: null,
         collapsed: false,
+        map: null,
       },
       {
         id: "a",
@@ -263,6 +264,7 @@ describe("workspace snapshot", () => {
         table: null,
         file: null,
         collapsed: true,
+        map: null,
       },
     ]);
     expect(snap.tabs.map((t) => tabFromSnapshot(t, configs))).toEqual([tabs[1], tabs[0]]);
@@ -272,6 +274,40 @@ describe("workspace snapshot", () => {
       ["reporting", ["a"], "a"],
     ]);
     expect([snap.active, snap.shown]).toEqual(["a", snap.notebooks[1]?.id]);
+  });
+
+  it("round-trips a map cell with its schema and columns, and writes it no text and no table", () => {
+    const map: Tab = {
+      id: "m",
+      title: "Schema map",
+      console: { db: { connectionId: "c", database: "shop" }, mode: "AutoCommit", schema: "sales" },
+      table: null,
+      map: { columns: "Keys" },
+    };
+    const snap = workspaceSnapshot(
+      { ...cellsState([map], "m"), layout: state.layout },
+      {
+        textOf: () => {
+          throw new Error("a map cell has no text to read");
+        },
+        isNotebookDirty: () => false,
+      },
+    );
+    expect(snap.tabs).toEqual([
+      {
+        id: "m",
+        title: "Schema map",
+        text: "",
+        console: { connectionId: "c", database: "shop", schema: "sales", mode: "AutoCommit" },
+        table: null,
+        file: null,
+        collapsed: false,
+        map: { columns: "Keys" },
+      },
+    ]);
+    expect(snap.tabs.map((t) => tabFromSnapshot(t, configs))).toEqual([map]);
+    const withTable = { ...snap.tabs[0]!, table: { schema: "public", table: "orders", page: 0, query: { orderBy: "", filters: [], where: "" } } };
+    expect(tabFromSnapshot(withTable, configs).table).toBeNull();
   });
 
   it("restores a table tab saved before tabs were one shape as an auto-commit tab named after its table", () => {
@@ -284,6 +320,7 @@ describe("workspace snapshot", () => {
       table: { schema: "public", table: "orders", page: 2, query: { orderBy: "", filters: [], where: "" } },
       file: null,
       collapsed: false,
+      map: null,
     };
     expect(tabFromSnapshot(saved, configs)).toEqual({
       id: "b",
@@ -303,6 +340,7 @@ describe("workspace snapshot", () => {
         table: null,
         file: null,
         collapsed: false,
+        map: null,
       },
       {
         id: "d",
@@ -312,6 +350,7 @@ describe("workspace snapshot", () => {
         table: null,
         file: null,
         collapsed: false,
+        map: null,
       },
     ];
     expect(saved.map((t) => tabFromSnapshot(t, configs))).toEqual([
@@ -329,6 +368,7 @@ describe("workspace snapshot", () => {
       table: { schema: "public", table: "orders", page: 0, query: { orderBy: "", filters: [], where: "" } },
       file: null,
       collapsed: false,
+      map: null,
     };
     expect(tabFromSnapshot(saved, configs)).toEqual({ id: "b", title: "orders", console: { db: null, mode: "Manual" }, table: null });
   });

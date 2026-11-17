@@ -6,6 +6,7 @@ import type {
   ConnectionState,
   DatabaseRef,
   Layout,
+  MapCell,
   NotebookId,
   NotebookSnapshot,
   ParamValue,
@@ -50,16 +51,30 @@ export type ConsoleTarget = { db: DatabaseRef | null; mode: TxnMode; schema?: st
 /** The table a tab opened from the sidebar browses, in the tab's console database. */
 type TableBrowse = { schema: string; table: string; page: number; query: TableQuery; exactRowCount?: number };
 
+export type { MapCell };
+
 /**
  * One cell of a notebook. A file belongs to the notebook, not to a cell. A `collapsed` cell shows only its header; the
  * workspace keeps it, the notebook file never does.
  */
-export type Tab = { id: TabId; title: string; console: ConsoleTarget; table: TableBrowse | null; collapsed?: true };
+export type Tab = { id: TabId; title: string; console: ConsoleTarget; table: TableBrowse | null; map?: MapCell; collapsed?: true };
+export type SqlTab = Tab & { map?: undefined };
 /** A tab bound to a table. Its console always names a database. */
-export type TableTab = Tab & { table: TableBrowse; console: ConsoleTarget & { db: DatabaseRef } };
+export type TableTab = SqlTab & { table: TableBrowse; console: ConsoleTarget & { db: DatabaseRef } };
+export type MapTab = Tab & { map: MapCell; table: null };
+
+export const MAP_TITLE = "Schema map";
 
 export function isTableTab(tab: Tab | undefined): tab is TableTab {
   return tab !== undefined && tab.table !== null && tab.console.db !== null;
+}
+
+export function isMapCell(tab: Tab | undefined): tab is MapTab {
+  return tab?.map !== undefined;
+}
+
+export function isSqlTab(tab: Tab | undefined): tab is SqlTab {
+  return tab !== undefined && tab.map === undefined;
 }
 
 export const EMPTY_QUERY: TableQuery = { orderBy: "", filters: [], where: "" };
@@ -152,12 +167,13 @@ export const DEFAULT_SETTINGS: Settings = {
 export function tabFromSnapshot(t: TabSnapshot, configs: Record<ConnectionId, ConnectionConfig>): Tab {
   const config = t.console.connectionId ? configs[t.console.connectionId] : undefined;
   const db = config ? (t.console.database == null ? homeDb(config) : { connectionId: config.id, database: t.console.database }) : null;
-  const table = db && t.table && { schema: t.table.schema, table: t.table.table, page: t.table.page, query: t.table.query };
+  const table = db && t.table && !t.map ? { schema: t.table.schema, table: t.table.table, page: t.table.page, query: t.table.query } : null;
   return {
     id: t.id,
     title: t.title,
     console: { db, mode: t.console.mode, ...(t.console.schema && { schema: t.console.schema }) },
     table,
+    ...(t.map && { map: { columns: t.map.columns } }),
     ...(t.collapsed && { collapsed: true }),
   };
 }
@@ -233,6 +249,11 @@ export function activeTab(s: Shows & Pick<WorkspaceData, "tabs">): Tab | undefin
   return id ? s.tabs[id] : undefined;
 }
 
+export function activeQueryTab(s: Shows & Pick<WorkspaceData, "tabs">): SqlTab | undefined {
+  const tab = activeTab(s);
+  return isSqlTab(tab) ? tab : undefined;
+}
+
 /** The database the workspace is on: the shown notebook's, or the one the start commands offer a notebook on. */
 export function shownDb(s: Shows): DatabaseRef | null {
   return s.shown.kind === "start" ? s.shown.db : (shownNotebook(s)?.db ?? null);
@@ -273,11 +294,12 @@ export function workspaceSnapshot(s: Pick<WorkspaceData, "tabs" | "notebooks" | 
       {
         id: t.id,
         title: t.title,
-        text: buffers.textOf(t.id),
+        text: isMapCell(t) ? "" : buffers.textOf(t.id),
         console: { connectionId: db?.connectionId ?? null, database: db?.database ?? null, schema: t.console.schema ?? null, mode },
         table: t.table && { schema: t.table.schema, table: t.table.table, page: t.table.page, query: t.table.query },
         file: null,
         collapsed: t.collapsed === true,
+        map: t.map ? { columns: t.map.columns } : null,
       },
     ];
   });

@@ -89,6 +89,7 @@ describe("notebook files", () => {
     table: null,
     file,
     collapsed: false,
+    map: null,
   });
   const layout = {
     sidebar: true,
