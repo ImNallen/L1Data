@@ -172,6 +172,7 @@ pub(super) fn parse(input: &str, name: &str) -> Result<ConnectionDraft, String> 
         ssh: None,
         environment: None,
         sql_server_auth,
+        assistant_read_only: false,
     })
 }
 

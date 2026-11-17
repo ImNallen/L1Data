@@ -60,6 +60,8 @@ impl<'de> Deserialize<'de> for ConnectionConfig {
             environment: Option<Environment>,
             #[serde(default)]
             sql_server_auth: Option<SqlServerAuth>,
+            #[serde(default)]
+            assistant_read_only: bool,
         }
         let Stored {
             database_kind,
@@ -76,6 +78,7 @@ impl<'de> Deserialize<'de> for ConnectionConfig {
             ssh,
             environment,
             sql_server_auth,
+            assistant_read_only,
         } = Stored::deserialize(d)?;
         Ok(Self {
             database_kind,
@@ -92,6 +95,7 @@ impl<'de> Deserialize<'de> for ConnectionConfig {
             ssh,
             environment,
             sql_server_auth,
+            assistant_read_only,
         })
     }
 }
@@ -125,6 +129,10 @@ pub struct ConnectionConfig {
     pub environment: Option<Environment>,
     /// `None` is a SQL login, as on every connection saved before this field existed.
     pub sql_server_auth: Option<SqlServerAuth>,
+    /// SQL Server only, off by default. When on, the assistant's `run_query` may read against this
+    /// connection on a fresh `ApplicationIntent=ReadOnly` session, after confirming per call that the
+    /// connected database is `READ_ONLY`. Off keeps the SQL Server query refusal.
+    pub assistant_read_only: bool,
 }
 
 /// How a SQL Server connection signs in. `EntraAzureCli` sends an access token from the user's
@@ -217,6 +225,8 @@ pub struct ConnectionDraft {
     pub ssh: Option<SshTunnelDraft>,
     pub environment: Option<Environment>,
     pub sql_server_auth: Option<SqlServerAuth>,
+    #[serde(default)]
+    pub assistant_read_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]

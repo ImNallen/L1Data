@@ -1167,6 +1167,7 @@ impl Engine {
             ssh,
             environment: d.environment,
             sql_server_auth,
+            assistant_read_only: d.assistant_read_only && d.database_kind == DatabaseKind::SqlServer,
         };
         s.store.upsert_connection(&config).map_err(store)?;
         Ok(config)
@@ -2479,6 +2480,7 @@ mod tests {
             ssh: None,
             environment: None,
             sql_server_auth: None,
+            assistant_read_only: false,
         }
     }
 
@@ -2522,6 +2524,7 @@ mod tests {
             port: 1,
             password: PasswordInput::Clear,
             sql_server_auth: Some(SqlServerAuth::SqlLogin),
+            assistant_read_only: false,
             ..draft("newer")
         };
         let saved = engine.save_connection(login.clone()).await.unwrap();
@@ -2783,6 +2786,7 @@ mod tests {
             port: 1,
             ssl_mode: SslMode::VerifyFull,
             sql_server_auth: Some(SqlServerAuth::SqlLogin),
+            assistant_read_only: false,
             ..draft("azure")
         };
         let saved = {
@@ -2797,6 +2801,7 @@ mod tests {
             id: Some(saved.id),
             password: PasswordInput::Keep,
             sql_server_auth: Some(SqlServerAuth::EntraAzureCli),
+            assistant_read_only: false,
             ..login
         };
         let tried = engine.test_connection(entra).await;

@@ -267,6 +267,13 @@ impl Turn {
         self.db.as_ref().and_then(|db| self.shared.config(db.connection_id)).map(|c| c.database_kind)
     }
 
+    fn target(&self) -> Option<tools::Target> {
+        self.db.as_ref().and_then(|db| self.shared.config(db.connection_id)).map(|c| match c.database_kind {
+            DatabaseKind::SqlServer => tools::Target::SqlServer { read_only: c.assistant_read_only },
+            DatabaseKind::Postgres => tools::Target::Postgres,
+        })
+    }
+
     fn provider_config(&self) -> ProviderConfig {
         self.shared
             .settings()
@@ -593,7 +600,7 @@ impl Turn {
         execs: &mut Execs,
     ) {
         let parsed = tools::parse_call(name, &input);
-        let ask = tools::policy(&parsed, self.chat.permission(), self.database_kind(), self.access.mode);
+        let ask = tools::policy(&parsed, self.chat.permission(), self.target(), self.access.mode);
         let gated = if self.stop_deadline.is_some() {
             Gated::Deny(Refusal::Stopped)
         } else {
@@ -905,13 +912,12 @@ mod tests {
     }
 
     #[test]
-    fn sql_server_system_prompt_disables_queries_and_preserves_tsql_batches() {
+    fn sql_server_system_prompt_gates_queries_on_the_setting_and_preserves_tsql_batches() {
         let prompt = system_prompt(DatabaseKind::SqlServer, AssistantAccess::Full);
         for instruction in [
             "for Microsoft SQL Server",
-            "run_query is disabled on SQL Server",
-            "server-enforced read-only transactions are unavailable",
-            "Use describe_tables and search_catalog",
+            "run_query works only when the user has turned on read-only queries for this connection",
+            "run_query runs exactly one read",
             "Suggest T-SQL with bracket-quoted identifiers, TOP or OFFSET/FETCH, and Unicode N literals for the user to run",
             "Keep batch-scoped variables together and use GO only between batches",
             "Put each executable batch you hand the user in its own ```sql block",

@@ -491,6 +491,7 @@ mod tests {
             ssh: None,
             environment: None,
             sql_server_auth: None,
+            assistant_read_only: false,
         };
         let (first, last) = (config("first"), config("last"));
         s.upsert_connection(&first).unwrap();
@@ -527,6 +528,7 @@ mod tests {
             ssh: None,
             environment: None,
             sql_server_auth: None,
+            assistant_read_only: false,
         };
         {
             let s = Store::open(&path).unwrap();

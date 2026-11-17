@@ -3840,6 +3840,7 @@ async fn resave(h: &Harness, host: &str, environment: Option<Environment>) {
         ssh: None,
         environment,
         sql_server_auth: saved.sql_server_auth,
+        assistant_read_only: false,
     };
     h.engine.save_connection(draft).await.unwrap();
 }
