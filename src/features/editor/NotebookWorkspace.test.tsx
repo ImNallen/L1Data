@@ -8,8 +8,8 @@ import type { ConsoleState, ResultMeta, TabId } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
 import { dropRowCaches } from "../../state/rowCache";
 import { activeId, useWorkspace, type Tab } from "../../state/workspace";
-import { cellNavigation } from "../notebooks/cellNavigation";
-import { cursorOf, dropEditor, editorStateOf, installEditorBehavior, moveCursor, seedEditor } from "./editorStates";
+import { cellNavigation, focusActiveCell, goToCell } from "../notebooks/cellNavigation";
+import { cursorOf, docOf, dropEditor, editorStateOf, installEditorBehavior, moveCursor, seedEditor } from "./editorStates";
 import { NotebookWorkspace } from "./NotebookWorkspace";
 import { connectionConfig } from "../../testing/connections";
 import { cellsState } from "../../testing/notebooks";
@@ -693,5 +693,63 @@ describe("moving a cell", () => {
     fireEvent.pointerUp(grip);
     expect([order(), useWorkspace.getState().notebooks]).toEqual([["a", "b"], notebooks]);
     expect(useWorkspace.getState().notebooks).toBe(notebooks);
+  });
+});
+
+describe("a schema map cell", () => {
+  const map: Tab = { id: "m", title: "Schema map", console: { db, mode: "AutoCommit", schema: "sales" }, table: null, map: { columns: "Keys" } };
+  const body = () => screen.getByTestId("map-cell-m");
+
+  beforeEach(() => {
+    installEditorBehavior(cellNavigation);
+    for (const id of IDS) seedEditor(id, FIVE_LINES);
+    useWorkspace.setState(cellsState([tab("a"), map, tab("b")], "a"));
+  });
+
+  afterEach(() => {
+    installEditorBehavior([]);
+    for (const id of Object.keys(useWorkspace.getState().tabs)) dropEditor(id);
+  });
+
+  it("shows its heading without Format or Run, and a focusable body naming its schema", async () => {
+    await renderNotebook();
+    expect(
+      within(cell("m"))
+        .getAllByRole("button")
+        .map((b) => b.getAttribute("aria-label") ?? b.textContent),
+    ).toEqual(["Collapse cell", "Schema map", "Duplicate cell", "Close cell"]);
+    expect([body().textContent, body().tabIndex, body().getAttribute("aria-label")]).toEqual(["Schema map · sales", 0, "Schema map of sales"]);
+    expect([cell("m").querySelector(".notebook-editor"), docOf("m")]).toEqual([null, undefined]);
+  });
+
+  it("becomes active on focus and leaves the editor out of it", async () => {
+    await renderNotebook();
+    act(() => body().focus());
+    expect([activeId(useWorkspace.getState()), cell("m").dataset.active, docOf("m")]).toEqual(["m", "true", undefined]);
+    expect(cell("m").querySelector(".cm-editor")).toBeNull();
+  });
+
+  it("takes the focus when an arrow key crosses into it or a command focuses the active cell", async () => {
+    await renderNotebook();
+    act(() => moveCursor("a", editorStateOf("a").doc.length));
+    fireEvent.keyDown(cell("a").querySelector(".cm-content")!, { key: "ArrowDown" });
+    expect([activeId(useWorkspace.getState()), document.activeElement, docOf("m")]).toEqual(["m", body(), undefined]);
+    act(() => useWorkspace.getState().setCollapsed(["m"], true));
+    act(() => goToCell("m"));
+    expect([useWorkspace.getState().tabs.m?.collapsed, document.activeElement]).toEqual([undefined, body()]);
+    act(() => screen.getByTestId("tab-a").focus());
+    act(() => useWorkspace.getState().setActive("m"));
+    act(() => focusActiveCell());
+    expect(document.activeElement).toBe(body());
+  });
+
+  it("duplicates into another map cell of the same schema and columns, and closes with no session to end", async () => {
+    await renderNotebook();
+    fireEvent.click(within(cell("m")).getByRole("button", { name: "Duplicate cell" }));
+    const copy = Object.values(useWorkspace.getState().tabs).find((t) => t.title === "Schema map copy");
+    expect(copy && { ...copy, id: "copy" }).toEqual({ ...map, id: "copy", title: "Schema map copy" });
+    expect(docOf(copy!.id)).toBeUndefined();
+    fireEvent.click(within(cell("m")).getByRole("button", { name: "Close cell" }));
+    await waitFor(() => expect(useWorkspace.getState().tabs.m).toBeUndefined());
   });
 });

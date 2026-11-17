@@ -18,10 +18,6 @@ import { notebookSources, staleReason } from "./cellReferences";
 import { deleteNotebook } from "./notebookActions";
 import { runNotebook } from "./notebookRun";
 
-// Each SQL-only path, driven with a schema map cell active. A map cell holds no SQL, so none of them may open a session
-// for it, send its text anywhere, or create an editor buffer for it. A new path that reads the active cell's text belongs
-// here too.
-
 const ws = () => useWorkspace.getState();
 const db = { connectionId: "prod", database: "shop" };
 

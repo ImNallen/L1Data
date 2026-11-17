@@ -2,12 +2,13 @@ import { DENSITY_FACTOR, gridRowHeight } from "../../shell/appearance";
 import { StartCommands } from "../../shell/StartCommands";
 import { EditorView } from "@codemirror/view";
 import { ChevronRightIcon, CircleAlertIcon, CopyPlusIcon, ListIndentIncreaseIcon, PlayIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
-import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import type { RunState, TabId } from "../../ipc/bindings";
+import { useCatalog, viewFor } from "../../state/catalog";
 import { useLive } from "../../state/live";
 import { canCancel, hasUncommittedWork, isBusy, refKey, rowResults, runSummary, shownResult, type ResultPick } from "../../state/status";
-import { activeId, isFiltered, shownNotebook, useWorkspace } from "../../state/workspace";
+import { activeId, isFiltered, isMapCell, shownNotebook, useWorkspace } from "../../state/workspace";
 import { cx, IconButton } from "../../ui/primitives";
 import { useNow } from "../../ui/useNow";
 import { hasResultPager, pageRows } from "../results/format";
@@ -21,7 +22,7 @@ import { ParamsStrip } from "../notebooks/ParamsStrip";
 import { warnsOnRun } from "../notebooks/NotebookRunButton";
 import { staleReason } from "../notebooks/cellReferences";
 import { activateEditor, onBuffersChanged, textOf } from "./editorStates";
-import { cancelActive, formatActive, openSqlTab, runActive } from "./runActions";
+import { cancelActive, formatActive, openMapTab, openSqlTab, runActive } from "./runActions";
 import { SqlEditor } from "./SqlEditor";
 import { SqlText } from "./SqlText";
 import { databaseKindFor } from "../../state/databaseKind";
@@ -48,6 +49,152 @@ const onStaleInputs = (changed: () => void) => {
 };
 
 const UNDRAGGED: DraggedHeights = { editor: null, results: null };
+
+function CollapseButton({ id, collapsed }: { id: TabId; collapsed: boolean }) {
+  return (
+    <IconButton
+      aria-label={collapsed ? "Expand cell" : "Collapse cell"}
+      aria-expanded={!collapsed}
+      title={collapsed ? "Expand cell" : "Collapse cell"}
+      className="-mr-1"
+      onClick={() => useWorkspace.getState().setCollapsed([id], !collapsed)}
+    >
+      <ChevronRightIcon size={14} className={cx("transition-transform", !collapsed && "rotate-90")} />
+    </IconButton>
+  );
+}
+
+function CellTitle({
+  id,
+  index,
+  title,
+  active,
+  cell,
+  onActivate,
+  children,
+}: {
+  id: TabId;
+  index: number;
+  title: string;
+  active: boolean;
+  cell: RefObject<HTMLElement | null>;
+  onActivate: () => void;
+  children?: ReactNode;
+}) {
+  const [renaming, setRenaming] = useState(false);
+  const [draftTitle, setDraftTitle] = useState("");
+  return renaming ? (
+    <input
+      autoFocus
+      aria-label="Cell title"
+      className="min-w-0 flex-1 rounded border border-control bg-bg px-1 text-ui-12"
+      value={draftTitle}
+      onChange={(e) => setDraftTitle(e.target.value)}
+      onBlur={() => {
+        if (draftTitle.trim()) useWorkspace.getState().renameTab(id, draftTitle.trim());
+        setRenaming(false);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") setRenaming(false);
+      }}
+    />
+  ) : (
+    <button
+      type="button"
+      data-testid={`tab-${id}`}
+      data-tab-id={id}
+      data-active={active}
+      onClick={onActivate}
+      onKeyDown={(e) => {
+        const move = e.altKey ? MOVE_KEYS[e.key] : undefined;
+        if (move) {
+          e.preventDefault();
+          const button = e.currentTarget;
+          // React moves a cell by reinserting its nodes, which blurs the title in an engine that drops focus on removal.
+          flushSync(() => useWorkspace.getState().moveCell(id, index + move));
+          button.focus();
+          return;
+        }
+        const direction = ["ArrowLeft", "ArrowUp"].includes(e.key) ? -1 : ["ArrowRight", "ArrowDown"].includes(e.key) ? 1 : 0;
+        if (!direction && e.key !== "Home" && e.key !== "End") return;
+        e.preventDefault();
+        const titles = [...(cell.current?.parentElement?.querySelectorAll<HTMLButtonElement>("button[data-tab-id]") ?? [])];
+        const at = titles.indexOf(e.currentTarget);
+        const next = e.key === "Home" ? titles[0] : e.key === "End" ? titles.at(-1) : titles[(at + direction + titles.length) % titles.length];
+        next?.focus();
+      }}
+      onDoubleClick={() => {
+        setDraftTitle(title);
+        setRenaming(true);
+      }}
+      className="flex min-w-0 flex-1 items-center gap-2 text-left text-ui-12 font-medium text-fg"
+      title={title}
+    >
+      <span className="min-w-0 truncate">{title}</span>
+      {children}
+    </button>
+  );
+}
+
+function MapNotebookCell({ id, index, focused }: { id: TabId; index: number; focused: boolean }) {
+  const tab = useWorkspace((s) => s.tabs[id]);
+  const active = useWorkspace((s) => activeId(s) === id);
+  const defaultSchema = useCatalog((s) => viewFor(s.views, tab?.console.db ?? null)?.catalog.defaultSchema);
+  const cell = useRef<HTMLElement>(null);
+  const collapsed = tab?.collapsed === true;
+  useEffect(() => {
+    if (focused) cell.current?.scrollIntoView({ block: "nearest" });
+  }, [focused, collapsed, index]);
+  if (!isMapCell(tab)) return null;
+  const activate = () => useWorkspace.getState().setActive(id);
+  const schema = tab.console.schema ?? defaultSchema ?? "the default schema";
+  return (
+    <>
+      <section
+        ref={cell}
+        data-testid={`notebook-cell-${id}`}
+        data-active={active}
+        data-collapsed={collapsed}
+        style={{ scrollMarginBlock: CELL_SCROLL_MARGIN }}
+        className={cx("notebook-cell", active && "notebook-cell-active")}
+        onFocusCapture={() => {
+          if (!active) activate();
+        }}
+      >
+        <div className="notebook-cell-heading">
+          <CollapseButton id={id} collapsed={collapsed} />
+          <CellGrip id={id} index={index} title={tab.title} />
+          <CellTitle id={id} index={index} title={tab.title} active={active} cell={cell} onActivate={activate} />
+          <IconButton
+            aria-label="Duplicate cell"
+            title="Duplicate cell"
+            onClick={() => openMapTab({ db: tab.console.db, schema: tab.console.schema, title: `${tab.title} copy`, map: tab.map })}
+          >
+            <CopyPlusIcon size={14} />
+          </IconButton>
+          <IconButton aria-label="Close cell" title="Close cell" onClick={() => void closeTab(id)}>
+            <XIcon size={14} />
+          </IconButton>
+        </div>
+        {!collapsed && (
+          <div
+            data-testid={`map-cell-${id}`}
+            tabIndex={0}
+            aria-label={`Schema map of ${schema}`}
+            onMouseDown={() => {
+              if (!active) activate();
+            }}
+            className="border-t border-border px-3 py-6 text-center text-ui-12 text-dim outline-none"
+          >
+            Schema map · {schema}
+          </div>
+        )}
+      </section>
+      <AddCell after={id} />
+    </>
+  );
+}
 
 /** A collapsed cell's last run, as the results pane would sum it up, so a failure shows without opening the cell. */
 function RunStatus({ id, run, picked }: { id: TabId; run: RunState; picked: ResultPick | undefined }) {
@@ -90,8 +237,6 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
   );
   const cell = useRef<HTMLElement>(null);
   const [focusOnActivate, setFocusOnActivate] = useState(active);
-  const [renaming, setRenaming] = useState(false);
-  const [draftTitle, setDraftTitle] = useState("");
   const [dragged, setDragged] = useState<DraggedHeights>(UNDRAGGED);
   const hasResults = (tab?.table != null && active) || (console !== undefined && console.run.kind !== "Idle");
   const rowCounts = console ? rowResults(console.run).map((result) => result.meta.rowCount) : [];
@@ -174,84 +319,27 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
         }}
       >
         <div className="notebook-cell-heading">
-          <IconButton
-            aria-label={collapsed ? "Expand cell" : "Collapse cell"}
-            aria-expanded={!collapsed}
-            title={collapsed ? "Expand cell" : "Collapse cell"}
-            className="-mr-1"
-            onClick={() => useWorkspace.getState().setCollapsed([id], !collapsed)}
-          >
-            <ChevronRightIcon size={14} className={cx("transition-transform", !collapsed && "rotate-90")} />
-          </IconButton>
+          <CollapseButton id={id} collapsed={collapsed} />
           <CellGrip id={id} index={index} title={tab.title} />
-          {renaming ? (
-            <input
-              autoFocus
-              aria-label="Cell title"
-              className="min-w-0 flex-1 rounded border border-control bg-bg px-1 text-ui-12"
-              value={draftTitle}
-              onChange={(e) => setDraftTitle(e.target.value)}
-              onBlur={() => {
-                if (draftTitle.trim()) useWorkspace.getState().renameTab(id, draftTitle.trim());
-                setRenaming(false);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") e.currentTarget.blur();
-                if (e.key === "Escape") setRenaming(false);
-              }}
-            />
-          ) : (
-            <button
-              type="button"
-              data-testid={`tab-${id}`}
-              data-tab-id={id}
-              data-active={active}
-              onClick={() => activate()}
-              onKeyDown={(e) => {
-                const move = e.altKey ? MOVE_KEYS[e.key] : undefined;
-                if (move) {
-                  e.preventDefault();
-                  const title = e.currentTarget;
-                  // React moves a cell by reinserting its nodes, which blurs the title in an engine that drops focus on removal.
-                  flushSync(() => useWorkspace.getState().moveCell(id, index + move));
-                  title.focus();
-                  return;
-                }
-                const direction = ["ArrowLeft", "ArrowUp"].includes(e.key) ? -1 : ["ArrowRight", "ArrowDown"].includes(e.key) ? 1 : 0;
-                if (!direction && e.key !== "Home" && e.key !== "End") return;
-                e.preventDefault();
-                const titles = [...(cell.current?.parentElement?.querySelectorAll<HTMLButtonElement>("button[data-tab-id]") ?? [])];
-                const at = titles.indexOf(e.currentTarget);
-                const next = e.key === "Home" ? titles[0] : e.key === "End" ? titles.at(-1) : titles[(at + direction + titles.length) % titles.length];
-                next?.focus();
-              }}
-              onDoubleClick={() => {
-                setDraftTitle(tab.title);
-                setRenaming(true);
-              }}
-              className="flex min-w-0 flex-1 items-center gap-2 text-left text-ui-12 font-medium text-fg"
-              title={tab.title}
-            >
-              <span className="min-w-0 truncate">{tab.title}</span>
-              {collapsed && (
-                <>
-                  <span data-testid={`cell-summary-${id}`} className="min-w-0 flex-1 truncate font-mono text-ui-11 font-normal text-dim">
-                    {firstLine.trim()}
-                  </span>
-                  {console && <RunStatus id={id} run={console.run} picked={picked} />}
-                </>
-              )}
-              {stale && (
-                <span
-                  data-testid={`stale-${id}`}
-                  className="shrink-0 rounded bg-amber/12 px-1.5 py-px text-ui-10 font-medium text-amber"
-                  title={`${stale} Run this cell to update it.`}
-                >
-                  Stale
+          <CellTitle id={id} index={index} title={tab.title} active={active} cell={cell} onActivate={activate}>
+            {collapsed && (
+              <>
+                <span data-testid={`cell-summary-${id}`} className="min-w-0 flex-1 truncate font-mono text-ui-11 font-normal text-dim">
+                  {firstLine.trim()}
                 </span>
-              )}
-            </button>
-          )}
+                {console && <RunStatus id={id} run={console.run} picked={picked} />}
+              </>
+            )}
+            {stale && (
+              <span
+                data-testid={`stale-${id}`}
+                className="shrink-0 rounded bg-amber/12 px-1.5 py-px text-ui-10 font-medium text-amber"
+                title={`${stale} Run this cell to update it.`}
+              >
+                Stale
+              </span>
+            )}
+          </CellTitle>
           {pending && (
             <span
               className={cx("size-1.5 shrink-0 rounded-full", console?.txn === "Aborted" ? "bg-danger" : "bg-amber")}
@@ -333,6 +421,11 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
       <AddCell after={id} />
     </>
   );
+}
+
+function CellOf(props: { id: TabId; index: number; viewport: number; focused: boolean }) {
+  const map = useWorkspace((s) => isMapCell(s.tabs[props.id]));
+  return map ? <MapNotebookCell id={props.id} index={props.index} focused={props.focused} /> : <NotebookCell {...props} />;
 }
 
 function useFocusAfterClick(willFocus: (id: TabId) => void) {
@@ -426,7 +519,7 @@ export function NotebookWorkspace() {
         <>
           {notebook && <ParamsStrip id={notebook} />}
           {cells.map((id, index) => (
-            <NotebookCell key={id} id={id} index={index} viewport={viewport} focused={focused === id} />
+            <CellOf key={id} id={id} index={index} viewport={viewport} focused={focused === id} />
           ))}
         </>
       )}
