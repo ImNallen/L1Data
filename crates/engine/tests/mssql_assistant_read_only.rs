@@ -324,6 +324,9 @@ async fn the_assistant_reads_only_a_read_only_sql_server_database() {
             ("SELECT * FROM srv.db.dbo.tbl".into(), "four-part"),
             ("SELECT * FROM linked_server.remote_db..orders".into(), "four-part"),
             ("SELECT 1; SELECT 2".into(), "one statement"),
+            ("SELECT 1 AS x (SELECT 2 AS y)".into(), "one statement"),
+            ("SELECT 'FIRST' AS marker SETUSER".into(), "SETUSER is not part of a single SELECT"),
+            ("SELECT 'FIRST' AS marker FROM dbo.t READTEXT dbo.t.name 0x00 0 5".into(), "READTEXT"),
             ("USE master".into(), "SELECT"),
             ("SELECT dbo.my_udf(1)".into(), "my_udf"),
         ] {
