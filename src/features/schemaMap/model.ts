@@ -1,7 +1,7 @@
-import type { DatabaseRef, LinkBasis, MapColumnPair, RelKind, SchemaMap, TypeCategory } from "../../ipc/bindings";
+import type { DatabaseRef, LinkBasis, MapColumnPair, MapColumns, RelKind, SchemaMap, TypeCategory } from "../../ipc/bindings";
 
+export type { MapColumns };
 export type Oid = number;
-export type MapColumns = "All" | "Keys";
 export type TableKey = `${string}.${string}`;
 
 export function tableKey(schema: string, name: string): TableKey {
