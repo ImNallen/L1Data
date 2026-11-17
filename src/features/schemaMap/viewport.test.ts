@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { fitViewport, fitWidth, zoomViewport, type Rect, type Viewport } from "./viewport";
+import { fitViewport, fitWidth, revealRect, showRect, zoomViewport, type Rect, type Viewport } from "./viewport";
 
 const onScreen = (view: Viewport, r: Rect) => ({
   x: r.x * view.scale + view.x,
@@ -46,4 +46,25 @@ it("fits a short map to the width and centers it down the box, never above the m
   const view = fitWidth(bounds, { width: 1000, height: 600 }, { maxScale: 1 });
   expect(view.scale).toBe(1);
   expect(onScreen(view, bounds)).toEqual({ x: 300, y: 250, width: 400, height: 100 });
+});
+
+it("shows a map at 100%, centered across when it fits and from the top margin when it is taller than the box", () => {
+  const bounds = { x: 20, y: 0, width: 800, height: 900 };
+  const view = showRect(bounds, { width: 1000, height: 600 }, 1);
+  expect(onScreen(view, bounds)).toEqual({ x: 100, y: 36, width: 800, height: 900 });
+});
+
+it("reveals a card past the right edge by the least pan, and leaves a visible one in place", () => {
+  const view = { x: 0, y: 0, scale: 1 };
+  const box = { width: 1000, height: 600 };
+  const card = { x: 900, y: 100, width: 196, height: 120 };
+  expect(onScreen(revealRect(view, card, box), card)).toEqual({ x: 768, y: 100, width: 196, height: 120 });
+  const visible = { x: 100, y: 100, width: 196, height: 120 };
+  expect(revealRect(view, visible, box)).toBe(view);
+});
+
+it("reveals a card above the top edge at the margin", () => {
+  const view = { x: 0, y: -300, scale: 0.5 };
+  const card = { x: 100, y: 200, width: 196, height: 120 };
+  expect(onScreen(revealRect(view, card, { width: 1000, height: 600 }), card).y).toBe(36);
 });

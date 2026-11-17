@@ -1,12 +1,12 @@
 import { KeyRoundIcon, Link2Icon, MaximizeIcon, MinusIcon, PlusIcon, Table2Icon } from "lucide-react";
-import { memo, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { memo, useEffect, useId, useLayoutEffect, useRef, useState, type Dispatch, type KeyboardEvent, type PointerEvent, type SetStateAction } from "react";
 import { cx, Highlight, IconButton, Kbd } from "../../ui/primitives";
 import type { LinkRoute } from "./layout";
-import { visibleColumns, type ColumnRole, type ErColumn, type ErTable, type MapColumns, type Oid, type TableKey } from "./model";
+import { visibleColumns, type ColumnRole, type ErColumn, type ErTable, type Focus, type MapColumns, type Oid, type TableKey } from "./model";
 import type { SchemaMapView } from "./useSchemaMap";
-import { fitViewport, fitWidth, zoomViewport, type Point, type Rect, type Size, type Viewport } from "./viewport";
+import { fitViewport, fitWidth, revealRect, showRect, zoomViewport, type Point, type Rect, type Size, type Viewport } from "./viewport";
 
-export type CanvasMode = { opens: "fitWidth" };
+export type CanvasMode = { opens: "fitWidth" | "actualSize"; wheel: "scrollsPage" | "pans" };
 
 const COMPACT = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 export const compactCount = (n: number) => COMPACT.format(n).replace("K", "k");
@@ -20,7 +20,7 @@ const SHORT_TYPES: [RegExp, string][] = [
   [/^character\b/, "char"],
   [/^double precision/, "float8"],
 ];
-const shortType = (type: string) => SHORT_TYPES.reduce((t, [long, short]) => t.replace(long, short), type);
+export const shortType = (type: string) => SHORT_TYPES.reduce((t, [long, short]) => t.replace(long, short), type);
 
 const DRAG_SLOP = 3;
 const ZOOM_STEP = 1.2;
@@ -33,7 +33,7 @@ function needleRanges(text: string, needle: string) {
   return at < 0 ? null : [{ start: at, end: at + needle.length }];
 }
 
-const ROLE_ICON: Partial<Record<ColumnRole, { icon: typeof KeyRoundIcon; className: string; label: string }>> = {
+export const ROLE_ICON: Partial<Record<ColumnRole, { icon: typeof KeyRoundIcon; className: string; label: string }>> = {
   pk: { icon: KeyRoundIcon, className: "text-amber", label: "Primary key" },
   pkfk: { icon: KeyRoundIcon, className: "text-amber", label: "Primary key and foreign key" },
   fk: { icon: Link2Icon, className: "text-keyword", label: "Foreign key" },
@@ -167,7 +167,41 @@ function Markers({ id }: { id: string }) {
   );
 }
 
-export function SchemaCanvas({ map, mode, height, testId, label }: { map: SchemaMapView; mode: CanvasMode; height: number; testId: string; label: string }) {
+type SetViewport = Dispatch<SetStateAction<Viewport>>;
+
+function useKeepCenterOnResize(width: number, setViewport: SetViewport) {
+  const shownWidth = useRef(0);
+  useLayoutEffect(() => {
+    const was = shownWidth.current;
+    shownWidth.current = width;
+    if (was > 0 && was !== width) setViewport((v) => ({ ...v, x: v.x + (width - was) / 2 }));
+  }, [width, setViewport]);
+}
+
+function useRevealFocusedTable(focus: Focus | null, focusRect: Rect | undefined, box: Size, setViewport: SetViewport) {
+  const [revealed, setRevealed] = useState<string | null>(null);
+  const revealKey = focus ? `${focus.table.key}\u0000${box.width}\u0000${box.height}` : null;
+  if (revealed !== revealKey && box.width > 0 && (!focus || focusRect)) {
+    setRevealed(revealKey);
+    if (focusRect) setViewport((v) => revealRect(v, focusRect, box));
+  }
+}
+
+export function SchemaCanvas({
+  map,
+  mode,
+  height,
+  testId,
+  label,
+  gestureHint,
+}: {
+  map: SchemaMapView;
+  mode: CanvasMode;
+  height: number | "fill";
+  testId: string;
+  label: string;
+  gestureHint?: string;
+}) {
   const { model, layout, routes, focus, matches, view, columns } = map;
   const canvas = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
@@ -175,8 +209,7 @@ export function SchemaCanvas({ map, mode, height, testId, label }: { map: Schema
   const [box, setBox] = useState<Size>({ width: 0, height: 0 });
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, scale: 1 });
   const [fitted, setFitted] = useState<string | null>(null);
-  // Chromium matches :focus-visible on any key pressed after a click, so Esc after clicking a card would ring the whole
-  // canvas. The ring marks only focus that arrived from the keyboard.
+  // Chromium matches :focus-visible on any key pressed after a click, so Esc after clicking a card would ring the whole canvas.
   const [keyboardFocus, setKeyboardFocus] = useState(false);
 
   useLayoutEffect(() => {
@@ -189,25 +222,34 @@ export function SchemaCanvas({ map, mode, height, testId, label }: { map: Schema
     return () => observer.disconnect();
   }, []);
 
+  useKeepCenterOnResize(box.width, setViewport);
+
   const fitKey = model ? `${model.version}\u0000${model.schema}\u0000${columns}` : null;
+  const focusRect = focus ? layout?.cards.get(focus.table.oid) : undefined;
   if (layout && fitKey && box.width > 0 && fitted !== fitKey) {
     setFitted(fitKey);
-    if (mode.opens === "fitWidth") setViewport(fitWidth(layout.bounds, box, { maxScale: 1 }));
+    const fits = fitViewport(layout.bounds, box, { maxScale: 1 }).scale === 1;
+    setViewport(
+      mode.opens === "fitWidth" ? fitWidth(layout.bounds, box, { maxScale: 1 }) : showRect(fits ? layout.bounds : (focusRect ?? layout.bounds), box, 1),
+    );
   }
+  useRevealFocusedTable(focus, focusRect, box, setViewport);
 
   useEffect(() => {
     const el = canvas.current;
     if (!el) return;
     // React's wheel listener is passive, and a zoom must keep the notebook from scrolling.
     const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey && !e.metaKey) return;
+      const zooms = e.ctrlKey || e.metaKey;
+      if (!zooms && mode.wheel === "scrollsPage") return;
       e.preventDefault();
       const r = el.getBoundingClientRect();
-      setViewport((v) => zoomViewport(v, Math.exp(Math.max(-0.2, Math.min(0.2, -e.deltaY / 100))), { x: e.clientX - r.left, y: e.clientY - r.top }));
+      if (zooms) setViewport((v) => zoomViewport(v, Math.exp(Math.max(-0.2, Math.min(0.2, -e.deltaY / 100))), { x: e.clientX - r.left, y: e.clientY - r.top }));
+      else setViewport((v) => ({ ...v, x: v.x - e.deltaX, y: v.y - e.deltaY }));
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, []);
+  }, [mode.wheel]);
 
   const zoom = (factor: number) => setViewport((v) => zoomViewport(v, factor, { x: box.width / 2, y: box.height / 2 }));
   const fitAll = () => layout && box.width > 0 && setViewport(fitViewport(layout.bounds, box, { maxScale: 1 }));
@@ -272,7 +314,7 @@ export function SchemaCanvas({ map, mode, height, testId, label }: { map: Schema
   const m = layout?.metrics;
 
   return (
-    <div className="relative" style={{ height }}>
+    <div className="relative h-full" style={height === "fill" ? undefined : { height }}>
       <div
         ref={canvas}
         data-testid={testId}
@@ -333,29 +375,32 @@ export function SchemaCanvas({ map, mode, height, testId, label }: { map: Schema
           </div>
         )}
       </div>
-      {focus && (
-        <div
-          data-testid="map-focus-pill"
-          className="absolute bottom-3 left-3 flex h-8 items-center gap-2 rounded-full border border-control bg-raised pr-1 pl-3 text-ui-12 text-muted shadow-[var(--shadow-float)]"
-        >
-          <span>
-            Focused on <span className="font-mono font-semibold text-fg">{focus.table.name}</span>
-          </span>
-          <span className="text-dim">
-            · {focus.counts.references + focus.counts.referencedBy} keys · {focus.counts.possible} inferred
-          </span>
-          <button
-            type="button"
-            className="inline-flex h-6 items-center gap-1 rounded-full bg-pill px-2 text-ui-11.5 text-muted hover:bg-hover hover:text-fg"
-            onClick={() => map.actions.focus(null)}
+      <div className="pointer-events-none absolute bottom-3 left-3 flex items-center gap-4">
+        {gestureHint && <span className="text-ui-11.5 whitespace-nowrap text-dim">{gestureHint}</span>}
+        {focus && (
+          <div
+            data-testid="map-focus-pill"
+            className="pointer-events-auto flex h-8 items-center gap-2 rounded-full border border-control bg-raised pr-1 pl-3 text-ui-12 text-muted shadow-[var(--shadow-float)]"
           >
-            <Kbd tone="menu" className="h-4 px-1">
-              Esc
-            </Kbd>
-            Clear
-          </button>
-        </div>
-      )}
+            <span>
+              Focused on <span className="font-mono font-semibold text-fg">{focus.table.name}</span>
+            </span>
+            <span className="text-dim">
+              · {focus.counts.references + focus.counts.referencedBy} keys · {focus.counts.possible} inferred
+            </span>
+            <button
+              type="button"
+              className="inline-flex h-6 items-center gap-1 rounded-full bg-pill px-2 text-ui-11.5 text-muted hover:bg-hover hover:text-fg"
+              onClick={() => map.actions.focus(null)}
+            >
+              <Kbd tone="menu" className="h-4 px-1">
+                Esc
+              </Kbd>
+              Clear
+            </button>
+          </div>
+        )}
+      </div>
       {model && layout && (
         <div className="absolute right-3 bottom-3 flex items-center gap-0.5 rounded-lg border border-control bg-raised p-1 shadow-[var(--shadow-float)]">
           <IconButton title="Zoom out" aria-label="Zoom out" onClick={() => zoom(1 / ZOOM_STEP)}>

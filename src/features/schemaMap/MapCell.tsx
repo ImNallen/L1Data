@@ -229,7 +229,7 @@ export function MapCellBody({ map, height }: { map: SchemaMapView; height: numbe
       <div className="relative">
         <SchemaCanvas
           map={map}
-          mode={{ opens: "fitWidth" }}
+          mode={{ opens: "fitWidth", wheel: "scrollsPage" }}
           height={height}
           testId={`map-cell-${map.tab.id}`}
           label={`Schema map of ${map.schema ?? "the default schema"}`}
