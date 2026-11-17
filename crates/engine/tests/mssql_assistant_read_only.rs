@@ -331,6 +331,15 @@ async fn the_assistant_reads_only_a_read_only_sql_server_database() {
             assert!(message.contains(needle), "{sql} -> {message}");
         }
 
+        // Column lists are syntax, not calls.
+        match h.approved(on, "WITH c(n) AS (SELECT id FROM dbo.t) SELECT TOP 2 a FROM c, (VALUES (1)) v(a)").await {
+            ToolStatus::Done { result: ToolResult::Rows { columns, rows, .. } } => {
+                assert_eq!(columns, vec!["a".to_owned()]);
+                assert_eq!(rows.len(), 2);
+            }
+            other => panic!("expected rows, got {other:?}"),
+        }
+
         // A flip to READ_WRITE between calls is caught by the next call's guard. The fresh per-call
         // session re-reads Updateability, so the model's statement never runs against a writable base.
         h.engine.disconnect(off, true).await.unwrap();

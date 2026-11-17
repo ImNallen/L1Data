@@ -95,6 +95,12 @@ impl Tokens<'_> {
     fn qualified(&self, i: usize) -> bool {
         i > 0 && matches!(self.t[i - 1].text, "." | "::")
     }
+    fn opener(&self, close: usize) -> usize {
+        (0..close).rev().find(|&j| self.depth[j] == self.depth[close] && self.sym(j, "(")).expect("balanced")
+    }
+    fn closer(&self, open: usize) -> usize {
+        (open + 1..self.t.len()).find(|&j| self.depth[j] == self.depth[open] && self.sym(j, ")")).expect("balanced")
+    }
 }
 
 fn tokens(sql: &str) -> Result<Tokens<'_>, Refusal> {
@@ -134,19 +140,7 @@ fn self_open(token: &Token<'_>) -> bool {
 /// Admits the statement, or names why it is not a plain single read, without opening a session.
 pub(crate) fn read_refusal(sql: &str) -> Result<(), Refusal> {
     let tk = tokens(sql)?;
-    let len = tk.t.len();
-    if len == 0 {
-        return Err(Refusal::NotSelect);
-    }
-    // The statement must start with SELECT or WITH, which also rejects a leading DECLARE, SET, USE,
-    // VALUES, or bare procedure name. SQL Server rejects a bare VALUES (`Msg 156`).
-    let main = if tk.word(0, "SELECT") {
-        0
-    } else if tk.word(0, "WITH") {
-        (1..len).find(|&i| tk.depth[i] == 0 && tk.word(i, "SELECT")).ok_or(Refusal::NotSelect)?
-    } else {
-        return Err(Refusal::NotSelect);
-    };
+    let main = main_select(&tk)?;
 
     one_statement(&tk, main)?;
 
@@ -179,7 +173,40 @@ pub(crate) fn read_refusal(sql: &str) -> Result<(), Refusal> {
     if is_write(sql) {
         return Err(Refusal::Write);
     }
-    functions(&tk)
+    functions(&tk, main)
+}
+
+/// The index of the read's own `SELECT`: the first token, or the one after a `WITH` list whose every
+/// entry is `name [(columns)] AS (query)`. This rejects a leading `DECLARE`, `SET`, `USE`, `VALUES`,
+/// bare procedure name, `WITH XMLNAMESPACES`, and a CTE that feeds a write.
+fn main_select(tk: &Tokens<'_>) -> Result<usize, Refusal> {
+    if tk.word(0, "SELECT") {
+        return Ok(0);
+    }
+    if !tk.word(0, "WITH") {
+        return Err(Refusal::NotSelect);
+    }
+    let mut i = 1;
+    loop {
+        if !tk.name(i) || tk.reserved(i) {
+            return Err(Refusal::NotSelect);
+        }
+        i += 1;
+        if tk.sym(i, "(") {
+            i = tk.closer(i) + 1;
+        }
+        if !(tk.word(i, "AS") && tk.sym(i + 1, "(")) {
+            return Err(Refusal::NotSelect);
+        }
+        i = tk.closer(i + 1) + 1;
+        if tk.word(i, "SELECT") {
+            return Ok(i);
+        }
+        if !tk.sym(i, ",") {
+            return Err(Refusal::NotSelect);
+        }
+        i += 1;
+    }
 }
 
 /// Refuses a statement word at the top level after the main `SELECT`, where a batch without
@@ -212,6 +239,20 @@ fn set_operand(tk: &Tokens<'_>, i: usize) -> bool {
     op.is_some_and(|j| tk.word_in(j, &["UNION", "INTERSECT", "EXCEPT"]))
 }
 
+/// Whether the name at `i`, before a `(`, is a CTE's or a derived table's alias, so the `(` opens its
+/// column list, not a call: `WITH c(id) AS …`, `FROM (SELECT 1) d(a)`, `JOIN (VALUES (1)) AS v(a)`.
+/// `main_select` already checked the `WITH` list's shape.
+fn column_list(tk: &Tokens<'_>, i: usize, main: usize) -> bool {
+    if i < main && tk.depth[i] == 0 {
+        return true;
+    }
+    let close = if tk.word(i - 1, "AS") { i - 2 } else { i - 1 };
+    tk.sym(close, ")") && {
+        let open = tk.opener(close);
+        tk.word_in(open - 1, &["FROM", "JOIN", "APPLY"]) || tk.sym(open - 1, ",")
+    }
+}
+
 /// A dotted name of four or more parts, the linked-server form `server.db.schema.object`. Every dot
 /// separates two parts, so an omitted part still counts: `srv.db..t`, `srv...t`, and `.db.dbo.t` are
 /// four. A trailing `.*` is a column list, not a part. A three-part `db.schema.object` cross-database
@@ -231,22 +272,25 @@ fn four_part_name(tk: &Tokens<'_>) -> bool {
 }
 
 /// Fails closed on every function call: a name immediately before `(` is refused unless it is a bare
-/// built-in that stays inside the database, a type name, or reserved-word syntax such as `IN (` or
-/// `OVER (`. A qualified call is always refused. The `OPEN*` reserved functions are already refused by
-/// name above, so the reserved-word allowance here cannot admit them.
-fn functions(tk: &Tokens<'_>) -> Result<(), Refusal> {
+/// built-in that stays inside the database, a type name, a column list, or reserved-word syntax such
+/// as `IN (` or `OVER (`. A qualified call is always refused. The `OPEN*` reserved functions are
+/// already refused by name above, so the reserved-word allowance here cannot admit them.
+fn functions(tk: &Tokens<'_>, main: usize) -> Result<(), Refusal> {
     for (i, t) in tk.t.iter().enumerate() {
-        if !tk.sym(i + 1, "(") || !matches!(t.kind, Kind::Word | Kind::Ident) {
+        if !tk.sym(i + 1, "(") || !tk.name(i) {
             continue;
         }
         if tk.qualified(i) {
             return Err(Refusal::Unvetted(name_of(t)));
         }
-        // `AS (` opens a CTE or a derived table, not a call.
-        if i > 0 && tk.word(i - 1, "AS") {
+        if tk.reserved(i) || tk.word_in(i, TYPE_NAMES) {
             continue;
         }
-        if tk.reserved(i) || tk.word_in(i, TYPE_NAMES) {
+        // A name after `AS` is a type or an alias, and `CROSS APPLY (` and `OUTER APPLY (` are syntax.
+        if tk.word(i - 1, "AS")
+            || column_list(tk, i, main)
+            || tk.word(i, "APPLY") && tk.word_in(i - 1, &["CROSS", "OUTER"])
+        {
             continue;
         }
         match builtin(t) {
@@ -365,5 +409,36 @@ mod tests {
         for sql in ["SELECT * FROM db..t", "SELECT db.dbo.t.* FROM db.dbo.t", "SELECT t.* FROM dbo.t AS t"] {
             assert_eq!(read_refusal(sql), Ok(()), "{sql}");
         }
+    }
+
+    #[test]
+    fn cte_and_derived_table_column_lists_are_not_calls() {
+        for sql in [
+            "WITH c(id) AS (SELECT 1) SELECT id FROM c",
+            "WITH c (id, n) AS (SELECT 1, 2), d(x) AS (SELECT id FROM c) SELECT x FROM d",
+            "SELECT a FROM (SELECT 1) x(a)",
+            "SELECT a FROM (SELECT 1) AS x(a)",
+            "SELECT a FROM (VALUES (1)) v(a)",
+            "SELECT a FROM dbo.t JOIN (VALUES (1)) v(a) ON v.a = t.id",
+            "SELECT a FROM dbo.t, (SELECT 1) d(a)",
+            "SELECT a FROM dbo.t CROSS APPLY (VALUES (1)) v(a)",
+        ] {
+            assert_eq!(read_refusal(sql), Ok(()), "{sql}");
+        }
+        for (sql, name) in [
+            ("SELECT TOP (1) SERVERPROPERTY('Edition')", "SERVERPROPERTY"),
+            ("SELECT TOP (1) my_udf(1) FROM dbo.t", "my_udf"),
+            ("WITH c(id) AS (SELECT my_udf(1)) SELECT id FROM c", "my_udf"),
+            ("SELECT a FROM (SELECT 1) x(a) WHERE my_udf(a) = 1", "my_udf"),
+            ("SELECT a FROM (SELECT 1) x(a) CROSS APPLY my_tvf(a)", "my_tvf"),
+            (
+                "SELECT * FROM (SELECT 1 AS a) AS d CROSS APPLY dm_os_enumerate_filesystem('/etc', '*')",
+                "dm_os_enumerate_filesystem",
+            ),
+        ] {
+            assert_eq!(refusal(sql), Some(Refusal::Unvetted(name.into())), "{sql}");
+        }
+        assert_eq!(refusal("WITH XMLNAMESPACES ('urn:x' AS x) SELECT 1"), Some(Refusal::NotSelect));
+        assert_eq!(refusal("WITH c AS (SELECT 1 AS a) DELETE FROM dbo.t"), Some(Refusal::NotSelect));
     }
 }
