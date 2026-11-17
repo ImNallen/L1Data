@@ -272,3 +272,34 @@ it("filters a table tab to the clicked bar's whole x value without asking the en
   fireEvent.pointerMove(await screen.findByRole("img"), { clientX: 500 });
   expect(screen.queryByTestId("chart-drill-hint")).toBeNull();
 });
+
+it("gives a refused point's own reason and still opens the others", async () => {
+  useWorkspace.setState(cellsState([cell("t1", "Revenue")]));
+  vi.spyOn(commands, "resultSeries").mockResolvedValue(ok({ labels: ["Ω", "a"], values: [10, 4], capped: false }));
+  const reason = "A grouped varchar value is not plain ASCII, so its literal could spell another value in the column's code page.";
+  const drill = vi
+    .spyOn(commands, "resultDrill")
+    .mockImplementation(async (_ref, point: DrillPoint) =>
+      point.kind === "Row" && point.row === 0
+        ? { status: "error", error: { kind: "Unsupported", reason } }
+        : { status: "ok", data: { sql: point.kind === "Probe" ? "" : "SELECT 1", db, schema: null } },
+    );
+  const run = acceptRuns();
+  render(<ChartView result={result(2)} spec={bars} onSpec={() => {}} />);
+  const plot = await screen.findByRole("img");
+  await waitFor(() => expect(drill).toHaveBeenCalledWith({ tabId: "t1", runId: 1, index: 0 }, { kind: "Probe" }));
+  fireEvent.pointerMove(plot, { clientX: 100 });
+  expect(screen.queryByTestId("chart-drill-hint")).toBeNull();
+  await waitFor(() => expect(screen.getByTestId("chart-drill-hint").textContent).toBe(reason));
+  expect(plot.getAttribute("class")).not.toContain("cursor-pointer");
+  fireEvent.click(plot, { clientX: 100 });
+  await act(async () => {});
+  expect(run).not.toHaveBeenCalled();
+
+  fireEvent.pointerMove(plot, { clientX: 500 });
+  await waitFor(() => expect(screen.getByTestId("chart-drill-hint").textContent).toBe("Click to open these rows"));
+  expect(plot.getAttribute("class")).toContain("cursor-pointer");
+  fireEvent.click(plot, { clientX: 500 });
+  await waitFor(() => expect(run).toHaveBeenCalled());
+  expect(drill).toHaveBeenLastCalledWith({ tabId: "t1", runId: 1, index: 0 }, { kind: "Row", row: 1, title: "Revenue" });
+});

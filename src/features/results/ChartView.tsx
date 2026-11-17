@@ -64,8 +64,11 @@ function linePath(values: (number | null)[], xAt: (i: number) => number, yAt: (v
   return d;
 }
 
-/** What a click on a point does, and the tooltip line that says so. `open` is null when the hint only explains why nothing happens. */
-type Drill = { hint: string; open: ((row: number) => void) | null };
+/**
+ * What a click on a point does, and the tooltip line that says so. `open` is null when the hint only explains why nothing happens.
+ * `refusal` answers why one point's own value cannot be drilled into, as a SQL Server varchar key outside ASCII cannot.
+ */
+type Drill = { hint: string; open: ((row: number) => void) | null; refusal?: (row: number) => Promise<string | null> };
 
 /**
  * A table tab filters the table to the clicked point's x value. A query result opens the rows behind the clicked point
@@ -82,7 +85,14 @@ function useDrill(meta: ResultMeta, x: number | null, onFilter: ((column: string
       if (!live) return;
       const drill =
         res.status === "ok"
-          ? { hint: "Click to open these rows", open: (row: number) => void openDrill(meta.ref, row) }
+          ? {
+              hint: "Click to open these rows",
+              open: (row: number) => void openDrill(meta.ref, row),
+              refusal: async (row: number) => {
+                const point = await commands.resultDrill(meta.ref, { kind: "Row", row, title: "" });
+                return point.status === "error" && point.error.kind === "Unsupported" ? point.error.reason : null;
+              },
+            }
           : res.error.kind === "Unsupported"
             ? { hint: res.error.reason, open: null }
             : null;
@@ -147,12 +157,26 @@ function Plot({ series, kind, xName, yName, drill }: { series: ChartSeries; kind
     return Math.min(Math.max(xAt(i), half), size.width - half);
   };
   const shown = active !== null && active < n ? active : null;
+  const refusal = drill?.refusal;
+  const [refused, setRefused] = useState<{ refusal: Drill["refusal"]; row: number; reason: string | null } | null>(null);
+  useEffect(() => {
+    if (shown === null || !refusal) return;
+    let live = true;
+    void refusal(shown).then((reason) => {
+      if (live) setRefused({ refusal, row: shown, reason });
+    });
+    return () => {
+      live = false;
+    };
+  }, [shown, refusal]);
+  const answered = refused !== null && refused.refusal === refusal && refused.row === shown;
+  const reason = answered ? refused.reason : null;
 
   const pointAt = (e: MouseEvent<SVGSVGElement>) => {
     const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
     return band <= 0 || x < left || x > left + plotW ? null : Math.min(n - 1, Math.floor((x - left) / band));
   };
-  const open = drill?.open;
+  const open = reason === null ? drill?.open : null;
   const step = (e: KeyboardEvent<SVGSVGElement>) => {
     if (e.key === "Enter" && open && shown !== null) {
       e.preventDefault();
@@ -232,9 +256,9 @@ function Plot({ series, kind, xName, yName, drill }: { series: ChartSeries; kind
           <div className="font-medium text-fg tabular-nums">{value == null ? "No value" : exact.format(value)}</div>
           <div className="truncate text-muted">{yName}</div>
           <div className="truncate text-dim">{series.labels[shown] ?? "NULL"}</div>
-          {drill && (
+          {drill && (!refusal || answered) && (
             <div data-testid="chart-drill-hint" className="mt-1 text-ui-11 text-dim">
-              {drill.hint}
+              {reason ?? drill.hint}
             </div>
           )}
         </div>
