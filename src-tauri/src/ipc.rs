@@ -624,3 +624,14 @@ pub async fn database_map_query(
 ) -> Result<MapQuery, MapError> {
     engine.database_map_query(db, text, cursor, catalog_version).await
 }
+
+#[tauri::command]
+#[specta::specta]
+pub async fn schema_map(
+    engine: State<'_, Arc<Engine>>,
+    db: DatabaseRef,
+    schema: Option<String>,
+    catalog_version: u64,
+) -> Result<SchemaMap, MapError> {
+    engine.schema_map(db, schema, catalog_version).await
+}

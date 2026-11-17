@@ -34,6 +34,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ipc::relation_detail,
             ipc::database_map_neighborhood,
             ipc::database_map_query,
+            ipc::schema_map,
             ipc::object_script,
             ipc::exact_row_count,
             ipc::console_configure,
