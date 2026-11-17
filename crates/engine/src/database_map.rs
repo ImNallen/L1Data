@@ -69,7 +69,7 @@ impl Neighborhood {
 }
 
 impl Shared {
-    fn map_current(
+    pub(crate) fn map_current(
         &self,
         instance: &Arc<crate::connection::Instance>,
         slot: &Arc<crate::connection::DbSlot>,

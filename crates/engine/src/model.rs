@@ -665,6 +665,87 @@ pub enum MapError {
     Failed { message: String },
 }
 
+/// One schema's tables, columns, and references at `catalog_version`. Tables and columns come from the catalog the
+/// slot held at that version, and declared keys from one read under the same metadata lock. Every oid in `links`
+/// names a table in `tables`, and every column a link names is in that table's `columns`.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaMap {
+    pub db: DatabaseRef,
+    pub catalog_version: u64,
+    /// The schema asked for, or the catalog's `default_schema` when the request named none.
+    pub schema: String,
+    /// The schema's tables in catalog order, then the other schemas' tables a declared key reaches, by schema and
+    /// name. No views, and no partitions: each counts toward its top-most partitioned table's `partitions`.
+    pub tables: Vec<SchemaMapTable>,
+    /// Declared keys by constraint id, then inferred references by source table and column.
+    pub links: Vec<SchemaMapLink>,
+    /// More than `schema_map::KEY_LIMIT` declared keys touch the schema. The ones past it are not drawn.
+    pub keys_truncated: bool,
+    /// More than `schema_map::PARTITION_LIMIT` partitions touch the schema. The ones past it draw as tables.
+    pub partitions_truncated: bool,
+    /// Tables past `schema_map::TABLE_LIMIT`, left out with every link that touches them.
+    pub omitted_tables: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaMapTable {
+    pub oid: u32,
+    pub schema: String,
+    pub name: String,
+    pub kind: RelKind,
+    /// `None` when never analyzed.
+    pub row_estimate: Option<i64>,
+    /// Partitions folded into this table at any depth. 0 on SQL Server.
+    pub partitions: u32,
+    /// In another schema, drawn because a declared key reaches it. Lists only its primary key and the columns its
+    /// links name.
+    pub external: bool,
+    /// In `attnum` order.
+    pub columns: Vec<SchemaMapColumn>,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaMapColumn {
+    pub attnum: i16,
+    pub name: String,
+    pub type_display: String,
+    pub category: TypeCategory,
+    pub not_null: bool,
+    pub pk: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+pub enum LinkBasis {
+    /// A foreign key the server holds.
+    Declared,
+    /// No key is declared. The source column's name and type match the target's single-column primary key by the
+    /// rules in `schema_map::infer`.
+    Inferred,
+}
+
+/// A reference from `source` (the many side) to `target` (the one side).
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaMapLink {
+    /// Unique in the reply and stable across versions: `k<constraint id>` for a declared key, `i<source oid>.<attnum>`
+    /// for an inferred one.
+    pub id: String,
+    pub basis: LinkBasis,
+    /// The constraint's name. `None` when inferred.
+    pub name: Option<String>,
+    pub source: u32,
+    pub target: u32,
+    /// In constraint order. One pair when inferred.
+    pub columns: Vec<MapColumnPair>,
+    /// The server enforces the key on new rows. Always false when inferred.
+    pub enabled: bool,
+    /// The server has checked the existing rows. Always false when inferred.
+    pub validated: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(tag = "kind", rename_all_fields = "camelCase")]
 pub enum MapResolution {
