@@ -98,6 +98,7 @@ export type Overlay =
   | { kind: "usage" }
   | { kind: "connection"; editing: ConnectionId | null }
   | { kind: "cell"; title: string; value: string | null }
+  | { kind: "schemaMap"; tab: TabId }
   | { kind: "record"; meta: ResultMeta; row: number }
   | ({ kind: "ask"; seq: number; settle: (choice: string | null) => void } & Required<Question<string>>);
 
@@ -539,17 +540,18 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
       const { [id]: __, ...activeResult } = s.activeResult;
       const { [id]: ___, ...resultDisplay } = s.resultDisplay;
       const { [id]: _____, ...runSources } = s.runSources;
+      const overlay: Overlay = s.overlay.kind === "schemaMap" && s.overlay.tab === id ? { kind: "none" } : s.overlay;
       const notebook = notebookOf(s.notebooks, id);
-      if (!notebook) return { tabs, activeResult, resultDisplay, runSources };
+      if (!notebook) return { tabs, activeResult, resultDisplay, runSources, overlay };
       const index = notebook.cells.indexOf(id);
       const cells = notebook.cells.filter((c) => c !== id);
       if (cells.length === 0) {
         const { [notebook.id]: ____, ...notebooks } = s.notebooks;
         const wasShown = s.shown.kind === "notebook" && s.shown.id === notebook.id;
-        return { tabs, ...(wasShown ? showDatabase(notebooks, notebook.db) : { notebooks }), activeResult, resultDisplay, runSources };
+        return { tabs, ...(wasShown ? showDatabase(notebooks, notebook.db) : { notebooks }), activeResult, resultDisplay, runSources, overlay };
       }
       const active = notebook.active === id ? (cells[Math.min(index, cells.length - 1)] ?? null) : notebook.active;
-      return { tabs, notebooks: { ...s.notebooks, [notebook.id]: { ...notebook, cells, active } }, activeResult, resultDisplay, runSources };
+      return { tabs, notebooks: { ...s.notebooks, [notebook.id]: { ...notebook, cells, active } }, activeResult, resultDisplay, runSources, overlay };
     }),
   setActive: (id) =>
     set((s) => {

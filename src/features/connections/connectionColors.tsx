@@ -40,6 +40,21 @@ const ENVIRONMENT_BADGE: Record<Environment, string> = {
   Production: "bg-danger/12 text-danger",
 };
 
+const ENVIRONMENT_TEXT: Record<Environment, string> = {
+  Local: "text-dim",
+  Staging: "text-amber",
+  Production: "text-danger",
+};
+
+export function EnvironmentText({ environment, testId }: { environment: Environment | null; testId?: string }) {
+  if (!environment) return null;
+  return (
+    <span data-testid={testId} className={cx("shrink-0 text-ui-10", ENVIRONMENT_TEXT[environment])}>
+      {ENVIRONMENT_ICON[environment].label}
+    </span>
+  );
+}
+
 /** The environment as a small tinted badge, red for Production so it stands out in a list. Nothing for a connection without one. */
 export function EnvironmentBadge({ environment }: { environment: Environment | null }) {
   if (!environment) return null;

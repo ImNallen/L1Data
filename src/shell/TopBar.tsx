@@ -1,6 +1,6 @@
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import { BookOpenIcon, ChevronDownIcon, DatabaseIcon } from "lucide-react";
-import { ConnectionColorDot } from "../features/connections/connectionColors";
+import { ConnectionColorDot, EnvironmentText } from "../features/connections/connectionColors";
 import { AddCellMenu } from "../features/editor/AddCellMenu";
 import { endTransaction, setTabMode, setTabSchema } from "../features/editor/runActions";
 import type { ConnectionState, DatabaseRef, TransactionLoss, TxnMode } from "../ipc/bindings";
@@ -169,12 +169,7 @@ export function TopBar({ hosted }: { hosted: HostedWindow | null }) {
               {environment && (
                 <>
                   <Separator />
-                  <span
-                    data-testid="environment-marker"
-                    className={cx("shrink-0 text-ui-10", environment === "Production" ? "text-danger" : environment === "Staging" ? "text-amber" : "text-dim")}
-                  >
-                    {environment === "Local" ? "Develop" : environment}
-                  </span>
+                  <EnvironmentText environment={environment} testId="environment-marker" />
                 </>
               )}
             </>

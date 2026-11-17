@@ -1,7 +1,18 @@
 import { DENSITY_FACTOR, gridRowHeight } from "../../shell/appearance";
 import { StartCommands } from "../../shell/StartCommands";
 import { EditorView } from "@codemirror/view";
-import { ChevronRightIcon, CircleAlertIcon, CopyPlusIcon, ListIndentIncreaseIcon, NetworkIcon, PlayIcon, RefreshCwIcon, SquareIcon, XIcon } from "lucide-react";
+import {
+  ChevronRightIcon,
+  CircleAlertIcon,
+  CopyPlusIcon,
+  ListIndentIncreaseIcon,
+  Maximize2Icon,
+  NetworkIcon,
+  PlayIcon,
+  RefreshCwIcon,
+  SquareIcon,
+  XIcon,
+} from "lucide-react";
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import type { RunState, TabId } from "../../ipc/bindings";
@@ -28,6 +39,7 @@ import { SqlText } from "./SqlText";
 import { databaseKindFor } from "../../state/databaseKind";
 import { MAP_TITLE } from "../../state/notebookFile";
 import { MapCellBody } from "../schemaMap/MapCell";
+import { fullViewButtonId, openFullView } from "../schemaMap/SchemaMapDialog";
 import { useSchemaMap } from "../schemaMap/useSchemaMap";
 
 const MOVE_KEYS: Partial<Record<string, -1 | 1>> = { ArrowUp: -1, ArrowDown: 1 };
@@ -141,11 +153,11 @@ function CellTitle({
 const MAP_HEIGHT = { min: 220, max: 600 };
 
 function MapNotebookCell({ id, index, viewport, focused }: { id: TabId; index: number; viewport: number; focused: boolean }) {
-  const map = useSchemaMap(id);
+  const collapsed = useWorkspace((s) => s.tabs[id]?.collapsed === true);
+  const map = useSchemaMap(id, !collapsed);
   const active = useWorkspace((s) => activeId(s) === id);
   const cell = useRef<HTMLElement>(null);
   const [dragged, setDragged] = useState<number | null>(null);
-  const collapsed = map?.tab.collapsed === true;
   useEffect(() => {
     if (focused) cell.current?.scrollIntoView({ block: "nearest" });
   }, [focused, collapsed, index]);
@@ -180,6 +192,9 @@ function MapNotebookCell({ id, index, viewport, focused }: { id: TabId; index: n
           </CellTitle>
           <IconButton aria-label="Refresh catalog" title="Refresh catalog" disabled={!db} onClick={map.actions.refresh}>
             <RefreshCwIcon size={14} />
+          </IconButton>
+          <IconButton aria-label="Open full view" title="Open full view" data-testid={fullViewButtonId(id)} onClick={() => openFullView(id)}>
+            <Maximize2Icon size={14} />
           </IconButton>
           <IconButton aria-label="Close cell" title="Close cell" onClick={() => void closeTab(id)}>
             <XIcon size={14} />
