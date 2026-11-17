@@ -1,4 +1,3 @@
-import { openDatabaseMap } from "../databaseMap/controller";
 import { beginImport } from "../results/importState";
 import {
   BracesIcon,
@@ -60,6 +59,8 @@ import { connect, confirmDelete, disconnect, refreshCatalog, refreshConnection }
 import { ConnectionColorDot, EnvironmentBadge, EnvironmentIcon, connectionColor } from "../connections/connectionColors";
 import { insertIntoActive, openMapTab, openSqlTab, openTableTab } from "../editor/runActions";
 import { useRunningNotebooks } from "../notebooks/notebookRun";
+import { tableKey } from "../schemaMap/model";
+import { focusTable } from "../schemaMap/views";
 import { columnType, defaultText, indexText, keyText, triggerText, type RowText } from "./detailText";
 import { databaseCount, schemaCount } from "./pickers";
 import type { FilteredRelation, FilteredSchema, TreeFilter } from "./treeFilter";
@@ -171,9 +172,11 @@ function RelationMenu({ db, schema, rel }: { db: DatabaseRef; schema: string; re
   return (
     <>
       <ScriptMenuItem db={db} target={{ kind: "Relation", oid: rel.oid }} label="Script as CREATE" />
-      <ContextMenuItem testId="tree-menu-database-map" onSelect={() => openDatabaseMap(db, rel.oid)}>
-        Explore database map
-      </ContextMenuItem>
+      {!isViewKind(rel.kind) && (
+        <ContextMenuItem testId="tree-menu-show-in-map" onSelect={() => focusTable(openMapTab({ db, schema }), tableKey(schema, rel.name))}>
+          Show in schema map
+        </ContextMenuItem>
+      )}
       {(rel.kind === "Table" || rel.kind === "PartitionedTable") && (
         <ContextMenuItem testId="tree-menu-import" onSelect={() => void beginImport({ db, schema, table: rel.name, oid: rel.oid })}>
           Import CSV…

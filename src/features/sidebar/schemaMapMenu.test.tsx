@@ -10,6 +10,7 @@ import { activeTab, useWorkspace } from "../../state/workspace";
 import { ConnectionTreeHarness } from "../../testing/ConnectionTreeHarness";
 import { connectedState, connectionConfig, databaseState } from "../../testing/connections";
 import { shopCatalog } from "../../testing/shopCatalog";
+import { useMapViews } from "../schemaMap/views";
 
 beforeAll(() => {
   Element.prototype.scrollIntoView = () => {};
@@ -34,13 +35,19 @@ afterEach(() => {
   useWorkspace.setState(useWorkspace.getInitialState(), true);
   useLive.setState(useLive.getInitialState(), true);
   useCatalog.setState(useCatalog.getInitialState(), true);
+  useMapViews.setState(useMapViews.getInitialState(), true);
 });
 
-async function addFrom(path: string) {
+async function openMenu(path: string) {
   const user = userEvent.setup();
   render(<ConnectionTreeHarness />);
   await user.pointer({ keys: "[MouseRight]", target: screen.getByTestId(`tree-node-${path}`) });
-  await user.click(await screen.findByTestId("tree-menu-schema-map"));
+  return user;
+}
+
+async function addFrom(path: string, item = "tree-menu-schema-map") {
+  const user = await openMenu(path);
+  await user.click(await screen.findByTestId(item));
   return activeTab(useWorkspace.getState());
 }
 
@@ -59,4 +66,19 @@ it("adds a map of the schema from a schema row", async () => {
     console: { db: { connectionId: "p", database: "shop" }, mode: "AutoCommit", schema: "public" },
     map: { columns: "All" },
   });
+});
+
+it("maps a table's schema with the table focused from a table row", async () => {
+  const tab = await addFrom("prod/shop/public/orders", "tree-menu-show-in-map");
+  expect(tab && { console: tab.console, map: tab.map }).toEqual({
+    console: { db: { connectionId: "p", database: "shop" }, mode: "AutoCommit", schema: "public" },
+    map: { columns: "All" },
+  });
+  expect(useMapViews.getState().views[tab!.id]?.focus).toBe("public.orders");
+});
+
+it("offers no map from a view row, which the map does not draw", async () => {
+  await openMenu("prod/shop/public/paid_orders");
+  await screen.findByTestId("tree-menu-script-create");
+  expect(screen.queryByTestId("tree-menu-show-in-map")).toBeNull();
 });

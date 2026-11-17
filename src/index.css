@@ -333,11 +333,6 @@ textarea,
   background-size: 20px 20px;
 }
 
-.map-edge:focus-visible .map-edge-line {
-  stroke: var(--color-focus);
-  stroke-width: 3;
-}
-
 .run-environment[data-environment="Production"] {
   --color-run: #d03539;
   --color-run-hover: #b52d31;

@@ -29,13 +29,11 @@ function lazySurface(load: () => Promise<ComponentType>) {
 
 const settings = lazySurface(() => import("../features/settings/SettingsScreen").then((m) => m.SettingsDialog));
 const connection = lazySurface(() => import("../features/connections/ConnectionDialog").then((m) => m.ConnectionDialog));
-const databaseMap = lazySurface(() => import("../features/databaseMap/DatabaseMap").then((m) => m.DatabaseMap));
 const assistant = lazySurface(() => import("../features/assistant/AssistantPanel").then((m) => m.AssistantPanel));
-const SURFACES = [settings, connection, databaseMap, assistant];
+const SURFACES = [settings, connection, assistant];
 
 export const SettingsDialog = settings.Surface;
 export const ConnectionDialog = connection.Surface;
-export const DatabaseMap = databaseMap.Surface;
 export const AssistantPanel = assistant.Surface;
 
 /** Loads every surface's chunk. Tests await it so a surface renders in the same pass that opens it. */

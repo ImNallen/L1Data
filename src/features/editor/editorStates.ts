@@ -25,7 +25,6 @@ import { editorHighlighting, editorTheme, functionCallStyle, LINE_PADDING_LEFT }
 
 const states = new Map<TabId, EditorState>();
 const bufferListeners = new Set<() => void>();
-const contextListeners = new Set<() => void>();
 let view: EditorView | null = null;
 let activeId: TabId | null = null;
 let behavior: Extension = [];
@@ -50,25 +49,6 @@ const flashField = StateField.define<DecorationSet>({
         next = Decoration.set(ranges, true);
       }
       if (e.is(clearFlash)) next = Decoration.none;
-    }
-    return next;
-  },
-  provide: (f) => EditorView.decorations.from(f),
-});
-
-const mapEffect = StateEffect.define<DocRange[]>();
-const mapMark = Decoration.mark({ class: "cm-map-source" });
-const mapField = StateField.define<DecorationSet>({
-  create: () => Decoration.none,
-  update(deco, tr) {
-    let next = tr.docChanged ? Decoration.none : deco;
-    for (const effect of tr.effects) {
-      if (effect.is(mapEffect)) {
-        next = Decoration.set(
-          effect.value.filter((r) => r.from < r.to && r.from >= 0 && r.to <= tr.state.doc.length).map((r) => mapMark.range(r.from, r.to)),
-          true,
-        );
-      }
     }
     return next;
   },
@@ -116,34 +96,6 @@ export function referenceAt(state: EditorState, pos: number): string | null {
     if (from <= pos && pos <= to) name = (deco.spec as { name?: string }).name ?? null;
   });
   return name;
-}
-
-export type EditorContext = { tabId: TabId; doc: Text; selection: EditorState["selection"] };
-
-export function editorContextOf(tabId: TabId): EditorContext {
-  const state = editorStateOf(tabId);
-  return { tabId, doc: state.doc, selection: state.selection };
-}
-
-export function sameEditorContext(a: EditorContext, b: EditorContext): boolean {
-  return a.tabId === b.tabId && a.doc === b.doc && a.selection.eq(b.selection);
-}
-
-export function onEditorContextChanged(listener: () => void): () => void {
-  contextListeners.add(listener);
-  return () => contextListeners.delete(listener);
-}
-
-export function clearMapHighlights(id: TabId): void {
-  updateEditor(id, () => ({ effects: mapEffect.of([]) }));
-}
-
-export function highlightMapSource(context: EditorContext, ranges: DocRange[]): boolean {
-  if (activeId !== context.tabId || !sameEditorContext(context, editorContextOf(context.tabId))) return false;
-  const unique = ranges.filter((r, i) => !ranges.slice(0, i).some((p) => p.from === r.from && p.to === r.to));
-  const first = unique[0];
-  updateEditor(context.tabId, () => ({ effects: first ? [mapEffect.of(unique), EditorView.scrollIntoView(first.from, { y: "nearest" })] : mapEffect.of([]) }));
-  return true;
 }
 
 const previewEffect = StateEffect.define<DocRange[] | null>();
@@ -276,7 +228,6 @@ function createState(text: string): EditorState {
       sqlConfig.of(sqlLanguage(undefined, "Postgres")),
       flashField,
       previewField,
-      mapField,
       referenceField,
       runTargetField,
       runTargetLayer,
@@ -302,7 +253,6 @@ function commit(id: TabId, next: EditorState): void {
   const prev = states.get(id);
   states.set(id, next);
   if (prev && prev.doc !== next.doc) emit();
-  if (prev && (prev.doc !== next.doc || !prev.selection.eq(next.selection))) for (const listener of contextListeners) listener();
 }
 
 export function seedEditor(id: TabId, text: string): void {
@@ -342,7 +292,6 @@ export function textOf(id: TabId): string {
 export function dropEditor(id: TabId): void {
   states.delete(id);
   if (activeId === id) activeId = null;
-  for (const listener of contextListeners) listener();
 }
 
 function updateEditor(id: TabId, spec: (state: EditorState) => TransactionSpec): void {
@@ -376,7 +325,6 @@ export function activateEditor(id: TabId): void {
   commit(id, next);
   activeId = id;
   if (view) view.setState(next);
-  for (const listener of contextListeners) listener();
 }
 
 export function focusEditor(): void {
