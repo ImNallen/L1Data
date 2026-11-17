@@ -227,6 +227,10 @@ enum Literal {
     /// literal is read in the database's code page, so only ASCII spells the same in every column's.
     Varchar,
     Nvarchar,
+    /// `CONVERT(float, N'…')` rounds some decimal texts to a neighbouring double, so both build the
+    /// exact binary value instead.
+    Float,
+    Real,
     /// `mssql_value::input_sql`, which converts with an explicit style.
     Converted,
 }
@@ -236,8 +240,10 @@ fn literal_kind(display: &str) -> Result<Literal, Refusal> {
         "tinyint" | "smallint" | "int" | "bigint" | "integer" | "decimal" | "bit" => Literal::Number,
         "varchar" => Literal::Varchar,
         "nvarchar" => Literal::Nvarchar,
-        "money" | "smallmoney" | "float" | "real" | "date" | "time" | "datetime" | "smalldatetime" | "datetime2"
-        | "datetimeoffset" | "uniqueidentifier" | "varbinary" => Literal::Converted,
+        "float" => Literal::Float,
+        "real" => Literal::Real,
+        "money" | "smallmoney" | "date" | "time" | "datetime" | "smalldatetime" | "datetime2" | "datetimeoffset"
+        | "uniqueidentifier" | "varbinary" => Literal::Converted,
         _ => return Err(Refusal::KeyType(display.to_owned())),
     })
 }
@@ -256,6 +262,33 @@ fn number(text: &str) -> bool {
     }
 }
 
+/// The finite value `text` shows, if `text` is exactly how the result shows that value, so no other
+/// value shows the same text.
+fn shown<F: std::str::FromStr + ToString>(text: &str, finite: impl Fn(&F) -> bool) -> Result<F, Refusal> {
+    text.parse::<F>().ok().filter(|v| finite(v) && v.to_string() == text).ok_or(Refusal::KeyValue)
+}
+
+/// A T-SQL `float` expression of exactly `v`: an odd integer below 2^53, which converts exactly, times a
+/// power of two, which `POWER` builds exactly down to the smallest subnormal.
+fn exact_float(v: f64) -> String {
+    let bits = v.to_bits();
+    let sign = if v.is_sign_negative() { "-" } else { "" };
+    let exponent = ((bits >> 52) & 0x7ff) as i32;
+    let fraction = bits & ((1 << 52) - 1);
+    let (mut mantissa, mut power) =
+        if exponent == 0 { (fraction, -1074) } else { (fraction | 1 << 52, exponent - 1075) };
+    if mantissa == 0 {
+        return format!("{sign}CAST(0 AS float)");
+    }
+    let zeros = mantissa.trailing_zeros();
+    mantissa >>= zeros;
+    power += zeros as i32;
+    match power {
+        0 => format!("CAST({sign}{mantissa} AS float)"),
+        _ => format!("CAST({sign}{mantissa} AS float) * POWER(CAST(2 AS float), {power})"),
+    }
+}
+
 fn literal(display: &str, value: &str) -> Result<String, Refusal> {
     match literal_kind(display)? {
         Literal::Number if number(value) => Ok(value.to_owned()),
@@ -263,6 +296,10 @@ fn literal(display: &str, value: &str) -> Result<String, Refusal> {
         Literal::Varchar if value.is_ascii() => Ok(format!("'{}'", value.replace('\'', "''"))),
         Literal::Varchar => Err(Refusal::NonAscii),
         Literal::Nvarchar => Ok(quote_literal(value)),
+        Literal::Float => Ok(exact_float(shown::<f64>(value, |v| v.is_finite())?)),
+        Literal::Real => {
+            Ok(format!("CAST({} AS real)", exact_float(f64::from(shown::<f32>(value, |v| v.is_finite())?))))
+        }
         Literal::Converted => input_sql(display, value).map_err(|_| Refusal::KeyValue),
     }
 }
@@ -818,8 +855,8 @@ mod tests {
             ("bit", "1", "1"),
             ("decimal", "-0.50", "-0.50"),
             ("money", "125.5000", "CONVERT(money, N'125.5000')"),
-            ("float", "0.1", "CONVERT(float, N'0.1')"),
-            ("real", "3.4", "CONVERT(real, N'3.4')"),
+            ("float", "0.1", "CAST(3602879701896397 AS float) * POWER(CAST(2 AS float), -55)"),
+            ("real", "3.4", "CAST(CAST(7130317 AS float) * POWER(CAST(2 AS float), -21) AS real)"),
             ("datetime2", "2024-01-02 03:04:05.1234567", "CONVERT(datetime2, N'2024-01-02 03:04:05.1234567', 121)"),
             (
                 "datetimeoffset",
@@ -859,6 +896,45 @@ mod tests {
             assert!(drill(sql, &[("nvarchar", Some(value))]).is_ok(), "{value}");
         }
         assert!(drill(sql, &[("varchar", Some("~ ?\t"))]).unwrap().ends_with("= '~ ?\t'"));
+    }
+
+    #[test]
+    fn a_float_is_written_as_its_exact_binary_value() {
+        let sql = "SELECT k, COUNT(*) FROM t GROUP BY k";
+        let last = |display: &str, value: &str| {
+            drill(sql, &[(display, Some(value))]).map(|out| out.rsplit_once("= ").unwrap().1.to_owned())
+        };
+        // `CONVERT(float, N'31722300588172750')` gives 0x435C2CD0EA810973, not this double.
+        assert_eq!(f64::from_bits(0x435C_2CD0_EA81_0974).to_string(), "31722300588172750");
+        let cases: &[(&str, &str, &str)] = &[
+            ("float", "31722300588172750", "CAST(1982643786760797 AS float) * POWER(CAST(2 AS float), 4)"),
+            ("float", "1", "CAST(1 AS float)"),
+            ("float", "-3", "CAST(-3 AS float)"),
+            ("float", "1024", "CAST(1 AS float) * POWER(CAST(2 AS float), 10)"),
+            ("float", "0", "CAST(0 AS float)"),
+            ("float", "-0", "-CAST(0 AS float)"),
+            ("float", &f64::from_bits(1).to_string(), "CAST(1 AS float) * POWER(CAST(2 AS float), -1074)"),
+            ("float", &f64::MIN_POSITIVE.to_string(), "CAST(1 AS float) * POWER(CAST(2 AS float), -1022)"),
+            ("float", &f64::MAX.to_string(), "CAST(9007199254740991 AS float) * POWER(CAST(2 AS float), 971)"),
+            ("float", &f64::MIN.to_string(), "CAST(-9007199254740991 AS float) * POWER(CAST(2 AS float), 971)"),
+            ("real", "-0", "CAST(-CAST(0 AS float) AS real)"),
+            ("real", "0.1", "CAST(CAST(13421773 AS float) * POWER(CAST(2 AS float), -27) AS real)"),
+            ("real", &f32::MAX.to_string(), "CAST(CAST(16777215 AS float) * POWER(CAST(2 AS float), 104) AS real)"),
+        ];
+        for (display, value, want) in cases {
+            assert_eq!(last(display, value).as_deref(), Ok(*want), "{display} {value}");
+        }
+        for (display, value) in [
+            ("float", "0.10000000000000001"),
+            ("float", "1e5"),
+            ("float", "inf"),
+            ("float", "NaN"),
+            ("float", "1; DROP TABLE t"),
+            ("real", "0.1000000001"),
+            ("real", "1e39"),
+        ] {
+            assert_eq!(last(display, value), Err(Refusal::KeyValue), "{display} {value}");
+        }
     }
 
     #[test]

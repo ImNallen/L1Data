@@ -105,10 +105,14 @@ impl Harness {
     }
 
     fn rows(&self, meta: &ResultMeta) -> Vec<Vec<Option<String>>> {
-        let page = self.engine.result_page(meta.r#ref, 0, meta.row_count).unwrap();
-        let mut rows = page.rows;
-        for (row, column) in page.cut {
-            rows[row as usize][usize::from(column)] = self.engine.result_cell(meta.r#ref, row, column).unwrap();
+        let mut rows = Vec::new();
+        while (rows.len() as u32) < meta.row_count {
+            let start = rows.len() as u32;
+            let page = self.engine.result_page(meta.r#ref, start, meta.row_count - start).unwrap();
+            rows.extend(page.rows);
+            for (row, column) in page.cut {
+                rows[row as usize][usize::from(column)] = self.engine.result_cell(meta.r#ref, row, column).unwrap();
+            }
         }
         rows
     }
@@ -240,6 +244,182 @@ async fn a_drilled_group_reads_exactly_the_rows_it_counted() {
     .catch_unwind()
     .await;
     h.sql(tab, &format!("DROP TABLE IF EXISTS dbo.[{table}]")).await;
+    h.engine.shutdown().await;
+    if let Err(panic) = outcome {
+        std::panic::resume_unwind(panic);
+    }
+}
+
+/// xorshift64*, so a failure names the seed that reproduces it.
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 >> 12;
+        self.0 ^= self.0 << 25;
+        self.0 ^= self.0 >> 27;
+        self.0.wrapping_mul(0x2545_F491_4F6C_DD1D)
+    }
+    fn below(&mut self, n: u64) -> u64 {
+        self.next() % n
+    }
+    fn unit(&mut self) -> f64 {
+        (self.next() >> 11) as f64 / (1u64 << 53) as f64
+    }
+}
+
+/// Doubles across the whole range: random bit patterns, subnormals, values near 2^53 and near the
+/// largest double, and integers and decimals between 1e-6 and 1e22, each with either sign.
+fn doubles(rng: &mut Rng) -> Vec<f64> {
+    let mut out = vec![
+        0.0,
+        -0.0,
+        0.1,
+        1e22,
+        1e308,
+        f64::MAX,
+        f64::MIN,
+        f64::MIN_POSITIVE,
+        f64::from_bits(1),
+        f64::from_bits(0x000F_FFFF_FFFF_FFFF),
+        f64::from_bits(0x435C_2CD0_EA81_0974),
+        9007199254740992.0,
+        9007199254740991.0,
+        9007199254740994.0,
+    ];
+    let sign = |rng: &mut Rng| rng.next() & (1 << 63);
+    let fraction = |rng: &mut Rng| rng.next() & ((1 << 52) - 1);
+    for _ in 0..8000 {
+        let bits = rng.next();
+        if (bits >> 52) & 0x7ff != 0x7ff {
+            out.push(f64::from_bits(bits));
+        }
+    }
+    for _ in 0..3000 {
+        out.push(f64::from_bits(sign(rng) | fraction(rng)));
+    }
+    for _ in 0..3000 {
+        out.push(f64::from_bits(sign(rng) | (1074 + rng.below(4)) << 52 | fraction(rng)));
+    }
+    for _ in 0..1000 {
+        out.push(((1i64 << 53) + rng.below(10_000) as i64 - 5_000) as f64);
+    }
+    for _ in 0..2000 {
+        out.push(f64::from_bits(sign(rng) | (0x7fd + rng.below(2)) << 52 | fraction(rng)));
+    }
+    for _ in 0..6000 {
+        let v = 10f64.powf(-6.0 + 28.0 * rng.unit());
+        out.push(if rng.below(2) == 0 { v.round() } else { v });
+    }
+    out
+}
+
+fn reals(rng: &mut Rng) -> Vec<f32> {
+    let mut out =
+        vec![0.0, -0.0, 0.1, f32::MAX, f32::MIN, f32::MIN_POSITIVE, f32::from_bits(1), 16777216.0, 16777215.0];
+    for _ in 0..3000 {
+        let bits = rng.next() as u32;
+        if (bits >> 23) & 0xff != 0xff {
+            out.push(f32::from_bits(bits));
+        }
+    }
+    for _ in 0..1000 {
+        out.push(f32::from_bits(rng.next() as u32 & 0x807F_FFFF));
+    }
+    for _ in 0..1000 {
+        out.push(10f32.powf(-6.0 + 28.0 * rng.unit() as f32));
+    }
+    out
+}
+
+/// The test's own exact construction of a double, for the INSERT. The stored value is read back and
+/// compared bit for bit, so the proof does not lean on it.
+fn insert_literal(v: f64) -> String {
+    let bits = v.to_bits();
+    let exponent = ((bits >> 52) & 0x7ff) as i32;
+    let fraction = (bits & ((1 << 52) - 1)) as i64;
+    let (mantissa, power) = if exponent == 0 { (fraction, -1074) } else { (fraction | 1 << 52, exponent - 1075) };
+    let sign = if v.is_sign_negative() { "-" } else { "" };
+    format!("{sign}(CAST({mantissa} AS float) * POWER(CAST(2 AS float), {power}))")
+}
+
+/// Every float and real group of a random sample of more than 20,000 doubles drills to exactly its own
+/// rows, where `CONVERT(float, N'…')` of the shown text picks a neighbouring double for some.
+#[tokio::test]
+async fn a_float_or_real_key_drills_to_exactly_its_value() {
+    let seed = std::env::var("L1_DATA_TEST_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(0x5EED_1167);
+    eprintln!("seed {seed}");
+    let mut rng = Rng(seed);
+    let floats = doubles(&mut rng);
+    let reals = reals(&mut rng);
+    assert!(floats.len() >= 20_000);
+    let mut h = Harness::open().await;
+    let (tab, rows_tab) = (h.tab().await, h.tab().await);
+    let t = format!("l1_drill_float_{}", uuid::Uuid::new_v4().simple());
+    let outcome = AssertUnwindSafe(async {
+        h.sql(tab, &format!("CREATE TABLE dbo.[{t}] (id int PRIMARY KEY, f float NOT NULL, r real NULL)")).await;
+        for (chunk, values) in floats.chunks(1000).enumerate() {
+            let rows: Vec<String> = values
+                .iter()
+                .enumerate()
+                .map(|(i, v)| {
+                    let id = chunk * 1000 + i;
+                    let r = reals
+                        .get(id)
+                        .map_or("NULL".into(), |r| format!("CAST({} AS real)", insert_literal(f64::from(*r))));
+                    format!("({id}, {}, {r})", insert_literal(*v))
+                })
+                .collect();
+            h.sql(tab, &format!("INSERT INTO dbo.[{t}] (id, f, r) VALUES {}", rows.join(", "))).await;
+        }
+        h.sql(tab, &format!("CREATE INDEX f ON dbo.[{t}] (f); CREATE INDEX r ON dbo.[{t}] (r)")).await;
+        let stored = h.sql(tab, &format!("SELECT id, f, r FROM dbo.[{t}] ORDER BY id")).await.remove(0);
+        for (id, row) in h.rows(&stored).iter().enumerate() {
+            let f: f64 = row[1].as_deref().unwrap().parse().unwrap();
+            assert_eq!(f.to_bits(), floats[id].to_bits(), "row {id} stores {f}, not {}", floats[id]);
+            if let Some(r) = reals.get(id) {
+                let read: f32 = row[2].as_deref().unwrap().parse().unwrap();
+                assert_eq!(read.to_bits(), r.to_bits(), "row {id} stores {read}, not {r}");
+            }
+        }
+
+        for column in ["f", "r"] {
+            let grouped = format!("SELECT {column}, COUNT(*) AS n, MIN(id) AS lo FROM dbo.[{t}] GROUP BY {column}");
+            let meta = h.sql(tab, &grouped).await.remove(0);
+            let rows = h.rows(&meta);
+            let mut checks = Vec::new();
+            for (row, cells) in rows.iter().enumerate() {
+                let point = DrillPoint::Row { row: row as u32, title: "Untitled-1.sql".into() };
+                let drilled = h.engine.result_drill(meta.r#ref, point).unwrap_or_else(|e| panic!("{cells:?}: {e:?}"));
+                let Some(literal) = drilled.sql.rsplit_once(") = ").map(|(_, l)| l.to_owned()) else {
+                    assert_eq!(cells[0], None, "{}", drilled.sql);
+                    continue;
+                };
+                checks.push(format!("({}, {}, {literal})", cells[2].as_deref().unwrap(), cells[1].as_deref().unwrap()));
+                // A sample of the drills runs end to end.
+                if row % 97 == 0 {
+                    let behind = h.sql(rows_tab, &drilled.sql).await.remove(0);
+                    assert_eq!(Some(behind.rows_seen.to_string()), cells[1], "{}", drilled.sql);
+                }
+            }
+            assert!(checks.len() + 1 >= rows.len());
+            // The drill's comparison must find the group's own first row and exactly as many rows as the group.
+            for batch in checks.chunks(500) {
+                let check = format!(
+                    "SELECT COUNT(*) AS bad FROM (VALUES {}) v(lo, n, x)
+                     WHERE (SELECT COUNT(*) FROM dbo.[{t}] t WHERE t.{column} = v.x) <> v.n
+                        OR NOT EXISTS (SELECT 1 FROM dbo.[{t}] t WHERE t.id = v.lo AND t.{column} = v.x)",
+                    batch.join(", ")
+                );
+                let bad = h.sql(tab, &check).await.remove(0);
+                assert_eq!(h.rows(&bad)[0][0].as_deref(), Some("0"), "{column}: {check}");
+            }
+            eprintln!("{column}: {} groups drill exactly", checks.len());
+        }
+    })
+    .catch_unwind()
+    .await;
+    h.sql(tab, &format!("DROP TABLE IF EXISTS dbo.[{t}]")).await;
     h.engine.shutdown().await;
     if let Err(panic) = outcome {
         std::panic::resume_unwind(panic);
