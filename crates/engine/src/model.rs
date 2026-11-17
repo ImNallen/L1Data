@@ -608,52 +608,11 @@ pub struct RelationDetail {
     pub triggers: Vec<TriggerInfo>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct MapCursor {
-    pub db: DatabaseRef,
-    pub root: u32,
-    pub catalog_version: u64,
-    pub last_constraint: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct MapRelation {
-    pub oid: u32,
-    pub schema: String,
-    pub name: String,
-    pub columns: Vec<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct MapColumnPair {
     pub source: String,
     pub target: String,
-}
-
-#[derive(Debug, Clone, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct MapForeignKey {
-    pub id: u32,
-    pub name: String,
-    pub source: u32,
-    pub target: u32,
-    pub columns: Vec<MapColumnPair>,
-    pub enabled: bool,
-    pub validated: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct MapNeighborhood {
-    pub db: DatabaseRef,
-    pub catalog_version: u64,
-    pub root: MapRelation,
-    pub relations: Vec<MapRelation>,
-    pub foreign_keys: Vec<MapForeignKey>,
-    pub after: Option<MapCursor>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -744,44 +703,6 @@ pub struct SchemaMapLink {
     pub enabled: bool,
     /// The server has checked the existing rows. Always false when inferred.
     pub validated: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Type)]
-#[serde(tag = "kind", rename_all_fields = "camelCase")]
-pub enum MapResolution {
-    CatalogMatch { oid: u32 },
-    Tentative { oid: u32 },
-    Unresolved { reason: String },
-}
-
-#[derive(Debug, Clone, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct MapOccurrence {
-    pub id: u32,
-    pub name: String,
-    pub alias: Option<String>,
-    pub range: DocRange,
-    pub resolution: MapResolution,
-}
-
-#[derive(Debug, Clone, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct MapQueryJoin {
-    pub source: u32,
-    pub target: u32,
-    pub columns: MapColumnPair,
-    pub range: DocRange,
-}
-
-#[derive(Debug, Clone, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct MapQuery {
-    pub db: DatabaseRef,
-    pub catalog_version: u64,
-    pub statement: Option<DocRange>,
-    pub occurrences: Vec<MapOccurrence>,
-    pub joins: Vec<MapQueryJoin>,
-    pub incomplete: bool,
 }
 
 /// An object the tree can script. `oid` is the catalog id of a relation, routine, sequence, type,

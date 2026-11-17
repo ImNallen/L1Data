@@ -603,30 +603,6 @@ pub fn table_order(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn database_map_neighborhood(
-    engine: State<'_, Arc<Engine>>,
-    db: DatabaseRef,
-    oid: u32,
-    catalog_version: u64,
-    after: Option<MapCursor>,
-) -> Result<MapNeighborhood, MapError> {
-    engine.database_map_neighborhood(db, oid, catalog_version, after).await
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn database_map_query(
-    engine: State<'_, Arc<Engine>>,
-    db: DatabaseRef,
-    text: String,
-    cursor: DocOffset,
-    catalog_version: u64,
-) -> Result<MapQuery, MapError> {
-    engine.database_map_query(db, text, cursor, catalog_version).await
-}
-
-#[tauri::command]
-#[specta::specta]
 pub async fn schema_map(
     engine: State<'_, Arc<Engine>>,
     db: DatabaseRef,

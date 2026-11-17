@@ -4,7 +4,6 @@ mod assistant;
 mod catalog;
 mod connection;
 mod console;
-mod database_map;
 mod entra;
 mod explain;
 mod export;

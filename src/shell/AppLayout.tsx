@@ -1,6 +1,4 @@
 import { useEffect, useState } from "react";
-import { Group, Panel } from "react-resizable-panels";
-import { useDatabaseMap } from "../features/databaseMap/controller";
 import { NotebookWorkspace } from "../features/editor/NotebookWorkspace";
 import { StatementChooser } from "../features/editor/StatementChooser";
 import { NavigationPalette } from "../features/navigation/NavigationPalette";
@@ -13,10 +11,9 @@ import { useWorkspace } from "../state/workspace";
 import { cx } from "../ui/primitives";
 import { handleGlobalKey } from "./commands";
 import { CommandPalette } from "./CommandPalette";
-import { ConnectionDialog, DatabaseMap, SettingsDialog, useMountOnce, useSurfacesReady } from "./lazySurfaces";
+import { ConnectionDialog, SettingsDialog, useMountOnce, useSurfacesReady } from "./lazySurfaces";
 import { Overlays } from "./Overlays";
 import { PixelColumn } from "./PixelColumn";
-import { ResizeHandle } from "./ResizeHandle";
 import { RightPanel } from "./RightPanel";
 import { ResizeEdges } from "./WindowChrome";
 import { hostedWindow } from "./hostedWindow";
@@ -35,7 +32,6 @@ export function AppLayout() {
   const [hosted] = useState(() => hostedWindow());
   const sidebar = useWorkspace((s) => s.layout.sidebar);
   const rightPanel = useWorkspace((s) => s.layout.rightPanel);
-  const mapOpen = useDatabaseMap((s) => s.map.kind !== "closed");
   const surfacesReady = useSurfacesReady();
   const settingsMounted = useMountOnce(
     useWorkspace((s) => s.screen.kind === "settings"),
@@ -59,19 +55,9 @@ export function AppLayout() {
       </PixelColumn>
       <main data-testid="main" className="workspace-main flex min-w-80 flex-1 flex-col">
         <TopBar hosted={hosted} />
-        <Group orientation="horizontal" className="min-h-0 flex-1">
-          <Panel id="sql-work" minSize={240}>
-            <NotebookWorkspace />
-          </Panel>
-          {mapOpen && (
-            <>
-              <ResizeHandle id="map-resize" label="Resize database map" line="vertical" lineColor="bg-border" />
-              <Panel id="database-map" defaultSize="60%" minSize={340}>
-                <DatabaseMap />
-              </Panel>
-            </>
-          )}
-        </Group>
+        <div className="min-h-0 flex-1">
+          <NotebookWorkspace />
+        </div>
       </main>
       <div className={cx("pointer-events-none absolute top-0 right-0 z-20 flex items-center", WINDOW_HEADER_HEIGHT, windowEdgeInset(hosted))}>
         <div className="pointer-events-auto flex items-center">

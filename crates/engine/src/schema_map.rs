@@ -1,7 +1,8 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
-use crate::Engine;
 use crate::model::*;
+use crate::{Engine, Shared};
 
 pub(crate) const KEY_LIMIT: usize = 2_000;
 pub(crate) const KEY_READ_LIMIT: usize = KEY_LIMIT + 1;
@@ -35,6 +36,20 @@ impl SchemaKeys {
             Some(held) => held.columns.push(pair),
             None => self.keys.push(DeclaredKey { columns: vec![pair], ..key }),
         }
+    }
+}
+
+impl Shared {
+    fn map_current(
+        &self,
+        instance: &Arc<crate::connection::Instance>,
+        slot: &Arc<crate::connection::DbSlot>,
+        version: u64,
+    ) -> bool {
+        !instance.is_closed()
+            && self.instance(slot.db.connection_id).is_some_and(|i| Arc::ptr_eq(&i, instance))
+            && instance.slot(&slot.db.database).is_some_and(|s| Arc::ptr_eq(&s, slot))
+            && slot.last().is_some_and(|c| c.version == version)
     }
 }
 
@@ -598,5 +613,70 @@ mod tests {
         assert_eq!(map.omitted_tables, 1, "the external table past the limit");
         assert!(map.tables.iter().all(|t| !t.external));
         assert!(map.links.is_empty(), "every key reached the omitted table");
+    }
+}
+
+#[cfg(all(test, feature = "pg-tests"))]
+mod pg_tests {
+    use super::*;
+    use crate::{AgentPath, EngineConfig, MemoryKeyStore, ScriptedTransport};
+    use std::task::Poll;
+
+    async fn engine() -> (Arc<Engine>, tempfile::TempDir, DatabaseRef) {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = Engine::open(EngineConfig {
+            data_dir: dir.path().into(),
+            keys: Arc::new(MemoryKeyStore::default()),
+            agent_path: AgentPath::Fixed("".into()),
+            az_binary: None,
+            user_known_hosts: None,
+            updates: Arc::new(ScriptedTransport::named("off").unwrap()),
+        })
+        .await
+        .unwrap();
+        let url =
+            std::env::var("L1_DATA_TEST_PG").unwrap_or_else(|_| "postgres://l1data:l1data@localhost:5433/shop".into());
+        let config = engine.save_connection(crate::draft_from_url(&url, "map boundary").unwrap()).await.unwrap();
+        engine.connect(config.id).await.unwrap();
+        let db = DatabaseRef { connection_id: config.id, database: config.database };
+        engine.catalog(db.clone()).await.unwrap();
+        (engine, dir, db)
+    }
+
+    #[tokio::test]
+    async fn schema_map_keeps_the_last_catalog_after_a_failed_refresh() {
+        let (engine, _dir, db) = engine().await;
+        let (_, slot) = engine.shared.slot(&db).unwrap();
+        let catalog = slot.last().unwrap();
+        let version = catalog.version;
+        slot.set(crate::connection::CatalogSlot::Failed { message: "refresh unavailable".into(), last: Some(catalog) });
+        engine.schema_map(db, None, version).await.unwrap();
+        assert!(slot.ready().is_none(), "a schema map must not retry a failed catalog refresh");
+    }
+
+    #[tokio::test]
+    async fn metadata_lock_binds_version_and_rejects_retired_slot_and_instance() {
+        for retirement in ["version", "slot", "instance"] {
+            let (engine, _dir, db) = engine().await;
+            let (instance, slot) = engine.shared.slot(&db).unwrap();
+            let version = slot.last().unwrap().version;
+            let lock = slot.meta.lock().await;
+            let map = engine.schema_map(db.clone(), None, version);
+            tokio::pin!(map);
+            assert!(matches!(futures_util::poll!(&mut map), Poll::Pending));
+            match retirement {
+                "version" => {
+                    let mut catalog = (*slot.last().unwrap()).clone();
+                    catalog.version += 1;
+                    slot.set(crate::connection::CatalogSlot::Ready(Arc::new(catalog)));
+                }
+                "slot" => {
+                    instance.slots.lock().remove(&db.database);
+                }
+                _ => instance.close(),
+            }
+            drop(lock);
+            assert!(matches!(map.await, Err(MapError::Stale)), "{retirement}");
+        }
     }
 }

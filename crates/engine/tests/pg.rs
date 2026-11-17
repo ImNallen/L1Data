@@ -2536,12 +2536,13 @@ async fn relation_detail_hides_partition_clones_and_shows_inherited_triggers() {
         "a replica trigger does not fire in a normal session, and RI triggers stay hidden"
     );
 
-    let version = h.engine.catalog(h.db()).await.unwrap().version;
-    let map = h.engine.database_map_neighborhood(h.db(), oid("t").await, version, None).await.unwrap();
-    assert_eq!(map.foreign_keys.len(), 1, "referenced partitions do not duplicate declared keys");
-    assert_eq!(map.foreign_keys[0].target, oid("ptarget").await);
-    let incoming = h.engine.database_map_neighborhood(h.db(), oid("ptarget").await, version, None).await.unwrap();
-    assert_eq!(incoming.foreign_keys.len(), 1);
+    let version = h.engine.refresh_catalog(h.db()).await.unwrap();
+    let map = h.engine.schema_map(h.db(), Some("public".into()), version).await.unwrap();
+    let (source, target) = (oid("t").await, oid("ptarget").await);
+    let keys: Vec<_> = map.links.iter().filter(|l| l.source == source).map(|l| (l.basis, l.target)).collect();
+    assert_eq!(keys, [(LinkBasis::Declared, target)], "referenced partitions do not duplicate declared keys");
+    let target = map.tables.iter().find(|t| t.oid == target).unwrap();
+    assert_eq!(target.partitions, 2, "partitions fold into their parent");
 
     let parted_1 = h.engine.relation_detail(h.db(), oid("parted_1").await).await.unwrap();
     assert_eq!(parted_1.triggers, [trigger("t_parent", true)], "a partition shows the row trigger it inherits");
@@ -5542,21 +5543,6 @@ async fn csv_import_round_trips_the_existing_exporter() {
     oracle.batch_execute(&format!("DROP TABLE {table}")).await.unwrap();
 }
 
-#[path = "common/database_map.rs"]
-mod database_map_cases;
-
-#[tokio::test]
-async fn database_map_pages_declared_neighborhoods() {
-    let h = Harness::start().await;
-    h.engine.connect(h.conn).await.unwrap();
-    let stem = format!("map_{}", uuid::Uuid::new_v4().simple());
-    let (oracle, connection) = tokio_postgres::connect(&url(), NoTls).await.unwrap();
-    tokio::spawn(connection);
-    oracle.batch_execute(&database_map_cases::fixture("public", &stem, DatabaseKind::Postgres)).await.unwrap();
-    database_map_cases::verify(&h.engine, h.db(), "public", &stem, DatabaseKind::Postgres).await;
-    oracle.batch_execute(&format!("DROP TABLE public.{stem}_fan,public.{stem}_child,public.{stem}_root,public.{stem}_anchor,public.{stem}_alone")).await.unwrap();
-}
-
 fn cell_source(name: &str, text: &str) -> CellSource {
     CellSource { name: name.into(), text: text.into() }
 }
@@ -5799,7 +5785,7 @@ async fn schema_map_joins_declared_and_inferred_references_at_one_version() {
     for sql in schema_map_cases::fixture(&schema, "public", DatabaseKind::Postgres) {
         oracle.batch_execute(&sql).await.unwrap();
     }
-    schema_map_cases::verify(&h.engine, h.db(), &schema, "public").await;
+    schema_map_cases::verify(&h.engine, h.db(), &schema, "public", DatabaseKind::Postgres).await;
     oracle.batch_execute(&format!("DROP SCHEMA {schema} CASCADE")).await.unwrap();
 }
 

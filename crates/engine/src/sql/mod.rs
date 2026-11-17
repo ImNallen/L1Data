@@ -26,5 +26,3 @@ pub(crate) use keywords::{NEVER_A_FUNCTION, RESERVED, TYPE_OR_FUNCTION_NAME};
 pub(crate) use relations::{VETTED, VETTED_OPERATORS, VETTED_SIZES};
 
 pub(crate) mod order;
-
-pub(crate) mod map;

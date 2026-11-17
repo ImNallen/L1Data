@@ -6,7 +6,8 @@ pub fn fixture(schema: &str, customers_schema: &str, kind: DatabaseKind) -> [Str
             "ALTER TABLE {schema}.widget_parts ADD CONSTRAINT {schema}_unchecked FOREIGN KEY(lot) REFERENCES {schema}.widgets(id) NOT VALID;"
         ),
         DatabaseKind::SqlServer => format!(
-            "ALTER TABLE {schema}.widget_parts WITH NOCHECK ADD CONSTRAINT {schema}_unchecked FOREIGN KEY(lot) REFERENCES {schema}.widgets(id);"
+            "ALTER TABLE {schema}.widget_parts WITH NOCHECK ADD CONSTRAINT {schema}_unchecked FOREIGN KEY(lot) REFERENCES {schema}.widgets(id);
+             ALTER TABLE {schema}.widget_parts NOCHECK CONSTRAINT {schema}_parent;"
         ),
     };
     [
@@ -14,9 +15,10 @@ pub fn fixture(schema: &str, customers_schema: &str, kind: DatabaseKind) -> [Str
         format!(
             "CREATE TABLE {schema}.widgets(id int PRIMARY KEY, label varchar(20));
              CREATE TABLE {schema}.pairs(p int NOT NULL, q int NOT NULL, PRIMARY KEY(p,q));
-             CREATE TABLE {schema}.widget_parts(id int PRIMARY KEY, widget_id int, b int, a int, lot int, customer_id int,
+             CREATE TABLE {schema}.widget_parts(id int PRIMARY KEY, widget_id int, b int, a int, lot int, customer_id int, parent_id int,
                  CONSTRAINT {schema}_pair FOREIGN KEY(b,a) REFERENCES {schema}.pairs(p,q),
-                 CONSTRAINT {schema}_customer FOREIGN KEY(customer_id) REFERENCES {customers_schema}.customers(id));
+                 CONSTRAINT {schema}_customer FOREIGN KEY(customer_id) REFERENCES {customers_schema}.customers(id),
+                 CONSTRAINT {schema}_parent FOREIGN KEY(parent_id) REFERENCES {schema}.widget_parts(id));
              {unchecked}"
         ),
     ]
@@ -61,7 +63,13 @@ pub fn pairs(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
     pairs.iter().map(|(s, t)| ((*s).into(), (*t).into())).collect()
 }
 
-pub async fn verify(engine: &engine::Engine, db: DatabaseRef, schema: &str, customers_schema: &str) {
+pub async fn verify(
+    engine: &engine::Engine,
+    db: DatabaseRef,
+    schema: &str,
+    customers_schema: &str,
+    kind: DatabaseKind,
+) {
     engine.refresh_catalog(db.clone()).await.unwrap();
     let map = current(engine, &db, Some(schema)).await;
     assert_eq!(map.schema, schema);
@@ -82,7 +90,7 @@ pub async fn verify(engine: &engine::Engine, db: DatabaseRef, schema: &str, cust
     );
     assert_eq!(
         parts.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
-        ["id", "widget_id", "b", "a", "lot", "customer_id"]
+        ["id", "widget_id", "b", "a", "lot", "customer_id", "parent_id"]
     );
     assert!(parts.columns[0].pk && parts.columns[0].not_null);
     assert_eq!(parts.columns[1].category, TypeCategory::Integer);
@@ -102,15 +110,23 @@ pub async fn verify(engine: &engine::Engine, db: DatabaseRef, schema: &str, cust
             (LinkBasis::Inferred, None, pairs(&[("widget_id", "id")])),
         ]
     );
-    assert_eq!(map.links.len(), 4);
+    assert_eq!(
+        links(&map, parts, parts),
+        [(LinkBasis::Declared, Some(format!("{schema}_parent")), pairs(&[("parent_id", "id")]))],
+        "a table can reference itself"
+    );
+    assert_eq!(map.links.len(), 5);
     let unchecked = map.links.iter().find(|l| l.name.as_deref() == Some(&format!("{schema}_unchecked"))).unwrap();
     assert!(unchecked.enabled && !unchecked.validated);
     let pair = map.links.iter().find(|l| l.name.as_deref() == Some(&format!("{schema}_pair"))).unwrap();
     assert!(pair.enabled && pair.validated);
+    let parent = map.links.iter().find(|l| l.name.as_deref() == Some(&format!("{schema}_parent"))).unwrap();
+    let disabled = kind == DatabaseKind::SqlServer;
+    assert_eq!((parent.enabled, parent.validated), (!disabled, !disabled), "SQL Server reports a disabled key");
     let mut ids: Vec<_> = map.links.iter().map(|l| l.id.as_str()).collect();
     ids.sort();
     ids.dedup();
-    assert_eq!(ids.len(), 4, "link ids are unique");
+    assert_eq!(ids.len(), 5, "link ids are unique");
     assert!(!map.keys_truncated);
     assert_eq!(map.omitted_tables, 0);
 

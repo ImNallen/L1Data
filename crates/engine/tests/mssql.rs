@@ -1861,18 +1861,6 @@ async fn a_referenced_cell_parameter_binds_before_the_batch_declares_it() {
     assert_eq!(h.rows(Harness::rowsets(&state)[0]), [vec![Some("42".into())]]);
 }
 
-#[path = "common/database_map.rs"]
-mod database_map_cases;
-
-#[tokio::test]
-async fn database_map_pages_declared_neighborhoods() {
-    let mut h = Harness::open(TxnMode::AutoCommit).await;
-    let stem = format!("map_{}", uuid::Uuid::new_v4().simple());
-    h.ok(&database_map_cases::fixture("dbo", &stem, DatabaseKind::SqlServer)).await;
-    database_map_cases::verify(&h.engine, h.db(), "dbo", &stem, DatabaseKind::SqlServer).await;
-    h.ok(&format!("DROP TABLE dbo.{stem}_fan,dbo.{stem}_child; ALTER TABLE dbo.{stem}_root DROP CONSTRAINT {stem}_self_pair; DROP TABLE dbo.{stem}_root,dbo.{stem}_anchor,dbo.{stem}_alone")).await;
-}
-
 #[path = "mssql/import.rs"]
 mod import_tests;
 
@@ -1942,7 +1930,7 @@ async fn schema_map_joins_declared_and_inferred_references_at_one_version() {
     for sql in schema_map_cases::fixture(&schema, "dbo", DatabaseKind::SqlServer) {
         h.ok(&sql).await;
     }
-    schema_map_cases::verify(&h.engine, h.db(), &schema, "dbo").await;
+    schema_map_cases::verify(&h.engine, h.db(), &schema, "dbo", DatabaseKind::SqlServer).await;
     let map = schema_map_cases::current(&h.engine, &h.db(), Some("dbo")).await;
     let declared: Vec<_> = links(&map, table(&map, "dbo", "orders"), table(&map, "dbo", "customers"))
         .into_iter()
