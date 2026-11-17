@@ -88,6 +88,7 @@ pub(crate) fn build(catalog: &Catalog, schema: &SchemaInfo, read: SchemaKeys) ->
     let own_oids: HashSet<u32> = own.iter().map(|r| r.oid).collect();
 
     let mut keys = read.keys;
+    let inferred = infer(&own, &keys);
     let keys_truncated = keys.len() > KEY_LIMIT;
     keys.truncate(KEY_LIMIT);
     let lists = |oid: u32, column: &str| {
@@ -157,7 +158,7 @@ pub(crate) fn build(catalog: &Catalog, schema: &SchemaInfo, read: SchemaKeys) ->
             enabled: k.enabled,
             validated: k.validated,
         })
-        .chain(infer(&own))
+        .chain(inferred.into_iter().filter(|l| kept.contains(&l.source) && kept.contains(&l.target)))
         .collect();
     SchemaMap {
         db: catalog.db.clone(),
@@ -171,7 +172,10 @@ pub(crate) fn build(catalog: &Catalog, schema: &SchemaInfo, read: SchemaKeys) ->
     }
 }
 
-pub(crate) fn infer(tables: &[&Relation]) -> Vec<SchemaMapLink> {
+/// Skips every column `declared` names as a key source, also when the catalog has not seen that key yet.
+pub(crate) fn infer(tables: &[&Relation], declared: &[DeclaredKey]) -> Vec<SchemaMapLink> {
+    let declared: HashSet<(u32, &str)> =
+        declared.iter().flat_map(|k| k.columns.iter().map(move |p| (k.source, p.source.as_str()))).collect();
     let mut by_name: HashMap<String, Vec<Target>> = HashMap::new();
     for table in tables {
         let Some(key) = single_key(table) else {
@@ -183,7 +187,7 @@ pub(crate) fn infer(tables: &[&Relation]) -> Vec<SchemaMapLink> {
     }
     let mut links = vec![];
     for source in tables {
-        for column in source.columns.iter().filter(|c| !c.fk) {
+        for column in source.columns.iter().filter(|c| !c.fk && !declared.contains(&(source.oid, c.name.as_str()))) {
             let Some(candidates) = by_name.get(&column.name.to_ascii_lowercase()) else {
                 continue;
             };
@@ -364,7 +368,7 @@ mod tests {
     }
 
     fn inferred(tables: &[Relation]) -> Vec<(u32, String, u32, String)> {
-        infer(&tables.iter().collect::<Vec<_>>())
+        infer(&tables.iter().collect::<Vec<_>>(), &[])
             .into_iter()
             .map(|l| {
                 assert_eq!(l.basis, LinkBasis::Inferred);
@@ -542,6 +546,41 @@ mod tests {
         assert!(map.partitions_truncated);
         let tables: Vec<_> = map.tables.iter().map(|t| (t.name.as_str(), t.partitions)).collect();
         assert_eq!(tables, [("events", PARTITION_LIMIT as u32), ("events_late", 0)]);
+    }
+
+    #[test]
+    fn build_infers_nothing_for_a_column_a_key_read_after_the_catalog_declares() {
+        let catalog = catalog(vec![schema(
+            "public",
+            vec![table(1, "orders", vec![pk("id")]), table(2, "payments", vec![pk("id"), int("order_id")])],
+        )]);
+        let read = SchemaKeys { keys: vec![key(50, 2, 1, &[("order_id", "id")])], partitions: vec![] };
+        let map = build(&catalog, &catalog.schemas[0], read);
+        let links: Vec<_> = map.links.iter().map(|l| (l.id.as_str(), l.basis)).collect();
+        assert_eq!(links, [("k50", LinkBasis::Declared)]);
+    }
+
+    #[test]
+    fn build_infers_nothing_when_a_competing_target_falls_past_the_table_limit() {
+        let tables = |with_competitor: bool| {
+            let mut own =
+                vec![table(1, "reviews", vec![pk("id"), int("product_id")]), table(2, "products", vec![pk("id")])];
+            own.extend((3..=TABLE_LIMIT as u32).map(|i| table(i, &format!("filler{i}"), vec![pk("id")])));
+            if with_competitor {
+                own.push(table(9_000, "inventory", vec![pk("product_id")]));
+            }
+            catalog(vec![schema("public", own)])
+        };
+        let links = |catalog: Catalog| {
+            let map = build(&catalog, &catalog.schemas[0], SchemaKeys { keys: vec![], partitions: vec![] });
+            (map.links.iter().map(|l| (l.source, l.target)).collect::<Vec<_>>(), map.omitted_tables)
+        };
+        assert_eq!(links(tables(false)), (vec![(1, 2)], 0));
+        assert_eq!(
+            links(tables(true)),
+            (vec![], 1),
+            "inventory.product_id makes reviews.product_id ambiguous although inventory is left out"
+        );
     }
 
     #[test]
