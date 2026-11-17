@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { fitViewport, zoomViewport, type Rect, type Viewport } from "./viewport";
+import { fitViewport, fitWidth, zoomViewport, type Rect, type Viewport } from "./viewport";
 
 const onScreen = (view: Viewport, r: Rect) => ({
   x: r.x * view.scale + view.x,
@@ -32,4 +32,18 @@ it("zooms about a screen point, which stays over the same layout point", () => {
 
 it("caps zoom at 2.5", () => {
   expect(zoomViewport({ x: 0, y: 0, scale: 2 }, 4, { x: 0, y: 0 }).scale).toBe(2.5);
+});
+
+it("fits a tall map to the box's width and shows it from the top", () => {
+  const bounds = { x: 0, y: 40, width: 1856, height: 2000 };
+  const view = fitWidth(bounds, { width: 1000, height: 600 }, { maxScale: 1 });
+  expect(view.scale).toBe(0.5);
+  expect(onScreen(view, bounds)).toEqual({ x: 36, y: 36, width: 928, height: 1000 });
+});
+
+it("fits a short map to the width and centers it down the box, never above the maximum scale", () => {
+  const bounds = { x: 10, y: 10, width: 400, height: 100 };
+  const view = fitWidth(bounds, { width: 1000, height: 600 }, { maxScale: 1 });
+  expect(view.scale).toBe(1);
+  expect(onScreen(view, bounds)).toEqual({ x: 300, y: 250, width: 400, height: 100 });
 });
