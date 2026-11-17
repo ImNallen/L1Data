@@ -29,7 +29,7 @@ impl std::fmt::Display for Refusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let reason = match self {
             Refusal::Unclosed => "The statement has an unclosed quote, comment, or parenthesis.",
-            Refusal::NotSelect => "Only a single SELECT, WITH … SELECT, or VALUES runs here.",
+            Refusal::NotSelect => "Only a single SELECT or WITH … SELECT runs here.",
             Refusal::SecondStatement => "Send one statement. A second statement is not allowed here.",
             Refusal::SelectInto => "SELECT … INTO writes a table, so it does not run here.",
             Refusal::Exec => "EXEC and EXECUTE do not run here.",
@@ -138,10 +138,9 @@ pub(crate) fn read_refusal(sql: &str) -> Result<(), Refusal> {
     if len == 0 {
         return Err(Refusal::NotSelect);
     }
-    // The statement must start with SELECT, WITH, or VALUES, which also rejects a leading DECLARE,
-    // SET, USE, or bare procedure name.
-    let values = tk.word(0, "VALUES");
-    let main = if tk.word(0, "SELECT") || values {
+    // The statement must start with SELECT or WITH, which also rejects a leading DECLARE, SET, USE,
+    // VALUES, or bare procedure name. SQL Server rejects a bare VALUES (`Msg 156`).
+    let main = if tk.word(0, "SELECT") {
         0
     } else if tk.word(0, "WITH") {
         (1..len).find(|&i| tk.depth[i] == 0 && tk.word(i, "SELECT")).ok_or(Refusal::NotSelect)?
@@ -177,9 +176,7 @@ pub(crate) fn read_refusal(sql: &str) -> Result<(), Refusal> {
     }
     // `is_write` catches INSERT/UPDATE/DELETE/MERGE, DDL, DBCC, BULK, BACKUP, RESTORE, and an implicit
     // execution (a bare name as the first token), after the specific reasons above have had their say.
-    // A `VALUES` row constructor is pure literals and expressions, which `is_write` would misread as
-    // an implicit procedure call, so skip it there; its calls are still vetted by `functions` below.
-    if !values && is_write(sql) {
+    if is_write(sql) {
         return Err(Refusal::Write);
     }
     functions(&tk)
@@ -280,7 +277,6 @@ mod tests {
             "SELECT COUNT(*) AS n FROM dbo.orders",
             "WITH c AS (SELECT id FROM dbo.customers) SELECT * FROM c",
             "SELECT TOP 10 * FROM dbo.orders",
-            "VALUES (1), (2)",
             "SELECT id FROM dbo.a UNION ALL SELECT id FROM dbo.b",
             "SELECT CONVERT(decimal(10, 2), total) FROM dbo.orders",
             "SELECT CASE WHEN x > 0 THEN 'a' ELSE 'b' END FROM dbo.t",
@@ -342,6 +338,12 @@ mod tests {
         assert_eq!(refusal("SELECT @x"), Some(Refusal::Variable));
         assert_eq!(refusal("SELECT (1"), Some(Refusal::Unclosed));
         assert_eq!(refusal("SELECT 'x"), Some(Refusal::Unclosed));
+    }
+
+    #[test]
+    fn a_bare_values_is_not_a_statement_sql_server_runs() {
+        assert_eq!(refusal("VALUES (1), (2)"), Some(Refusal::NotSelect));
+        assert_eq!(read_refusal("SELECT * FROM (VALUES (1), (2)) AS v(a)"), Ok(()));
     }
 
     #[test]
