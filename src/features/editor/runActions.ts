@@ -68,6 +68,7 @@ import { heldWrites, plural, runQuestion, shownWrites } from "./writeQuestions";
 import { docText } from "./docText";
 import { installCellReferences, notebookSources, refreshReferences } from "../notebooks/cellReferences";
 import { cellNavigation } from "../notebooks/cellNavigation";
+import { forgetMapView } from "../schemaMap/views";
 
 const ws = () => useWorkspace.getState();
 const notify = (text: string) => ws().notify(text);
@@ -458,7 +459,7 @@ export async function openDrill(r: ResultRef, row: number): Promise<void> {
   runActive({ kind: "all" });
 }
 
-export async function openTableTab(ref: RelationRef, query?: TableQuery): Promise<TabId | null> {
+export async function openTableTab(ref: RelationRef, query?: TableQuery, after?: TabId): Promise<TabId | null> {
   const reusable = (t: TableTab) => query === undefined || (pendingCount(useTableEdits.getState().byTab[t.id] ?? NO_EDITS) === 0 && isBrowsing(t));
   const findOpen = () =>
     Object.values(ws().tabs).find(
@@ -478,12 +479,15 @@ export async function openTableTab(ref: RelationRef, query?: TableQuery): Promis
   if (opened) return show(opened);
   const id = crypto.randomUUID();
   seedEditor(id, template);
-  ws().addTab({
-    id,
-    title: ref.relation,
-    console: { db: ref.db, mode: "AutoCommit" },
-    table: { schema: ref.schema, table: ref.relation, page: 0, query: query ?? EMPTY_QUERY },
-  });
+  ws().addTab(
+    {
+      id,
+      title: ref.relation,
+      console: { db: ref.db, mode: "AutoCommit" },
+      table: { schema: ref.schema, table: ref.relation, page: 0, query: query ?? EMPTY_QUERY },
+    },
+    after,
+  );
   return id;
 }
 
@@ -647,6 +651,7 @@ export function forgetTab(tabId: TabId) {
   dropRowCaches(tabId);
   dropEditor(tabId);
   useTableEdits.getState().clear(tabId);
+  forgetMapView(tabId);
   ws().closeTab(tabId);
   useLive.getState().forgetTab(tabId);
 }

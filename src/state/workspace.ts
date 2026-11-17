@@ -7,6 +7,7 @@ import type {
   DatabaseRef,
   Layout,
   MapCell,
+  MapColumns,
   NotebookId,
   NotebookSnapshot,
   ParamValue,
@@ -375,6 +376,7 @@ type WorkspaceActions = {
   renameNotebook(id: NotebookId, title: string): void;
   renameTab(id: TabId, title: string): void;
   setCollapsed(ids: readonly TabId[], collapsed: boolean): void;
+  setMapColumns(id: TabId, columns: MapColumns): void;
   /** A cell's database is its notebook's, so a patch never moves it. */
   patchConsole(id: TabId, patch: Partial<Pick<ConsoleTarget, "mode" | "schema">>): void;
   setTablePage(id: TabId, page: number, exactRowCount?: number): void;
@@ -589,6 +591,11 @@ export const useWorkspace = create<WorkspaceData & WorkspaceActions>()((set, get
         return [[id, collapsed ? { ...expanded, collapsed: true as const } : expanded]];
       });
       return changed.length ? { tabs: { ...s.tabs, ...Object.fromEntries(changed) } } : {};
+    }),
+  setMapColumns: (id, columns) =>
+    set((s) => {
+      const t = s.tabs[id];
+      return t?.map && t.map.columns !== columns ? { tabs: { ...s.tabs, [id]: { ...t, map: { ...t.map, columns } } } } : {};
     }),
   patchConsole: (id, patch) =>
     set((s) => {
