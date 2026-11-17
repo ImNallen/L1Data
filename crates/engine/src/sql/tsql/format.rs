@@ -253,7 +253,38 @@ fn defines_module(tokens: &[Token<'_>]) -> bool {
     })
 }
 
-pub(crate) fn format(text: &str) -> Result<String, Refusal> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LineEnding {
+    Lf,
+    CrLf,
+}
+
+impl LineEnding {
+    /// The first line break outside a string or comment, which may hold breaks of their own.
+    fn first(text: &str, tokens: &[Token<'_>]) -> Option<Self> {
+        let ends = std::iter::once(0).chain(tokens.iter().map(|t| t.end));
+        let starts = tokens.iter().map(|t| t.start).chain(std::iter::once(text.len()));
+        ends.zip(starts).find_map(|(end, start)| {
+            let gap = &text[end..start];
+            let at = gap.find(['\r', '\n'])?;
+            Some(if gap[at..].starts_with("\r\n") { LineEnding::CrLf } else { LineEnding::Lf })
+        })
+    }
+
+    pub(crate) fn of(text: &str) -> Self {
+        lex(text).ok().and_then(|tokens| Self::first(text, &tokens)).unwrap_or(LineEnding::Lf)
+    }
+
+    fn text(self) -> &'static str {
+        match self {
+            LineEnding::Lf => "\n",
+            LineEnding::CrLf => "\r\n",
+        }
+    }
+}
+
+/// Lays out each batch with the line ending it uses, or `document`'s when it has no line break of its own.
+pub(crate) fn format(text: &str, document: LineEnding) -> Result<String, Refusal> {
     if text.len() > 65_536 {
         return Err(Refusal::TooLarge);
     }
@@ -271,7 +302,8 @@ pub(crate) fn format(text: &str) -> Result<String, Refusal> {
         if defines_module(&tokens) {
             out.push_str(batch);
         } else {
-            out.push_str(&format_batch(batch, &tokens)?);
+            let line_ending = LineEnding::first(batch, &tokens).unwrap_or(document);
+            out.push_str(&format_batch(batch, &tokens, line_ending)?);
             laid_out = true;
         }
         at = span.end;
@@ -311,7 +343,7 @@ fn breaks(gap: &str) -> usize {
     gap.matches('\n').count() + gap.matches('\r').count() - gap.matches("\r\n").count()
 }
 
-fn format_batch(text: &str, tokens: &[Token<'_>]) -> Result<String, Refusal> {
+fn format_batch(text: &str, tokens: &[Token<'_>], line_ending: LineEnding) -> Result<String, Refusal> {
     let keywords = keywords(tokens);
     let mut toks: Vec<Tok<'_>> = Vec::new();
     let mut notes: Vec<Note<'_>> = Vec::new();
@@ -351,7 +383,7 @@ fn format_batch(text: &str, tokens: &[Token<'_>]) -> Result<String, Refusal> {
         }
         toks.push(Tok { token: *token, keyword, notes: std::mem::take(&mut notes), spaced: !gap.is_empty(), blank });
     }
-    Layout::new(&toks).run(&notes)
+    Layout::new(&toks, line_ending).run(&notes)
 }
 
 /// A significant token with the comments and whitespace the input had before it.
@@ -424,6 +456,7 @@ enum Step {
 struct Out {
     text: String,
     indent: usize,
+    line_ending: LineEnding,
 }
 
 impl Out {
@@ -433,7 +466,7 @@ impl Out {
                 Sep::Tight => {}
                 Sep::Space => self.text.push(' '),
                 Sep::Line(indent) => {
-                    self.text.push('\n');
+                    self.text.push_str(self.line_ending.text());
                     self.text.extend(std::iter::repeat_n(' ', indent));
                     self.indent = indent;
                 }
@@ -455,11 +488,11 @@ struct Layout<'a> {
 }
 
 impl<'a> Layout<'a> {
-    fn new(toks: &'a [Tok<'a>]) -> Self {
+    fn new(toks: &'a [Tok<'a>], line_ending: LineEnding) -> Self {
         Layout {
             toks,
             frames: vec![Frame::Block { indent: 0, begin: false }],
-            out: Out { text: String::new(), indent: 0 },
+            out: Out { text: String::new(), indent: 0, line_ending },
             pending: None,
             phrase_end: 0,
             starts_statement: false,
@@ -900,7 +933,7 @@ impl<'a> Layout<'a> {
     /// Keeps a blank line the input had between statements.
     fn blank_line(&mut self) {
         if !self.out.text.is_empty() {
-            self.out.text.push('\n');
+            self.out.text.push_str(self.out.line_ending.text());
         }
     }
 
@@ -948,6 +981,10 @@ impl<'a> Layout<'a> {
 mod tests {
     use super::*;
     use crate::text::text_commands_never_panic::{env_or, random, texts};
+
+    fn format(text: &str) -> Result<String, Refusal> {
+        super::format(text, LineEnding::of(text))
+    }
 
     const CTES: &[(&str, &str)] = &[
         (
@@ -1193,6 +1230,21 @@ mod tests {
     }
 
     #[test]
+    fn line_breaks_follow_each_batch_and_strings_keep_theirs() {
+        let text = "select  a, 'x\ny' as b\r\nfrom t where a = 1\r\n\r\nupdate t set a = 1\r\nGO\r\nselect  1 from t";
+        assert_eq!(
+            format(text).as_deref(),
+            Ok(
+                "SELECT a,\r\n  'x\ny' AS b\r\nFROM t\r\nWHERE a = 1\r\n\r\nUPDATE t\r\nSET a = 1\r\nGO\r\nSELECT 1\r\nFROM t"
+            )
+        );
+        assert_eq!(
+            format("select  1\nfrom t\r\nGO\r\nselect  2\r\nfrom t").as_deref(),
+            Ok("SELECT 1\nFROM t\r\nGO\r\nSELECT 2\r\nFROM t")
+        );
+    }
+
+    #[test]
     fn a_module_batch_keeps_its_text_and_the_batches_around_it_format() {
         check(MODULE_SCRIPT.0, MODULE_SCRIPT.1);
         assert_eq!(format("ALTER VIEW v AS select  1"), Err(Refusal::OnlyModules));
@@ -1287,6 +1339,18 @@ mod tests {
         out
     }
 
+    /// `text` with each line break between its tokens written as `ending`.
+    fn with_line_ending(text: &str, ending: LineEnding) -> String {
+        let mut out = String::new();
+        let mut end = 0;
+        for t in lex(text).unwrap() {
+            out.push_str(&text[end..t.start].replace('\n', ending.text()));
+            out.push_str(t.text);
+            end = t.end;
+        }
+        out + &text[end..].replace('\n', ending.text())
+    }
+
     /// Respaces every corpus text and changes the case of its reserved words. Each version must format to the
     /// same tokens, and a text without comments to the same layout, since comments keep their own lines.
     #[test]
@@ -1300,7 +1364,7 @@ mod tests {
                 let formatted = format(&variant).unwrap_or_else(|e| panic!("{e:?} for {variant:?}"));
                 assert_eq!(tokens_of(&formatted), tokens_of(&variant), "{variant:?}");
                 if !comments {
-                    assert_eq!(formatted, expected, "{variant:?}");
+                    assert_eq!(formatted, with_line_ending(expected, LineEnding::of(&variant)), "{variant:?}");
                 }
             }
         }

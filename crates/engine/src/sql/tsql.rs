@@ -4,7 +4,7 @@ mod format;
 mod table;
 
 pub(crate) use expression::validate_expression;
-pub(crate) use format::{Refusal, format};
+pub(crate) use format::{LineEnding, Refusal, format};
 pub(crate) use table::{browse_sql, count_sql, format_order_by, parse_order_by};
 
 use super::scope::{Class, Lexeme};
@@ -1050,7 +1050,7 @@ mod tests {
     #[test]
     fn empty_binary_literal_is_a_valid_batch_and_formats_without_changing_it() {
         assert_eq!(selected("SELECT 0x", ByteTarget::All), ["SELECT 0x"]);
-        assert_eq!(format("SELECT 0x").unwrap(), "SELECT 0x");
+        assert_eq!(format("SELECT 0x", LineEnding::Lf).unwrap(), "SELECT 0x");
     }
 
     #[test]
@@ -1391,7 +1391,7 @@ mod tests {
         for text in ["旅=名", "(旅)", "id+😀", ":旅", "SELECT $action", "SELECT $$pg$$"] {
             let _ = split_batches(text);
             let _ = validate_expression(text, false);
-            let _ = format(text);
+            let _ = format(text, LineEnding::Lf);
         }
     }
 

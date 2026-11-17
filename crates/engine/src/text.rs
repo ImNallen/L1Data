@@ -150,7 +150,8 @@ pub fn format_edit(text: &str, target: RunTarget, database_kind: DatabaseKind) -
         let (Some(first), Some(last)) = (spans.first(), spans.last()) else {
             return Err(FormatError::NothingToFormat);
         };
-        let insert = sql::tsql::format(&text[first.start..last.end]).map_err(|refusal| match refusal {
+        let line_ending = sql::tsql::LineEnding::of(text);
+        let insert = sql::tsql::format(&text[first.start..last.end], line_ending).map_err(|refusal| match refusal {
             sql::tsql::Refusal::ChangesTokens => FormatError::Unsafe,
             sql::tsql::Refusal::NoBatch => FormatError::NothingToFormat,
             _ => FormatError::Unsupported,
@@ -428,6 +429,13 @@ mod tests {
             Ok("SELECT 1\nFROM a\nGO\nSELECT 2\nFROM b\nGO\nselect  3 from c\n")
         );
         assert!(matches!(tsql_format_selected(text, "\nGO\n"), Err(FormatError::NothingToFormat)));
+    }
+
+    #[test]
+    fn a_tsql_batch_on_one_line_takes_the_documents_crlf_line_breaks() {
+        let text = "select 1\r\nGO\r\nselect  a from t";
+        let edit = format_edit(text, cursor_at(text, "a from"), DatabaseKind::SqlServer).unwrap();
+        assert_eq!(edit.insert, "SELECT a\r\nFROM t");
     }
 
     #[test]
