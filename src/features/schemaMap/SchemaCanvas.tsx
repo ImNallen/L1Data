@@ -4,7 +4,7 @@ import { cx, Highlight, IconButton, Kbd } from "../../ui/primitives";
 import type { LinkRoute } from "./layout";
 import { visibleColumns, type ColumnRole, type ErColumn, type ErTable, type Focus, type MapColumns, type Oid, type TableKey } from "./model";
 import type { SchemaMapView } from "./useSchemaMap";
-import { fitViewport, fitWidth, revealRect, showRect, zoomViewport, type Point, type Rect, type Size, type Viewport } from "./viewport";
+import { fitViewport, fitWidth, followBox, showRect, zoomViewport, type Point, type Rect, type Size, type Viewport } from "./viewport";
 
 export type CanvasMode = { opens: "fitWidth" | "actualSize"; wheel: "scrollsPage" | "pans" };
 
@@ -169,22 +169,15 @@ function Markers({ id }: { id: string }) {
 
 type SetViewport = Dispatch<SetStateAction<Viewport>>;
 
-function useKeepCenterOnResize(width: number, setViewport: SetViewport) {
-  const shownWidth = useRef(0);
-  useLayoutEffect(() => {
-    const was = shownWidth.current;
-    shownWidth.current = width;
-    if (was > 0 && was !== width) setViewport((v) => ({ ...v, x: v.x + (width - was) / 2 }));
-  }, [width, setViewport]);
-}
-
-function useRevealFocusedTable(focus: Focus | null, focusRect: Rect | undefined, box: Size, setViewport: SetViewport) {
+function useFollowBox(focus: Focus | null, focusRect: Rect | undefined, box: Size, setViewport: SetViewport) {
+  const [shownWidth, setShownWidth] = useState(0);
   const [revealed, setRevealed] = useState<string | null>(null);
+  const resized = shownWidth > 0 && shownWidth !== box.width;
+  if (shownWidth !== box.width) setShownWidth(box.width);
   const revealKey = focus ? `${focus.table.key}\u0000${box.width}\u0000${box.height}` : null;
-  if (revealed !== revealKey && box.width > 0 && (!focus || focusRect)) {
-    setRevealed(revealKey);
-    if (focusRect) setViewport((v) => revealRect(v, focusRect, box));
-  }
+  const reveals = revealed !== revealKey && box.width > 0 && (!focus || focusRect);
+  if (reveals) setRevealed(revealKey);
+  if (resized || (reveals && focusRect)) setViewport((v) => followBox(v, resized ? shownWidth : box.width, box, reveals ? focusRect : undefined));
 }
 
 export function SchemaCanvas({
@@ -222,8 +215,6 @@ export function SchemaCanvas({
     return () => observer.disconnect();
   }, []);
 
-  useKeepCenterOnResize(box.width, setViewport);
-
   const fitKey = model ? `${model.version}\u0000${model.schema}\u0000${columns}` : null;
   const focusRect = focus ? layout?.cards.get(focus.table.oid) : undefined;
   if (layout && fitKey && box.width > 0 && fitted !== fitKey) {
@@ -233,7 +224,7 @@ export function SchemaCanvas({
       mode.opens === "fitWidth" ? fitWidth(layout.bounds, box, { maxScale: 1 }) : showRect(fits ? layout.bounds : (focusRect ?? layout.bounds), box, 1),
     );
   }
-  useRevealFocusedTable(focus, focusRect, box, setViewport);
+  useFollowBox(focus, focusRect, box, setViewport);
 
   useEffect(() => {
     const el = canvas.current;

@@ -49,3 +49,8 @@ export function revealRect(view: Viewport, rect: Rect, box: Size): Viewport {
   const y = axis(view.y, rect.y, rect.height, box.height);
   return x === view.x && y === view.y ? view : { ...view, x, y };
 }
+
+export function followBox(view: Viewport, wasWidth: number, box: Size, focus: Rect | undefined): Viewport {
+  const kept = wasWidth === box.width ? view : { ...view, x: view.x + (box.width - wasWidth) / 2 };
+  return focus ? revealRect(kept, focus, box) : kept;
+}

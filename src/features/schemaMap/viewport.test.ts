@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { fitViewport, fitWidth, revealRect, showRect, zoomViewport, type Rect, type Viewport } from "./viewport";
+import { fitViewport, fitWidth, followBox, revealRect, showRect, zoomViewport, type Rect, type Viewport } from "./viewport";
 
 const onScreen = (view: Viewport, r: Rect) => ({
   x: r.x * view.scale + view.x,
@@ -67,4 +67,12 @@ it("reveals a card above the top edge at the margin", () => {
   const view = { x: 0, y: -300, scale: 0.5 };
   const card = { x: 100, y: 200, width: 196, height: 120 };
   expect(onScreen(revealRect(view, card, { width: 1000, height: 600 }), card).y).toBe(36);
+});
+
+it("keeps the center when the box narrows, then shows the whole focused card in the narrower box", () => {
+  const view = { x: 0, y: 0, scale: 1 };
+  const box = { width: 888, height: 600 };
+  expect(followBox(view, 1200, box, undefined)).toEqual({ x: -156, y: 0, scale: 1 });
+  const card = { x: 40, y: 100, width: 196, height: 120 };
+  expect(onScreen(followBox(view, 1200, box, card), card)).toEqual({ x: 36, y: 100, width: 196, height: 120 });
 });
