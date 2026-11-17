@@ -1,3 +1,5 @@
+use super::batch::{self, CLEANUP};
+use super::checks::{self, Children};
 use super::*;
 use crate::sql::tsql::{quote_ident, quote_literal};
 use std::sync::{
@@ -7,9 +9,6 @@ use std::sync::{
 use tokio::sync::mpsc;
 
 const SETTINGS: &str = "SET ANSI_WARNINGS ON; SET IMPLICIT_TRANSACTIONS OFF; SET XACT_ABORT OFF; SET NOCOUNT OFF";
-const STATE: &str = "DECLARE @count int = @@TRANCOUNT; DECLARE @state int = XACT_STATE(); DECLARE @options int = @@OPTIONS; SELECT @count, @state, @options";
-const IDENTITY: &str = "SELECT CURRENT_TRANSACTION_ID()";
-const CLEANUP: Duration = Duration::from_secs(10);
 
 #[derive(Clone, serde::Serialize)]
 pub(crate) struct ImportTargetShape {
@@ -80,7 +79,7 @@ impl InsertPlan {
         let mut values = Vec::new();
         let templates = (0..128.min(2000 / columns.len())).map(|row| {
             values.push(format!("({})", (0..columns.len()).map(|col| format!("@P{}", row * columns.len() + col + 1)).collect::<Vec<_>>().join(",")));
-            format!("DECLARE @import_transaction bigint = CURRENT_TRANSACTION_ID(); BEGIN TRY INSERT {qualified} ({names}) VALUES {}; SELECT CAST(NULL AS nvarchar(max)), @@ROWCOUNT; END TRY BEGIN CATCH IF @@TRANCOUNT <> 1 OR @import_transaction <> CURRENT_TRANSACTION_ID() THROW; ROLLBACK TRANSACTION; SELECT ERROR_MESSAGE(), CAST(0 AS int); END CATCH", values.join(","))
+            format!("DECLARE @import_transaction bigint = CURRENT_TRANSACTION_ID(); BEGIN TRY INSERT {qualified} ({names}) VALUES {}; SELECT @@ROWCOUNT AS [l1:count]; END TRY BEGIN CATCH {} END CATCH", values.join(","), batch::fenced_catch("@import_transaction"))
         }).collect();
         Ok(Self {
             metadata: metadata(&target),
@@ -121,8 +120,7 @@ impl InsertPlan {
             1,
             self,
             SETTINGS,
-            STATE,
-            IDENTITY,
+            batch::PROBE,
             "BEGIN TRANSACTION",
             "COMMIT TRANSACTION",
             "ROLLBACK TRANSACTION",
@@ -158,6 +156,7 @@ fn unknown(message: impl Into<String>) -> ImportError {
 fn metadata(target: &ImportTarget) -> String {
     let oid = native_object_id(target.oid);
     let name = quote_literal(&format!("{}.{}", quote_ident(&target.schema), quote_ident(&target.table)));
+    let violations = checks::violations("l.object_id", Children::All);
     format!(
         r#"
 DECLARE @id int = OBJECT_ID({name}, N'U');
@@ -171,21 +170,18 @@ BEGIN
     IF EXISTS (SELECT 1 FROM sys.database_permissions WHERE state='D' AND permission_name IN ('VIEW DEFINITION','CONTROL'))
         THROW 50000, 'CSV import cannot prove metadata visibility while database permissions contain DENY VIEW DEFINITION or DENY CONTROL', 1;
 END;
-IF EXISTS (SELECT 1 FROM sys.tables WHERE object_id=@id AND (is_memory_optimized=1 OR temporal_type<>0 OR is_node=1 OR is_edge=1 OR is_filetable=1 OR is_replicated=1 OR is_merge_published=1 OR is_sync_tran_subscribed=1 OR is_remote_data_archive_enabled=1 OR ledger_type<>0))
- OR EXISTS (SELECT 1 FROM sys.external_tables WHERE object_id=@id)
-    THROW 50000, 'CSV import supports ordinary disk-based tables only', 1;
-IF EXISTS (SELECT 1 FROM sys.triggers WHERE parent_id=@id AND is_disabled=0)
-    THROW 50000, 'CSV import does not support enabled DML triggers', 1;
-IF EXISTS (SELECT 1 FROM sys.security_predicates WHERE target_object_id=@id)
-    THROW 50000, 'CSV import does not support row-level security policies', 1;
-IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=@id AND ignore_dup_key=1)
-    THROW 50000, 'CSV import does not support IGNORE_DUP_KEY indexes', 1;
-IF EXISTS (SELECT 1 FROM sys.sql_expression_dependencies d JOIN sys.views v ON v.object_id=d.referencing_id JOIN sys.indexes i ON i.object_id=v.object_id WHERE d.referenced_id=@id AND i.index_id=1)
-    THROW 50000, 'CSV import does not support indexed-view maintenance', 1;
-IF EXISTS (SELECT 1 FROM sys.columns c JOIN sys.types t ON t.user_type_id=c.user_type_id WHERE c.object_id=@id AND (t.is_assembly_type=1 OR t.is_user_defined=1 OR c.encryption_type IS NOT NULL OR c.rule_object_id<>0 OR t.rule_object_id<>0 OR t.default_object_id<>0 OR (c.default_object_id<>0 AND NOT EXISTS (SELECT 1 FROM sys.default_constraints dc WHERE dc.object_id=c.default_object_id))))
-    THROW 50000, 'CSV import does not support CLR, alias, encrypted, or bound-rule/default columns', 1;
-IF EXISTS (SELECT 1 FROM sys.sql_expression_dependencies d WHERE (d.referencing_id=@id OR d.referencing_id IN (SELECT object_id FROM sys.objects WHERE parent_object_id=@id)) AND (d.is_ambiguous=1 OR d.is_caller_dependent=1 OR d.referenced_server_name IS NOT NULL OR d.referenced_database_name IS NOT NULL OR d.referenced_id IS NULL OR (d.referenced_id<>@id AND NOT EXISTS (SELECT 1 FROM sys.sequences s WHERE s.object_id=d.referenced_id))))
-    THROW 50000, 'CSV import does not support unresolved or user-function expression dependencies', 1;
+DECLARE @reason nvarchar(128), @message nvarchar(2048);
+SELECT TOP (1) @reason = v.reason FROM (VALUES (@id)) AS l(object_id) CROSS APPLY ({violations}) AS v(reason, detail);
+SET @message = CASE @reason
+    WHEN N'kind' THEN N'CSV import supports ordinary disk-based tables only'
+    WHEN N'trigger' THEN N'CSV import does not support enabled DML triggers'
+    WHEN N'policy' THEN N'CSV import does not support row-level security policies'
+    WHEN N'ignore_dup_key' THEN N'CSV import does not support IGNORE_DUP_KEY indexes'
+    WHEN N'indexed_view' THEN N'CSV import does not support indexed-view maintenance'
+    WHEN N'function' THEN N'CSV import does not support unresolved or user-function expression dependencies'
+    WHEN N'permission' THEN N'CSV import requires database and target VIEW DEFINITION to verify target safety'
+    ELSE N'CSV import does not support CLR, alias, encrypted, or bound-rule/default columns' END;
+IF @reason IS NOT NULL THROW 50000, @message, 1;
 SELECT (SELECT DB_NAME() AS db, t.object_id, t.create_date, t.modify_date,
     (SELECT c.*, dc.definition AS default_expression, cc.definition AS computed_expression FROM sys.columns c LEFT JOIN sys.default_constraints dc ON dc.object_id=c.default_object_id LEFT JOIN sys.computed_columns cc ON cc.object_id=c.object_id AND cc.column_id=c.column_id WHERE c.object_id=@id ORDER BY c.column_id FOR JSON PATH) AS columns,
     (SELECT object_id, name, type, create_date, modify_date FROM sys.objects WHERE parent_object_id=@id ORDER BY object_id FOR JSON PATH) AS children,
@@ -232,27 +228,22 @@ impl MsSession {
     }
 }
 
-async fn state(client: &mut TdsClient, database: &str, expected: TxnState) -> Result<u32, QueryError> {
-    let result = rows(client, STATE).await?;
-    let row = result.first().ok_or_else(|| error("Missing import transaction state"))?;
-    let (count, active) = if expected == TxnState::Idle { ("0", "0") } else { ("1", "1") };
-    if required(row, 0)? != count || required(row, 1)? != active || observe(client, database)? != expected {
+async fn state(client: &mut TdsClient, database: &str, expected: TxnState) -> Result<batch::Probe, QueryError> {
+    let batch::Probed::State(probe) = batch::probe(client, database).await? else {
+        return Err(batch::unexpected(&[], &["l1:state"]));
+    };
+    let (count, active) = if expected == TxnState::Idle { (0, 0) } else { (1, 1) };
+    if probe.count != count || probe.state != active || probe.native != expected {
         return Err(error(format!(
-            "SQL Server import transaction state changed unexpectedly: expected {expected:?}, server {row:?}, native {:?}",
-            observe(client, database)?
+            "SQL Server import transaction state changed unexpectedly: expected {expected:?}, server {} {}, native {:?}",
+            probe.count, probe.state, probe.native
         )));
     }
-    number(row, 2)
-}
-
-async fn transaction_id(client: &mut TdsClient) -> Result<String, QueryError> {
-    let result = rows(client, IDENTITY).await?;
-    Ok(required(result.first().ok_or_else(|| error("Missing transaction identity"))?, 0)?.into())
+    Ok(probe)
 }
 
 async fn check_fence(client: &mut TdsClient, database: &str, id: &str) -> Result<(), QueryError> {
-    state(client, database, TxnState::Open).await?;
-    if transaction_id(client).await? != id {
+    if state(client, database, TxnState::Open).await?.transaction != id {
         return Err(error("SQL Server import transaction identity changed"));
     }
     Ok(())
@@ -266,47 +257,20 @@ enum BatchOutcome {
 async fn insert(client: &mut TdsClient, plan: &InsertPlan, chunk: &ImportRows) -> Result<BatchOutcome, ImportError> {
     let values = chunk.rows.iter().flatten().map(|v| v.as_deref()).collect::<Vec<_>>();
     let params = values.iter().map(|v| v as &dyn tiberius::ToSql).collect::<Vec<_>>();
-    let stream =
-        client.query(&plan.templates[chunk.rows.len() - 1], &params).await.map_err(query_error).map_err(query)?;
-    let mut stream = std::pin::pin!(stream);
-    let mut outcome = None;
-    let mut failure = None;
-    loop {
-        match stream.try_next().await {
-            Ok(Some(QueryItem::Row(row))) => {
-                if let Some(message) = row.get::<&str, _>(0) {
-                    let mut e = error(message);
-                    e.context = Some(format!(
-                        "CSV records {} through {}",
-                        chunk.first_record,
-                        chunk.first_record + chunk.rows.len() as u64 - 1
-                    ));
-                    outcome = Some(BatchOutcome::RolledBack(query(e)));
-                } else if row.get::<i32, _>(1) == Some(chunk.rows.len() as i32) {
-                    outcome = Some(BatchOutcome::Inserted);
-                } else {
-                    failure = Some(error("SQL Server did not insert every CSV row"));
-                }
-            }
-            Ok(Some(QueryItem::Error(e))) => {
-                if e.code() != 266 || !matches!(outcome, Some(BatchOutcome::RolledBack(_))) {
-                    failure = Some(query_error(tiberius::error::Error::Server(e)));
-                }
-            }
-            Err(tiberius::error::Error::Server(e))
-                if e.code() == 266 && matches!(outcome, Some(BatchOutcome::RolledBack(_))) =>
-            {
-                break;
-            }
-            Err(e) => return Err(query(query_error(e))),
-            Ok(None) => break,
-            _ => {}
-        }
+    let reply = batch::module(client, &plan.templates[chunk.rows.len() - 1], &params).await.map_err(query)?;
+    if let Some(mut e) = reply.rolled_back {
+        e.context = Some(format!(
+            "CSV records {} through {}",
+            chunk.first_record,
+            chunk.first_record + chunk.rows.len() as u64 - 1
+        ));
+        return Ok(BatchOutcome::RolledBack(query(e)));
     }
-    if let Some(e) = failure {
-        return Err(query(e));
+    let rows = reply.single("l1:count").map_err(query)?;
+    if rows.len() != 1 || number::<usize>(&rows[0], 0).map_err(query)? != chunk.rows.len() {
+        return Err(query(error("SQL Server did not insert every CSV row")));
     }
-    outcome.ok_or_else(|| query(error("SQL Server import returned no insertion result")))
+    Ok(BatchOutcome::Inserted)
 }
 
 enum FenceState {
@@ -334,7 +298,7 @@ impl MsSession {
         let mut producer = Some(producer);
         let mut settled = None;
         let work = async {
-            let options = state(lease.client(), &database, TxnState::Idle).await.map_err(query)?;
+            let options = state(lease.client(), &database, TxnState::Idle).await.map_err(query)?.options;
             if stop.load(Ordering::Relaxed) {
                 return Err(ImportError::Cancelled);
             }
@@ -344,7 +308,8 @@ impl MsSession {
             }
             let result = async {
                 rows(lease.client(), "BEGIN TRANSACTION").await.map_err(|e| unknown(e.message))?;
-                let id = transaction_id(lease.client()).await.map_err(|e| unknown(e.message))?;
+                let id =
+                    state(lease.client(), &database, TxnState::Open).await.map_err(|e| unknown(e.message))?.transaction;
                 let mut fence = FenceState::Owned;
                 let imported = async {
                     rows(lease.client(), &plan.lock).await.map_err(query)?;
@@ -424,16 +389,7 @@ impl MsSession {
             }
             result
         };
-        let mut result = {
-            tokio::pin!(work);
-            let deadline = async {
-                while !stop.load(Ordering::Relaxed) {
-                    tokio::time::sleep(Duration::from_millis(20)).await;
-                }
-                tokio::time::sleep(CLEANUP).await;
-            };
-            tokio::select! { biased; result = &mut work => result, _ = deadline => Err(unknown("CSV import cleanup deadline expired")) }
-        };
+        let mut result = batch::settle(stop, work, || Err(unknown("CSV import cleanup deadline expired"))).await;
         if matches!(result, Err(ImportError::OutcomeUnknown { .. }))
             && let Some(outcome) = settled
         {
@@ -445,18 +401,14 @@ impl MsSession {
             stop.store(true, Ordering::Relaxed);
             let _ = producer.await;
         }
-        if matches!(result, Err(ImportError::OutcomeUnknown { .. })) {
-            lease.retire("CSV import outcome unknown".into());
-        } else if lease.client.is_some() {
-            if matches!(&result, Err(ImportError::Query { error }) if error.severity == "FATAL") {
-                lease.retire("CSV import connection failed".into());
-            } else {
-                match observe(lease.client(), &database) {
-                    Ok(txn) => lease.restore(txn),
-                    Err(e) => lease.retire(e.message),
-                }
+        let retire = match &result {
+            Err(ImportError::OutcomeUnknown { .. }) => Some("CSV import outcome unknown".into()),
+            Err(ImportError::Query { error }) if error.severity == "FATAL" => {
+                Some("CSV import connection failed".into())
             }
-        }
+            _ => None,
+        };
+        lease.finish(retire, &database);
         result
     }
 }

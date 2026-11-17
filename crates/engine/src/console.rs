@@ -382,7 +382,10 @@ impl Console {
             checked.mark_held_writes_asked(&mut inner.unasked);
         }
         let stop = Arc::new(AtomicBool::new(false));
-        let cancel = (!(matches!(work, Work::Import { .. }) && session.database_kind() == DatabaseKind::SqlServer))
+        // A SQL Server import or edit settles its own transaction, so Cancel only sets `stop` and never sends Attention
+        // in the middle of a statement.
+        let cancel = (!(matches!(work, Work::Import { .. } | Work::Edit(_))
+            && session.database_kind() == DatabaseKind::SqlServer))
             .then(|| session.cancel_handle());
         inner.session = SessionSlot::Busy {
             opened,
@@ -436,6 +439,22 @@ impl Console {
                 None
             }
         }
+    }
+
+    /// `return_session` for a task that knows whether it lost a transaction: a SQL Server session it retired after a
+    /// known outcome lost none.
+    pub fn return_settled(
+        inner: &mut ConsoleInner,
+        session: Session,
+        txn: TxnState,
+        lost: Option<String>,
+        unknown: bool,
+    ) -> Option<(DatabaseRef, Owed)> {
+        let due = Self::return_session(inner, session, txn, lost);
+        if let SessionSlot::Lost { transaction, .. } = &mut inner.session {
+            *transaction = if unknown { TransactionLoss::Unknown } else { TransactionLoss::None };
+        }
+        due
     }
 
     /// Cancels any run and drops the session; the console itself stays. A task holding the

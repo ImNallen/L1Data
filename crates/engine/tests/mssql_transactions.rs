@@ -218,13 +218,18 @@ async fn manual_configuration_and_staged_edits_refuse_before_trigger_execution()
         }
         assert!(!h.engine.boot().consoles.iter().any(|state| state.tab_id == fresh));
         let mut edit = changes(&h.table);
-        edit.updates.push(RowUpdate { key: vec![cell("id", "1")], set: vec![cell("n", "2")] });
+        edit.updates.push(RowUpdate { key: vec![cell("id", "1")], set: vec![cell("n", "2")], expect: vec![] });
         edit.inserts.push(vec![cell("id", "1"), cell("n", "3")]);
         let mut delete = changes(&h.table);
-        delete.deletes.push(vec![cell("id", "1")]);
+        delete.deletes.push(RowDelete { key: vec![cell("id", "1")], expect: vec![] });
+        h.engine.refresh_catalog(DatabaseRef { connection_id: h.connection, database: "shop".into() }).await.unwrap();
         for edit in [changes(&h.table), changes("not_a_table"), edit, delete] {
             let refused = h.engine.table_apply(h.tab, edit, None).await;
-            assert!(matches!(refused, Err(ApplyError::Unsupported { ref what }) if what.contains("SQL editor") && what.contains("Auto-commit")), "{refused:?}");
+            assert!(
+                matches!(&refused, Err(ApplyError::Refused { reason: EditRefusal::Trigger { trigger: name, .. } }) if name.ends_with(&trigger))
+                    || matches!(refused, Err(ApplyError::NotConfigured)),
+                "{refused:?}"
+            );
             assert_eq!(serde_json::to_value(h.state(h.tab)).unwrap(), before);
         }
         assert_eq!(h.scalar(h.observer, &format!("SELECT n FROM dbo.[{}]", h.table)).await, "1");
@@ -250,8 +255,16 @@ async fn staged_refusal_preserves_xact_abort_and_prior_native_transaction_work()
             let before = serde_json::to_value(h.state(h.tab)).unwrap();
             let mut edit = changes(&h.table);
             edit.inserts.push(vec![cell("id", "1"), cell("n", "99")]);
+            h.engine
+                .refresh_catalog(DatabaseRef { connection_id: h.connection, database: "shop".into() })
+                .await
+                .unwrap();
             for edit in [edit, changes(&h.table)] {
-                assert!(matches!(h.engine.table_apply(h.tab, edit, None).await, Err(ApplyError::Unsupported { .. })));
+                let refused = h.engine.table_apply(h.tab, edit, None).await;
+                assert!(
+                    matches!(refused, Err(ApplyError::Session { reason: SessionRefusal::OpenTransaction })),
+                    "{refused:?}"
+                );
                 assert_eq!(serde_json::to_value(h.state(h.tab)).unwrap(), before);
             }
             let refused = h

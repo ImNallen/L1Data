@@ -178,16 +178,37 @@ pub fn check_import(
     descriptor: &str,
     confirmed: Option<&WriteDigest>,
 ) -> Result<WritesChecked, WriteConfirmation> {
+    let bound: Vec<&str> = statements.iter().copied().chain(std::iter::once(descriptor)).collect();
+    ask_once(target, &[copy], &bound, confirmed)
+}
+
+/// SQL Server staged edits: `shown` has one display statement per change, and `bound` is the plan they were built
+/// from, so any changed value, original, or statement makes the digest stale.
+pub fn check_edits(
+    target: &Target,
+    shown: &[&str],
+    bound: &str,
+    confirmed: Option<&WriteDigest>,
+) -> Result<WritesChecked, WriteConfirmation> {
+    ask_once(target, shown, bound, confirmed)
+}
+
+/// Work that always writes and always ends its own transaction asks once on Production, and the digest binds `bound`.
+fn ask_once(
+    target: &Target,
+    shown: &[&str],
+    bound: impl Serialize,
+    confirmed: Option<&WriteDigest>,
+) -> Result<WritesChecked, WriteConfirmation> {
     if !target.on_production() {
         return Ok(admit(target, true));
     }
-    let bound: Vec<&str> = statements.iter().copied().chain(std::iter::once(descriptor)).collect();
-    let digest = target.digest(&bound);
+    let digest = target.digest(bound);
     if confirmed == Some(&digest) {
         return Ok(admit(target, true));
     }
     let mut sends = WriteList::default();
-    sends.add(copy);
+    shown.iter().for_each(|sql| sends.add(sql));
     Err(confirmation(target, sends, digest))
 }
 

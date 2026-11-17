@@ -63,6 +63,18 @@ impl Harness {
     fn db(&self) -> DatabaseRef {
         DatabaseRef { connection_id: self.connection, database: "shop".into() }
     }
+    /// Refreshes the catalog, again when another test's DDL changed the schema list between the loader's queries.
+    async fn refresh(&self) {
+        for _ in 0..20 {
+            match self.engine.refresh_catalog(self.db()).await {
+                Err(CatalogError::Failed { message }) if message == "Catalog schema changed during load" => {
+                    tokio::time::sleep(Duration::from_millis(50)).await
+                }
+                result => return result.map(drop).unwrap(),
+            }
+        }
+        panic!("the catalog kept changing during load");
+    }
     async fn start(&self, sql: &str) -> RunAccepted {
         self.engine
             .console_run(
@@ -528,7 +540,7 @@ async fn raw_money_sql_variant_and_clr_values_show_exactly() {
     .await;
     let outcome = AssertUnwindSafe(async {
         h.ok(&format!("INSERT INTO dbo.[{table}] VALUES (1, 5, hierarchyid::Parse('/1/'), geography::Point(1, 1, 4326), 922337203685477.5807)")).await;
-        h.engine.refresh_catalog(h.db()).await.unwrap();
+        h.refresh().await;
         let expected = vec![Some("1".to_owned()), Some("5".into()), Some("0x58".into()), Some("0xE6100000010C000000000000F03F000000000000F03F".into()), Some("922337203685477.5807".into())];
         let page = RunRequest::TablePage { schema: "dbo".into(), table: table.clone(), page: 0, query: TableQuery::default() };
         let accepted = h.engine.console_run(h.tab, page, None).await.unwrap();
@@ -657,7 +669,7 @@ async fn native_writes_keep_precision_defaults_trigger_results_and_metadata() {
     h.ok(&format!("CREATE TABLE dbo.[{table}] (id int IDENTITY PRIMARY KEY, [a]]b] nvarchar(200), n decimal(38,12), bytes varbinary(max), price money, state int DEFAULT 7, computed AS (state+1), version rowversion)")).await;
     let outcome = AssertUnwindSafe(async {
         h.ok(&format!("CREATE TRIGGER dbo.[{trigger}] ON dbo.[{table}] AFTER INSERT,UPDATE,DELETE AS BEGIN SET NOCOUNT ON; SELECT 123 AS trigger_row; END")).await;
-        h.engine.refresh_catalog(h.db()).await.unwrap();
+        h.refresh().await;
         let catalog = h.engine.catalog(h.db()).await.unwrap();
         let relation = catalog.schemas.iter().flat_map(|s| &s.relations).find(|r| r.name == table).unwrap();
         for col in ["id", "computed", "version"] {
@@ -747,7 +759,7 @@ async fn clr_columns_stay_in_the_catalog_and_browse_as_hexadecimal() {
     let mut h = Harness::open(TxnMode::AutoCommit).await;
     let table = format!("l1_clr_{}", uuid::Uuid::new_v4().simple());
     h.ok(&format!("CREATE TABLE dbo.[{table}] (id int PRIMARY KEY, path hierarchyid, location geography); INSERT INTO dbo.[{table}] VALUES (1, hierarchyid::GetRoot(), geography::Point(1, 1, 4326))")).await;
-    h.engine.refresh_catalog(h.db()).await.unwrap();
+    h.refresh().await;
     let catalog = h.engine.catalog(h.db()).await.unwrap();
     let relation = catalog.schemas.iter().flat_map(|s| &s.relations).find(|r| r.name == table).unwrap();
     assert_eq!(relation.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["id", "path", "location"]);
@@ -885,7 +897,7 @@ async fn system_schema_views_keep_lossless_opaque_ids_in_catalog_and_detail() {
             .await
             .unwrap();
     }
-    h.engine.refresh_catalog(h.db()).await.unwrap();
+    h.refresh().await;
     let catalog = h.engine.catalog(h.db()).await.unwrap();
     for name in ["sys", "INFORMATION_SCHEMA"] {
         let schema = catalog.schemas.iter().find(|s| s.name == name).unwrap();
@@ -1071,7 +1083,7 @@ async fn insert_exports_replay_identity_and_leave_out_computed_and_rowversion_co
     h.ok(&format!("CREATE TABLE dbo.[{source}] ({columns}); CREATE TABLE dbo.[{copy}] ({columns})")).await;
     let outcome = AssertUnwindSafe(async {
         h.ok(&format!("INSERT INTO dbo.[{source}] (label) VALUES (N'a'), (N'bb'), (N'ccc'); DELETE FROM dbo.[{source}] WHERE id = 2")).await;
-        h.engine.refresh_catalog(h.db()).await.unwrap();
+        h.refresh().await;
         let page = h.engine.console_run(h.tab, RunRequest::TablePage { schema: "dbo".into(), table: source.clone(), page: 0, query: TableQuery::default() }, None).await.unwrap();
         let state = h.finish(page.run_id).await;
         let meta = Harness::rowsets(&state)[0].clone();
@@ -1616,7 +1628,7 @@ async fn sequences_types_and_synonyms_load_and_script() {
     let sequence = format!("{stem}_n");
     let outcome = AssertUnwindSafe(async {
         h.ok(&format!("CREATE TYPE dbo.[{alias}] FROM nvarchar(20) NULL\nGO\nCREATE SYNONYM dbo.[{synonym}] FOR dbo.customers\nGO\nCREATE SEQUENCE dbo.[{sequence}] AS int START WITH 1000 INCREMENT BY 10")).await;
-        h.engine.refresh_catalog(h.db()).await.unwrap();
+        h.refresh().await;
         let catalog = h.engine.catalog(h.db()).await.unwrap();
         assert!(catalog.extensions.is_empty(), "SQL Server runs no extension query");
         let dbo = catalog.schemas.iter().find(|s| s.name == "dbo").unwrap();
@@ -1863,6 +1875,9 @@ async fn a_referenced_cell_parameter_binds_before_the_batch_declares_it() {
 
 #[path = "mssql/import.rs"]
 mod import_tests;
+
+#[path = "mssql/edits.rs"]
+mod edit_tests;
 
 #[tokio::test]
 async fn a_reference_chain_runs_inside_a_batch_with_hoisted_ctes() {

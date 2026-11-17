@@ -1,6 +1,9 @@
 mod mssql;
 mod postgres;
 mod stream;
+pub(crate) use mssql::edit::{
+    Answer as EditAnswer, EditCheck, EditOutcome, EditPlan, EditRun, LOCK_TIMEOUT, plan as plan_mssql_edits,
+};
 pub(crate) use mssql::import::{ImportRows, ImportTargetShape, InsertPlan};
 
 use crate::connection::{ConnectParams, DatabaseInfo};
@@ -8,8 +11,6 @@ use crate::model::*;
 use futures_util::Stream;
 use std::pin::Pin;
 use tokio::sync::watch;
-
-pub const SQL_SERVER_EDITS_UNSUPPORTED: &str = "SQL Server staged grid edits are unavailable because server-side code can end the edit transaction. Use the SQL editor in Auto-commit mode with explicit transaction statements.";
 
 pub struct Session {
     driver: Driver,
@@ -243,7 +244,20 @@ impl Session {
     pub async fn execute_edit(&mut self, edit: &Edit) -> Result<u64, QueryError> {
         match &mut self.driver {
             Driver::Postgres(p) => p.execute_edit(&edit.sql).await,
-            Driver::SqlServer(_) => Err(error(SQL_SERVER_EDITS_UNSUPPORTED)),
+            Driver::SqlServer(_) => unreachable!("SQL Server edits go through apply_edits"),
+        }
+    }
+    /// P2 of a SQL Server edit, outside a transaction, on a metadata session.
+    pub(crate) async fn edit_check(&mut self, target: u32, name: &str) -> Result<EditAnswer, ApplyError> {
+        match &mut self.driver {
+            Driver::SqlServer(s) => s.edit_check(target, name).await,
+            Driver::Postgres(_) => unreachable!("PostgreSQL edits need no check"),
+        }
+    }
+    pub(crate) async fn apply_edits(&mut self, plan: &EditPlan, stop: &std::sync::atomic::AtomicBool) -> EditRun {
+        match &mut self.driver {
+            Driver::SqlServer(s) => s.apply_edits(plan, stop).await,
+            Driver::Postgres(_) => unreachable!("PostgreSQL edits go through execute_edit"),
         }
     }
     pub fn query<'a>(&'a mut self, sql: &'a str) -> QueryStream<'a> {
@@ -318,7 +332,32 @@ pub struct Edit {
     pub sql: String,
 }
 
+/// The first update or delete whose key an earlier one already named. Each change reads and writes its row by that
+/// key alone, so a second change would act on the row the first one left.
+pub fn repeated_key(changes: &TableChanges) -> Option<ChangeRef> {
+    let mut seen = std::collections::HashSet::new();
+    let deletes = changes.deletes.iter().enumerate().map(|(i, d)| (ChangeKind::Delete, i, &d.key));
+    let updates = changes.updates.iter().enumerate().map(|(i, u)| (ChangeKind::Update, i, &u.key));
+    deletes.chain(updates).find_map(|(kind, index, key)| {
+        let mut cells: Vec<_> = key.iter().map(|c| (&c.column, &c.value)).collect();
+        cells.sort();
+        (!seen.insert(cells)).then_some(ChangeRef { kind, index: index as u32 })
+    })
+}
+
 pub fn plan_edits(changes: &TableChanges, relation: &Relation) -> Result<Vec<Edit>, ApplyError> {
+    if let Some(change) = repeated_key(changes) {
+        return Err(ApplyError::Failed { change, error: error("Another change names the same row") });
+    }
+    let expects = changes.deletes.iter().enumerate().map(|(i, d)| (ChangeKind::Delete, i, &d.expect));
+    let mut expects =
+        expects.chain(changes.updates.iter().enumerate().map(|(i, u)| (ChangeKind::Update, i, &u.expect)));
+    if let Some((kind, index, _)) = expects.find(|(_, _, expect)| !expect.is_empty()) {
+        return Err(ApplyError::Failed {
+            change: ChangeRef { kind, index: index as u32 },
+            error: error("PostgreSQL edits find rows by primary key and take no expected values"),
+        });
+    }
     let valid = |cells: &[CellWrite], change| -> Result<(), ApplyError> {
         let mut names = std::collections::HashSet::new();
         for cell in cells {
@@ -341,7 +380,7 @@ pub fn plan_edits(changes: &TableChanges, relation: &Relation) -> Result<Vec<Edi
     let (schema, table) = (&changes.schema, &changes.table);
     let mut add = |kind, index, sql| edits.push(Edit { change: ChangeRef { kind, index }, sql });
     for (i, key) in changes.deletes.iter().enumerate() {
-        add(ChangeKind::Delete, i as u32, crate::text::delete_sql(schema, table, key));
+        add(ChangeKind::Delete, i as u32, crate::text::delete_sql(schema, table, &key.key));
     }
     for (i, u) in changes.updates.iter().enumerate() {
         if !u.set.is_empty() {

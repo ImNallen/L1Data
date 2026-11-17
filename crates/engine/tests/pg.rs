@@ -1757,6 +1757,34 @@ async fn rows_of(h: &mut Harness, tab: TabId, table: &str) -> String {
 }
 
 #[tokio::test]
+async fn table_apply_refuses_expected_values_and_repeated_keys_before_sending_anything() {
+    let mut h = Harness::start().await;
+    h.engine.connect(h.conn).await.unwrap();
+    let tab = h.sql_tab(TxnMode::AutoCommit).await;
+    let table = edit_table(&mut h, tab).await;
+    let before = h.log(tab).len();
+    let mut expect = changes(&table);
+    expect.updates.push(RowUpdate {
+        key: vec![cell("id", Some("1"))],
+        set: vec![cell("name", Some("x"))],
+        expect: vec![cell("name", Some("a"))],
+    });
+    let mut repeated = changes(&table);
+    repeated.updates.push(RowUpdate {
+        key: vec![cell("id", Some("1"))],
+        set: vec![cell("name", Some("x"))],
+        expect: vec![],
+    });
+    repeated.deletes.push(RowDelete { key: vec![cell("id", Some("1"))], expect: vec![] });
+    for edit in [expect, repeated] {
+        let refused = h.engine.table_apply(tab, edit, None).await;
+        assert!(matches!(refused, Err(ApplyError::Failed { .. })), "{refused:?}");
+    }
+    assert_eq!(h.log(tab).len(), before, "nothing was sent");
+    assert_eq!(rows_of(&mut h, tab, &table).await, "1:a:NULL 2:b:NULL 3:c:NULL");
+}
+
+#[tokio::test]
 async fn table_apply_commits_every_change_or_none() {
     let mut h = Harness::start().await;
     h.engine.connect(h.conn).await.unwrap();
@@ -1764,10 +1792,11 @@ async fn table_apply_commits_every_change_or_none() {
     let table = edit_table(&mut h, tab).await;
 
     let mut ok = changes(&table);
-    ok.deletes.push(vec![cell("id", Some("1"))]);
+    ok.deletes.push(RowDelete { key: vec![cell("id", Some("1"))], expect: vec![] });
     ok.updates.push(RowUpdate {
         key: vec![cell("id", Some("2"))],
         set: vec![cell("name", Some("b'2")), cell("note", Some("x"))],
+        expect: vec![],
     });
     ok.inserts.push(vec![cell("name", Some("d"))]);
     let before = h.log(tab).len();
@@ -1790,7 +1819,11 @@ async fn table_apply_commits_every_change_or_none() {
 
     let mut missing = changes(&table);
     missing.inserts.push(vec![cell("name", Some("e"))]);
-    missing.updates.push(RowUpdate { key: vec![cell("id", Some("999"))], set: vec![cell("name", Some("ghost"))] });
+    missing.updates.push(RowUpdate {
+        key: vec![cell("id", Some("999"))],
+        set: vec![cell("name", Some("ghost"))],
+        expect: vec![],
+    });
     let err = h.engine.table_apply(tab, missing, None).await.unwrap_err();
     assert!(
         matches!(err, ApplyError::RowMismatch { change: ChangeRef { kind: ChangeKind::Update, index: 0 }, rows: 0 }),
@@ -1798,7 +1831,7 @@ async fn table_apply_commits_every_change_or_none() {
     );
 
     let mut violating = changes(&table);
-    violating.deletes.push(vec![cell("id", Some("3"))]);
+    violating.deletes.push(RowDelete { key: vec![cell("id", Some("3"))], expect: vec![] });
     violating.inserts.push(vec![cell("note", Some("no name"))]);
     h.drain();
     let before = h.log(tab).len();
@@ -1817,7 +1850,7 @@ async fn table_apply_commits_every_change_or_none() {
     assert_eq!(h.console(tab).txn, TxnState::Idle);
 
     let mut keyless = changes(&table);
-    keyless.deletes.push(vec![cell("name", Some("c"))]);
+    keyless.deletes.push(RowDelete { key: vec![cell("name", Some("c"))], expect: vec![] });
     assert!(matches!(h.engine.table_apply(tab, keyless, None).await, Err(ApplyError::NoPrimaryKey)));
     h.run_ok(tab, &format!("drop table public.{table}")).await;
 }
@@ -1842,7 +1875,7 @@ async fn table_apply_in_manual_mode_waits_for_commit_and_a_failure_keeps_the_ope
     );
 
     let mut failing = changes(&table);
-    failing.updates.push(RowUpdate { key: vec![cell("id", Some("1"))], set: vec![cell("name", None)] });
+    failing.updates.push(RowUpdate { key: vec![cell("id", Some("1"))], set: vec![cell("name", None)], expect: vec![] });
     assert!(matches!(h.engine.table_apply(manual, failing, None).await, Err(ApplyError::Failed { .. })));
     assert_eq!(h.console(manual).txn, TxnState::Active, "the savepoint kept the transaction usable");
     assert_eq!(
@@ -1874,7 +1907,11 @@ async fn table_apply_finishes_and_frees_the_tab_after_its_caller_stops_waiting()
     oracle.batch_execute(&format!("BEGIN; LOCK TABLE public.{table} IN ACCESS EXCLUSIVE MODE")).await.unwrap();
 
     let mut update = changes(&table);
-    update.updates.push(RowUpdate { key: vec![cell("id", Some("1"))], set: vec![cell("name", Some("z"))] });
+    update.updates.push(RowUpdate {
+        key: vec![cell("id", Some("1"))],
+        set: vec![cell("name", Some("z"))],
+        expect: vec![],
+    });
     let engine = h.engine.clone();
     let caller = tokio::spawn(async move { engine.table_apply(tab, update, None).await });
     wait_for_work(&h, tab, Some(ConsoleWork::Edit), "the apply holds the session").await;
@@ -2064,7 +2101,7 @@ async fn table_page_preserves_nested_domain_native_metadata_and_primary_key() {
             table: "items".into(),
             inserts: vec![],
             deletes: vec![],
-            updates: vec![RowUpdate { key, set: vec![cell("value", Some("43"))] }],
+            updates: vec![RowUpdate { key, set: vec![cell("value", Some("43"))], expect: vec![] }],
         };
         assert!(h.engine.table_apply(tab, changes, None).await.unwrap().committed);
         assert_eq!(h.scalar(tab, &format!("SELECT value FROM {schema}.items WHERE id = 1")).await, "43");
@@ -2122,9 +2159,11 @@ async fn table_page_on_second_database_uses_its_pk() {
         updates: vec![],
         deletes: vec![],
     };
-    changes
-        .updates
-        .push(RowUpdate { key: vec![cell("day", Some("2026-01-02"))], set: vec![cell("orders", Some("101"))] });
+    changes.updates.push(RowUpdate {
+        key: vec![cell("day", Some("2026-01-02"))],
+        set: vec![cell("orders", Some("101"))],
+        expect: vec![],
+    });
     assert!(
         h.engine.table_apply(tab, changes, None).await.unwrap().committed,
         "the full key of daily is its own primary key"
@@ -3755,7 +3794,11 @@ async fn staged_edits_on_production_apply_only_with_the_digest_of_the_same_edits
     let reader = h.sql_tab(TxnMode::AutoCommit).await;
 
     let mut edits = changes(&table);
-    edits.updates.push(RowUpdate { key: vec![cell("id", Some("1"))], set: vec![cell("note", Some("x"))] });
+    edits.updates.push(RowUpdate {
+        key: vec![cell("id", Some("1"))],
+        set: vec![cell("note", Some("x"))],
+        expect: vec![],
+    });
     edits.inserts.push(vec![cell("name", Some("d"))]);
     let asked = match h.engine.table_apply(tab, edits.clone(), None).await {
         Err(ApplyError::ConfirmWrites { confirmation }) => confirmation,
