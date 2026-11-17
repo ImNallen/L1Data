@@ -488,7 +488,8 @@ impl Tokens<'_> {
                 let vetted = !after(".")
                     && !after("::")
                     && ((i > 0 && self.word(i - 1, "AS"))
-                        || [RESERVED, SCALAR_FUNCTIONS, BUILT_INS].iter().any(|list| self.word_in(i, list)));
+                        || [RESERVED, SCALAR_FUNCTIONS, BUILT_INS].iter().any(|list| self.word_in(i, list))
+                        || (t.word("APPLY") && i > 0 && self.word_in(i - 1, &["CROSS", "OUTER"])));
                 if !vetted {
                     return Err(Refusal::Unvetted);
                 }
@@ -1019,6 +1020,7 @@ mod tests {
             ("SELECT a, COUNT(*) FROM t WHERE h.GetLevel() = 1 GROUP BY a", Unvetted),
             ("SELECT a, COUNT(*) FROM t WHERE geography::Point(1, 2, 4326) IS NOT NULL GROUP BY a", Unvetted),
             ("SELECT a, COUNT(*) FROM t WHERE [f](a) = 1 GROUP BY a", Unvetted),
+            ("SELECT a, COUNT(*) FROM t CROSS APPLY dbo.f(t.x) GROUP BY a", Unvetted),
             ("SELECT a, COUNT(*) FROM t TABLESAMPLE (10 PERCENT) GROUP BY a", Sample),
             ("SELECT a, COUNT(*) FROM t TABLESAMPLE SYSTEM (100 ROWS) REPEATABLE (1) GROUP BY a", Sample),
             ("WITH s AS (SELECT * FROM t TABLESAMPLE (5 PERCENT)) SELECT a, COUNT(*) FROM s GROUP BY a", Sample),
@@ -1069,6 +1071,8 @@ mod tests {
             "SELECT a, COUNT(*) FROM t WHERE EXISTS (SELECT 1 FROM u WHERE u.id IN (1, 2)) GROUP BY a",
             "SELECT a, COUNT(*), ROW_NUMBER() OVER (ORDER BY a) FROM t GROUP BY a",
             "SELECT a, COUNT(*) FROM t CROSS APPLY OPENJSON(t.doc) j GROUP BY a",
+            "SELECT x.v, COUNT(*) FROM t CROSS APPLY (SELECT t.a AS v) x GROUP BY x.v",
+            "SELECT x.v, COUNT(*) FROM t OUTER APPLY (SELECT TOP (1) u.v FROM u WHERE u.id = t.id) x GROUP BY x.v",
             "SELECT a, COUNT(*) FROM t WHERE LEFT(b, 1) = N'x' AND COALESCE(c, 0) > 0 GROUP BY a",
             "SELECT a, COUNT(*) FROM ##global GROUP BY a",
             "SELECT a, CASE WHEN COUNT(*) > 1 THEN 1 ELSE 0 END FROM t GROUP BY a",
