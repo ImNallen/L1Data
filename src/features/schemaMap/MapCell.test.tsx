@@ -91,9 +91,9 @@ describe("a schema map cell", () => {
     expect(
       within(cell)
         .getAllByRole("button")
-        .slice(0, 4)
+        .slice(0, 5)
         .map((b) => b.getAttribute("aria-label") ?? b.textContent),
-    ).toEqual(["Collapse cell", "shop · publicSchema map", "Refresh catalog", "Close cell"]);
+    ).toEqual(["Collapse cell", "shop · publicSchema map", "Refresh catalog", "Open full view", "Close cell"]);
   });
 
   it("focuses orders on a click, with its links counted in the strip, and clears it on Esc or a background click", async () => {

@@ -6,6 +6,7 @@ import { StatementChooser } from "../features/editor/StatementChooser";
 import { NavigationPalette } from "../features/navigation/NavigationPalette";
 import { NotebookSwitcher } from "../features/notebooks/NotebookSwitcher";
 import { QueriesDialog } from "../features/queries/QueriesDialog";
+import { SchemaMapDialog } from "../features/schemaMap/SchemaMapDialog";
 import { Sidebar } from "../features/sidebar/Sidebar";
 import { InstallingOverlay } from "../features/updates/InstallingOverlay";
 import { useWorkspace } from "../state/workspace";
@@ -85,6 +86,7 @@ export function AppLayout() {
       <NotebookSwitcher />
       <CommandPalette />
       <QueriesDialog />
+      <SchemaMapDialog />
       {connectionMounted && <ConnectionDialog />}
       <StatementChooser />
       <Overlays />

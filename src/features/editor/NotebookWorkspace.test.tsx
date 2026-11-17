@@ -717,7 +717,7 @@ describe("a schema map cell", () => {
       within(cell("m").querySelector<HTMLElement>(".notebook-cell-heading")!)
         .getAllByRole("button")
         .map((b) => b.getAttribute("aria-label") ?? b.textContent),
-    ).toEqual(["Collapse cell", "shop · salesSchema map", "Refresh catalog", "Close cell"]);
+    ).toEqual(["Collapse cell", "shop · salesSchema map", "Refresh catalog", "Open full view", "Close cell"]);
     expect([body().tabIndex, body().getAttribute("aria-label")]).toEqual([0, "Schema map of sales"]);
     expect([cell("m").querySelector(".notebook-editor"), docOf("m")]).toEqual([null, undefined]);
   });
