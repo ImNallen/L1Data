@@ -676,8 +676,12 @@ mod tests {
         engine
             .set_settings(crate::model::Settings { assistant_access: AssistantAccess::Full, ..engine.settings() })
             .unwrap();
-        let stale = execute(&engine.shared, None, call, access, access.mode).await;
+        let stale = execute(&engine.shared, None, call.clone(), access, access.mode).await;
         assert!(stale.for_model.is_error && stale.for_model.text.contains("access changed"));
+        let full_access = *engine.shared.access.lock();
+        let ask = execute(&engine.shared, None, call, full_access, AssistantAccess::SchemaOnly).await;
+        assert!(ask.for_model.is_error);
+        assert_eq!(ask.for_model.text, SCHEMA_REFUSAL);
     }
     #[test]
     fn sql_server_queries_are_refused_when_the_setting_is_off_and_ask_when_it_is_on() {

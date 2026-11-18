@@ -1919,6 +1919,35 @@ async fn sql_server_model_queries_are_refused_without_an_approval_even_without_a
 }
 
 #[tokio::test]
+async fn ordinary_full_access_sql_server_queries_still_request_approval_when_enabled() {
+    for permission in [Permission::Auto, Permission::AskFirst] {
+        let mut h = Harness::open().await;
+        h.use_fake_with("query", "--fake-sql 'SELECT TOP (1) [id] FROM [dbo].[orders]'");
+        let mut draft =
+            engine::draft_from_url("mssql://sa@127.0.0.1:1/shop?sslmode=require", "offline SQL Server").unwrap();
+        draft.assistant_read_only = true;
+        let config = h.engine.save_connection(draft).await.unwrap();
+        let chat = h.chat(permission);
+        let tab = TabContext {
+            tab_id: TabId(uuid::Uuid::new_v4()),
+            title: "orders.sql".into(),
+            db: Some(DatabaseRef { connection_id: config.id, database: "shop".into() }),
+            text: "SELECT 1".into(),
+            target: RunTarget::All,
+            attach: None,
+        };
+        h.engine.assistant_send(chat, SendRequest { text: "Count orders".into(), tab: Some(tab) }).await.unwrap();
+        let (approval, reason) = h.wait_approval(chat).await;
+        assert_eq!(reason, ApprovalReason::AskFirst);
+        let offered =
+            h.stdin_lines().into_iter().find(|l| l.contains("mcp_response") && l.contains("describe_tables")).unwrap();
+        assert!(offered.contains("run_query"));
+        h.engine.assistant_approve(chat, approval, Decision::Deny).unwrap();
+        assert_eq!(h.wait_end(chat).await.0, TurnOutcome::Completed);
+    }
+}
+
+#[tokio::test]
 async fn schema_only_is_default_and_drops_stale_attachments_before_loading_or_storing_rows() {
     let mut h = Harness::open_in(tempfile::tempdir().unwrap()).await;
     assert_eq!(h.engine.settings().assistant_access, AssistantAccess::SchemaOnly);
@@ -2139,24 +2168,40 @@ async fn ask_keeps_explicit_sql_in_schema_only_and_starts_each_turn_fresh() {
 
 #[tokio::test]
 async fn ask_never_offers_or_executes_queries_under_full_access() {
-    for scenario in ["query", "query-forged"] {
-        let mut h = Harness::open().await;
-        h.use_fake(scenario);
-        let chat = h.chat(Permission::Auto);
-        h.engine.assistant_ask(chat, ask_request("Run this", "SELECT 1", None)).await.unwrap();
-        h.wait_end(chat).await;
-        let entries = h.entries(chat).await;
-        assert!(entries.iter().any(|e| matches!(e, Entry::Tool { status: ToolStatus::Failed { message }, .. } if message.contains("Schema only"))));
-        assert!(!entries.iter().any(|e| matches!(
-            e,
-            Entry::Tool {
-                status: ToolStatus::AwaitingApproval { .. } | ToolStatus::Done { result: ToolResult::Rows { .. } },
-                ..
+    for url in ["postgres://test@127.0.0.1:1/shop", "mssql://sa@127.0.0.1:1/shop?sslmode=require"] {
+        for scenario in ["query", "query-forged"] {
+            for permission in [Permission::Auto, Permission::AskFirst] {
+                let mut h = Harness::open().await;
+                h.use_fake(scenario);
+                let mut draft = engine::draft_from_url(url, "offline Ask target").unwrap();
+                draft.assistant_read_only = true;
+                let config = h.engine.save_connection(draft).await.unwrap();
+                let chat = h.chat(permission);
+                let request = AskRequest {
+                    db: Some(DatabaseRef { connection_id: config.id, database: "shop".into() }),
+                    ..ask_request("Run this", "SELECT 1", None)
+                };
+                h.engine.assistant_ask(chat, request).await.unwrap();
+                assert_eq!(h.wait_end(chat).await.0, TurnOutcome::Completed);
+                let entries = h.entries(chat).await;
+                assert!(entries.iter().any(|e| matches!(e, Entry::Tool { status: ToolStatus::Failed { message }, .. } if message.contains("Schema only"))), "{entries:?}");
+                assert!(!entries.iter().any(|e| matches!(
+                    e,
+                    Entry::Tool {
+                        status: ToolStatus::AwaitingApproval { .. }
+                            | ToolStatus::Done { result: ToolResult::Rows { .. } },
+                        ..
+                    }
+                )));
+                let offered = h
+                    .stdin_lines()
+                    .into_iter()
+                    .find(|l| l.contains("mcp_response") && l.contains("describe_tables"))
+                    .unwrap();
+                assert!(!offered.contains("run_query"));
+                assert!(!h.stdin_lines().iter().any(|l| l.contains("\"behavior\":\"allow\"")));
             }
-        )));
-        let offered =
-            h.stdin_lines().into_iter().find(|l| l.contains("mcp_response") && l.contains("describe_tables")).unwrap();
-        assert!(!offered.contains("run_query"));
+        }
     }
 }
 

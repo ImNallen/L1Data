@@ -639,8 +639,7 @@ impl Turn {
         execs: &mut Execs,
     ) {
         let parsed = tools::parse_call(name, &input);
-        let ask =
-            tools::policy(&parsed, self.chat.permission(), self.target(), self.purpose.access(self.access.mode));
+        let ask = tools::policy(&parsed, self.chat.permission(), self.target(), self.purpose.access(self.access.mode));
         let gated = if self.stop_deadline.is_some() {
             Gated::Deny(Refusal::Stopped)
         } else {

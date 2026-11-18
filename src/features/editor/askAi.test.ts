@@ -216,6 +216,19 @@ it("keeps a capture when database, provider and connection fields are reordered"
   expect(applyAsk()).toBe(true);
 });
 
+it("invalidates proposals when the connection's assistant query capability changes", async () => {
+  setup();
+  const config = connectionConfig("c1", "Dev");
+  config.databaseKind = "SqlServer";
+  useWorkspace.setState({ configs: { c1: config } });
+  boundary();
+  await propose("SELECT 2;");
+  useWorkspace.setState({ configs: { c1: { ...config, assistantReadOnly: true } } });
+  expect(useAskAi.getState().state.kind).toBe("closed");
+  expect(applyAsk()).toBe(false);
+  expect(textOf(TAB.id)).toBe("SELECT 1;");
+});
+
 it("invalidates proposals on editing, even if Undo restores the same characters", async () => {
   const editor = setup();
   boundary();

@@ -74,6 +74,7 @@ const connectionKey = (db: DatabaseRef | null) => {
     config.color,
     config.environment,
     config.sqlServerAuth,
+    config.assistantReadOnly,
     ssh && [
       ssh.host,
       ssh.port,
