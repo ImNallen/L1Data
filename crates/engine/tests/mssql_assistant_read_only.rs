@@ -129,9 +129,11 @@ impl Harness {
         let seed = format!(
             "CREATE TABLE dbo.t (id int NOT NULL, name nvarchar(50) NULL); \
              INSERT dbo.t (id, name) SELECT value, CONCAT(N'n', value) FROM GENERATE_SERIES(1, 60); \
+             CREATE TABLE dbo.orders (id int NOT NULL PRIMARY KEY, total decimal(10, 2) NULL); \
              CREATE SEQUENCE dbo.seq AS bigint START WITH 1; \
              CREATE USER [{login}] FOR LOGIN [{login}]; \
              GRANT SELECT ON dbo.t TO [{login}]; \
+             GRANT SELECT ON dbo.orders TO [{login}]; \
              GRANT VIEW DEFINITION TO [{login}];"
         );
         self.admin(&format!("EXEC [{db}].sys.sp_executesql N'{}'", seed.replace('\'', "''"))).await;
@@ -204,8 +206,12 @@ impl Harness {
     }
 
     fn fake_sql(&self, sql: &str) {
+        self.fake(&format!("--fake-scenario query --fake-sql \"{sql}\""));
+    }
+
+    fn fake(&self, launch_args: &str) {
         let mut settings = self.engine.settings();
-        settings.providers[0].launch_args = format!("--fake-scenario query --fake-sql \"{sql}\"");
+        settings.providers[0].launch_args = launch_args.into();
         self.engine.set_settings(settings).unwrap();
     }
 
@@ -249,10 +255,19 @@ impl Harness {
         entries
             .into_iter()
             .find_map(|s| match s.entry {
-                Entry::Tool { tool: ToolUse::RunQuery { .. }, status, .. } => Some(status),
+                Entry::Tool { status, .. } => Some(status),
                 _ => None,
             })
-            .expect("a run_query tool entry")
+            .expect("a tool entry")
+    }
+
+    /// Runs one of the fake provider's catalog scenarios, which never ask, and returns the tool's status.
+    async fn catalog_tool(&mut self, connection: ConnectionId, scenario: &str) -> ToolStatus {
+        self.fake(&format!("--fake-scenario {scenario}"));
+        let chat = self.chat(Permission::AskFirst);
+        self.send(chat, connection).await;
+        self.wait_entry(chat, |e| matches!(e, Entry::End { .. })).await;
+        self.tool_status(chat).await
     }
 
     /// Sends a query the policy refuses before any approval, waits for the turn to end, and returns the
@@ -309,9 +324,20 @@ async fn the_assistant_reads_only_a_read_only_sql_server_database() {
         let on = h.login_connection(true, "read-only on").await;
         let off = h.login_connection(false, "read-only off").await;
 
-        // The setting is off: every query is refused without opening a session.
+        // The setting is off: every query is refused without opening a session, and the schema tools
+        // still work.
         let refused = h.refused(off, "SELECT id FROM dbo.t").await;
         assert!(refused.contains("Running queries on this SQL Server connection is off"), "{refused}");
+        match h.catalog_tool(off, "describe").await {
+            ToolStatus::Done { result: ToolResult::Described { found, missing } } => {
+                assert_eq!(found, vec!["dbo.orders".to_owned()], "missing: {missing:?}");
+            }
+            other => panic!("describe_tables must work with the setting off, got {other:?}"),
+        }
+        match h.catalog_tool(off, "search").await {
+            ToolStatus::Done { result: ToolResult::Found { matches } } => assert!(matches > 0),
+            other => panic!("search_catalog must work with the setting off, got {other:?}"),
+        }
 
         // The setting is on, the database is read-only: an approved SELECT returns capped rows.
         match h.approved(on, "SELECT id, name FROM dbo.t ORDER BY id").await {
@@ -342,6 +368,8 @@ async fn the_assistant_reads_only_a_read_only_sql_server_database() {
             ("SELECT 'FIRST' AS marker SETUSER".into(), "SETUSER is not part of a single SELECT"),
             ("SELECT 'FIRST' AS marker FROM dbo.t READTEXT dbo.t.name 0x00 0 5".into(), "READTEXT"),
             ("USE master".into(), "SELECT"),
+            ("EXEC sys.sp_who".into(), "Only a single SELECT"),
+            ("SELECT * FROM (EXEC sys.sp_who) AS x".into(), "EXEC and EXECUTE do not run here"),
             ("SELECT dbo.my_udf(1)".into(), "my_udf"),
         ] {
             let message = h.refused(on, &sql).await;
