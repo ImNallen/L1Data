@@ -1,4 +1,5 @@
 mod catalog;
+mod describe;
 mod detail;
 pub(super) mod import;
 #[cfg(all(test, feature = "mssql-tests"))]
@@ -6,6 +7,8 @@ mod import_tests;
 mod map;
 mod source;
 mod values;
+
+pub(crate) use describe::FirstResult;
 
 use super::stream::DbStream;
 use super::{QueryEvent, QueryStream, error};

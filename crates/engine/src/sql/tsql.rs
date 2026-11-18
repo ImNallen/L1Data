@@ -632,6 +632,22 @@ pub(crate) fn rerun_refusal(text: &str) -> Option<&'static str> {
     }
 }
 
+/// Whether describing this batch before it runs tells which table columns its first result set shows.
+/// A write can fire a trigger whose result comes first or change the tables the description read, `USE`
+/// moves the batch to another database, and the description resets the `@@ROWCOUNT` and `@@ERROR` the
+/// batch would read from the batch before it.
+pub(crate) fn describes_first_result(text: &str) -> bool {
+    significant(text).is_ok_and(|tokens| {
+        !is_write(text)
+            && !tokens.iter().any(|t| {
+                t.word("USE")
+                    || t.word("ROWCOUNT_BIG")
+                    || t.kind == Kind::Variable
+                        && (t.text.eq_ignore_ascii_case("@@ROWCOUNT") || t.text.eq_ignore_ascii_case("@@ERROR"))
+            })
+    })
+}
+
 fn name_path(tokens: &[Token<'_>], mut at: usize) -> Option<(Vec<String>, usize)> {
     let mut names = vec![tokens.get(at)?.name()?];
     at += 1;
@@ -1371,6 +1387,32 @@ mod tests {
             ("SELECT 'unterminated", "may write"),
         ] {
             assert!(rerun_refusal(batch).is_some_and(|r| r.contains(why)), "{batch}: {:?}", rerun_refusal(batch));
+        }
+    }
+
+    #[test]
+    fn only_reads_that_cannot_see_the_description_are_described() {
+        for read in [
+            "SELECT o.id, c.id FROM dbo.orders o JOIN dbo.customers c ON c.id = o.customer_id",
+            "BEGIN TRAN; SELECT * FROM dbo.orders WITH (UPDLOCK); SELECT NEXT VALUE FOR dbo.ids",
+            "SELECT N'@@ROWCOUNT USE' AS note -- @@ERROR",
+            "SELECT [use] FROM t",
+        ] {
+            assert!(describes_first_result(read), "{read}");
+        }
+        for batch in [
+            "UPDATE dbo.orders SET total = total; SELECT id FROM dbo.orders",
+            "SELECT * INTO #copy FROM dbo.orders",
+            "EXEC dbo.report",
+            "sp_who",
+            "CREATE TABLE dbo.t (id int); SELECT id FROM dbo.t",
+            "USE reporting; SELECT id FROM dbo.customers",
+            "SELECT @@ROWCOUNT AS n",
+            "select @@error",
+            "SELECT ROWCOUNT_BIG()",
+            "SELECT 'unterminated",
+        ] {
+            assert!(!describes_first_result(batch), "{batch}");
         }
     }
 
