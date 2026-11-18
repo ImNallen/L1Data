@@ -1,8 +1,10 @@
 import { expect, it } from "vitest";
 import {
   addRow,
+  dropStale,
   keepVersion,
   markDeleted,
+  markStale,
   NO_EDITS,
   pendingCount,
   removeNewRows,
@@ -174,4 +176,46 @@ it("sends a SQL Server row as the page showed it: each edited cell's first store
     deletes: [{ expect: [{ column: "stamp", value: "0x03" }] }],
   });
   expect(setCell(e, row("1"), "name", "a", "a").updates).toEqual({});
+});
+
+it.each([
+  { check: { kind: "Values" } as const, expect: [{ column: "name", value: "b" }] },
+  { check: { kind: "Rowversion", column: "stamp" } as const, expect: [{ column: "stamp", value: "0x02" }] },
+])("records the page's current values when a row is staged again after its edits are undone ($check.kind)", ({ check, expect: sent }) => {
+  let e = keepVersion(setCell(NO_EDITS, row("1"), "name", "x", "a"), row("1"), "0x01");
+  e = keepVersion(setCell(e, row("1"), "name", "a", "a"), row("1"), "0x01");
+  expect(e.originals?.[rowKey(row("1"))]).toBeUndefined();
+  expect(e.versions?.[rowKey(row("1"))]).toBeUndefined();
+  e = keepVersion(setCell(e, row("1"), "name", "x", "b"), row("1"), "0x02");
+  expect(toChanges(e, "dbo", "t", check).changes.updates).toEqual([{ key: row("1"), set: [{ column: "name", value: "x" }], expect: sent }]);
+});
+
+it("forgets a restored delete's rowversion, and keeps it while the row still has an update", () => {
+  let e = keepVersion(markDeleted(NO_EDITS, [row("1")], true), row("1"), "0x01");
+  e = markDeleted(e, [row("1")], false);
+  expect(e.versions).toEqual({});
+  e = keepVersion(setCell(e, row("1"), "name", "x", "a"), row("1"), "0x02");
+  e = markDeleted(keepVersion(markDeleted(e, [row("1")], true), row("1"), "0x03"), [row("1")], false);
+  expect(e.versions).toEqual({ [rowKey(row("1"))]: "0x02" });
+});
+
+it("drops only a stale row's edits, so it can be staged again against the reloaded page", () => {
+  let e = keepVersion(setCell(NO_EDITS, row("1"), "name", "x", "a"), row("1"), "0x01");
+  e = keepVersion(setCell(e, row("2"), "name", "y", "b"), row("2"), "0x01");
+  e = keepVersion(markDeleted(e, [row("3")], true), row("3"), "0x01");
+  e = markStale(markStale(e, rowKey(row("1"))), rowKey(row("3")));
+  e = dropStale(e);
+  expect(Object.keys(e.updates)).toEqual([rowKey(row("2"))]);
+  expect(e.deletes).toEqual({});
+  expect(e.stale).toEqual({});
+  expect(e.versions).toEqual({ [rowKey(row("2"))]: "0x01" });
+  e = keepVersion(setCell(e, row("1"), "name", "x", "a2"), row("1"), "0x09");
+  expect(toChanges(e, "dbo", "t", { kind: "Values" }).changes.updates.map((u) => u.expect)).toEqual([
+    [{ column: "name", value: "b" }],
+    [{ column: "name", value: "a2" }],
+  ]);
+  expect(toChanges(e, "dbo", "t", { kind: "Rowversion", column: "stamp" }).changes.updates.map((u) => u.expect)).toEqual([
+    [{ column: "stamp", value: "0x01" }],
+    [{ column: "stamp", value: "0x09" }],
+  ]);
 });

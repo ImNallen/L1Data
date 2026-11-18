@@ -8,6 +8,7 @@ import type {
   DatabaseKind,
   RunError,
   Settings,
+  TableChanges,
   TableQuery,
   TableScript,
   TabSnapshot,
@@ -19,7 +20,8 @@ import { shopCatalog } from "../../testing/shopCatalog";
 import { buildCatalogView, useCatalog } from "../../state/catalog";
 import { dbKey } from "../../state/dbKey";
 import { useLive } from "../../state/live";
-import { markDeleted, pendingCount, setCell, useTableEdits } from "../../state/tableEdits";
+import { useEditSupport } from "../../state/editSupport";
+import { holdSubmit, markDeleted, pendingCount, rowKey, setCell, useTableEdits } from "../../state/tableEdits";
 import { notebookOf } from "../../state/notebooks";
 import { activeId, useWorkspace, workspaceSnapshot } from "../../state/workspace";
 import { gridEditing } from "../results/ResultGrid";
@@ -40,6 +42,7 @@ import {
   isBrowsing,
   submitEdits,
   revertEdits,
+  dropChangedRows,
   cancelActive,
   endTransaction,
   installRunBehavior,
@@ -55,6 +58,7 @@ afterEach(() => {
   useLive.setState(useLive.getInitialState(), true);
   useCatalog.setState(useCatalog.getInitialState(), true);
   useTableEdits.setState(useTableEdits.getInitialState(), true);
+  useEditSupport.setState(useEditSupport.getInitialState(), true);
 });
 
 const orders = { db: { connectionId: "c1", database: "shop" }, schema: "public", relation: "orders" };
@@ -1110,16 +1114,95 @@ describe("staged edits the engine asks about", () => {
   async function staged(...replies: (ApplyError | null)[]) {
     const id = await openWithConsole();
     useTableEdits.getState().edit(id, (edits) => markDeleted(setCell(edits, [{ column: "id", value: "2" }], "status", "x", "y"), [key], true));
-    const applies: { confirmed?: unknown }[] = [];
+    const applies: { confirmed?: unknown; changes?: TableChanges }[] = [];
+    const pages: unknown[] = [];
     mockIPC((cmd, args) => {
       if (cmd === "script_params") return [];
+      if (cmd === "console_run") pages.push((args as { request: unknown }).request);
       if (cmd !== "table_apply") return null;
-      applies.push(args as { confirmed?: unknown });
+      applies.push(args as { confirmed?: unknown; changes: TableChanges });
       const reply = replies.shift();
       return reply ? Promise.reject(reply) : { committed: true };
     });
-    return { id, applies };
+    return { id, applies, pages };
   }
+
+  it("lists the batches a SQL Server Submit sends", async () => {
+    const sends = { count: 4, statements: ["UPDATE [dbo].[t] SET a = 1", "UPDATE [dbo].[t] SET a = 2", "DELETE FROM [dbo].[t]"] };
+    const { id } = await staged({ ...asked, confirmation: { ...asked.confirmation, connection: "prod-mssql", unit: "Batch", sends } });
+    const done = submitEdits(id);
+    await vi.waitFor(() => expect(question()).not.toBeNull());
+    expect(question()).toMatchObject({ statements: sends.statements, note: "3 of 4 are shown." });
+    useWorkspace.getState().close();
+    await done;
+  });
+
+  it("keeps PostgreSQL's question to the writes the transaction holds, whatever Submit sends", async () => {
+    const sends = { count: 4, statements: ["BEGIN", "UPDATE public.orders SET status = $1 WHERE id = $2", "COMMIT"] };
+    const { id } = await staged({ ...asked, confirmation: { ...asked.confirmation, sends } });
+    const done = submitEdits(id);
+    await vi.waitFor(() => expect(question()).not.toBeNull());
+    expect(question()?.statements).toEqual([]);
+    expect(question()?.note).toBe("");
+    useWorkspace.getState().close();
+    await done;
+  });
+
+  it.each<{ reply: ApplyError; toast: string }>([
+    { reply: { kind: "RowChanged", change: { kind: "Update", index: 0 } }, toast: "Another session changed a row to update after the page read it." },
+    { reply: { kind: "RowMismatch", change: { kind: "Update", index: 0 }, rows: 0 }, toast: "A row to update no longer exists." },
+  ])("marks a SQL Server row that $reply.kind, and drops only its edits before reloading the page", async ({ reply, toast }) => {
+    const { id, applies, pages } = await staged(reply);
+    useEditSupport.setState({
+      byTab: { [id]: { key: "k", support: { kind: "Editable", rowCheck: { kind: "Values" }, columns: [], delete: null }, error: null } },
+    });
+    const changed = rowKey([{ column: "id", value: "2" }]);
+    await submitEdits(id);
+    expect(useTableEdits.getState().byTab[id]).toMatchObject({ stale: { [changed]: true }, failedAt: { key: changed } });
+    expect(useWorkspace.getState().toast?.text).toBe(
+      `Nothing was applied. ${toast} Drop changed row discards that row's edits and reloads the page. Your other edits stay.`,
+    );
+    useTableEdits.getState().edit(id, (e) => markDeleted(e, [[{ column: "id", value: "3" }]], true));
+    expect(useTableEdits.getState().byTab[id]?.stale).toEqual({ [changed]: true });
+    const done = dropChangedRows(id);
+    await vi.waitFor(() => expect(question()?.title).toBe("Drop the changed row's edits?"));
+    pages.length = 0;
+    useWorkspace.getState().answer("btn");
+    await done;
+    const edits = useTableEdits.getState().byTab[id]!;
+    expect([edits.updates, Object.keys(edits.deletes), edits.stale]).toEqual([{}, [rowKey(key), rowKey([{ column: "id", value: "3" }])], {}]);
+    await vi.waitFor(() => expect(pages).toMatchObject([{ kind: "tablePage", page: 0 }]));
+    useTableEdits.getState().edit(id, (e) => setCell(e, [{ column: "id", value: "2" }], "status", "x", "z"));
+    await submitEdits(id);
+    expect(applies.at(-1)?.changes?.updates).toEqual([
+      { key: [{ column: "id", value: "2" }], set: [{ column: "status", value: "x" }], expect: [{ column: "status", value: "z" }] },
+    ]);
+    expect(useTableEdits.getState().byTab[id]).toBeUndefined();
+  });
+
+  it("leaves a PostgreSQL row that no longer exists unmarked", async () => {
+    const { id } = await staged({ kind: "RowMismatch", change: { kind: "Update", index: 0 }, rows: 0 });
+    await submitEdits(id);
+    expect(useTableEdits.getState().byTab[id]?.stale).toBeUndefined();
+    expect(useWorkspace.getState().toast?.text).toBe("Could not apply edits. A row to update no longer exists. Reload and try again.");
+  });
+
+  it("waits for a cut cell's original value before Submit takes its snapshot", async () => {
+    const { id, applies } = await staged(null);
+    let load!: () => void;
+    holdSubmit(
+      id,
+      new Promise<void>((resolve) => (load = resolve)).then(() =>
+        useTableEdits.getState().edit(id, (e) => setCell(e, [{ column: "id", value: "3" }], "status", "typed", "long")),
+      ),
+    );
+    const done = submitEdits(id);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(applies).toHaveLength(0);
+    load();
+    await done;
+    expect(applies[0]?.changes?.updates.map((u) => u.set)).toEqual([[{ column: "status", value: "x" }], [{ column: "status", value: "typed" }]]);
+  });
 
   it("shows the question, naming each kind of change and the table, then sends the digest", async () => {
     const { id, applies } = await staged(asked);

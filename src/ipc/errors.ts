@@ -1,5 +1,6 @@
 import type {
   ApplyError,
+  ChangeRef,
   ColumnTypeIssue,
   EditRefusal,
   ReadOnlyReason,
@@ -133,7 +134,7 @@ export function applyErrorText(e: ApplyError): string {
     case "Refused":
       return `Nothing was applied. Edits are unavailable here: ${editRefusalText(e.reason)}.`;
     case "RowChanged":
-      return `Nothing was applied. A row to ${e.change.kind === "Delete" ? "delete" : "update"} changed since it was read. Reload and try again.`;
+      return changedRowText(e.change, false);
     case "Unverifiable":
       return `Nothing was applied. The stored value of ${e.column} can't be compared exactly in its code page. Add a rowversion column, or change this value with SQL.`;
     case "TableChanged":
@@ -149,6 +150,13 @@ export function applyErrorText(e: ApplyError): string {
       return unreachable;
     }
   }
+}
+
+/** A SQL Server Submit found a row changed or gone. The grid marks the row until Drop changed row clears it. */
+export function changedRowText(change: ChangeRef, gone: boolean): string {
+  const verb = change.kind === "Delete" ? "delete" : "update";
+  const what = gone ? `A row to ${verb} no longer exists` : `Another session changed a row to ${verb} after the page read it`;
+  return `Nothing was applied. ${what}. Drop changed row discards that row's edits and reloads the page. Your other edits stay.`;
 }
 
 const TABLE_KINDS: Record<TableKind, string> = {

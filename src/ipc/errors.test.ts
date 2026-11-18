@@ -111,7 +111,9 @@ it("names the table, object, and foreign key that refuse a SQL Server edit", () 
     "Nothing was applied. Edits are unavailable here: FK_items_order changes rows in dbo.order_items, and dbo.order_items has an enabled trigger, dbo.items_audit, which could commit or roll back them.",
   );
   expect(readOnlyText({ kind: "Identity" })).toBe("Read-only: identity");
-  expect(applyErrorText({ kind: "RowChanged", change: { kind: "Update", index: 0 } })).toContain("changed since it was read");
+  expect(applyErrorText({ kind: "RowChanged", change: { kind: "Update", index: 0 } })).toBe(
+    "Nothing was applied. Another session changed a row to update after the page read it. Drop changed row discards that row's edits and reloads the page. Your other edits stay.",
+  );
   expect(applyErrorText({ kind: "Session", reason: "OpenTransaction" })).toContain("Commit or roll back");
   expect(applyErrorText({ kind: "Cancelled" })).toBe("Cancelled. Nothing was applied.");
 });

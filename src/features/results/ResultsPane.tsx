@@ -30,7 +30,7 @@ import {
   type ResultView,
   type Summary,
 } from "../../state/status";
-import { useCatalog, viewFor } from "../../state/catalog";
+import { findRelation, useCatalog, viewFor } from "../../state/catalog";
 import { databaseKindFor } from "../../state/databaseKind";
 import { loadEditSupport, useEditSupport } from "../../state/editSupport";
 import { applyErrorText, editRefusalText } from "../../ipc/errors";
@@ -40,6 +40,7 @@ import { Button, cx, IconButton, MenuContent, MenuItem, Spinner } from "../../ui
 import { MAC } from "../../shell/hostedWindow";
 import { useNow } from "../../ui/useNow";
 import {
+  dropChangedRows,
   isBrowsing,
   lastTablePage,
   loadTableOnce,
@@ -223,6 +224,7 @@ function EditBar({
 }) {
   const edits = useTableEdits((s) => (tabId ? s.byTab[tabId] : undefined) ?? NO_EDITS);
   const pending = pendingCount(edits);
+  const changed = Object.keys(edits.stale ?? {}).length;
   const busy = useTableEdits((s) => (tabId ? s.submitting[tabId] === true : false));
   if (!editable && pending === 0) return null;
   return (
@@ -245,6 +247,18 @@ function EditBar({
           <span data-testid="pending-count" className="mr-1.5 text-ui-12.5 whitespace-nowrap text-amber tabular-nums">
             {pending} pending
           </span>
+          {changed > 0 && (
+            <Button
+              data-testid="drop-changed-rows"
+              variant="ghost"
+              className="h-7 px-2"
+              title="Discard the staged edits of the rows another session changed, and reload the page"
+              disabled={busy}
+              onClick={() => tabId && void dropChangedRows(tabId)}
+            >
+              {changed === 1 ? "Drop changed row" : `Drop ${changed} changed rows`}
+            </Button>
+          )}
           <Button
             data-testid="revert-edits"
             variant="ghost"
@@ -437,9 +451,11 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
     if (tabId && isTable) loadTableOnce(tabId);
   }, [tabId, isTable]);
   const catalogView = useCatalog((s) => viewFor(s.views, browsingTable?.console.db));
+  const isView =
+    browsingTable !== null && databaseKind === "SqlServer" && findRelation(catalogView, browsingTable.table.schema, browsingTable.table.table)?.kind === "View";
   // Asked again for each page the tab loads, which also comes after the tab's session exists.
   const supportKey =
-    browsingTable && databaseKind === "SqlServer" && catalogView && shown
+    browsingTable && databaseKind === "SqlServer" && !isView && catalogView && shown
       ? JSON.stringify([browsingTable.console.db, browsingTable.table.schema, browsingTable.table.table, catalogView.catalog.version, shown.meta.ref.runId])
       : null;
   const supportEntry = useEditSupport((s) => (tabId ? s.byTab[tabId] : undefined));
@@ -456,8 +472,9 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- the deps name the fields the memo reads, not the objects that hold them
     [browsingTable?.console.db, browsingTable?.table.schema, browsingTable?.table.table, catalogView, shown?.meta, databaseKind, support?.support],
   );
-  const refusal =
-    support?.support?.kind === "Refused"
+  const refusal = isView
+    ? "Views are read-only here. Use a SQL script to change their rows."
+    : support?.support?.kind === "Refused"
       ? `Edits are unavailable here: ${editRefusalText(support.support.reason)}. Use a SQL script to change these rows.`
       : support?.error
         ? `L1 Data could not check this table for edits. ${applyErrorText(support.error)}`

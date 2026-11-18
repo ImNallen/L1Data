@@ -15,6 +15,8 @@ export type TableEdits = {
   deletes: Record<RowKey, RowId>;
   /** A SQL Server rowversion table's staged rows, with the rowversion each showed when first staged. */
   versions?: Record<RowKey, CellValue>;
+  /** Rows a SQL Server Submit found changed since the page read them. Their edits can't apply until they are dropped. */
+  stale?: Record<RowKey, true>;
   failedAt: { insert: number } | { key: RowKey } | null;
 };
 
@@ -50,6 +52,22 @@ export function removeNewRows(e: TableEdits, ids: number[]): TableEdits {
   return { ...e, inserts: e.inserts.filter((r) => !ids.includes(r.id)) };
 }
 
+function without<T>(record: Record<RowKey, T>, key: RowKey): Record<RowKey, T> {
+  const { [key]: _, ...rest } = record;
+  return rest;
+}
+
+/** A row with no staged change left forgets what it was staged against, so staging it again records the page's values. */
+function settle(e: TableEdits, key: RowKey): TableEdits {
+  if (key in e.updates || key in e.deletes) return e;
+  return {
+    ...e,
+    originals: e.originals && without(e.originals, key),
+    versions: e.versions && without(e.versions, key),
+    stale: e.stale && without(e.stale, key),
+  };
+}
+
 export function setCell(e: TableEdits, row: RowId, column: string, value: CellValue, stored: CellValue): TableEdits {
   const key = rowKey(row);
   const current = e.updates[key]?.values ?? {};
@@ -58,13 +76,17 @@ export function setCell(e: TableEdits, row: RowId, column: string, value: CellVa
   const { [key]: __, ...others } = e.updates;
   const { [column]: original = stored, ...kept } = e.originals?.[key] ?? {};
   const originals = { ...e.originals, [key]: value === stored ? kept : { ...kept, [column]: original } };
-  return { ...e, originals, updates: Object.keys(values).length ? { ...others, [key]: { key: e.updates[key]?.key ?? copyKey(row), values } } : others };
+  return settle(
+    { ...e, originals, updates: Object.keys(values).length ? { ...others, [key]: { key: e.updates[key]?.key ?? copyKey(row), values } } : others },
+    key,
+  );
 }
 
 /** Keeps the rowversion `version` showed for `row` the first time one of its edits is staged. */
 export function keepVersion(e: TableEdits, row: RowId, version: CellValue): TableEdits {
   const key = rowKey(row);
-  return key in (e.versions ?? {}) ? e : { ...e, versions: { ...e.versions, [key]: version } };
+  if (key in (e.versions ?? {}) || !(key in e.updates || key in e.deletes)) return e;
+  return { ...e, versions: { ...e.versions, [key]: version } };
 }
 
 export function markDeleted(e: TableEdits, rows: RowId[], on: boolean): TableEdits {
@@ -74,7 +96,19 @@ export function markDeleted(e: TableEdits, rows: RowId[], on: boolean): TableEdi
     if (on) deletes[key] ??= copyKey(r);
     else delete deletes[key];
   }
-  return { ...e, deletes };
+  return on ? { ...e, deletes } : rows.reduce((next, r) => settle(next, rowKey(r)), { ...e, deletes });
+}
+
+export function markStale(e: TableEdits, key: RowKey): TableEdits {
+  return { ...e, stale: { ...e.stale, [key]: true } };
+}
+
+/** Drops every staged change of the stale rows, and leaves the other rows' edits as they are. */
+export function dropStale(e: TableEdits): TableEdits {
+  return Object.keys(e.stale ?? {}).reduce(
+    (next, key) => settle({ ...next, updates: without(next.updates, key), deletes: without(next.deletes, key) }, key),
+    e,
+  );
 }
 
 export function toggleDeletes(e: TableEdits, rows: RowId[]): TableEdits {
@@ -113,6 +147,23 @@ export function toChanges(
 }
 
 let nextRowId = 1;
+
+const staging = new Map<TabId, Set<Promise<unknown>>>();
+
+/** Holds Submit on `tab` until `load` settles. It stages an edit after fetching a cut cell's full original value. */
+export function holdSubmit(tab: TabId, load: Promise<unknown>): void {
+  const held = staging.get(tab) ?? new Set();
+  staging.set(tab, held.add(load));
+  const done = () => {
+    held.delete(load);
+    if (held.size === 0 && staging.get(tab) === held) staging.delete(tab);
+  };
+  load.then(done, done);
+}
+
+export async function stagingSettled(tab: TabId): Promise<void> {
+  for (let held = staging.get(tab); held?.size; held = staging.get(tab)) await Promise.allSettled(held);
+}
 
 export const useTableEdits = create<{
   byTab: Record<TabId, TableEdits>;

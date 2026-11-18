@@ -54,11 +54,13 @@ import { editRefusalText, readOnlyText } from "../../ipc/errors";
 import { DENSITY_FACTOR, gridRowHeight } from "../../shell/appearance";
 import { MAC, MOD_LABEL } from "../../shell/hostedWindow";
 import { rowCacheFor, windowedRows, type Row, type RowView } from "../../state/rowCache";
+import { useLive } from "../../state/live";
 import { refKey } from "../../state/status";
 import { findRelation, isPrimaryKey, useCatalog, viewFor, type CatalogView } from "../../state/catalog";
 import { sameDb, type DbKey } from "../../state/dbKey";
 import {
   NO_EDITS,
+  holdSubmit,
   keepVersion,
   markDeleted,
   removeNewRows,
@@ -74,7 +76,7 @@ import {
 import { useWorkspace } from "../../state/workspace";
 import { fontStack } from "../../themes/fonts";
 import { ContextMenuArea, ContextMenuItem, ContextMenuSeparator, IconButton, cx } from "../../ui/primitives";
-import { openTableTab } from "../editor/runActions";
+import { cancelCell, openTableTab } from "../editor/runActions";
 import { useKeyLinks, type KeyLink } from "./foreignKeys";
 import { ColumnProfilePopover } from "./ColumnProfile";
 import { cellAt, DEFAULT, EMPTY_MARK, GridEditor, GridRow, NULL_MARK, rowNumberAt, type Cell } from "./GridRows";
@@ -860,9 +862,12 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
         refused();
     };
     if (editing?.rowCheck?.kind !== "Values" || !cache.isCut(row, col)) return stage(stored);
-    void cache
-      .loadFull(row, col)
-      .then((full) => (full === undefined ? notify("This cell's full value is gone. Reload the page, then edit it again.") : stage(full)));
+    holdSubmit(
+      tabId,
+      cache
+        .loadFull(row, col)
+        .then((full) => (full === undefined ? notify("This cell's full value is gone. Reload the page, then edit it again.") : stage(full))),
+    );
   };
   const finishEdit = (save: boolean, draft: string) => {
     if (!editingCell || lastEnded.current === editingCell) return;
@@ -981,6 +986,9 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
       query.onSort(columns[selection.focus.col]!.name, e.shiftKey);
     } else if (e.key === "Enter" && selection) {
       void openCell(selection.focus.row, selection.focus.col);
+    } else if (e.key === "Escape" && meta.databaseKind === "SqlServer" && useLive.getState().consoles[tabId]?.work === "Edit") {
+      e.preventDefault();
+      cancelCell(tabId);
     } else {
       const focus = nextFocus(e.key, mod, selection?.focus ?? { row: 0, col: 0 }, total, columns.length);
       if (!focus) return;
@@ -1128,7 +1136,9 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
           const added = newRowAt(index);
           const key = added ? null : rowKeyOf(index);
           const deleted = key ? key in edits.deletes : false;
-          const failed = !!edits.failedAt && ("insert" in edits.failedAt ? added?.id === edits.failedAt.insert : key === edits.failedAt.key);
+          const failed =
+            (!!key && key in (edits.stale ?? {})) ||
+            (!!edits.failedAt && ("insert" in edits.failedAt ? added?.id === edits.failedAt.insert : key === edits.failedAt.key));
           const selectedHere = bounds !== null && index >= bounds.r0 && index <= bounds.r1;
           return (
             <GridRow
