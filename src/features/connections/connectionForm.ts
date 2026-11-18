@@ -22,6 +22,7 @@ export type Fields = {
   database: string;
   user: string;
   sqlServerAuth: SqlServerAuth;
+  assistantReadOnly: boolean;
   sslMode: SslMode;
   caCertPath: string;
   color: ConnectionColorId | null;
@@ -50,6 +51,7 @@ export function initialFields(c: ConnectionConfig | undefined, databaseKind: Dat
     database: c?.database ?? (sqlServer ? "master" : "postgres"),
     user: c?.user ?? (sqlServer ? "sa" : "postgres"),
     sqlServerAuth: c?.sqlServerAuth ?? "SqlLogin",
+    assistantReadOnly: c?.assistantReadOnly ?? false,
     sslMode: c?.sslMode ?? (sqlServer ? "VerifyFull" : "Prefer"),
     caCertPath: c?.caCertPath ?? "",
     color: connectionColorId(c?.color ?? null),

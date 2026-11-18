@@ -32,6 +32,7 @@ const saved: ConnectionConfig = {
   ssh: null,
   environment: null,
   sqlServerAuth: null,
+  assistantReadOnly: false,
 };
 
 const savedFields = {
@@ -44,6 +45,7 @@ const savedFields = {
   database: "shop",
   user: "l1data",
   sqlServerAuth: "SqlLogin",
+  assistantReadOnly: false,
   sslMode: "Require",
   color: "red",
   sshEnabled: false,
@@ -65,6 +67,7 @@ const newFields = {
   database: "postgres",
   user: "postgres",
   sqlServerAuth: "SqlLogin",
+  assistantReadOnly: false,
   sslMode: "Prefer",
   color: null,
   sshEnabled: false,

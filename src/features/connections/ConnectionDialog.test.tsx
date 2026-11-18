@@ -181,6 +181,32 @@ it("blocks saving an Entra ID connection that a URL set to Require", async () =>
   expect((screen.getByTestId("conn-save") as HTMLButtonElement).disabled).toBe(false);
 });
 
+it("offers the assistant read-only setting for SQL Server only and saves it", async () => {
+  const user = userEvent.setup();
+  let saved: ConnectionDraft | null = null;
+  mockIPC((cmd, args) => {
+    if (cmd === "connection_save") {
+      saved = (args as { draft: ConnectionDraft }).draft;
+      return { ...connectionConfig("c1", "s"), databaseKind: "SqlServer" };
+    }
+    return null;
+  });
+  openNew();
+  await user.click(screen.getByTestId("conn-kind-postgres"));
+  expect(screen.queryByTestId("conn-assistant-read-only")).toBeNull();
+
+  await user.click(screen.getByTestId("conn-back"));
+  await user.click(screen.getByTestId("conn-kind-sqlserver"));
+  await user.type(screen.getByTestId("conn-name"), "shop");
+  await user.type(screen.getByTestId("conn-password"), "pw");
+  expect(checked("conn-assistant-read-only")).toBe(false);
+  await user.click(screen.getByTestId("conn-assistant-read-only"));
+  expect(checked("conn-assistant-read-only")).toBe(true);
+  await user.click(screen.getByTestId("conn-save"));
+  await waitFor(() => expect(saved).not.toBeNull());
+  expect(saved!.assistantReadOnly).toBe(true);
+});
+
 it("shows a sign-in method from a newer version as unselected and refuses to save it", () => {
   openEditing({ ...connectionConfig("c1", "Azure"), databaseKind: "SqlServer", sslMode: "VerifyFull", sqlServerAuth: "Unknown" });
   expect(checked("conn-auth-SqlLogin")).toBe(false);

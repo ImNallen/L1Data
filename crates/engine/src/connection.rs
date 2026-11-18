@@ -472,6 +472,7 @@ mod tests {
             ssh: None,
             environment: None,
             sql_server_auth: None,
+            assistant_read_only: false,
         };
         let databases =
             ["Shop", "shop"].map(|name| DatabaseInfo { name: name.into(), system: false, access: DbAccess::Ok });

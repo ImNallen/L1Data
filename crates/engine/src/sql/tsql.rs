@@ -1,6 +1,9 @@
 mod around;
+pub(crate) mod builtins;
+pub(crate) mod drill;
 mod expression;
 mod format;
+pub(crate) mod read;
 mod table;
 
 pub(crate) use expression::validate_expression;
@@ -571,8 +574,24 @@ pub(crate) fn is_write(text: &str) -> bool {
         opaque_execution(&tokens)
             || tokens.iter().any(|t| {
                 [
-                    "INSERT", "UPDATE", "DELETE", "MERGE", "INTO", "CREATE", "ALTER", "DROP", "TRUNCATE", "GRANT",
-                    "DENY", "REVOKE", "DBCC", "BULK", "BACKUP", "RESTORE",
+                    "INSERT",
+                    "UPDATE",
+                    "DELETE",
+                    "MERGE",
+                    "INTO",
+                    "CREATE",
+                    "ALTER",
+                    "DROP",
+                    "TRUNCATE",
+                    "GRANT",
+                    "DENY",
+                    "REVOKE",
+                    "DBCC",
+                    "BULK",
+                    "BACKUP",
+                    "RESTORE",
+                    "WRITETEXT",
+                    "UPDATETEXT",
                 ]
                 .iter()
                 .any(|w| t.word(w))
@@ -611,6 +630,22 @@ pub(crate) fn rerun_refusal(text: &str) -> Option<&'static str> {
     } else {
         None
     }
+}
+
+/// Whether describing this batch before it runs tells which table columns its first result set shows.
+/// A write can fire a trigger whose result comes first or change the tables the description read, `USE`
+/// moves the batch to another database, and the description resets the `@@ROWCOUNT` and `@@ERROR` the
+/// batch would read from the batch before it.
+pub(crate) fn describes_first_result(text: &str) -> bool {
+    significant(text).is_ok_and(|tokens| {
+        !is_write(text)
+            && !tokens.iter().any(|t| {
+                t.word("USE")
+                    || t.word("ROWCOUNT_BIG")
+                    || t.kind == Kind::Variable
+                        && (t.text.eq_ignore_ascii_case("@@ROWCOUNT") || t.text.eq_ignore_ascii_case("@@ERROR"))
+            })
+    })
 }
 
 fn name_path(tokens: &[Token<'_>], mut at: usize) -> Option<(Vec<String>, usize)> {
@@ -1231,6 +1266,15 @@ mod tests {
         assert!(is_write("SELECT id INTO #copy FROM t"));
         assert!(is_write("EXEC p"));
         assert!(!is_write("SELECT [UPDATE], N'DROP TABLE t', @INSERT /* DELETE */"));
+        // Measured: a text write after a SELECT runs as a second statement with no semicolon.
+        for text in [
+            "WRITETEXT dbo.t.c 0x00 'a'",
+            "UPDATETEXT dbo.t.c 0x00 0 NULL 'a'",
+            "SELECT 1 AS x WRITETEXT dbo.t.c 0x00 'a'",
+            "SELECT 1 AS x UPDATETEXT dbo.t.c 0x00 0 NULL 'a'",
+        ] {
+            assert!(is_write(text), "{text}");
+        }
     }
 
     #[test]
@@ -1343,6 +1387,32 @@ mod tests {
             ("SELECT 'unterminated", "may write"),
         ] {
             assert!(rerun_refusal(batch).is_some_and(|r| r.contains(why)), "{batch}: {:?}", rerun_refusal(batch));
+        }
+    }
+
+    #[test]
+    fn only_reads_that_cannot_see_the_description_are_described() {
+        for read in [
+            "SELECT o.id, c.id FROM dbo.orders o JOIN dbo.customers c ON c.id = o.customer_id",
+            "BEGIN TRAN; SELECT * FROM dbo.orders WITH (UPDLOCK); SELECT NEXT VALUE FOR dbo.ids",
+            "SELECT N'@@ROWCOUNT USE' AS note -- @@ERROR",
+            "SELECT [use] FROM t",
+        ] {
+            assert!(describes_first_result(read), "{read}");
+        }
+        for batch in [
+            "UPDATE dbo.orders SET total = total; SELECT id FROM dbo.orders",
+            "SELECT * INTO #copy FROM dbo.orders",
+            "EXEC dbo.report",
+            "sp_who",
+            "CREATE TABLE dbo.t (id int); SELECT id FROM dbo.t",
+            "USE reporting; SELECT id FROM dbo.customers",
+            "SELECT @@ROWCOUNT AS n",
+            "select @@error",
+            "SELECT ROWCOUNT_BIG()",
+            "SELECT 'unterminated",
+        ] {
+            assert!(!describes_first_result(batch), "{batch}");
         }
     }
 

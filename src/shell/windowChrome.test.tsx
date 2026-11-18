@@ -297,6 +297,7 @@ function withTableTab(mode: TxnMode = "AutoCommit") {
     ssh: null,
     environment: null,
     sqlServerAuth: null,
+    assistantReadOnly: false,
   };
   Object.assign(useWorkspace.getInitialState(), { ...cellsState([tab]), configs: { c: config } });
 }

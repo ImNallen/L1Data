@@ -46,6 +46,7 @@ impl Harness {
                 ssh: None,
                 environment: None,
                 sql_server_auth: None,
+                assistant_read_only: false,
             })
             .await
             .unwrap();
@@ -720,6 +721,7 @@ async fn connection_kind_is_immutable_and_history_records_sql_server() {
         ssh: None,
         environment: None,
         sql_server_auth: None,
+        assistant_read_only: false,
     };
     assert!(matches!(h.engine.save_connection(changed).await, Err(SaveError::Invalid { .. })));
     assert!(h.engine.boot().connections.iter().find(|c| c.id == h.connection).unwrap().has_password);
@@ -996,6 +998,7 @@ async fn sql_server_inserts_round_trip_every_value_under_another_dateformat() {
     let columns = "id int, big bigint, exact decimal(38,12), flag bit, label nvarchar(50), ascii varchar(20), old datetime, small smalldatetime, day date, \
                    tick time(7), modern datetime2(7), moment datetimeoffset(7), uid uniqueidentifier, bytes varbinary(16), ratio float, single real";
     h.ok(&format!("CREATE TABLE dbo.[{source}] ({columns}); CREATE TABLE dbo.[{copy}] ({columns})")).await;
+    h.engine.refresh_catalog(h.db()).await.unwrap();
     let outcome = AssertUnwindSafe(async {
         h.ok(&format!(
             "INSERT INTO dbo.[{source}] VALUES \
@@ -1009,9 +1012,10 @@ async fn sql_server_inserts_round_trip_every_value_under_another_dateformat() {
         let meta = Harness::rowsets(&state)[0].clone();
         let (summary, script) = h.export(&meta, ExportFormat::SqlInsert, ExportScope::All, "values.sql").await;
         assert_eq!(summary.rows, 3);
-        assert!(script.starts_with("INSERT INTO target_table ([id], [big], "), "{script}");
+        let table = format!("[dbo].[{source}]");
+        assert!(script.starts_with(&format!("INSERT INTO {table} ([id], [big], ")), "{script}");
         h.ok("SET DATEFORMAT dmy").await;
-        h.ok(&script.replace("target_table", &format!("dbo.[{copy}]"))).await;
+        h.ok(&script.replace(&table, &format!("dbo.[{copy}]"))).await;
         let differ = |a: &str, b: &str| format!("SELECT COUNT_BIG(*) FROM (SELECT * FROM dbo.[{a}] EXCEPT SELECT * FROM dbo.[{b}]) d");
         let state = h.ok(&format!("{}; {}; SELECT COUNT_BIG(*) FROM dbo.[{copy}]", differ(&source, &copy), differ(&copy, &source))).await;
         let counts: Vec<_> = Harness::rowsets(&state).iter().map(|s| h.rows(s)[0][0].clone()).collect();
@@ -1113,6 +1117,7 @@ async fn set_environment(h: &Harness, environment: Option<Environment>) {
         ssh: None,
         environment,
         sql_server_auth: old.sql_server_auth,
+        assistant_read_only: false,
     };
     h.engine.save_connection(draft).await.unwrap();
 }

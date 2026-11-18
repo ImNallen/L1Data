@@ -60,6 +60,8 @@ impl<'de> Deserialize<'de> for ConnectionConfig {
             environment: Option<Environment>,
             #[serde(default)]
             sql_server_auth: Option<SqlServerAuth>,
+            #[serde(default)]
+            assistant_read_only: bool,
         }
         let Stored {
             database_kind,
@@ -76,6 +78,7 @@ impl<'de> Deserialize<'de> for ConnectionConfig {
             ssh,
             environment,
             sql_server_auth,
+            assistant_read_only,
         } = Stored::deserialize(d)?;
         Ok(Self {
             database_kind,
@@ -92,6 +95,7 @@ impl<'de> Deserialize<'de> for ConnectionConfig {
             ssh,
             environment,
             sql_server_auth,
+            assistant_read_only,
         })
     }
 }
@@ -125,6 +129,10 @@ pub struct ConnectionConfig {
     pub environment: Option<Environment>,
     /// `None` is a SQL login, as on every connection saved before this field existed.
     pub sql_server_auth: Option<SqlServerAuth>,
+    /// SQL Server only, off by default. When on, the assistant's `run_query` may read against this
+    /// connection on a fresh `ApplicationIntent=ReadOnly` session, after confirming per call that the
+    /// connected database is `READ_ONLY`. Off keeps the SQL Server query refusal.
+    pub assistant_read_only: bool,
 }
 
 /// How a SQL Server connection signs in. `EntraAzureCli` sends an access token from the user's
@@ -217,6 +225,8 @@ pub struct ConnectionDraft {
     pub ssh: Option<SshTunnelDraft>,
     pub environment: Option<Environment>,
     pub sql_server_auth: Option<SqlServerAuth>,
+    #[serde(default)]
+    pub assistant_read_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -4494,7 +4504,7 @@ mod database_compatibility_tests {
 
     #[test]
     fn a_production_connection_round_trips() {
-        let saved = serde_json::json!({"databaseKind":"Postgres", "id":Uuid::nil(), "name":"prod-postgres", "host":"db.internal", "port":5432, "database":"shop", "user":"reader", "sslMode":"VerifyFull", "caCertPath":null, "hasPassword":true, "color":"red", "ssh":null, "environment":"Production", "sqlServerAuth":null});
+        let saved = serde_json::json!({"databaseKind":"Postgres", "id":Uuid::nil(), "name":"prod-postgres", "host":"db.internal", "port":5432, "database":"shop", "user":"reader", "sslMode":"VerifyFull", "caCertPath":null, "hasPassword":true, "color":"red", "ssh":null, "environment":"Production", "sqlServerAuth":null, "assistantReadOnly":false});
         let config: ConnectionConfig = serde_json::from_value(saved.clone()).unwrap();
         assert_eq!(config.environment, Some(Environment::Production));
         assert_eq!(serde_json::to_value(&config).unwrap(), saved);
@@ -4510,7 +4520,7 @@ mod database_compatibility_tests {
 
     #[test]
     fn each_sql_server_auth_round_trips_and_a_newer_one_loads_as_unknown() {
-        let mut saved = serde_json::json!({"databaseKind":"SqlServer", "id":Uuid::nil(), "name":"azure", "host":"db.example.net", "port":1433, "database":"shop", "user":"", "sslMode":"VerifyFull", "caCertPath":null, "hasPassword":false, "color":null, "ssh":null, "environment":null, "sqlServerAuth":null});
+        let mut saved = serde_json::json!({"databaseKind":"SqlServer", "id":Uuid::nil(), "name":"azure", "host":"db.example.net", "port":1433, "database":"shop", "user":"", "sslMode":"VerifyFull", "caCertPath":null, "hasPassword":false, "color":null, "ssh":null, "environment":null, "sqlServerAuth":null, "assistantReadOnly":false});
         for (wire, auth) in [
             (serde_json::Value::Null, None),
             ("SqlLogin".into(), Some(SqlServerAuth::SqlLogin)),
