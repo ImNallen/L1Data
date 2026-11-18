@@ -270,15 +270,14 @@ it("opens the list for a word typed while a declined request was out", async () 
         selection: { anchor: view.state.doc.length + text.length },
         userEvent: "input.type",
       });
-    const settle = () => new Promise((resolve) => setTimeout(resolve, 150));
     type("w");
-    await settle();
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
     type("h");
     pending.shift()!();
-    await settle();
-    pending.shift()?.();
-    await settle();
-    expect(currentCompletions(view.state).map((c) => c.label)).toEqual(["wh", "WHERE"]);
+    await vi.waitFor(() => {
+      pending.shift()?.();
+      expect(currentCompletions(view.state).map((c) => c.label)).toEqual(["wh", "WHERE"]);
+    });
   } finally {
     view.destroy();
   }
