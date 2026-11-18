@@ -100,6 +100,7 @@ fn entra(host: &str, port: u16) -> ConnectionDraft {
         ssh: None,
         environment: None,
         sql_server_auth: Some(SqlServerAuth::EntraAzureCli),
+        assistant_read_only: false,
     }
 }
 
@@ -122,6 +123,7 @@ async fn an_entra_connection_needs_no_user_and_saves_no_password() {
         .save_connection(ConnectionDraft {
             id: Some(saved.id),
             sql_server_auth: Some(SqlServerAuth::SqlLogin),
+            assistant_read_only: false,
             ..entra("db.example.net", 1433)
         })
         .await;

@@ -127,6 +127,15 @@ pub fn panic_message(payload: &(dyn std::any::Any + Send)) -> Option<String> {
     payload.downcast_ref::<&str>().map(|s| (*s).to_owned()).or_else(|| payload.downcast_ref::<String>().cloned())
 }
 
+/// Whether the assistant's SQL Server read allowlist admits `sql` as a single read, with the reason
+/// it refuses otherwise. Exposed only for the `mssql-tests` conformance test, which compares the
+/// allowlist with SQL Server's own parser.
+#[cfg(feature = "mssql-tests")]
+#[doc(hidden)]
+pub fn assistant_tsql_read_refusal(sql: &str) -> Option<String> {
+    sql::tsql::read::read_refusal(sql).err().map(|r| format!("{r:?}"))
+}
+
 impl Shared {
     pub(crate) fn emit(&self, ev: AppEvent) {
         let _ = self.events.send(ev);
@@ -1167,6 +1176,7 @@ impl Engine {
             ssh,
             environment: d.environment,
             sql_server_auth,
+            assistant_read_only: d.assistant_read_only && d.database_kind == DatabaseKind::SqlServer,
         };
         s.store.upsert_connection(&config).map_err(store)?;
         Ok(config)
@@ -2479,6 +2489,7 @@ mod tests {
             ssh: None,
             environment: None,
             sql_server_auth: None,
+            assistant_read_only: false,
         }
     }
 
@@ -2522,6 +2533,7 @@ mod tests {
             port: 1,
             password: PasswordInput::Clear,
             sql_server_auth: Some(SqlServerAuth::SqlLogin),
+            assistant_read_only: false,
             ..draft("newer")
         };
         let saved = engine.save_connection(login.clone()).await.unwrap();
@@ -2783,6 +2795,7 @@ mod tests {
             port: 1,
             ssl_mode: SslMode::VerifyFull,
             sql_server_auth: Some(SqlServerAuth::SqlLogin),
+            assistant_read_only: false,
             ..draft("azure")
         };
         let saved = {
@@ -2797,6 +2810,7 @@ mod tests {
             id: Some(saved.id),
             password: PasswordInput::Keep,
             sql_server_auth: Some(SqlServerAuth::EntraAzureCli),
+            assistant_read_only: false,
             ..login
         };
         let tried = engine.test_connection(entra).await;

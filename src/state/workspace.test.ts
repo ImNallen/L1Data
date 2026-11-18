@@ -19,6 +19,7 @@ const config = (id: string): ConnectionConfig => ({
   ssh: null,
   environment: null,
   sqlServerAuth: null,
+  assistantReadOnly: false,
 });
 
 describe("workspace.addTab", () => {

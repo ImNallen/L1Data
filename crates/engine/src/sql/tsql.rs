@@ -3,6 +3,7 @@ pub(crate) mod builtins;
 pub(crate) mod drill;
 mod expression;
 mod format;
+pub(crate) mod read;
 mod table;
 
 pub(crate) use expression::validate_expression;
@@ -573,8 +574,24 @@ pub(crate) fn is_write(text: &str) -> bool {
         opaque_execution(&tokens)
             || tokens.iter().any(|t| {
                 [
-                    "INSERT", "UPDATE", "DELETE", "MERGE", "INTO", "CREATE", "ALTER", "DROP", "TRUNCATE", "GRANT",
-                    "DENY", "REVOKE", "DBCC", "BULK", "BACKUP", "RESTORE",
+                    "INSERT",
+                    "UPDATE",
+                    "DELETE",
+                    "MERGE",
+                    "INTO",
+                    "CREATE",
+                    "ALTER",
+                    "DROP",
+                    "TRUNCATE",
+                    "GRANT",
+                    "DENY",
+                    "REVOKE",
+                    "DBCC",
+                    "BULK",
+                    "BACKUP",
+                    "RESTORE",
+                    "WRITETEXT",
+                    "UPDATETEXT",
                 ]
                 .iter()
                 .any(|w| t.word(w))
@@ -1233,6 +1250,15 @@ mod tests {
         assert!(is_write("SELECT id INTO #copy FROM t"));
         assert!(is_write("EXEC p"));
         assert!(!is_write("SELECT [UPDATE], N'DROP TABLE t', @INSERT /* DELETE */"));
+        // Measured: a text write after a SELECT runs as a second statement with no semicolon.
+        for text in [
+            "WRITETEXT dbo.t.c 0x00 'a'",
+            "UPDATETEXT dbo.t.c 0x00 0 NULL 'a'",
+            "SELECT 1 AS x WRITETEXT dbo.t.c 0x00 'a'",
+            "SELECT 1 AS x UPDATETEXT dbo.t.c 0x00 0 NULL 'a'",
+        ] {
+            assert!(is_write(text), "{text}");
+        }
     }
 
     #[test]

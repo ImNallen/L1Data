@@ -64,6 +64,7 @@ const pg = (id: string, name: string, database = "shop"): ConnectionConfig => ({
   ssh: null,
   environment: null,
   sqlServerAuth: null,
+  assistantReadOnly: false,
 });
 const mssql = (id: string, name: string): ConnectionConfig => ({ ...pg(id, name, "master"), databaseKind: "SqlServer", port: 1434 });
 

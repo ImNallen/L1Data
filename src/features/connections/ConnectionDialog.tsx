@@ -624,6 +624,21 @@ function SqlServerSignIn(api: FormApi) {
           </div>
         </div>
       )}
+      <div className="mt-4">
+        <div className="flex h-8 items-center gap-2.5">
+          <Switch
+            checked={fields.assistantReadOnly}
+            onCheckedChange={(assistantReadOnly) => update({ assistantReadOnly })}
+            label="Let the assistant run read-only queries"
+            testId="conn-assistant-read-only"
+          />
+          <span className="text-ui-13 text-fg">Let the assistant run read-only queries</span>
+        </div>
+        <div className="mt-1.5 text-ui-12 text-dim">
+          The assistant runs an approved query on a fresh read-only session. It needs this database marked <code className="font-mono">READ_ONLY</code> on the
+          server, or each query is refused.
+        </div>
+      </div>
     </div>
   );
 }
@@ -880,6 +895,7 @@ function ConnectionForm({
     database: fields.database.trim(),
     user: toUser(fields),
     sqlServerAuth: toSqlServerAuth(fields),
+    assistantReadOnly: fields.databaseKind === "SqlServer" && fields.assistantReadOnly,
     sslMode: fields.sslMode,
     caCertPath: fields.caCertPath.trim() || null,
     password: toPassword(fields, password),
