@@ -229,29 +229,43 @@ function EditBar({
   if (!editable && pending === 0) return null;
   return (
     <div data-testid="edit-bar" className="flex max-w-full flex-wrap items-center gap-0.5">
-      <IconButton data-testid="add-row" aria-label="Add row" title="Add row" disabled={!editable} onClick={() => actions.current?.addRow()}>
-        <PlusIcon size={16} />
-      </IconButton>
-      <IconButton
+      <Button
+        data-testid="add-row"
+        aria-label="Add row"
+        title="Add row"
+        className="h-7! rounded-[4px]! bg-bg px-2!"
+        disabled={!editable}
+        onClick={() => actions.current?.addRow()}
+      >
+        <PlusIcon size={14} />
+        Add row
+      </Button>
+      <Button
         data-testid="delete-rows"
+        variant="ghost"
+        className="h-7! rounded-[4px]! px-2!"
         aria-label="Delete selected rows"
         title={deleteRefusal ?? "Delete or restore the selected rows (⌘⌫)"}
         disabled={!editable || deleteRefusal !== undefined}
         onClick={() => actions.current?.deleteSelectedRows()}
       >
-        <MinusIcon size={16} />
-      </IconButton>
+        <MinusIcon size={14} />
+        Delete
+      </Button>
       {pending > 0 && (
         <>
           <div className="mx-1.5 h-4 w-px bg-control" />
-          <span data-testid="pending-count" className="mr-1.5 text-ui-12.5 whitespace-nowrap text-amber tabular-nums">
+          <span
+            data-testid="pending-count"
+            className="mr-1.5 rounded-[4px] border border-amber/10 bg-amber/10 px-1.5 py-0.5 text-ui-12.5 whitespace-nowrap text-amber tabular-nums"
+          >
             {pending} pending
           </span>
           {changed > 0 && (
             <Button
               data-testid="drop-changed-rows"
               variant="ghost"
-              className="h-7 px-2"
+              className="h-7! rounded-[4px]! px-2!"
               title="Discard the staged edits of the rows another session changed, and reload the page"
               disabled={busy}
               onClick={() => tabId && void dropChangedRows(tabId)}
@@ -262,7 +276,7 @@ function EditBar({
           <Button
             data-testid="revert-edits"
             variant="ghost"
-            className="h-7 px-2"
+            className="h-7! rounded-[4px]! px-2!"
             title="Discard the staged changes"
             disabled={busy}
             onClick={() => tabId && void revertEdits(tabId)}
@@ -273,7 +287,7 @@ function EditBar({
           <Button
             data-testid="submit-edits"
             variant="primary"
-            className="h-7 px-2.5"
+            className="h-7! rounded-[4px]! px-2.5!"
             title="Send the staged changes (⌘S)"
             disabled={!canSubmit || busy}
             onClick={() => tabId && void submitEdits(tabId)}
@@ -294,10 +308,7 @@ function Segment({ testId, pressed, onClick, children }: { testId: string; press
       data-testid={testId}
       aria-pressed={pressed}
       onClick={onClick}
-      className={cx(
-        "inline-flex h-6 items-center gap-1 rounded-[5px] border px-2 text-ui-12 transition-colors",
-        pressed ? "border-control bg-raised text-fg shadow-[0_1px_2px_rgba(0,0,0,0.08)]" : "border-transparent text-dim hover:text-fg",
-      )}
+      className={cx("inline-flex h-6 items-center gap-1 rounded-[4px] px-2 text-ui-12 transition-colors", pressed ? "bg-bg text-fg" : "text-dim hover:text-fg")}
     >
       {children}
     </button>
@@ -505,7 +516,7 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-bg">
-      <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-grid py-1.5 pr-2 pl-2.5">
+      <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-grid bg-canvas py-1.5 pr-2 pl-2.5">
         <EditBar
           tabId={tabId}
           editable={!busy && editing !== null && tabId !== null}
@@ -533,7 +544,7 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
           </div>
         )}
 
-        <div className="flex min-w-0 flex-[1_1_12rem] flex-wrap items-center gap-x-3 gap-y-1">
+        <div className="flex min-w-0 flex-[1_1_12rem] flex-wrap items-center justify-end gap-x-3 gap-y-1">
           {importing ? (
             <span data-testid="import-status" role="status" className="flex min-w-0 items-center gap-1.5 text-ui-13 text-dim">
               <Spinner />
@@ -562,14 +573,14 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
             {shown?.plan && (
               <Button
                 data-testid="plan-rows-toggle"
-                className="h-7 px-2"
+                className="h-7! rounded-[4px]! px-2!"
                 onClick={() => setDisplayPref({ ...pref, display: pref.display === "rows" ? "default" : "rows" })}
               >
                 {pref.display === "rows" ? "Plan" : "Rows"}
               </Button>
             )}
             {chartDefault && (
-              <div role="group" aria-label="Result view" className="mr-1 flex h-7 items-center rounded-md bg-hover p-0.5">
+              <div role="group" aria-label="Result view" className="mr-1 flex h-7 items-center rounded-[4px] border border-control p-px">
                 <Segment testId="view-rows" pressed={view.kind === "rows"} onClick={() => showDisplay("rows")}>
                   <Table2Icon size={12} />
                   Rows
@@ -604,7 +615,7 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
                 const pick = view.kind === "output" ? (shown?.index ?? 0) : outputPick;
                 if (tabId && pick !== undefined) setActiveResult(tabId, pick);
               }}
-              className={cx(view.kind === "output" && "bg-pill!", tone === "warn" ? "text-amber!" : view.kind === "output" && "text-fg!")}
+              className={cx("rounded-[4px]!", view.kind === "output" && "bg-pill!", tone === "warn" ? "text-amber!" : view.kind === "output" && "text-fg!")}
             >
               <SquareTerminalIcon size={16} />
             </IconButton>

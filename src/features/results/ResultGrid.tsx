@@ -56,7 +56,7 @@ import { MAC, MOD_LABEL } from "../../shell/hostedWindow";
 import { rowCacheFor, windowedRows, type Row, type RowView } from "../../state/rowCache";
 import { useLive } from "../../state/live";
 import { refKey } from "../../state/status";
-import { findRelation, isPrimaryKey, useCatalog, viewFor, type CatalogView } from "../../state/catalog";
+import { findRelation, isPrimaryKey, sourceColumn, useCatalog, viewFor, type CatalogView } from "../../state/catalog";
 import { sameDb, type DbKey } from "../../state/dbKey";
 import {
   NO_EDITS,
@@ -79,7 +79,10 @@ import { ContextMenuArea, ContextMenuItem, ContextMenuSeparator, IconButton, cx 
 import { cancelCell, openTableTab } from "../editor/runActions";
 import { useKeyLinks, type KeyLink } from "./foreignKeys";
 import { ColumnProfilePopover } from "./ColumnProfile";
-import { cellAt, DEFAULT, EMPTY_MARK, GridEditor, GridRow, NULL_MARK, rowNumberAt, type Cell } from "./GridRows";
+import { cellAt, DEFAULT, EMPTY_MARK, GridRow, NULL_MARK, rowNumberAt, type Cell } from "./GridRows";
+import { GridEditor } from "./GridEditor";
+import { describeEditor, type EditorDescriptor } from "./gridEditorType";
+import type { EditOutcome, InitialValue } from "./gridEditorValue";
 import { groupCount, groupDigits, isNumeric, toTsv, type RowWindow } from "./format";
 import { formatSelectionTotals, type SelectionSlot } from "./selectionTotals";
 import { useResultFind } from "./useResultFind";
@@ -811,9 +814,9 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
     useWorkspace.getState().open({ kind: "record", meta, row: rowOffset + row });
   };
 
-  // `draft` is the text the editor opens with. The editor keeps what is typed after that.
-  const [editingCell, setEditingCell] = useState<(Cell & { draft: string; initial: string; stored: CellValue }) | null>(null);
-  const lastEnded = useRef<typeof editingCell>(null);
+  const [editingCell, setEditingCell] = useState<
+    (Cell & { seed: { text: string; edited: boolean }; initial: InitialValue; stored: CellValue; descriptor: EditorDescriptor }) | null
+  >(null);
   const opening = useRef(0);
   const notify = (text: string) => useWorkspace.getState().notify(text);
   const refused = () => notify("A submit is running. Try again when it finishes.");
@@ -829,20 +832,29 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
     if (!canWrite(col) || useTableEdits.getState().submitting[tabId] || (!newRowAt(row) && (!key || key in edits.deletes))) return;
     const name = columns[col]!.name;
     const pending = newRowAt(row) || (key && name in (edits.updates[key]?.values ?? {}));
-    const open = (initial: string, stored: CellValue) =>
+    const open = (shown: CellValue | typeof DEFAULT, stored: CellValue) => {
+      const initial: InitialValue = shown === DEFAULT ? { kind: "default" } : shown === null ? { kind: "null" } : { kind: "text", text: shown };
+      const column = columns[col]!;
+      const descriptor = describeEditor({
+        column,
+        sourceColumn: sourceColumn(catalogView, column.source),
+        catalog: catalogView?.catalog,
+        dialect: meta.databaseKind,
+      });
       setEditingCell((cur) =>
         typed !== undefined && cur?.row === row && cur.col === col
-          ? { ...cur, draft: cur.draft + typed }
-          : { row, col, initial, stored, draft: typed ?? initial },
+          ? { ...cur, seed: { text: cur.seed.text + typed, edited: true } }
+          : { row, col, initial, stored, descriptor, seed: { text: typed ?? (initial.kind === "text" ? initial.text : ""), edited: typed !== undefined } },
       );
+    };
     const seq = ++opening.current;
     // The page cache cuts long values. Typing replaces the value, so only opening a cut cell as-is waits for its full text.
     if (pending || typed !== undefined || !cache.isCut(row, col)) {
       const shown = cellValue(row, col);
-      return open(typeof shown === "string" ? shown : "", row < rowCount ? (cache.get(row)?.[col] ?? null) : null);
+      return open(shown ?? null, row < rowCount ? (cache.get(row)?.[col] ?? null) : null);
     }
     void cache.loadFull(row, col).then((full) => {
-      if (opening.current === seq) open(full ?? "", full ?? null);
+      if (opening.current === seq) open(full ?? null, full ?? null);
     });
   };
   const writeCell = (row: number, col: number, value: CellValue | typeof DEFAULT, stored = cache.get(row)?.[col] ?? null) => {
@@ -869,17 +881,16 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
         .then((full) => (full === undefined ? notify("This cell's full value is gone. Reload the page, then edit it again.") : stage(full))),
     );
   };
-  const finishEdit = (save: boolean, draft: string) => {
-    if (!editingCell || lastEnded.current === editingCell) return;
-    lastEnded.current = editingCell;
-    if (save && draft !== editingCell.initial) writeCell(editingCell.row, editingCell.col, draft, editingCell.stored);
+  const finishEdit = (outcome: EditOutcome, focusGrid: boolean) => {
+    if (!editingCell) return;
+    if (outcome.kind === "value") writeCell(editingCell.row, editingCell.col, outcome.value, editingCell.stored);
     setEditingCell(null);
-    scroller.current?.focus();
+    if (focusGrid) scroller.current?.focus();
   };
-  const tabFromEditor = (back: boolean, draft: string) => {
+  const tabFromEditor = (back: boolean, outcome: EditOutcome) => {
     if (!editingCell) return;
     const { row, col } = editingCell;
-    finishEdit(true, draft);
+    finishEdit(outcome, true);
     const next = { row, col: Math.max(0, Math.min(columns.length - 1, col + (back ? -1 : 1))) };
     setSelection({ anchor: next, focus: next });
     cols.scrollToIndex(next.col);
@@ -1077,7 +1088,16 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
   };
   const hasValue = (row: number, col: number) => typeof cellValue(row, col) === "string";
   const editor = editingCell && (
-    <GridEditor column={columns[editingCell.col]?.name ?? ""} initial={editingCell.draft} onFinish={finishEdit} onTab={tabFromEditor} />
+    <GridEditor
+      key={`${editingCell.row}-${editingCell.col}`}
+      column={columns[editingCell.col]?.name ?? ""}
+      initial={editingCell.initial}
+      seed={editingCell.seed}
+      descriptor={editingCell.descriptor}
+      onFinish={finishEdit}
+      onTab={tabFromEditor}
+      onFind={showFind}
+    />
   );
 
   const grid = (
@@ -1269,6 +1289,7 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
       <div
         className="flex min-h-0 flex-1 flex-col"
         onKeyDownCapture={(e) => {
+          if (e.target instanceof Element && e.target.closest("[data-grid-editor-root]")) return;
           if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "f") {
             e.preventDefault();
             if (e.target instanceof HTMLInputElement && e.target !== findInput.current) e.target.blur();
