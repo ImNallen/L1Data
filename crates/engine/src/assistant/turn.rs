@@ -9,7 +9,7 @@ use tokio::sync::mpsc;
 
 use super::chat::{Chat, Closed, Closing, Gated, LastContext, Refusal, TurnControl, wait};
 use super::tools::{self, Ask, Executed, ParsedCall};
-use super::{context, reply};
+use super::{ask, context, reply};
 use crate::Shared;
 use crate::access::AccessLease;
 use crate::console::now_ms;
@@ -37,6 +37,7 @@ pub(crate) struct TurnPlan {
     pub tab: Option<TabContext>,
     pub closing: Option<Closing>,
     pub access: AccessLease,
+    pub purpose: ask::Purpose,
 }
 
 pub(crate) async fn run_turn(shared: Arc<Shared>, plan: TurnPlan, control: mpsc::Receiver<TurnControl>) {
@@ -46,6 +47,7 @@ pub(crate) async fn run_turn(shared: Arc<Shared>, plan: TurnPlan, control: mpsc:
         turn: plan.turn,
         options: plan.options,
         access: plan.access,
+        purpose: plan.purpose,
         user_text: plan.user_text,
         db: plan.tab.as_ref().and_then(|t| t.db.clone()),
         tab: plan.tab,
@@ -74,6 +76,7 @@ struct Turn {
     turn: u32,
     options: ChatOptions,
     access: AccessLease,
+    purpose: ask::Purpose,
     user_text: String,
     tab: Option<TabContext>,
     db: Option<DatabaseRef>,
@@ -127,6 +130,11 @@ enum Attempt {
     Lost,
 }
 
+struct Recap {
+    text: String,
+    lost_session: bool,
+}
+
 impl Turn {
     async fn run(&mut self, mut control: mpsc::Receiver<TurnControl>) -> TurnOutcome {
         if let Some(db) = self.db.clone() {
@@ -150,19 +158,27 @@ impl Turn {
         let mut resume = stored
             .as_ref()
             .filter(|s| {
-                s.access == Some(self.access) && s.provider == self.options.provider && s.config_dir == cfg.config_dir
+                !self.purpose.is_ask()
+                    && s.access == Some(self.access)
+                    && s.provider == self.options.provider
+                    && s.config_dir == cfg.config_dir
             })
             .map(|s| s.id.clone());
         // The provider keeps its transcript under the config dir the session was made in, so a
         // changed one cannot resume and the chat restarts with a recap.
-        let mut recap = if stored.is_some() && resume.is_none() { Some(self.recap()) } else { None };
+        let mut recap =
+            if !self.purpose.is_ask() && resume.is_none() && self.turn > self.chat.inner.lock().record.recap_floor {
+                Some(Recap { text: self.recap(), lost_session: stored.is_some() })
+            } else {
+                None
+            };
         loop {
-            match self.attempt(&mut control, &cfg, resume.take(), recap.as_deref()).await {
+            match self.attempt(&mut control, &cfg, resume.take(), recap.as_ref()).await {
                 Attempt::Done(outcome) => return outcome,
                 Attempt::Lost => {
                     eprintln!("chat {} could not resume its session; restarting it with a recap", self.chat.id.0);
                     self.forget_session();
-                    recap = Some(self.recap());
+                    recap = Some(Recap { text: self.recap(), lost_session: true });
                 }
             }
         }
@@ -173,7 +189,7 @@ impl Turn {
         control: &mut mpsc::Receiver<TurnControl>,
         cfg: &ProviderConfig,
         resume: Option<String>,
-        recap: Option<&str>,
+        recap: Option<&Recap>,
     ) -> Attempt {
         let resumed = resume.is_some();
         let p = provider(self.options.provider);
@@ -189,13 +205,13 @@ impl Turn {
                 };
             }
         };
-        if recap.is_some() {
+        if recap.is_some_and(|r| r.lost_session) {
             self.notice(format!(
                 "{} could not resume this chat, so it was restarted with a summary of the conversation.",
                 cfg.display_name
             ));
         }
-        let prompt = self.prompt(!resumed, recap);
+        let prompt = self.prompt(!resumed, recap.map(|r| r.text.as_str()));
         self.set_phase(TurnPhase::Working);
         let lines = agent.codec.user_turn(&prompt);
         if let Err(e) = agent.write_for(&self.shared.access, self.access, lines).await {
@@ -297,8 +313,9 @@ impl Turn {
             AgentError::NotFound { binary } => StartError::NotFound { binary },
             other => StartError::Reported(other),
         })?;
-        let prompt = system_prompt(self.database_kind().unwrap_or(DatabaseKind::Postgres), self.access.mode);
-        let codec = p.codec(cfg, Open { system_prompt: prompt, tools: tools::offered(self.access.mode) });
+        let access = self.purpose.access(self.access.mode);
+        let prompt = system_prompt(self.database_kind().unwrap_or(DatabaseKind::Postgres), access);
+        let codec = p.codec(cfg, Open { system_prompt: prompt, tools: tools::offered(access) });
         let shared = self.shared.clone();
         tokio::select! {
             started = Agent::start(&shared, spec, codec) => started.map(|(agent, _)| Started::Agent(agent)),
@@ -331,7 +348,7 @@ impl Turn {
         });
         let selected =
             matches!(self.tab.as_ref().map(|t| t.target), Some(RunTarget::Selection { from, to }) if from.0 < to.0);
-        let last_error = (self.access.mode == AssistantAccess::Full)
+        let last_error = (self.purpose.access(self.access.mode) == AssistantAccess::Full)
             .then(|| self.tab.as_ref().and_then(|t| self.last_run_error(t)))
             .flatten();
         let attachment = self.attachment();
@@ -363,7 +380,7 @@ impl Turn {
             last_error: last_error.as_deref(),
         });
         let block = context::build(&context::ContextInput {
-            access: self.access.mode,
+            access: self.purpose.access(self.access.mode),
             connection,
             db: self.db.as_ref(),
             catalog: self.catalog.as_deref(),
@@ -373,6 +390,15 @@ impl Turn {
             attachment: attachment.as_ref(),
             outline,
         });
+        if let ask::Purpose::Ask { source, schema } = &self.purpose {
+            return format!(
+                "{block}\nSchema for this cell: {}\n{}\n{}\n\nUser request:\n{}",
+                schema.as_deref().unwrap_or("database default"),
+                ask::INSTRUCTIONS,
+                ask::source_text(source),
+                self.user_text
+            );
+        }
         if let (Some(db), Some(catalog)) = (&self.db, &self.catalog) {
             self.chat.inner.lock().last_context = Some(LastContext {
                 session: session.unwrap_or_default(),
@@ -455,6 +481,9 @@ impl Turn {
     }
 
     fn set_session(&mut self, session_id: String) {
+        if self.purpose.is_ask() {
+            return;
+        }
         let cfg = self.provider_config();
         let changed = self
             .shared
@@ -511,6 +540,7 @@ impl Turn {
 
     fn publish_texts(&mut self, close: bool) {
         let kind = self.database_kind().unwrap_or(DatabaseKind::Postgres);
+        let parse = if self.purpose.is_ask() { reply::parse_ask_text } else { reply::parse_text };
         for state in &mut self.texts {
             if close && !state.done {
                 state.done = true;
@@ -521,11 +551,7 @@ impl Turn {
             }
             state.dirty = false;
             let entry = Entry::Text {
-                blocks: resolve_blocks(
-                    reply::parse_text(&state.text, state.done).blocks,
-                    self.catalog.as_deref(),
-                    kind,
-                ),
+                blocks: resolve_blocks(parse(&state.text, state.done).blocks, self.catalog.as_deref(), kind),
                 done: state.done,
             };
             if state.done {
@@ -600,7 +626,8 @@ impl Turn {
         execs: &mut Execs,
     ) {
         let parsed = tools::parse_call(name, &input);
-        let ask = tools::policy(&parsed, self.chat.permission(), self.target(), self.access.mode);
+        let ask =
+            tools::policy(&parsed, self.chat.permission(), self.target(), self.purpose.access(self.access.mode));
         let gated = if self.stop_deadline.is_some() {
             Gated::Deny(Refusal::Stopped)
         } else {
@@ -675,17 +702,20 @@ impl Turn {
         }
         let (shared, db, id) = (self.shared.clone(), self.db.clone(), call.clone());
         let access = self.access;
+        let policy = self.purpose.access(access.mode);
         let reply_for_work = reply.clone();
         let (future, abort) = futures_util::future::abortable(Box::pin(async move {
-            let executed =
-                match tokio::time::timeout(EXECUTION_TIMEOUT, tools::execute(&shared, db.as_ref(), parsed, access))
-                    .await
-                {
-                    Ok(executed) => executed,
-                    Err(_) => {
-                        Executed::failed(format!("The tool did not finish within {} s.", EXECUTION_TIMEOUT.as_secs()))
-                    }
-                };
+            let executed = match tokio::time::timeout(
+                EXECUTION_TIMEOUT,
+                tools::execute(&shared, db.as_ref(), parsed, access, policy),
+            )
+            .await
+            {
+                Ok(executed) => executed,
+                Err(_) => {
+                    Executed::failed(format!("The tool did not finish within {} s.", EXECUTION_TIMEOUT.as_secs()))
+                }
+            };
             Work::Tool { reply: reply_for_work, call: id, executed }
         }) as BoxFuture<'static, Work>);
         if let Some(state) = self.tool_mut(&call) {
@@ -773,8 +803,16 @@ impl Turn {
         } else {
             Vec::new()
         };
+        let ask = (self.purpose.is_ask() && outcome == TurnOutcome::Completed)
+            .then(|| ask::outcome(&self.texts.iter().map(|t| t.text.as_str()).collect::<Vec<_>>().join("\n")));
+        if let Some(AskOutcome::Replacement { sql }) = &ask {
+            let seq = self.next_seq();
+            let entry = Entry::Text { blocks: vec![ReplyBlock::Replacement { sql: sql.clone() }], done: true };
+            self.chat.store_entry(&self.shared, seq, self.turn, &entry);
+            self.chat.publish_entry(&self.shared, seq, self.turn, entry);
+        }
         let seq = self.next_seq();
-        let end = Entry::End { at_ms: now_ms(), outcome: outcome.clone(), suggestions };
+        let end = Entry::End { at_ms: now_ms(), outcome: outcome.clone(), suggestions, ask };
         self.chat.store_entry(&self.shared, seq, self.turn, &end);
         self.chat.publish_entry(&self.shared, seq, self.turn, end);
         let closing = self.agent.take().map(|agent| Closing::start(&self.shared, agent));

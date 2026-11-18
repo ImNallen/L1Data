@@ -3593,6 +3593,8 @@ pub enum Entry {
         at_ms: i64,
         outcome: TurnOutcome,
         suggestions: Vec<String>,
+        #[serde(default)]
+        ask: Option<AskOutcome>,
     },
     Unreadable,
 }
@@ -3605,6 +3607,7 @@ pub struct SentContext {
     /// As named at send, so the chip reads right after a rename or a delete.
     pub connection_name: Option<String>,
     pub tab_title: String,
+    pub ask: Option<AskSource>,
 }
 
 impl<'de> Deserialize<'de> for SentContext {
@@ -3616,13 +3619,15 @@ impl<'de> Deserialize<'de> for SentContext {
             db: Option<DatabaseRef>,
             connection_name: Option<String>,
             tab_title: String,
+            ask: Option<AskSource>,
         }
-        let Stored { database_kind, db, connection_name, tab_title } = Stored::deserialize(d)?;
+        let Stored { database_kind, db, connection_name, tab_title, ask } = Stored::deserialize(d)?;
         Ok(Self {
             database_kind: database_kind.or(db.as_ref().map(|_| DatabaseKind::Postgres)),
             db,
             connection_name,
             tab_title,
+            ask,
         })
     }
 }
@@ -3642,6 +3647,9 @@ pub struct Attachment {
 pub enum ReplyBlock {
     Markdown {
         text: String,
+    },
+    Replacement {
+        sql: String,
     },
     /// A fenced SQL block. `relations` and `vetted` are filled when the fence closes.
     Sql {
@@ -3760,6 +3768,38 @@ pub enum AgentError {
 pub struct SendRequest {
     pub text: String,
     pub tab: Option<TabContext>,
+}
+
+#[derive(Debug, Clone, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AskRequest {
+    pub text: String,
+    pub tab_id: TabId,
+    pub db: Option<DatabaseRef>,
+    pub schema: Option<String>,
+    pub source: AskSource,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AskSource {
+    pub scope: AskScope,
+    pub sql: String,
+    pub draft: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub enum AskScope {
+    Selection,
+    Cell,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all_fields = "camelCase")]
+pub enum AskOutcome {
+    Answer,
+    Replacement { sql: String },
+    Invalid { message: String },
 }
 
 /// The active tab when the user pressed Send. The engine reads SQL out of `text` itself.

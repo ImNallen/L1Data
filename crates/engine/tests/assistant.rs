@@ -248,7 +248,7 @@ fn text_of(entry: &Entry) -> String {
         .iter()
         .map(|b| match b {
             ReplyBlock::Markdown { text } => text.clone(),
-            ReplyBlock::Sql { sql, .. } => sql.clone(),
+            ReplyBlock::Sql { sql, .. } | ReplyBlock::Replacement { sql } => sql.clone(),
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -2089,4 +2089,107 @@ async fn switching_access_while_a_chat_is_unloaded_excludes_its_old_context_and_
     let prompt = h.stdin_lines().into_iter().rfind(|l| l.contains("Summarize")).unwrap();
     assert!(!prompt.contains("FULL_HISTORY_CANARY"), "{prompt}");
     assert!(prompt.contains("SAFE_NEW_HISTORY"));
+}
+
+fn ask_request(text: &str, sql: &str, draft: Option<&str>) -> AskRequest {
+    AskRequest {
+        text: text.into(),
+        tab_id: TabId(uuid::Uuid::new_v4()),
+        db: None,
+        schema: Some("public".into()),
+        source: AskSource { scope: AskScope::Selection, sql: sql.into(), draft: draft.map(str::to_owned) },
+    }
+}
+
+#[tokio::test]
+async fn ask_keeps_explicit_sql_in_schema_only_and_starts_each_turn_fresh() {
+    let mut h = Harness::open_in(tempfile::tempdir().unwrap()).await;
+    h.use_fake("echo");
+    let chat = h.chat(Permission::Auto);
+    h.send(chat, "UNRELATED_HISTORY_CANARY").await;
+    h.wait_end(chat).await;
+    h.wait_idle(chat).await;
+    h.use_fake("ask-edit");
+    let source = "  SELECT 'exact';\r\n";
+    for draft in [None, Some("SELECT 'accepted';\n")] {
+        h.engine.assistant_ask(chat, ask_request("Edit this", source, draft)).await.unwrap();
+        let end = h.wait_entry(chat, "Ask outcome", |s| matches!(s.entry, Entry::End { .. })).await;
+        assert!(matches!(
+            end.entry,
+            Entry::End { outcome: TurnOutcome::Completed, ask: Some(AskOutcome::Replacement { .. }), .. }
+        ));
+        h.wait_idle(chat).await;
+        let prompt = h.stdin_lines().into_iter().rfind(|l| l.contains("User request:")).unwrap();
+        assert!(!prompt.contains("UNRELATED_HISTORY_CANARY"), "{prompt}");
+        assert!(!h.turn_argvs().last().unwrap().iter().any(|a| a == "--resume"));
+        let entries = h.entries(chat).await;
+        assert!(entries.iter().any(|e| matches!(e, Entry::User { context: Some(SentContext { ask: Some(a), .. }), .. } if a.sql == source && a.draft.as_deref() == draft)));
+        assert!(!entries.iter().any(|e| matches!(e, Entry::Text { blocks, .. } if blocks.iter().any(|b| matches!(b, ReplyBlock::Markdown { text } if text.contains("ask-edit"))))));
+    }
+    h.use_fake("echo");
+    h.send(chat, "Continue in panel").await;
+    h.wait_end(chat).await;
+    let prompt = h.stdin_lines().into_iter().rfind(|l| l.contains("Continue in panel")).unwrap();
+    assert!(prompt.contains("Explicit SQL attachment") && prompt.contains("accepted"), "{prompt}");
+    assert!(!h.turn_argvs().last().unwrap().iter().any(|a| a == "--resume"));
+}
+
+#[tokio::test]
+async fn ask_never_offers_or_executes_queries_under_full_access() {
+    for scenario in ["query", "query-forged"] {
+        let mut h = Harness::open().await;
+        h.use_fake(scenario);
+        let chat = h.chat(Permission::Auto);
+        h.engine.assistant_ask(chat, ask_request("Run this", "SELECT 1", None)).await.unwrap();
+        h.wait_end(chat).await;
+        let entries = h.entries(chat).await;
+        assert!(entries.iter().any(|e| matches!(e, Entry::Tool { status: ToolStatus::Failed { message }, .. } if message.contains("Schema only"))));
+        assert!(!entries.iter().any(|e| matches!(
+            e,
+            Entry::Tool {
+                status: ToolStatus::AwaitingApproval { .. } | ToolStatus::Done { result: ToolResult::Rows { .. } },
+                ..
+            }
+        )));
+        let offered =
+            h.stdin_lines().into_iter().find(|l| l.contains("mcp_response") && l.contains("describe_tables")).unwrap();
+        assert!(!offered.contains("run_query"));
+    }
+}
+
+#[tokio::test]
+async fn only_a_successful_complete_ask_turn_can_propose_an_edit() {
+    for scenario in ["ask-question", "ask-truncated", "ask-multiple", "ask-failed"] {
+        let mut h = Harness::open().await;
+        h.use_fake(scenario);
+        let chat = h.chat(Permission::Auto);
+        h.engine.assistant_ask(chat, ask_request("Help", "SELECT 1", None)).await.unwrap();
+        let end = h.wait_entry(chat, "Ask end", |s| matches!(s.entry, Entry::End { .. })).await;
+        let Entry::End { ask, .. } = end.entry else { unreachable!() };
+        match scenario {
+            "ask-question" => assert_eq!(ask, Some(AskOutcome::Answer)),
+            "ask-failed" => assert_eq!(ask, None),
+            _ => assert!(matches!(ask, Some(AskOutcome::Invalid { .. }))),
+        }
+        assert!(!h.entries(chat).await.iter().any(|e| matches!(e, Entry::Text { blocks, .. } if blocks.iter().any(|b| matches!(b, ReplyBlock::Replacement { .. })))));
+    }
+}
+
+#[tokio::test]
+async fn stop_turn_does_not_cancel_a_different_turn() {
+    let mut h = Harness::open().await;
+    h.use_fake("slow");
+    let chat = h.chat(Permission::Auto);
+    let first = h.engine.assistant_ask(chat, ask_request("slow", "", None)).await.unwrap();
+    h.engine.assistant_stop_turn(chat, first.turn);
+    h.wait_end(chat).await;
+    h.wait_idle(chat).await;
+    let second = h.engine.assistant_ask(chat, ask_request("slow again", "", None)).await.unwrap();
+    h.engine.assistant_stop_turn(chat, first.turn);
+    h.wait_entry(chat, "second turn text", |s| s.turn == second.turn && matches!(s.entry, Entry::Text { .. })).await;
+    assert!(
+        matches!(h.engine.assistant_open(chat).await.unwrap().state.status, ChatStatus::Running { turn, .. } if turn == second.turn)
+    );
+    h.engine.assistant_stop_turn(chat, second.turn);
+    assert_eq!(h.wait_end(chat).await.0, TurnOutcome::Stopped);
 }

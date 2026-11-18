@@ -173,15 +173,19 @@ pub(crate) async fn execute(
     db: Option<&DatabaseRef>,
     call: ParsedCall,
     access: AccessLease,
+    policy: AssistantAccess,
 ) -> Executed {
     if shared.access.with(access, || ()).is_none() {
         return Executed::failed("Assistant access changed. Start a new turn.");
     }
-    if access.mode == AssistantAccess::SchemaOnly && matches!(call, ParsedCall::RunQuery { .. }) {
+    if (access.mode == AssistantAccess::SchemaOnly || policy == AssistantAccess::SchemaOnly)
+        && matches!(call, ParsedCall::RunQuery { .. })
+    {
         return Executed::failed(SCHEMA_REFUSAL);
     }
-    let executed = execute_allowed(shared, db, call, access.mode).await;
-    if access.mode == AssistantAccess::SchemaOnly && executed.for_model.is_error {
+    let policy = if access.mode == AssistantAccess::SchemaOnly { access.mode } else { policy };
+    let executed = execute_allowed(shared, db, call, policy).await;
+    if policy == AssistantAccess::SchemaOnly && executed.for_model.is_error {
         return Executed::failed(
             "Schema information is unavailable. Ask the user to check the connection and table names.",
         );
@@ -665,11 +669,14 @@ mod tests {
             offered(AssistantAccess::SchemaOnly).iter().map(|s| s.name).collect::<Vec<_>>(),
             ["describe_tables", "search_catalog"]
         );
-        assert_eq!(execute(&engine.shared, None, call.clone(), access).await.for_model.text, SCHEMA_REFUSAL);
+        assert_eq!(
+            execute(&engine.shared, None, call.clone(), access, access.mode).await.for_model.text,
+            SCHEMA_REFUSAL
+        );
         engine
             .set_settings(crate::model::Settings { assistant_access: AssistantAccess::Full, ..engine.settings() })
             .unwrap();
-        let stale = execute(&engine.shared, None, call, access).await;
+        let stale = execute(&engine.shared, None, call, access, access.mode).await;
         assert!(stale.for_model.is_error && stale.for_model.text.contains("access changed"));
     }
     #[test]
@@ -735,14 +742,20 @@ mod tests {
             .set_settings(crate::model::Settings { assistant_access: AssistantAccess::Full, ..engine.settings() })
             .unwrap();
         let access = *engine.shared.access.lock();
-        let refused =
-            execute(&engine.shared, Some(&db), parse_call("run_query", &json!({"sql":"SELECT 1"})), access).await;
+        let refused = execute(
+            &engine.shared,
+            Some(&db),
+            parse_call("run_query", &json!({"sql":"SELECT 1"})),
+            access,
+            access.mode,
+        )
+        .await;
         assert_eq!(refused.for_model.text, MSSQL_REFUSAL);
         assert!(refused.for_model.is_error);
         for (name, input) in
             [("search_catalog", json!({"query":"orders"})), ("describe_tables", json!({"tables":["dbo.orders"]}))]
         {
-            let result = execute(&engine.shared, Some(&db), parse_call(name, &input), access).await;
+            let result = execute(&engine.shared, Some(&db), parse_call(name, &input), access, access.mode).await;
             assert!(!result.for_model.is_error, "{}", result.for_model.text);
             assert!(matches!(result.status, ToolStatus::Done { .. }));
             assert!(result.for_model.text.contains("orders"));

@@ -80,6 +80,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ipc::assistant_configure,
             ipc::assistant_send,
             ipc::assistant_stop,
+            ipc::assistant_ask,
+            ipc::assistant_stop_turn,
             ipc::assistant_approve,
             ipc::assistant_delete,
             ipc::provider_refresh,

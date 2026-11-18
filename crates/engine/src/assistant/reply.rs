@@ -16,6 +16,14 @@ pub(crate) struct Parsed {
 }
 
 pub(crate) fn parse_text(text: &str, done: bool) -> Parsed {
+    parse(text, done, false)
+}
+
+pub(crate) fn parse_ask_text(text: &str, done: bool) -> Parsed {
+    parse(text, done, true)
+}
+
+fn parse(text: &str, done: bool, hide_edit: bool) -> Parsed {
     let mut parsed = Parsed::default();
     let mut markdown = String::new();
     let mut lines = text.split_inclusive('\n').peekable();
@@ -56,6 +64,8 @@ pub(crate) fn parse_text(text: &str, done: bool) -> Parsed {
                 vetted: false,
                 complete: closed || done,
             });
+        } else if hide_edit && info == super::ask::FENCE {
+            // Proposals become displayable only after the complete turn passes the Ask decoder.
         } else if info == FOLLOWUPS_INFO {
             if closed || done {
                 parsed.followups = body
@@ -83,7 +93,7 @@ fn cut_followup(line: &str) -> String {
     cut(line.trim_start_matches(['-', '*', ' ']).trim_matches('"').trim(), MAX_FOLLOWUP_CHARS)
 }
 
-fn fence_open(line: &str) -> Option<(usize, &str)> {
+pub(super) fn fence_open(line: &str) -> Option<(usize, &str)> {
     let rest = line.trim_start_matches(' ');
     if line.len() - rest.len() > 3 {
         return None;
@@ -93,7 +103,7 @@ fn fence_open(line: &str) -> Option<(usize, &str)> {
     (ticks >= 3 && !info.contains('`')).then(|| (ticks, info.split_whitespace().next().unwrap_or("")))
 }
 
-fn fence_close(line: &str, ticks: usize) -> bool {
+pub(super) fn fence_close(line: &str, ticks: usize) -> bool {
     let rest = line.trim_start_matches(' ');
     let body = rest.trim_end();
     line.len() - rest.len() <= 3 && !body.is_empty() && body.chars().all(|c| c == '`') && body.len() >= ticks
@@ -168,7 +178,11 @@ pub(crate) fn recover(entries: &[(u32, u32, Entry)], at_ms: i64) -> Vec<(u32, u3
     }
     let mut next_seq = entries.iter().map(|(seq, _, _)| seq + 1).max().unwrap_or(0);
     for turn in open_turns {
-        fixes.push((next_seq, turn, Entry::End { at_ms, outcome: TurnOutcome::Lost, suggestions: Vec::new() }));
+        fixes.push((
+            next_seq,
+            turn,
+            Entry::End { at_ms, outcome: TurnOutcome::Lost, suggestions: Vec::new(), ask: None },
+        ));
         next_seq += 1;
     }
     fixes
@@ -178,13 +192,17 @@ pub(crate) fn recap(entries: &[(u32, u32, Entry)], max_chars: usize) -> String {
     let mut turns: Vec<(u32, String)> = Vec::new();
     for (_, turn, entry) in entries {
         let line = match entry {
-            Entry::User { text, .. } => format!("User: {text}\n"),
+            Entry::User { text, context, .. } => {
+                let attached =
+                    context.as_ref().and_then(|c| c.ask.as_ref()).map(super::ask::source_text).unwrap_or_default();
+                format!("User: {text}\n{attached}{}", if attached.is_empty() { "" } else { "\n" })
+            }
             Entry::Text { blocks, .. } => {
                 let text: Vec<String> = blocks
                     .iter()
                     .map(|b| match b {
                         ReplyBlock::Markdown { text } => text.clone(),
-                        ReplyBlock::Sql { sql, .. } => format!("```sql\n{sql}\n```"),
+                        ReplyBlock::Sql { sql, .. } | ReplyBlock::Replacement { sql } => format!("```sql\n{sql}\n```"),
                     })
                     .collect();
                 format!("Assistant: {}\n", text.join("\n\n"))
@@ -418,7 +436,7 @@ mod tests {
 
     #[test]
     fn recover_closes_open_rows_once_and_leaves_closed_turns_alone() {
-        let end = Entry::End { at_ms: 2, outcome: TurnOutcome::Completed, suggestions: Vec::new() };
+        let end = Entry::End { at_ms: 2, outcome: TurnOutcome::Completed, suggestions: Vec::new(), ask: None };
         let entries = vec![
             (0, 0, user("one")),
             (1, 0, text(true)),
@@ -441,7 +459,7 @@ mod tests {
             vec![
                 (4, 3, text(true)),
                 (5, 3, tool(ToolStatus::Expired)),
-                (7, 3, Entry::End { at_ms: 9, outcome: TurnOutcome::Lost, suggestions: Vec::new() })
+                (7, 3, Entry::End { at_ms: 9, outcome: TurnOutcome::Lost, suggestions: Vec::new(), ask: None })
             ]
         );
         let mut fixed = entries.clone();
@@ -455,7 +473,7 @@ mod tests {
         assert_eq!(recover(&[(0, 0, user("one")), (1, 0, text(true)), (2, 0, end)], 10), vec![]);
         assert_eq!(
             recover(&[(0, 0, user("alone"))], 10),
-            vec![(1, 0, Entry::End { at_ms: 10, outcome: TurnOutcome::Lost, suggestions: Vec::new() })]
+            vec![(1, 0, Entry::End { at_ms: 10, outcome: TurnOutcome::Lost, suggestions: Vec::new(), ask: None })]
         );
     }
 
@@ -464,7 +482,7 @@ mod tests {
         let entries = vec![
             (0, 0, user("first question")),
             (1, 0, Entry::Text { blocks: vec![markdown("first answer"), sql("select 1", true)], done: true }),
-            (2, 0, Entry::End { at_ms: 2, outcome: TurnOutcome::Completed, suggestions: Vec::new() }),
+            (2, 0, Entry::End { at_ms: 2, outcome: TurnOutcome::Completed, suggestions: Vec::new(), ask: None }),
             (3, 3, user("second question")),
             (
                 4,
@@ -480,7 +498,7 @@ mod tests {
             ),
             (5, 3, text(true)),
             (6, 3, Entry::Notice { text: "restarted".into() }),
-            (7, 3, Entry::End { at_ms: 2, outcome: TurnOutcome::Completed, suggestions: Vec::new() }),
+            (7, 3, Entry::End { at_ms: 2, outcome: TurnOutcome::Completed, suggestions: Vec::new(), ask: None }),
         ];
         let all = recap(&entries, 10_000);
         assert_eq!(
