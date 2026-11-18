@@ -8,6 +8,7 @@ import { commands, type AskOutcome, type ChatState, type Entry, type TurnOutcome
 import { useLive } from "../../state/live";
 import { useWorkspace, type Tab } from "../../state/workspace";
 import { cellsState, moveCell } from "../../testing/notebooks";
+import { connectionConfig } from "../../testing/connections";
 import {
   activateEditor,
   cursorOf,
@@ -155,6 +156,64 @@ it("accepts an empty replacement as deletion", async () => {
   await propose("");
   expect(applyAsk()).toBe(true);
   expect(textOf(TAB.id)).toBe("");
+});
+
+it("applies a CRLF proposal with CodeMirror newline normalization and one Undo", async () => {
+  const editor = setup();
+  boundary();
+  await propose("SELECT 2;\r\n");
+  const state = useAskAi.getState().state;
+  if (state.kind === "review") expect(state.session.draft).toBe("SELECT 2;\r\n");
+  expect(applyAsk()).toBe(true);
+  expect(textOf(TAB.id)).toBe("SELECT 2;\n");
+  expect(editor.state.selection.main.head).toBe(editor.state.doc.length);
+  expect(undo(editor)).toBe(true);
+  expect(textOf(TAB.id)).toBe("SELECT 1;");
+  expect(undo(editor)).toBe(false);
+});
+
+it("clears native selection for review without changing the source used for refinement", async () => {
+  const editor = setup("SELECT 1;", { from: 7, to: 8 });
+  const original = docOf(TAB.id);
+  const { sent } = boundary();
+  await propose("42");
+  expect(editor.state.selection.main.empty).toBe(true);
+  expect(docOf(TAB.id)).toBe(original);
+  expect(undo(editor)).toBe(false);
+  sent.mockResolvedValue({ status: "ok", data: { turn: 8 } });
+  await send("Refine");
+  expect(sent.mock.calls.at(-1)?.[1].source).toEqual({ scope: "Selection", sql: "1", draft: "42" });
+});
+
+it("keeps a request running across reordered options and cancels a genuine option change", async () => {
+  setup();
+  const { stopped } = boundary();
+  const id = await send();
+  useLive
+    .getState()
+    .apply({ kind: "ChatChanged", ...chatState(id), rev: ++rev, options: { permission: "Auto", effort: "high", model: "opus", provider: "Claude" } });
+  expect(useAskAi.getState().state.kind).toBe("sending");
+  expect(stopped).not.toHaveBeenCalled();
+  useLive.getState().apply({ kind: "ChatChanged", ...chatState(id), rev: ++rev, options: { ...options, model: "haiku" } });
+  expect(useAskAi.getState().state.kind).toBe("closed");
+  expect(stopped).toHaveBeenCalledExactlyOnceWith(id, 5);
+});
+
+it("keeps a capture when database, provider and connection fields are reordered", async () => {
+  setup();
+  const config = connectionConfig("c1", "Dev");
+  useWorkspace.setState({ configs: { c1: config } });
+  boundary();
+  await propose("SELECT 2;");
+  const { host, ...rest } = config;
+  const settings = useWorkspace.getState().settings;
+  useWorkspace.setState({ configs: { c1: { ...rest, host } } });
+  expect(useAskAi.getState().state.kind).toBe("review");
+  useWorkspace.getState().setSettings({ ...settings, providers: settings.providers.map(({ provider, ...rest }) => ({ ...rest, provider })) });
+  expect(useAskAi.getState().state.kind).toBe("review");
+  moveCell(TAB.id, { database: "shop", connectionId: "c1" });
+  expect(useAskAi.getState().state.kind).toBe("review");
+  expect(applyAsk()).toBe(true);
 });
 
 it("invalidates proposals on editing, even if Undo restores the same characters", async () => {
