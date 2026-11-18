@@ -254,6 +254,56 @@ impl Cli {
             }
             self.turn_start();
             match scenario {
+                "ask-edit" | "ask-truncated" | "ask-multiple" | "ask-failed" | "ask-ui" => {
+                    let request = prompt.rsplit("User request:\n").next().unwrap_or(&prompt).to_lowercase();
+                    if scenario == "ask-ui" && (request.contains("explain") || request.contains("question")) {
+                        self.stream("This SQL reads the selected rows.\n\n```sql\nSELECT 1;\n```", Duration::ZERO);
+                        self.result_success();
+                        continue;
+                    }
+                    if scenario == "ask-ui" && request.contains("slow") {
+                        self.slow(false);
+                        continue;
+                    }
+                    let source: Value = prompt
+                        .split("Explicit SQL attachment:\n")
+                        .nth(1)
+                        .and_then(|s| s.lines().next())
+                        .and_then(|s| serde_json::from_str(s).ok())
+                        .unwrap_or(Value::Null);
+                    let sql = if request.contains("delete") {
+                        ""
+                    } else if request.contains("unchanged") {
+                        source["sql"].as_str().unwrap_or("")
+                    } else if request.contains("refine") {
+                        "SELECT 2;\n"
+                    } else {
+                        &self.sql
+                    };
+                    let reply = format!(
+                        "```ask-edit\n{}\n{}",
+                        json!({ "sql": sql }),
+                        if scenario == "ask-truncated" || request.contains("truncated") { "" } else { "```" }
+                    );
+                    self.stream(&reply, Duration::from_millis(10));
+                    if scenario == "ask-multiple" {
+                        self.stream(&reply, Duration::ZERO);
+                    }
+                    if scenario == "ask-failed" || (scenario == "ask-ui" && request.contains("fail")) {
+                        eprintln!("fake-claude: failed after proposal");
+                        std::process::exit(1);
+                    }
+                    self.result_success();
+                }
+                "ask-question" => {
+                    self.stream("This SQL reads the selected rows.\n\n```sql\nSELECT 1;\n```", Duration::ZERO);
+                    self.result_success();
+                }
+                "ask-split" => {
+                    self.stream("```ask-edit\n", Duration::ZERO);
+                    self.stream(&format!("{}\n```", json!({ "sql": self.sql })), Duration::ZERO);
+                    self.result_success();
+                }
                 "card" => {
                     self.stream(CARD_REPLY, Duration::from_millis(30));
                     self.result_success();

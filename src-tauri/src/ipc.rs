@@ -533,6 +533,22 @@ pub fn assistant_stop(engine: State<'_, Arc<Engine>>, chat_id: ChatId) {
 
 #[tauri::command]
 #[specta::specta]
+pub async fn assistant_ask(
+    engine: State<'_, Arc<Engine>>,
+    chat_id: ChatId,
+    request: AskRequest,
+) -> Result<TurnAccepted, SendError> {
+    engine.assistant_ask(chat_id, request).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn assistant_stop_turn(engine: State<'_, Arc<Engine>>, chat_id: ChatId, turn: u32) {
+    engine.assistant_stop_turn(chat_id, turn)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn assistant_approve(
     engine: State<'_, Arc<Engine>>,
     chat_id: ChatId,

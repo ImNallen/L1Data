@@ -3,7 +3,17 @@ import { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory } 
 import { bracketMatching, indentOnInput } from "@codemirror/language";
 import { setDiagnostics, type Diagnostic } from "@codemirror/lint";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
-import { Compartment, countColumn, EditorState, StateEffect, StateField, type Extension, type Text, type TransactionSpec } from "@codemirror/state";
+import {
+  Compartment,
+  countColumn,
+  EditorState,
+  StateEffect,
+  StateField,
+  Transaction,
+  type Extension,
+  type Text,
+  type TransactionSpec,
+} from "@codemirror/state";
 import {
   Decoration,
   drawSelection,
@@ -22,9 +32,11 @@ import type { CatalogView } from "../../state/catalog";
 import { engineCompletion } from "./completion";
 import { SQL_DIALECT } from "./sqlDialect";
 import { editorHighlighting, editorTheme, functionCallStyle, LINE_PADDING_LEFT } from "./theme";
+import { askDiffTheme, askPreviewEffect, askPreviewField, type AskPreview } from "./askDiff";
 
 const states = new Map<TabId, EditorState>();
 const bufferListeners = new Set<() => void>();
+const geometryListeners = new Set<() => void>();
 let view: EditorView | null = null;
 let activeId: TabId | null = null;
 let behavior: Extension = [];
@@ -213,8 +225,11 @@ function createState(text: string): EditorState {
     doc: text,
     extensions: [
       behavior,
+      EditorView.updateListener.of(() => {
+        for (const listener of geometryListeners) listener();
+      }),
       lineNumbers(),
-      placeholder("Write SQL, or ask the assistant to add a query…"),
+      placeholder("Write SQL, or use Ask AI (⌘/Ctrl+J)…"),
       highlightActiveLineGutter(),
       highlightActiveLine(),
       history(),
@@ -227,6 +242,8 @@ function createState(text: string): EditorState {
       keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...completionKeymap, indentWithTab]),
       sqlConfig.of(sqlLanguage(undefined, "Postgres")),
       flashField,
+      askPreviewField,
+      askDiffTheme,
       previewField,
       referenceField,
       runTargetField,
@@ -359,6 +376,49 @@ export function cursorAnchor(): { right: number; top: number; bottom: number } |
   return { right: box.right, top: at?.top ?? box.top, bottom: at?.bottom ?? box.top };
 }
 
+export function onEditorGeometry(listener: () => void): () => void {
+  geometryListeners.add(listener);
+  return () => {
+    geometryListeners.delete(listener);
+  };
+}
+
+export function askAnchor(id: TabId, position: number, end = position): { left: number; right: number; top: number; bottom: number } | null {
+  if (!view || activeId !== id) return null;
+  const box = view.scrollDOM.getBoundingClientRect();
+  const at = view.coordsAtPos(Math.min(position, view.state.doc.length));
+  let left = at?.left ?? box.left;
+  const last = view.state.doc.lineAt(Math.min(end, view.state.doc.length));
+  const firstVisible = view.state.doc.lineAt(Math.max(position, view.viewport.from)).number;
+  const lastVisible = Math.min(last.number, view.state.doc.lineAt(view.viewport.to).number);
+  for (let line = firstVisible; line <= lastVisible; line++) {
+    const edge = view.coordsAtPos(view.state.doc.line(line).to);
+    if (edge) left = Math.max(left, edge.right);
+  }
+  const bottom = view.coordsAtPos(Math.min(end, view.state.doc.length))?.bottom ?? at?.bottom;
+  const top = Math.max(box.top, Math.min(at?.top ?? box.top, box.bottom));
+  return { left: Math.max(box.left, Math.min(left, box.right)), right: box.right, top, bottom: Math.min(box.bottom, Math.max(top, bottom ?? top)) };
+}
+
+export function askPreviewHeight(id: TabId): number {
+  if (!view || activeId !== id) return 0;
+  return Array.from(view.dom.querySelectorAll(".cm-ask-added")).reduce((total, element) => total + element.getBoundingClientRect().height, 0);
+}
+
+export function showAskPreview(id: TabId, preview: AskPreview | null): void {
+  updateEditor(id, (state) => ({
+    effects: askPreviewEffect.of(preview),
+    selection: preview && state.doc === preview.doc && !state.selection.main.empty ? { anchor: state.selection.main.head } : undefined,
+    annotations: Transaction.addToHistory.of(false),
+  }));
+}
+
+export function applyCapturedEdit(id: TabId, doc: Text, edit: FormatEdit): boolean {
+  if (docOf(id) !== doc) return false;
+  applyFormatEdit(id, edit);
+  return true;
+}
+
 export function showDiagnostics(id: TabId, diagnostics: Diagnostic[]): void {
   updateEditor(id, (state) => setDiagnostics(state, diagnostics));
 }
@@ -370,22 +430,29 @@ export function moveCursor(id: TabId, pos: number): void {
 export function insertAtCursor(id: TabId, text: string): void {
   updateEditor(id, (state) => {
     const { from, to } = state.selection.main;
-    return { changes: { from, to, insert: text }, selection: { anchor: from + text.length } };
+    const insert = state.toText(text);
+    return { changes: { from, to, insert }, selection: { anchor: from + insert.length } };
   });
 }
 
 /** Applies a format in one transaction that history keeps apart from typing, so one undo restores the old text. */
 export function applyFormatEdit(id: TabId, { from, to, insert }: FormatEdit): void {
-  updateEditor(id, () => ({
-    changes: { from, to, insert },
-    selection: { anchor: from + insert.length },
-    annotations: isolateHistory.of("full"),
-    userEvent: "input.format",
-    scrollIntoView: true,
-  }));
+  updateEditor(id, (state) => {
+    const text = state.toText(insert);
+    return {
+      changes: { from, to, insert: text },
+      selection: { anchor: from + text.length },
+      annotations: isolateHistory.of("full"),
+      userEvent: "input.format",
+      scrollIntoView: true,
+    };
+  });
 }
 
 /** Swaps the whole document in one transaction. Its userEvent keeps history from joining it with recent typing, so one undo restores the old text. */
 export function replaceDoc(id: TabId, text: string): void {
-  updateEditor(id, (state) => ({ changes: { from: 0, to: state.doc.length, insert: text }, selection: { anchor: text.length }, userEvent: "input" }));
+  updateEditor(id, (state) => {
+    const insert = state.toText(text);
+    return { changes: { from: 0, to: state.doc.length, insert }, selection: { anchor: insert.length }, userEvent: "input" };
+  });
 }

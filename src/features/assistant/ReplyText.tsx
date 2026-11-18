@@ -3,6 +3,7 @@ import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { DatabaseKind, DatabaseRef, ReplyBlock } from "../../ipc/bindings";
 import { SqlCard } from "./SqlCard";
+import { SqlHighlight } from "./SqlHighlight";
 
 const REMARK = [remarkGfm];
 
@@ -72,6 +73,10 @@ export function ReplyText({
       {blocks.map((b, i) =>
         b.kind === "Markdown" ? (
           <MarkdownBlock key={i} text={b.text} />
+        ) : b.kind === "Replacement" ? (
+          <div key={i} className="max-h-80 overflow-auto rounded-md border border-control px-3 py-2">
+            <SqlHighlight sql={b.sql} databaseKind={databaseKind} />
+          </div>
         ) : (
           <SqlCard key={i} sql={b.sql} relations={b.relations} vetted={b.vetted} complete={b.complete} db={db} databaseKind={databaseKind} />
         ),

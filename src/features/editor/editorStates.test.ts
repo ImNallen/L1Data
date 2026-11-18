@@ -17,6 +17,7 @@ import { useRelationDetail } from "../../state/relationDetail";
 import { shopCatalog } from "../../testing/shopCatalog";
 import { completionOptions } from "./completion";
 import {
+  applyFormatEdit,
   configureSql,
   docOf,
   dropEditor,
@@ -28,6 +29,16 @@ import {
   replaceDoc,
   seedEditor,
 } from "./editorStates";
+
+it.each(["insert", "replace", "format"])("normalizes CRLF before placing the cursor after %s", (operation) => {
+  seedEditor("t1", "SELECT 1;");
+  if (operation === "insert") insertAtCursor("t1", "SELECT 2;\r\n");
+  if (operation === "replace") replaceDoc("t1", "SELECT 2;\r\n");
+  if (operation === "format") applyFormatEdit("t1", { from: 0, to: 9, insert: "SELECT 2;\r\n" });
+  const state = editorStateOf("t1");
+  expect(state.doc.toString()).toBe(operation === "insert" ? "SELECT 2;\nSELECT 1;" : "SELECT 2;\n");
+  expect(state.selection.main.head).toBe(10);
+});
 
 afterEach(() => {
   dropEditor("t1");

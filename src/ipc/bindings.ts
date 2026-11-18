@@ -80,6 +80,8 @@ export const commands = {
 	assistantConfigure: (chatId: ChatId, options: ChatOptions) => typedError<ChatState, ChatError>(__TAURI_INVOKE("assistant_configure", { chatId, options })),
 	assistantSend: (chatId: ChatId, request: SendRequest) => typedError<TurnAccepted, SendError>(__TAURI_INVOKE("assistant_send", { chatId, request })),
 	assistantStop: (chatId: ChatId) => __TAURI_INVOKE<void>("assistant_stop", { chatId }),
+	assistantAsk: (chatId: ChatId, request: AskRequest) => typedError<TurnAccepted, SendError>(__TAURI_INVOKE("assistant_ask", { chatId, request })),
+	assistantStopTurn: (chatId: ChatId, turn: number) => __TAURI_INVOKE<void>("assistant_stop_turn", { chatId, turn }),
 	assistantApprove: (chatId: ChatId, approval: ApprovalId, decision: Decision) => typedError<null, ApproveError>(__TAURI_INVOKE("assistant_approve", { chatId, approval, decision })),
 	assistantDelete: (chatId: ChatId) => __TAURI_INVOKE<void>("assistant_delete", { chatId }),
 	providerRefresh: () => __TAURI_INVOKE<void>("provider_refresh"),
@@ -188,6 +190,24 @@ export type ApprovalReason = { kind: "AskFirst" } |
 export type ApproveError = 
 /**  Answered already, denied by Stop, expired, or another chat's. */
 { kind: "NotPending" };
+
+export type AskOutcome = { kind: "Answer" } | { kind: "Replacement"; sql: string } | { kind: "Invalid"; message: string };
+
+export type AskRequest = {
+	text: string,
+	tabId: TabId,
+	db: DatabaseRef | null,
+	schema: string | null,
+	source: AskSource,
+};
+
+export type AskScope = "Selection" | "Cell";
+
+export type AskSource = {
+	scope: AskScope,
+	sql: string,
+	draft: string | null,
+};
 
 export type AssistantAccess = "SchemaOnly" | "Full";
 
@@ -716,7 +736,7 @@ export type Entry = { kind: "User"; atMs: number; text: string; context: SentCon
 /**  Shown when the engine had to change course, such as a lost provider session. */
 { kind: "Notice"; text: string } | 
 /**  Closes every turn. */
-{ kind: "End"; atMs: number; outcome: TurnOutcome; suggestions: string[] } | { kind: "Unreadable" };
+{ kind: "End"; atMs: number; outcome: TurnOutcome; suggestions: string[]; ask?: AskOutcome | null } | { kind: "Unreadable" };
 
 export type EntrySnapshot = {
 	chatId: ChatId,
@@ -1451,7 +1471,7 @@ export type ReleaseChanges = {
 	items: ChangeItem[],
 };
 
-export type ReplyBlock = { kind: "Markdown"; text: string } | 
+export type ReplyBlock = { kind: "Markdown"; text: string } | { kind: "Replacement"; sql: string } | 
 /**  A fenced SQL block. `relations` and `vetted` are filled when the fence closes. */
 { kind: "Sql"; sql: string; relations: string[]; vetted: boolean; complete: boolean };
 
@@ -1788,6 +1808,7 @@ export type SentContext = {
 	/**  As named at send, so the chip reads right after a rename or a delete. */
 	connectionName: string | null,
 	tabTitle: string,
+	ask: AskSource | null,
 };
 
 export type SequenceInfo = {

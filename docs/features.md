@@ -168,6 +168,14 @@ A `.sql` file is a notebook, and a notebook can be saved to one. A notebook does
 - The Queries, connection, and theme dialogs share Settings' centered frame and blurred backdrop. `Esc` closes the active dialog first, after any field cancels its draft.
 - On macOS the window keeps the native traffic lights. On Windows and Linux the app draws its own window controls and resize edges.
 
+## Ask AI in a SQL cell
+
+- **Ask AI** in the command panel, or `⌘J`, opens a small prompt beside the selection or cursor. It captures exactly the selected SQL. With no selection, it captures the whole cell. An empty cell supports generation from the schema. Opening the prompt creates no chat until you send a request.
+- Questions open the assistant panel with the captured SQL attached. Edits and generated SQL appear as changed lines inside the editor. Red lines show removals, and green lines show additions. The original SQL stays unchanged until you choose **Apply** or **Insert SQL**. One Undo restores the original text. Ask AI never runs SQL.
+- **Ask AI** beside a proposal refines it or asks about it. The original capture and latest proposal accompany each request. **Discard** removes the preview. `Esc`, the close button, or a click outside the prompt cancels that request and restores any held proposal. Closing a review discards it.
+- Editing the captured cell, switching or closing it, changing its database or schema, or changing assistant settings invalidates pending requests and proposals. Cursor movement alone keeps the capture. Failed, cancelled, incomplete, or malformed replies cannot change the editor.
+- Every Ask request starts fresh with its current prompt, explicit SQL attachment, latest proposal, and safe schema facts. It sends no surrounding cell SQL, prior chat, result rows, or last-run errors. Explicit SQL sharing works in **Schema only** without changing global access. Ask AI uses the existing provider, model, and effort settings. A question's chat can continue in the assistant panel with its visible attachments.
+
 ## Keyboard shortcuts
 
 `Ctrl` works in place of `⌘` on Windows and Linux.
@@ -181,6 +189,7 @@ A `.sql` file is a notebook, and a notebook can be saved to one. A notebook does
 | `⌘N` | New connection |
 | `⌘P` | Open quick navigation for databases, tabs, tables and views |
 | `⌘⇧P` | Search available workspace commands |
+| `⌘J` | Ask AI about the selection or whole cell |
 | `⌘,` | Open or close Settings |
 | `⌘W` | Close the tab, or close Settings |
 | `⌘↵` | Run the selection, or the marked statement under the cursor |

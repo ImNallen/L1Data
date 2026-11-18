@@ -2409,6 +2409,14 @@ impl Engine {
         self.shared.assistant_stop(chat)
     }
 
+    pub async fn assistant_ask(&self, chat: ChatId, request: AskRequest) -> Result<TurnAccepted, SendError> {
+        self.shared.assistant_ask(chat, request).await
+    }
+
+    pub fn assistant_stop_turn(&self, chat: ChatId, turn: u32) {
+        self.shared.assistant_stop_turn(chat, turn)
+    }
+
     pub fn assistant_approve(
         &self,
         chat: ChatId,

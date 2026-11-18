@@ -148,6 +148,8 @@ routes! { e;
     assistant_configure(chat_id: ChatId, options: ChatOptions) => e.assistant_configure(chat_id, options);
     assistant_send(chat_id: ChatId, request: SendRequest) => e.assistant_send(chat_id, request).await;
     assistant_stop(chat_id: ChatId) => { e.assistant_stop(chat_id); ok(()) };
+    assistant_ask(chat_id: ChatId, request: AskRequest) => e.assistant_ask(chat_id, request).await;
+    assistant_stop_turn(chat_id: ChatId, turn: u32) => { e.assistant_stop_turn(chat_id, turn); ok(()) };
     assistant_approve(chat_id: ChatId, approval: ApprovalId, decision: Decision) => e.assistant_approve(chat_id, approval, decision);
     assistant_delete(chat_id: ChatId) => { e.assistant_delete(chat_id).await; ok(()) };
     provider_refresh() => { e.provider_refresh(); ok(()) };

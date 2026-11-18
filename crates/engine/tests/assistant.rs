@@ -248,7 +248,7 @@ fn text_of(entry: &Entry) -> String {
         .iter()
         .map(|b| match b {
             ReplyBlock::Markdown { text } => text.clone(),
-            ReplyBlock::Sql { sql, .. } => sql.clone(),
+            ReplyBlock::Sql { sql, .. } | ReplyBlock::Replacement { sql } => sql.clone(),
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -820,8 +820,7 @@ async fn a_lost_session_falls_back_to_a_new_one_with_a_notice_and_a_recap() {
         Some("Claude could not resume this chat, so it was restarted with a summary of the conversation.")
     );
     assert!(
-        h.stdin_lines().iter().any(|l| l.contains("Earlier in this conversation, restored after the session was lost")
-            && l.contains("User: first")),
+        h.stdin_lines().iter().any(|l| l.contains("Earlier in this conversation") && l.contains("User: first")),
         "the retry's prompt carries the recap"
     );
     h.send(chat, "third").await;
@@ -856,11 +855,8 @@ async fn a_session_lost_at_the_first_result_is_restarted_with_a_recap_that_leave
         matches!(&entries[4], Entry::Notice { .. }),
         "the notice follows the second turn's user entry: {entries:?}"
     );
-    let recaps: Vec<String> = h
-        .stdin_lines()
-        .into_iter()
-        .filter(|l| l.contains("Earlier in this conversation, restored after the session was lost"))
-        .collect();
+    let recaps: Vec<String> =
+        h.stdin_lines().into_iter().filter(|l| l.contains("Earlier in this conversation")).collect();
     assert_eq!(recaps.len(), 1);
     assert!(
         recaps[0].contains("User: first") && !recaps[0].contains("User: second"),
@@ -1014,10 +1010,7 @@ async fn a_changed_config_dir_restarts_the_session_with_a_recap() {
             .any(|e| matches!(e, Entry::Notice { text } if text.starts_with("Claude could not resume this chat"))),
         "{entries:?}"
     );
-    assert!(
-        h.stdin_lines().iter().any(|l| l.contains("Earlier in this conversation, restored after the session was lost")
-            && l.contains("User: first"))
-    );
+    assert!(h.stdin_lines().iter().any(|l| l.contains("Earlier in this conversation") && l.contains("User: first")));
     h.send(chat, "third").await;
     assert_eq!(h.wait_end(chat).await.0, TurnOutcome::Completed);
     let argvs = h.turn_argvs();
@@ -1926,6 +1919,35 @@ async fn sql_server_model_queries_are_refused_without_an_approval_even_without_a
 }
 
 #[tokio::test]
+async fn ordinary_full_access_sql_server_queries_still_request_approval_when_enabled() {
+    for permission in [Permission::Auto, Permission::AskFirst] {
+        let mut h = Harness::open().await;
+        h.use_fake_with("query", "--fake-sql 'SELECT TOP (1) [id] FROM [dbo].[orders]'");
+        let mut draft =
+            engine::draft_from_url("mssql://sa@127.0.0.1:1/shop?sslmode=require", "offline SQL Server").unwrap();
+        draft.assistant_read_only = true;
+        let config = h.engine.save_connection(draft).await.unwrap();
+        let chat = h.chat(permission);
+        let tab = TabContext {
+            tab_id: TabId(uuid::Uuid::new_v4()),
+            title: "orders.sql".into(),
+            db: Some(DatabaseRef { connection_id: config.id, database: "shop".into() }),
+            text: "SELECT 1".into(),
+            target: RunTarget::All,
+            attach: None,
+        };
+        h.engine.assistant_send(chat, SendRequest { text: "Count orders".into(), tab: Some(tab) }).await.unwrap();
+        let (approval, reason) = h.wait_approval(chat).await;
+        assert_eq!(reason, ApprovalReason::AskFirst);
+        let offered =
+            h.stdin_lines().into_iter().find(|l| l.contains("mcp_response") && l.contains("describe_tables")).unwrap();
+        assert!(offered.contains("run_query"));
+        h.engine.assistant_approve(chat, approval, Decision::Deny).unwrap();
+        assert_eq!(h.wait_end(chat).await.0, TurnOutcome::Completed);
+    }
+}
+
+#[tokio::test]
 async fn schema_only_is_default_and_drops_stale_attachments_before_loading_or_storing_rows() {
     let mut h = Harness::open_in(tempfile::tempdir().unwrap()).await;
     assert_eq!(h.engine.settings().assistant_access, AssistantAccess::SchemaOnly);
@@ -2089,4 +2111,151 @@ async fn switching_access_while_a_chat_is_unloaded_excludes_its_old_context_and_
     let prompt = h.stdin_lines().into_iter().rfind(|l| l.contains("Summarize")).unwrap();
     assert!(!prompt.contains("FULL_HISTORY_CANARY"), "{prompt}");
     assert!(prompt.contains("SAFE_NEW_HISTORY"));
+}
+
+fn ask_request(text: &str, sql: &str, draft: Option<&str>) -> AskRequest {
+    AskRequest {
+        text: text.into(),
+        tab_id: TabId(uuid::Uuid::new_v4()),
+        db: None,
+        schema: Some("public".into()),
+        source: AskSource { scope: AskScope::Selection, sql: sql.into(), draft: draft.map(str::to_owned) },
+    }
+}
+
+#[tokio::test]
+async fn ask_keeps_explicit_sql_in_schema_only_and_starts_each_turn_fresh() {
+    let mut h = Harness::open_in(tempfile::tempdir().unwrap()).await;
+    h.use_fake("echo");
+    let chat = h.chat(Permission::Auto);
+    h.send(chat, "UNRELATED_HISTORY_CANARY").await;
+    h.wait_end(chat).await;
+    h.wait_idle(chat).await;
+    h.use_fake("ask-edit");
+    let source = "  SELECT 'exact';\r\n";
+    for draft in [None, Some("SELECT 'accepted';\n")] {
+        h.engine.assistant_ask(chat, ask_request("Edit this", source, draft)).await.unwrap();
+        let end = h.wait_entry(chat, "Ask outcome", |s| matches!(s.entry, Entry::End { .. })).await;
+        assert!(matches!(
+            end.entry,
+            Entry::End { outcome: TurnOutcome::Completed, ask: Some(AskOutcome::Replacement { .. }), .. }
+        ));
+        h.wait_idle(chat).await;
+        let prompt = h.stdin_lines().into_iter().rfind(|l| l.contains("User request:")).unwrap();
+        assert!(!prompt.contains("UNRELATED_HISTORY_CANARY"), "{prompt}");
+        assert!(!h.turn_argvs().last().unwrap().iter().any(|a| a == "--resume"));
+        let initialize = h
+            .stdin_lines()
+            .into_iter()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(&line).ok())
+            .filter(|frame| frame["request"]["subtype"] == "initialize")
+            .filter_map(|frame| frame["request"]["systemPrompt"].as_str().filter(|s| !s.is_empty()).map(str::to_owned))
+            .next_back()
+            .unwrap();
+        assert!(initialize.contains("exactly one closed ask-edit fenced JSON object"), "{initialize}");
+        assert!(!initialize.contains("End with a ```followups"));
+        let entries = h.entries(chat).await;
+        assert!(entries.iter().any(|e| matches!(e, Entry::User { context: Some(SentContext { ask: Some(a), .. }), .. } if a.sql == source && a.draft.as_deref() == draft)));
+        assert!(!entries.iter().any(|e| matches!(e, Entry::Text { blocks, .. } if blocks.iter().any(|b| matches!(b, ReplyBlock::Markdown { text } if text.contains("ask-edit"))))));
+    }
+    h.use_fake("echo");
+    h.send(chat, "Continue in panel").await;
+    h.wait_end(chat).await;
+    let prompt = h.stdin_lines().into_iter().rfind(|l| l.contains("Continue in panel")).unwrap();
+    assert!(prompt.contains("Explicit SQL attachment") && prompt.contains("accepted"), "{prompt}");
+    assert!(!h.turn_argvs().last().unwrap().iter().any(|a| a == "--resume"));
+}
+
+#[tokio::test]
+async fn ask_never_offers_or_executes_queries_under_full_access() {
+    for url in ["postgres://test@127.0.0.1:1/shop", "mssql://sa@127.0.0.1:1/shop?sslmode=require"] {
+        for scenario in ["query", "query-forged"] {
+            for permission in [Permission::Auto, Permission::AskFirst] {
+                let mut h = Harness::open().await;
+                h.use_fake(scenario);
+                let mut draft = engine::draft_from_url(url, "offline Ask target").unwrap();
+                draft.assistant_read_only = true;
+                let config = h.engine.save_connection(draft).await.unwrap();
+                let chat = h.chat(permission);
+                let request = AskRequest {
+                    db: Some(DatabaseRef { connection_id: config.id, database: "shop".into() }),
+                    ..ask_request("Run this", "SELECT 1", None)
+                };
+                h.engine.assistant_ask(chat, request).await.unwrap();
+                assert_eq!(h.wait_end(chat).await.0, TurnOutcome::Completed);
+                let entries = h.entries(chat).await;
+                assert!(entries.iter().any(|e| matches!(e, Entry::Tool { status: ToolStatus::Failed { message }, .. } if message.contains("Schema only"))), "{entries:?}");
+                assert!(!entries.iter().any(|e| matches!(
+                    e,
+                    Entry::Tool {
+                        status: ToolStatus::AwaitingApproval { .. }
+                            | ToolStatus::Done { result: ToolResult::Rows { .. } },
+                        ..
+                    }
+                )));
+                let offered = h
+                    .stdin_lines()
+                    .into_iter()
+                    .find(|l| l.contains("mcp_response") && l.contains("describe_tables"))
+                    .unwrap();
+                assert!(!offered.contains("run_query"));
+                assert!(!h.stdin_lines().iter().any(|l| l.contains("\"behavior\":\"allow\"")));
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn only_a_successful_complete_ask_turn_can_propose_an_edit() {
+    for scenario in ["ask-question", "ask-truncated", "ask-multiple", "ask-failed"] {
+        let mut h = Harness::open().await;
+        h.use_fake(scenario);
+        let chat = h.chat(Permission::Auto);
+        h.engine.assistant_ask(chat, ask_request("Help", "SELECT 1", None)).await.unwrap();
+        let end = h.wait_entry(chat, "Ask end", |s| matches!(s.entry, Entry::End { .. })).await;
+        let Entry::End { ask, .. } = end.entry else { unreachable!() };
+        match scenario {
+            "ask-question" => assert_eq!(ask, Some(AskOutcome::Answer)),
+            "ask-failed" => assert_eq!(ask, None),
+            _ => assert!(matches!(ask, Some(AskOutcome::Invalid { .. }))),
+        }
+        assert!(!h.entries(chat).await.iter().any(|e| matches!(e, Entry::Text { blocks, .. } if blocks.iter().any(|b| matches!(b, ReplyBlock::Replacement { .. })))));
+    }
+}
+
+#[tokio::test]
+async fn stop_turn_does_not_cancel_a_different_turn() {
+    let mut h = Harness::open().await;
+    h.use_fake("slow");
+    let chat = h.chat(Permission::Auto);
+    let first = h.engine.assistant_ask(chat, ask_request("slow", "", None)).await.unwrap();
+    h.engine.assistant_stop_turn(chat, first.turn);
+    h.wait_end(chat).await;
+    h.wait_idle(chat).await;
+    let second = h.engine.assistant_ask(chat, ask_request("slow again", "", None)).await.unwrap();
+    h.engine.assistant_stop_turn(chat, first.turn);
+    h.wait_chat(
+        chat,
+        "second turn working",
+        |s| matches!(s.status, ChatStatus::Running { turn, phase: TurnPhase::Working, .. } if turn == second.turn),
+    )
+    .await;
+    assert!(
+        matches!(h.engine.assistant_open(chat).await.unwrap().state.status, ChatStatus::Running { turn, .. } if turn == second.turn)
+    );
+    h.engine.assistant_stop_turn(chat, second.turn);
+    assert_eq!(h.wait_end(chat).await.0, TurnOutcome::Stopped);
+}
+
+#[tokio::test]
+async fn an_ask_envelope_split_across_provider_blocks_is_decoded_once_and_never_displayed() {
+    let mut h = Harness::open().await;
+    h.use_fake("ask-split");
+    let chat = h.chat(Permission::Auto);
+    h.engine.assistant_ask(chat, ask_request("Edit", "SELECT 1", None)).await.unwrap();
+    let end = h.wait_entry(chat, "Ask end", |s| matches!(s.entry, Entry::End { .. })).await;
+    assert!(matches!(end.entry, Entry::End { ask: Some(AskOutcome::Replacement { .. }), .. }));
+    let entries = h.entries(chat).await;
+    assert_eq!(entries.iter().filter(|e| matches!(e, Entry::Text { blocks, .. } if blocks.iter().any(|b| matches!(b, ReplyBlock::Replacement { .. })))).count(), 1);
+    assert!(!entries.iter().any(|e| matches!(e, Entry::Text { blocks, .. } if blocks.iter().any(|b| matches!(b, ReplyBlock::Markdown { text } if text.contains("ask-edit") || text.contains("\"sql\""))))));
 }

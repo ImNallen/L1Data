@@ -1,3 +1,4 @@
+mod ask;
 pub(crate) mod chat;
 mod context;
 mod reply;
@@ -204,7 +205,36 @@ impl Shared {
     pub(crate) async fn assistant_send(
         self: &Arc<Self>,
         id: ChatId,
+        request: SendRequest,
+    ) -> Result<TurnAccepted, SendError> {
+        self.admit_turn(id, request, ask::Purpose::Chat).await
+    }
+
+    pub(crate) async fn assistant_ask(
+        self: &Arc<Self>,
+        id: ChatId,
+        request: AskRequest,
+    ) -> Result<TurnAccepted, SendError> {
+        let purpose = ask::Purpose::Ask { source: request.source, schema: request.schema };
+        let request = SendRequest {
+            text: request.text,
+            tab: Some(TabContext {
+                tab_id: request.tab_id,
+                db: request.db,
+                title: String::new(),
+                text: String::new(),
+                target: RunTarget::All,
+                attach: None,
+            }),
+        };
+        self.admit_turn(id, request, purpose).await
+    }
+
+    async fn admit_turn(
+        self: &Arc<Self>,
+        id: ChatId,
         mut request: SendRequest,
+        purpose: ask::Purpose,
     ) -> Result<TurnAccepted, SendError> {
         let text = request.text.trim().to_owned();
         if text.is_empty() {
@@ -261,6 +291,10 @@ impl Shared {
                 inner.record.created_at_ms = now_ms();
             }
             let seq = inner.next_seq();
+            if purpose.is_ask() {
+                inner.record.session = None;
+                inner.last_context = None;
+            }
             let (control, control_rx) = mpsc::channel(4);
             inner.turn = Some(ActiveTurn {
                 db: request.tab.as_ref().and_then(|t| t.db.clone()),
@@ -278,13 +312,22 @@ impl Shared {
             db: t.db.clone(),
             connection_name,
             tab_title: t.title.clone(),
+            ask: purpose.source().cloned(),
         });
         let entry = Entry::User { at_ms: now_ms(), text: text.clone(), context, attachment };
         chat.store_entry(self, seq, seq, &entry);
         chat.publish_entry(self, seq, seq, entry);
         chat.publish_state(self);
-        let plan =
-            TurnPlan { chat: chat.clone(), turn: seq, options, user_text: text, tab: request.tab, closing, access };
+        let plan = TurnPlan {
+            chat: chat.clone(),
+            turn: seq,
+            options,
+            user_text: text,
+            tab: request.tab,
+            closing,
+            access,
+            purpose,
+        };
         let turn = self.spawn(turn::run_turn(self.clone(), plan, control_rx));
         let abort = turn.abort_handle();
         let supervisor = self.spawn(supervise(self.clone(), chat.clone(), turn));
@@ -317,6 +360,17 @@ impl Shared {
             && let Some(active) = chat.inner.lock().turn.as_ref()
         {
             let _ = active.control.try_send(TurnControl::Stop { grace: STOP_GRACE });
+        }
+    }
+
+    pub(crate) fn assistant_stop_turn(&self, id: ChatId, turn: u32) {
+        if let Some(chat) = self.assistant.get(id) {
+            let inner = chat.inner.lock();
+            if matches!(inner.status, ChatStatus::Running { turn: active, .. } if active == turn)
+                && let Some(active) = &inner.turn
+            {
+                let _ = active.control.try_send(TurnControl::Stop { grace: STOP_GRACE });
+            }
         }
     }
 

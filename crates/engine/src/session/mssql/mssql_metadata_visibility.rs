@@ -249,7 +249,7 @@ async fn select_only_login_keeps_relation_detail_and_actual_assistant_descriptio
         let detail = h.engine.relation_detail(db(reader), relation.oid).await;
         h.engine.set_settings(Settings { assistant_access: AssistantAccess::Full, ..h.engine.settings() }).unwrap();
         let access = *h.engine.shared.access.lock();
-        let described = tools::execute(&h.engine.shared, Some(&db(reader)), ParsedCall::DescribeTables { tables: vec![format!("dbo.{table}")] }, access).await;
+        let described = tools::execute(&h.engine.shared, Some(&db(reader)), ParsedCall::DescribeTables { tables: vec![format!("dbo.{table}")] }, access, access.mode).await;
         eprintln!("Public relation_detail {detail:?}\nActual describe_tables {:?}\n{}", described.status, described.for_model.text);
         let detail = detail.expect("SELECT-only relation detail retains available metadata");
         assert_structure(&detail, &stem);

@@ -715,7 +715,12 @@ mod tests {
         assert_eq!(s.chat(old).unwrap(), Some(resumed));
         assert_eq!(s.chat(chat_id(9)).unwrap(), None);
 
-        let done = Entry::End { at_ms: 9, outcome: TurnOutcome::Completed, suggestions: vec!["Show totals".into()] };
+        let done = Entry::End {
+            at_ms: 9,
+            outcome: TurnOutcome::Completed,
+            suggestions: vec!["Show totals".into()],
+            ask: None,
+        };
         s.put_entries(
             old,
             &[

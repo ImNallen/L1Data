@@ -16,6 +16,14 @@ pub(crate) struct Parsed {
 }
 
 pub(crate) fn parse_text(text: &str, done: bool) -> Parsed {
+    parse(text, done, false)
+}
+
+pub(crate) fn parse_ask_text(text: &str, done: bool) -> Parsed {
+    parse(text, done, true)
+}
+
+fn parse(text: &str, done: bool, hide_edit: bool) -> Parsed {
     let mut parsed = Parsed::default();
     let mut markdown = String::new();
     let mut lines = text.split_inclusive('\n').peekable();
@@ -56,6 +64,8 @@ pub(crate) fn parse_text(text: &str, done: bool) -> Parsed {
                 vetted: false,
                 complete: closed || done,
             });
+        } else if hide_edit && info == super::ask::FENCE {
+            continue;
         } else if info == FOLLOWUPS_INFO {
             if closed || done {
                 parsed.followups = body
@@ -83,7 +93,7 @@ fn cut_followup(line: &str) -> String {
     cut(line.trim_start_matches(['-', '*', ' ']).trim_matches('"').trim(), MAX_FOLLOWUP_CHARS)
 }
 
-fn fence_open(line: &str) -> Option<(usize, &str)> {
+pub(super) fn fence_open(line: &str) -> Option<(usize, &str)> {
     let rest = line.trim_start_matches(' ');
     if line.len() - rest.len() > 3 {
         return None;
@@ -93,7 +103,7 @@ fn fence_open(line: &str) -> Option<(usize, &str)> {
     (ticks >= 3 && !info.contains('`')).then(|| (ticks, info.split_whitespace().next().unwrap_or("")))
 }
 
-fn fence_close(line: &str, ticks: usize) -> bool {
+pub(super) fn fence_close(line: &str, ticks: usize) -> bool {
     let rest = line.trim_start_matches(' ');
     let body = rest.trim_end();
     line.len() - rest.len() <= 3 && !body.is_empty() && body.chars().all(|c| c == '`') && body.len() >= ticks
@@ -168,7 +178,11 @@ pub(crate) fn recover(entries: &[(u32, u32, Entry)], at_ms: i64) -> Vec<(u32, u3
     }
     let mut next_seq = entries.iter().map(|(seq, _, _)| seq + 1).max().unwrap_or(0);
     for turn in open_turns {
-        fixes.push((next_seq, turn, Entry::End { at_ms, outcome: TurnOutcome::Lost, suggestions: Vec::new() }));
+        fixes.push((
+            next_seq,
+            turn,
+            Entry::End { at_ms, outcome: TurnOutcome::Lost, suggestions: Vec::new(), ask: None },
+        ));
         next_seq += 1;
     }
     fixes
@@ -178,13 +192,18 @@ pub(crate) fn recap(entries: &[(u32, u32, Entry)], max_chars: usize) -> String {
     let mut turns: Vec<(u32, String)> = Vec::new();
     for (_, turn, entry) in entries {
         let line = match entry {
-            Entry::User { text, .. } => format!("User: {text}\n"),
+            Entry::User { text, context, .. } => match context.as_ref().and_then(|c| c.ask.as_ref()) {
+                Some(source) => {
+                    format!("User: {}\n{}\n", context_excerpt(text, max_chars / 8), recap_source(source, max_chars / 4))
+                }
+                None => format!("User: {text}\n"),
+            },
             Entry::Text { blocks, .. } => {
                 let text: Vec<String> = blocks
                     .iter()
                     .map(|b| match b {
                         ReplyBlock::Markdown { text } => text.clone(),
-                        ReplyBlock::Sql { sql, .. } => format!("```sql\n{sql}\n```"),
+                        ReplyBlock::Sql { sql, .. } | ReplyBlock::Replacement { sql } => format!("```sql\n{sql}\n```"),
                     })
                     .collect();
                 format!("Assistant: {}\n", text.join("\n\n"))
@@ -197,20 +216,49 @@ pub(crate) fn recap(entries: &[(u32, u32, Entry)], max_chars: usize) -> String {
             _ => turns.push((*turn, line)),
         }
     }
-    let mut kept: Vec<&str> = Vec::new();
+    let mut kept = Vec::new();
     let mut total = 0;
     for (_, text) in turns.iter().rev() {
         let len = text.chars().count();
         if total + len > max_chars {
+            if kept.is_empty() {
+                kept.push(context_excerpt(text, max_chars));
+            }
             break;
         }
         total += len;
-        kept.push(text);
+        kept.push(text.clone());
     }
     kept.reverse();
-    let mut out = String::from("Earlier in this conversation, restored after the session was lost:\n\n");
+    let mut out = String::from("Earlier in this conversation:\n\n");
     out.push_str(&kept.join("\n"));
     out
+}
+
+fn recap_source(source: &crate::model::AskSource, budget: usize) -> String {
+    let mut text = format!(
+        "Explicit SQL attachment ({:?}):\nOriginal SQL:\n{}",
+        source.scope,
+        context_excerpt(&source.sql, budget)
+    );
+    if let Some(draft) = &source.draft {
+        text.push_str(&format!("\nLatest proposed SQL:\n{}", context_excerpt(draft, budget)));
+    }
+    text
+}
+
+fn context_excerpt(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_owned();
+    }
+    let marker = "\n[Conversation excerpt truncated here to fit the context budget.]\n";
+    let available = max_chars.saturating_sub(marker.chars().count());
+    if available == 0 {
+        return cut(marker, max_chars);
+    }
+    let head = available * 2 / 3;
+    let tail: String = text.chars().rev().take(available - head).collect::<Vec<_>>().into_iter().rev().collect();
+    format!("{}{marker}{tail}", text.chars().take(head).collect::<String>())
 }
 
 fn tool_line(tool: &ToolUse) -> String {
@@ -418,7 +466,7 @@ mod tests {
 
     #[test]
     fn recover_closes_open_rows_once_and_leaves_closed_turns_alone() {
-        let end = Entry::End { at_ms: 2, outcome: TurnOutcome::Completed, suggestions: Vec::new() };
+        let end = Entry::End { at_ms: 2, outcome: TurnOutcome::Completed, suggestions: Vec::new(), ask: None };
         let entries = vec![
             (0, 0, user("one")),
             (1, 0, text(true)),
@@ -441,7 +489,7 @@ mod tests {
             vec![
                 (4, 3, text(true)),
                 (5, 3, tool(ToolStatus::Expired)),
-                (7, 3, Entry::End { at_ms: 9, outcome: TurnOutcome::Lost, suggestions: Vec::new() })
+                (7, 3, Entry::End { at_ms: 9, outcome: TurnOutcome::Lost, suggestions: Vec::new(), ask: None })
             ]
         );
         let mut fixed = entries.clone();
@@ -455,7 +503,7 @@ mod tests {
         assert_eq!(recover(&[(0, 0, user("one")), (1, 0, text(true)), (2, 0, end)], 10), vec![]);
         assert_eq!(
             recover(&[(0, 0, user("alone"))], 10),
-            vec![(1, 0, Entry::End { at_ms: 10, outcome: TurnOutcome::Lost, suggestions: Vec::new() })]
+            vec![(1, 0, Entry::End { at_ms: 10, outcome: TurnOutcome::Lost, suggestions: Vec::new(), ask: None })]
         );
     }
 
@@ -464,7 +512,7 @@ mod tests {
         let entries = vec![
             (0, 0, user("first question")),
             (1, 0, Entry::Text { blocks: vec![markdown("first answer"), sql("select 1", true)], done: true }),
-            (2, 0, Entry::End { at_ms: 2, outcome: TurnOutcome::Completed, suggestions: Vec::new() }),
+            (2, 0, Entry::End { at_ms: 2, outcome: TurnOutcome::Completed, suggestions: Vec::new(), ask: None }),
             (3, 3, user("second question")),
             (
                 4,
@@ -480,17 +528,51 @@ mod tests {
             ),
             (5, 3, text(true)),
             (6, 3, Entry::Notice { text: "restarted".into() }),
-            (7, 3, Entry::End { at_ms: 2, outcome: TurnOutcome::Completed, suggestions: Vec::new() }),
+            (7, 3, Entry::End { at_ms: 2, outcome: TurnOutcome::Completed, suggestions: Vec::new(), ask: None }),
         ];
         let all = recap(&entries, 10_000);
         assert_eq!(
             all,
-            "Earlier in this conversation, restored after the session was lost:\n\nUser: first question\nAssistant: first answer\n\n```sql\nselect 1\n```\n\nUser: second question\n[searched the catalog for \"x\": 1+ rows]\nAssistant: hi\n"
+            "Earlier in this conversation:\n\nUser: first question\nAssistant: first answer\n\n```sql\nselect 1\n```\n\nUser: second question\n[searched the catalog for \"x\": 1+ rows]\nAssistant: hi\n"
         );
         let newest = recap(&entries, 80);
         assert_eq!(
             newest,
-            "Earlier in this conversation, restored after the session was lost:\n\nUser: second question\n[searched the catalog for \"x\": 1+ rows]\nAssistant: hi\n"
+            "Earlier in this conversation:\n\nUser: second question\n[searched the catalog for \"x\": 1+ rows]\nAssistant: hi\n"
         );
+    }
+
+    #[test]
+    fn recap_keeps_a_marked_excerpt_of_an_oversized_latest_sql_attachment() {
+        let source = crate::model::AskSource {
+            scope: crate::model::AskScope::Selection,
+            sql: format!("SELECT 'SOURCE_BEGIN{}SOURCE_END';", "x".repeat(20_000)),
+            draft: Some(format!("SELECT 'DRAFT_BEGIN{}DRAFT_END';", "y".repeat(20_000))),
+        };
+        let entries = vec![
+            (
+                0,
+                0,
+                Entry::User {
+                    at_ms: 1,
+                    text: "CURRENT_QUESTION".into(),
+                    attachment: None,
+                    context: Some(crate::model::SentContext {
+                        database_kind: None,
+                        db: None,
+                        connection_name: None,
+                        tab_title: String::new(),
+                        ask: Some(source),
+                    }),
+                },
+            ),
+            (1, 0, Entry::Text { blocks: vec![markdown("LATEST_ANSWER")], done: true }),
+        ];
+        let recap = recap(&entries, 16_000);
+        assert!(recap.contains("CURRENT_QUESTION") && recap.contains("SOURCE_BEGIN"));
+        assert!(recap.contains("DRAFT_BEGIN") && recap.contains("DRAFT_END") && recap.contains("LATEST_ANSWER"));
+        assert!(recap.contains("Original SQL:") && recap.contains("Latest proposed SQL:"));
+        assert!(recap.contains("excerpt truncated"));
+        assert!(recap.chars().count() <= 16_000 + "Earlier in this conversation:\n\n".len());
     }
 }

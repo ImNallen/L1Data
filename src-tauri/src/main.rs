@@ -80,6 +80,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ipc::assistant_configure,
             ipc::assistant_send,
             ipc::assistant_stop,
+            ipc::assistant_ask,
+            ipc::assistant_stop_turn,
             ipc::assistant_approve,
             ipc::assistant_delete,
             ipc::provider_refresh,
@@ -518,7 +520,7 @@ mod tests {
             }
             checked += 1;
         }
-        assert_eq!(checked, 31, "the sync commands in ipc.rs");
+        assert_eq!(checked, 32, "the sync commands in ipc.rs");
     }
 
     /// The engine decides what to install and when. A webview that could call the plugin would

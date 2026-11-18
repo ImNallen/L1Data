@@ -96,3 +96,26 @@ it("introduces an empty conversation without claiming to send editor SQL", () =>
   expect(introduction).toBe("Ask for help with your database.");
   expect(introduction).not.toContain("SQL");
 });
+
+it("shows the exact explicit SQL attachment and a held draft in the question transcript", () => {
+  const entries = [
+    snap(0, 0, {
+      kind: "User",
+      atMs: 1,
+      text: "Explain this",
+      attachment: null,
+      context: {
+        databaseKind: "Postgres",
+        db: null,
+        connectionName: null,
+        tabTitle: "",
+        ask: { scope: "Selection", sql: "  SELECT 1;\n", draft: "SELECT 2;\n" },
+      },
+    }),
+  ];
+  render(<Transcript chat={show({ kind: "Idle" }, entries)} />);
+  const log = screen.getByRole("log", { name: "Chat transcript" });
+  expect(Array.from(log.querySelectorAll("pre")).map((element) => element.textContent)).toEqual(["  SELECT 1;\n", "SELECT 2;\n"]);
+  expect(screen.getByText("Selected SQL")).toBeTruthy();
+  expect(screen.getByText("Proposed SQL")).toBeTruthy();
+});
