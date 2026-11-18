@@ -1,7 +1,6 @@
 import type { VirtualItem } from "@tanstack/react-virtual";
-import { memo, useState, type ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import type { ColumnMeta, ResultRef } from "../../ipc/bindings";
-import { commandForKey } from "../../shell/commands";
 import type { Row, RowView } from "../../state/rowCache";
 import type { CellValue, NewRow } from "../../state/tableEdits";
 import { cx } from "../../ui/primitives";
@@ -43,58 +42,6 @@ export function cellAt(target: EventTarget): Cell | null {
 export function rowNumberAt(target: EventTarget): number | null {
   const el = target instanceof Element ? target.closest<HTMLElement>("[data-rownum]") : null;
   return el ? Number(el.dataset.rownum) : null;
-}
-
-/** The draft lives here, so a keystroke re-renders the input and not the grid. */
-export function GridEditor({
-  column,
-  initial,
-  onFinish,
-  onTab,
-}: {
-  column: string;
-  initial: string;
-  onFinish(save: boolean, draft: string): void;
-  onTab(back: boolean, draft: string): void;
-}) {
-  const [draft, setDraft] = useState(initial);
-  // A key typed into the grid before the editor took focus extends the draft it opened with.
-  const [opened, setOpened] = useState(initial);
-  if (opened !== initial) {
-    setOpened(initial);
-    setDraft(initial);
-  }
-  return (
-    <input
-      data-testid="grid-editor"
-      aria-label={column}
-      autoFocus
-      value={draft}
-      spellCheck={false}
-      onMouseDown={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => e.stopPropagation()}
-      onChange={(e) => setDraft(e.target.value)}
-      onKeyDown={(e) => {
-        // The grid must not act on a key typed into the cell, so the window's shortcuts run from here.
-        e.stopPropagation();
-        const value = e.currentTarget.value;
-        const command = commandForKey(e);
-        if (command) {
-          e.preventDefault();
-          onFinish(true, value);
-          return command.run();
-        }
-        if (e.key === "Enter") onFinish(true, value);
-        if (e.key === "Escape") onFinish(false, value);
-        if (e.key === "Tab") {
-          e.preventDefault();
-          onTab(e.shiftKey, value);
-        }
-      }}
-      onBlur={(e) => onFinish(true, e.currentTarget.value)}
-      className="absolute inset-0 z-10 bg-bg px-2 font-mono text-code text-fg outline outline-1 -outline-offset-1 outline-focus"
-    />
-  );
 }
 
 type CellProps = {
