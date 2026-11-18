@@ -2124,7 +2124,7 @@ fn ask_request(text: &str, sql: &str, draft: Option<&str>) -> AskRequest {
 }
 
 #[tokio::test]
-async fn ask_keeps_explicit_sql_in_schema_only_and_starts_each_turn_fresh() {
+async fn ask_keeps_explicit_sql_in_schema_only_and_recaps_only_earlier_asks() {
     let mut h = Harness::open_in(tempfile::tempdir().unwrap()).await;
     h.use_fake("echo");
     let chat = h.chat(Permission::Auto);
@@ -2143,6 +2143,7 @@ async fn ask_keeps_explicit_sql_in_schema_only_and_starts_each_turn_fresh() {
         h.wait_idle(chat).await;
         let prompt = h.stdin_lines().into_iter().rfind(|l| l.contains("User request:")).unwrap();
         assert!(!prompt.contains("UNRELATED_HISTORY_CANARY"), "{prompt}");
+        assert_eq!(prompt.contains("Earlier in this conversation"), draft.is_some(), "{prompt}");
         assert!(!h.turn_argvs().last().unwrap().iter().any(|a| a == "--resume"));
         let initialize = h
             .stdin_lines()

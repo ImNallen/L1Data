@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -166,12 +167,13 @@ impl Turn {
             .map(|s| s.id.clone());
         // The provider keeps its transcript under the config dir the session was made in, so a
         // changed one cannot resume and the chat restarts with a recap.
-        let mut recap =
-            if !self.purpose.is_ask() && resume.is_none() && self.turn > self.chat.inner.lock().record.recap_floor {
-                Some(Recap { text: self.recap(), lost_session: stored.is_some() })
-            } else {
-                None
-            };
+        let mut recap = if self.purpose.is_ask() {
+            self.ask_recap().map(|text| Recap { text, lost_session: false })
+        } else if resume.is_none() && self.turn > self.chat.inner.lock().record.recap_floor {
+            Some(Recap { text: self.recap(), lost_session: stored.is_some() })
+        } else {
+            None
+        };
         loop {
             match self.attempt(&mut control, &cfg, resume.take(), recap.as_ref()).await {
                 Attempt::Done(outcome) => return outcome,
@@ -395,12 +397,16 @@ impl Turn {
             outline,
         });
         if let ask::Purpose::Ask { source, schema } = &self.purpose {
-            return format!(
+            let request = format!(
                 "{block}\nSchema for this cell: {}\n{}\n\nUser request:\n{}",
                 schema.as_deref().unwrap_or("database default"),
                 ask::source_text(source),
                 self.user_text
             );
+            return match recap {
+                Some(recap) => format!("{recap}\n\n{request}"),
+                None => request,
+            };
         }
         if let (Some(db), Some(catalog)) = (&self.db, &self.catalog) {
             self.chat.inner.lock().last_context = Some(LastContext {
@@ -780,6 +786,23 @@ impl Turn {
             .filter(|(seq, turn, _)| *seq >= floor && *turn != self.turn)
             .collect();
         reply::recap(&earlier, super::RECAP_MAX_CHARS)
+    }
+
+    /// Only earlier Ask turns of this chat, so an Ask never carries the chat's other history.
+    fn ask_recap(&self) -> Option<String> {
+        let floor = self.chat.inner.lock().record.recap_floor;
+        let entries = self.shared.store.chat_entries(self.chat.id).unwrap_or_default();
+        let asks: HashSet<u32> = entries
+            .iter()
+            .filter(|(seq, turn, entry)| {
+                *seq >= floor
+                    && *turn != self.turn
+                    && matches!(entry, Entry::User { context: Some(SentContext { ask: Some(_), .. }), .. })
+            })
+            .map(|(_, turn, _)| *turn)
+            .collect();
+        let earlier: Vec<(u32, u32, Entry)> = entries.into_iter().filter(|(_, turn, _)| asks.contains(turn)).collect();
+        (!earlier.is_empty()).then(|| reply::recap(&earlier, super::RECAP_MAX_CHARS))
     }
 
     fn notice(&mut self, text: String) {

@@ -2,7 +2,7 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { commands, type ChatOptions } from "../../ipc/bindings";
+import { commands, type AskOutcome, type ChatOptions, type ReplyBlock } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
 import { useWorkspace, type Tab } from "../../state/workspace";
 import { cellsState } from "../../testing/notebooks";
@@ -45,7 +45,7 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-async function propose() {
+async function propose(ask: AskOutcome = { kind: "Replacement", sql: "SELECT 2;" }, blocks: ReplyBlock[] = []) {
   const options: ChatOptions = { provider: "Claude", model: "opus", effort: "high", permission: "AskFirst" };
   vi.spyOn(commands, "assistantOpen").mockImplementation(async (id) => ({
     status: "ok",
@@ -57,15 +57,44 @@ async function propose() {
   await submitAsk();
   const state = useAskAi.getState().state;
   if (state.kind === "closed" || !state.session.chatId) throw Error("No session");
+  const chatId = state.session.chatId;
+  if (blocks.length) useLive.getState().apply({ kind: "ChatEntryChanged", chatId, seq: 6, turn: 5, rev: 2, entry: { kind: "Text", done: true, blocks } });
   useLive.getState().apply({
     kind: "ChatEntryChanged",
-    chatId: state.session.chatId,
-    seq: 6,
+    chatId,
+    seq: 7,
     turn: 5,
-    rev: 2,
-    entry: { kind: "End", atMs: 1, outcome: { kind: "Completed" }, suggestions: [], ask: { kind: "Replacement", sql: "SELECT 2;" } },
+    rev: 3,
+    entry: { kind: "End", atMs: 1, outcome: { kind: "Completed" }, suggestions: [], ask },
   });
+  return chatId;
 }
+
+it("keeps the Ask conversation in the popover across questions and proposals", async () => {
+  render(<AskAi />);
+  const layout = useWorkspace.getState().layout;
+  const chatId = await act(() =>
+    propose({ kind: "Answer" }, [
+      { kind: "Markdown", text: "It returns **one** row." },
+      { kind: "Sql", sql: "SELECT 2;", relations: [], vetted: true, complete: true },
+    ]),
+  );
+  useLive.getState().apply({
+    kind: "ChatEntryChanged",
+    chatId,
+    seq: 5,
+    turn: 5,
+    rev: 4,
+    entry: { kind: "User", atMs: 1, text: "What does this return?", context: null, attachment: null },
+  });
+  const thread = await screen.findByTestId("ask-ai-thread");
+  expect(thread.textContent).toContain("What does this return?");
+  expect(thread.textContent).toContain("It returns one row.");
+  expect(thread.textContent).toContain("SELECT 2;");
+  expect(screen.queryByTestId("sql-run-here")).toBeNull();
+  expect(useWorkspace.getState().layout).toBe(layout);
+  expect(document.activeElement).toBe(screen.getByLabelText("Ask a question or describe a change"));
+});
 
 it.each(["prompt", "review"])("lets CommandPalette handle Escape while holding the Ask %s", async (kind) => {
   render(

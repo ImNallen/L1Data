@@ -62,18 +62,20 @@ export function ReplyText({
   db,
   testId,
   databaseKind = "Postgres",
+  cards = true,
 }: {
   blocks: ReplyBlock[];
   db: DatabaseRef | null;
   testId: string;
   databaseKind?: DatabaseKind;
+  cards?: boolean;
 }) {
   return (
     <div data-testid={testId} className="flex flex-col gap-3">
       {blocks.map((b, i) =>
         b.kind === "Markdown" ? (
           <MarkdownBlock key={i} text={b.text} />
-        ) : b.kind === "Replacement" ? (
+        ) : b.kind === "Replacement" || !cards ? (
           <div key={i} className="max-h-80 overflow-auto rounded-md border border-control px-3 py-2">
             <SqlHighlight sql={b.sql} databaseKind={databaseKind} />
           </div>
