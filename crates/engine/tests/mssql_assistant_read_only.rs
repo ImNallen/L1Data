@@ -398,7 +398,11 @@ async fn the_assistant_reads_only_a_read_only_sql_server_database() {
         h.admin(&format!("ALTER DATABASE [{}] SET READ_WRITE WITH ROLLBACK IMMEDIATE", h.db)).await;
         h.engine.connect(on).await.unwrap();
         match h.approved(on, "SELECT id FROM dbo.t ORDER BY id").await {
-            ToolStatus::Failed { message } => assert!(message.contains("writable"), "{message}"),
+            ToolStatus::Failed { message } => {
+                assert!(message.contains("writable"), "{message}");
+                assert!(message.contains("READ_ONLY on the server"), "the refusal names the next step: {message}");
+                assert!(message.contains("turn off"), "the refusal names the setting: {message}");
+            }
             other => panic!("a writable database must be refused, got {other:?}"),
         }
     })

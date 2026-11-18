@@ -100,8 +100,7 @@ pub(crate) enum Ask {
 pub(crate) const MSSQL_REFUSAL: &str = "Running queries on this SQL Server connection is off. Turn on \"Let the assistant run read-only queries\" in the connection's settings; it needs a database marked READ_ONLY. Until then, use the schema tools and suggest T-SQL for the user to run.";
 /// The guard batch's `THROW` message when `DATABASEPROPERTYEX` finds the database is not `READ_ONLY`
 /// at the moment of the call. The model and the user see it verbatim.
-pub(crate) const MSSQL_NOT_READ_ONLY: &str =
-    "The assistant can only run a query against a read-only database, and this database is writable now.";
+pub(crate) const MSSQL_NOT_READ_ONLY: &str = "This database is writable now, so the assistant's query did not run. To let it run, mark the database READ_ONLY on the server. Otherwise turn off \"Let the assistant run read-only queries\" for this connection and run the SQL yourself.";
 
 /// The SQL Server connection facts `policy` needs: whether the read-only setting is on for the
 /// connection `run_query` would reach. `None` means the connection is PostgreSQL or unknown.
