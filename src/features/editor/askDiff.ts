@@ -129,6 +129,7 @@ function decorationsFor(state: EditorState, preview: AskPreview): DecorationSet 
 }
 
 export const askDiffTheme = EditorView.theme({
+  "&:has(.cm-ask-added) .cm-placeholder": { display: "none" },
   ".cm-ask-removed": { backgroundColor: "color-mix(in srgb, var(--color-danger) 11%, transparent)", position: "relative" },
   ".cm-ask-removed, .cm-ask-removed span": { color: "var(--color-danger) !important" },
   ".cm-ask-removed::before": { content: "'-'", position: "absolute", left: "4px", color: "var(--color-danger)" },
