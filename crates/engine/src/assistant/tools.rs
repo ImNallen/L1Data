@@ -213,7 +213,8 @@ async fn execute_allowed(
         ParsedCall::RunQuery { sql, .. } => {
             let sql_server = instance.config.database_kind == DatabaseKind::SqlServer;
             if sql_server {
-                if !instance.config.assistant_read_only {
+                // The saved setting, as `policy` reads it, so a change applies without reconnecting.
+                if !shared.config(db.connection_id).is_some_and(|c| c.assistant_read_only) {
                     return Executed::failed(MSSQL_REFUSAL);
                 }
                 // The allowlist refuses before any session opens, the same verdict `policy` reached.

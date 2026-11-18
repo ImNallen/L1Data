@@ -178,6 +178,20 @@ impl Harness {
         config.id
     }
 
+    /// Saves the read-only setting on a connection without disconnecting it, as the connection form does.
+    async fn set_read_only(&self, connection: ConnectionId, read_only: bool) {
+        let saved = self
+            .engine
+            .save_connection(ConnectionDraft {
+                id: Some(connection),
+                password: PasswordInput::Keep,
+                ..draft(&self.db, &self.login, LOGIN_PASSWORD, read_only, "edited while connected")
+            })
+            .await
+            .unwrap();
+        assert_eq!(saved.assistant_read_only, read_only);
+    }
+
     fn chat(&self, permission: Permission) -> ChatId {
         let id = ChatId(uuid::Uuid::new_v4());
         self.engine
@@ -349,6 +363,33 @@ async fn the_assistant_reads_only_a_read_only_sql_server_database() {
             ToolStatus::Failed { message } => assert!(message.contains("one statement"), "{message}"),
             other => panic!("a second result set must be refused, got {other:?}"),
         }
+
+        // The setting takes effect at once on a connected connection. Turned on, the next query runs.
+        let late = h.login_connection(false, "turned on while connected").await;
+        h.set_read_only(late, true).await;
+        match h.approved(late, "SELECT TOP 1 id FROM dbo.t ORDER BY id").await {
+            ToolStatus::Done { result: ToolResult::Rows { rows, .. } } => assert_eq!(rows.len(), 1),
+            other => panic!("expected rows after turning the setting on, got {other:?}"),
+        }
+        h.engine.disconnect(late, true).await.unwrap();
+        // Turned off on a connection that connected with it on, while a query waits for approval, the
+        // approved query is refused, and so is the next one.
+        h.fake_sql("SELECT TOP 1 id FROM dbo.t ORDER BY id");
+        let chat = h.chat(Permission::AskFirst);
+        h.send(chat, on).await;
+        let approval = h.wait_approval(chat).await;
+        h.set_read_only(on, false).await;
+        h.engine.assistant_approve(chat, approval, Decision::Run).unwrap();
+        h.wait_entry(chat, |e| matches!(e, Entry::End { .. })).await;
+        match h.tool_status(chat).await {
+            ToolStatus::Failed { message } => {
+                assert!(message.contains("Running queries on this SQL Server connection is off"), "{message}");
+            }
+            other => panic!("turning the setting off must refuse an approved query, got {other:?}"),
+        }
+        let refused = h.refused(on, "SELECT id FROM dbo.t").await;
+        assert!(refused.contains("Running queries on this SQL Server connection is off"), "{refused}");
+        h.set_read_only(on, true).await;
 
         // A flip to READ_WRITE between calls is caught by the next call's guard. The fresh per-call
         // session re-reads Updateability, so the model's statement never runs against a writable base.
