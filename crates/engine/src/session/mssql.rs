@@ -1,6 +1,7 @@
 mod batch;
 mod catalog;
 mod checks;
+mod describe;
 mod detail;
 pub(super) mod edit;
 pub(super) mod import;
@@ -9,6 +10,8 @@ mod import_tests;
 mod map;
 mod source;
 mod values;
+
+pub(crate) use describe::FirstResult;
 
 use super::stream::DbStream;
 use super::{QueryEvent, QueryStream, error};
@@ -105,13 +108,14 @@ pub(super) fn query_error(e: tiberius::error::Error) -> QueryError {
     }
 }
 
-fn config(p: &ConnectParams) -> Result<Config, ConnectError> {
+fn config(p: &ConnectParams, readonly: bool) -> Result<Config, ConnectError> {
     let mut config = Config::new();
     config.host(&p.host);
     config.port(p.port);
     config.database(&p.database);
     config.application_name("L1 Data");
     config.command_timeout(None);
+    config.readonly(readonly);
     config.authentication(AuthMethod::sql_server(&p.user, p.password.as_deref().unwrap_or("")));
     config.encryption(EncryptionLevel::Required);
     match (p.ssl_mode, &p.ca_cert_path) {
@@ -171,7 +175,18 @@ async fn login_refused(code: u32, message: &str, entra: Option<(&AzCli, &str)>) 
 
 impl MsSession {
     pub(super) async fn open(p: &ConnectParams) -> Result<Self, ConnectError> {
-        let mut cfg = config(p)?;
+        Self::open_with(p, false).await
+    }
+
+    /// A fresh session with `ApplicationIntent=ReadOnly` for the assistant's read-only query path. A
+    /// standalone server or a primary ignores the intent; an Always On listener routes it to a
+    /// readable secondary. The read-only database, checked per batch, is the guarantee either way.
+    pub(super) async fn open_assistant(p: &ConnectParams) -> Result<Self, ConnectError> {
+        Self::open_with(p, true).await
+    }
+
+    async fn open_with(p: &ConnectParams, readonly: bool) -> Result<Self, ConnectError> {
+        let mut cfg = config(p, readonly)?;
         let stream = p.dial().await?;
         let token = match &p.entra {
             Some(az) => Some(az.token().await?),

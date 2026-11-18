@@ -969,6 +969,16 @@ async fn run_outputs(
     let mut rerun: Option<Rerun> = None;
     let mut server_done = false;
     let mut log = OutputBatch::new(console, shared, run_id);
+    let mut described = None;
+    if plan.page.is_none()
+        && plan.connection.database_kind == DatabaseKind::SqlServer
+        && crate::sql::tsql::describes_first_result(sql)
+    {
+        match session.first_result(sql).await {
+            Ok(first) => described = first,
+            Err(error) => return Ok(Err(Failed { error, logged: false, server_done: false })),
+        }
+    }
     let mut stream = session.query(sql);
     loop {
         let next = if log.is_empty() { stream.next().await } else { log.wait(&mut stream).await };
@@ -1004,6 +1014,12 @@ async fn run_outputs(
                         actual.source = Some(ColumnSource { table_oid: table.oid, attnum: known.attnum });
                         actual.r#type = SqlTypeRef { display: known.type_display.clone(), category: known.category };
                     }
+                }
+                // An error before the first result can mean a statement the description counted never sent one.
+                if let Some(first) = described.take()
+                    && reported.is_none()
+                {
+                    first.apply(&mut columns);
                 }
                 let ordinal = match u16::try_from(console.results.lock().len()) {
                     Ok(n) => n,

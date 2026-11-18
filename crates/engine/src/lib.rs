@@ -128,6 +128,15 @@ pub fn panic_message(payload: &(dyn std::any::Any + Send)) -> Option<String> {
     payload.downcast_ref::<&str>().map(|s| (*s).to_owned()).or_else(|| payload.downcast_ref::<String>().cloned())
 }
 
+/// Whether the assistant's SQL Server read allowlist admits `sql` as a single read, with the reason
+/// it refuses otherwise. Exposed only for the `mssql-tests` conformance test, which compares the
+/// allowlist with SQL Server's own parser.
+#[cfg(feature = "mssql-tests")]
+#[doc(hidden)]
+pub fn assistant_tsql_read_refusal(sql: &str) -> Option<String> {
+    sql::tsql::read::read_refusal(sql).err().map(|r| format!("{r:?}"))
+}
+
 impl Shared {
     pub(crate) fn emit(&self, ev: AppEvent) {
         let _ = self.events.send(ev);
@@ -1168,6 +1177,7 @@ impl Engine {
             ssh,
             environment: d.environment,
             sql_server_auth,
+            assistant_read_only: d.assistant_read_only && d.database_kind == DatabaseKind::SqlServer,
         };
         s.store.upsert_connection(&config).map_err(store)?;
         Ok(config)
@@ -2191,14 +2201,11 @@ impl Engine {
             .expect("result_profile task panicked")
     }
 
-    /// The SQL of the rows behind one row of a grouped PostgreSQL result. It rewrites the SQL that
-    /// produced the result, and only the SQL that may run again unasked.
+    /// The SQL of the rows behind one row of a grouped result. It rewrites the SQL that produced the
+    /// result, and only the SQL that may run again unasked.
     pub fn result_drill(&self, r: ResultRef, point: DrillPoint) -> Result<DrillQuery, DrillError> {
         let set = self.shared.result_set(r).ok_or(DrillError::Gone)?;
         let unsupported = |reason: &str| DrillError::Unsupported { reason: reason.into() };
-        if set.database_kind != DatabaseKind::Postgres {
-            return Err(unsupported("Drill-down works on PostgreSQL results for now."));
-        }
         if set.origin.page {
             return Err(unsupported("A table page filters the table instead."));
         }
@@ -2209,6 +2216,34 @@ impl Engine {
             }
             results::Rerun::Refused(reason) => return Err(unsupported(reason)),
         };
+        let query = |sql: String| DrillQuery { sql, db: set.db.clone(), schema: set.origin.schema.clone() };
+        if set.database_kind == DatabaseKind::SqlServer {
+            let refused = |reason: sql::tsql::drill::Refusal| {
+                if reason.ungrouped() { DrillError::Ungrouped } else { unsupported(&reason.to_string()) }
+            };
+            let drill = sql::tsql::drill::plan(sql).map_err(refused)?;
+            let types = drill
+                .columns()
+                .map(|c| set.columns.get(usize::from(c)).map(|k| k.r#type.display.as_str()))
+                .collect::<Option<Vec<_>>>()
+                .ok_or(DrillError::OutOfRange)?;
+            types.iter().try_for_each(|t| sql::tsql::drill::comparable(t)).map_err(refused)?;
+            return match point {
+                DrillPoint::Probe => Ok(query(String::new())),
+                DrillPoint::Row { row, title } => {
+                    let values = drill
+                        .columns()
+                        .map(|c| set.cell(row, c))
+                        .collect::<Option<Vec<_>>>()
+                        .ok_or(DrillError::OutOfRange)?;
+                    let text = drill.sql(&types, &values, &title).map_err(refused)?;
+                    match sql::tsql::rerun_refusal(&text) {
+                        None => Ok(query(text)),
+                        Some(reason) => Err(unsupported(reason)),
+                    }
+                }
+            };
+        }
         let drill = sql::drill::plan(sql).map_err(|reason| {
             if sql::drill::UNGROUPED.contains(&reason) { DrillError::Ungrouped } else { unsupported(reason) }
         })?;
@@ -2221,7 +2256,6 @@ impl Engine {
         if keys.iter().any(|k| k.r#type.display == "record") {
             return Err(unsupported("A grouped column is an anonymous ROW, which cannot be compared to its text."));
         }
-        let query = |sql: String| DrillQuery { sql, db: set.db.clone(), schema: set.origin.schema.clone() };
         match point {
             DrillPoint::Probe => Ok(query(String::new())),
             DrillPoint::Row { row, title } => {
@@ -2468,6 +2502,7 @@ mod tests {
             ssh: None,
             environment: None,
             sql_server_auth: None,
+            assistant_read_only: false,
         }
     }
 
@@ -2511,6 +2546,7 @@ mod tests {
             port: 1,
             password: PasswordInput::Clear,
             sql_server_auth: Some(SqlServerAuth::SqlLogin),
+            assistant_read_only: false,
             ..draft("newer")
         };
         let saved = engine.save_connection(login.clone()).await.unwrap();
@@ -2772,6 +2808,7 @@ mod tests {
             port: 1,
             ssl_mode: SslMode::VerifyFull,
             sql_server_auth: Some(SqlServerAuth::SqlLogin),
+            assistant_read_only: false,
             ..draft("azure")
         };
         let saved = {
@@ -2786,6 +2823,7 @@ mod tests {
             id: Some(saved.id),
             password: PasswordInput::Keep,
             sql_server_auth: Some(SqlServerAuth::EntraAzureCli),
+            assistant_read_only: false,
             ..login
         };
         let tried = engine.test_connection(entra).await;

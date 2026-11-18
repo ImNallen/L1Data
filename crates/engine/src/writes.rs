@@ -260,6 +260,7 @@ mod tests {
             ssh: None,
             environment,
             sql_server_auth: None,
+            assistant_read_only: false,
         }
     }
 

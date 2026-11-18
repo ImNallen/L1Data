@@ -40,6 +40,7 @@ fn main() {
                 ssh: None,
                 environment: None,
                 sql_server_auth: None,
+                assistant_read_only: false,
             })
             .await;
         println!("{}", serde_json::to_string(&result).unwrap());

@@ -1206,7 +1206,7 @@ mod tests {
             format(PG, "select * from {{ revenue by region }} r where r.total > 10"),
             "SELECT *\nFROM {{ revenue by region }} r\nWHERE r.total > 10"
         );
-        assert!(format(MS, "select * from {{ revenue by region }} r").contains("from {{ revenue by region }} r"));
+        assert_eq!(format(MS, "select * from {{ revenue by region }} r"), "SELECT *\nFROM {{ revenue by region }} r");
     }
 
     #[test]

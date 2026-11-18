@@ -513,6 +513,7 @@ mod tests {
                     ssh: None,
                     environment: Some(Environment::Production),
                     sql_server_auth: None,
+                    assistant_read_only: false,
                 },
                 console: ConsoleConfigView {
                     connection_id: id,

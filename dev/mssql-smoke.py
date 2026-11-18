@@ -122,7 +122,7 @@ def check_assistant(bridge, db, tab):
                 lambda v: v["state"]["status"]["kind"] == "Idle" and any(e["entry"]["kind"] == "End" for e in v["entries"]))
             entries = [e["entry"] for e in view["entries"]]
             tool = next(e for e in entries if e["kind"] == "Tool" and e["tool"]["kind"] == "RunQuery")
-            assert tool["status"]["kind"] == "Failed" and "SQL Server model queries are disabled" in tool["status"]["message"], tool
+            assert tool["status"]["kind"] == "Failed" and "Running queries on this SQL Server connection is off" in tool["status"]["message"], tool
             user = next(e for e in entries if e["kind"] == "User")
             assert user["context"]["databaseKind"] == "SqlServer", user
         print("PASS SQL Server assistant refusal before approval in both permission modes")
