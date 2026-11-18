@@ -2,6 +2,7 @@ import { ArrowUpIcon, LoaderCircleIcon, XIcon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { MAC } from "../../shell/hostedWindow";
+import { useWorkspace } from "../../state/workspace";
 import { cx } from "../../ui/primitives";
 import { applyAsk, discardAsk, dismissAsk, openAskAi, setAskPrompt, submitAsk, useAskAi, type AskCapture, type AskState } from "./askAi";
 import { changedHunks } from "./askDiff";
@@ -19,7 +20,8 @@ export function askContext(capture: AskCapture): string {
 
 export function AskAi() {
   const state = useAskAi((s) => s.state);
-  return state.kind === "closed" ? null : createPortal(<AskSurface state={state} />, document.body);
+  const available = useWorkspace((s) => s.screen.kind === "workspace" && s.overlay.kind === "none");
+  return state.kind === "closed" || !available ? null : createPortal(<AskSurface state={state} />, document.body);
 }
 
 function AskSurface({ state }: { state: Exclude<AskState, { kind: "closed" }> }) {

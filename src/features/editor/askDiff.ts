@@ -4,6 +4,7 @@ import type { DocRange } from "../../ipc/bindings";
 
 export type ChangedHunk = { from: number; to: number; removed: number[]; added: string[]; side: -1 | 1 };
 export type AskPreview = { doc: Text; range: DocRange; sql: string };
+const MAX_COMPARISON_CELLS = 1_000_000;
 
 /** Compare complete affected lines, including unchanged text around a partial-line selection. */
 export function changedHunks(doc: Text, range: DocRange, sql: string): ChangedHunk[] {
@@ -33,8 +34,7 @@ export function changedHunks(doc: Text, range: DocRange, sql: string): ChangedHu
   });
   const oldCount = oldEnd - prefix;
   const newCount = newEnd - prefix;
-  // Bound the comparison's memory for generated scripts. The preview itself scrolls.
-  if (oldCount * newCount > 1_000_000) return [hunk(prefix, oldEnd, after.slice(prefix, newEnd))];
+  if (oldCount * newCount > MAX_COMPARISON_CELLS) return [hunk(prefix, oldEnd, after.slice(prefix, newEnd))];
   const width = newCount + 1;
   const lengths = new Uint32Array((oldCount + 1) * width);
   for (let i = oldCount - 1; i >= 0; i--) {

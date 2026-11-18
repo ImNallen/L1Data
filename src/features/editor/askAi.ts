@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { commands, type AskSource, type ChatId, type ChatOptions, type DatabaseKind, type DatabaseRef, type DocRange, type TabId } from "../../ipc/bindings";
 import { chatErrorText, sendErrorText } from "../../ipc/errors";
 import { databaseKindFor } from "../../state/databaseKind";
+import { sameDb } from "../../state/dbKey";
 import { useLive } from "../../state/live";
 import { activeId, activeQueryTab, useWorkspace } from "../../state/workspace";
 import { agentErrorText } from "../assistant/assistantText";
@@ -41,8 +42,48 @@ export type AskState =
 export const useAskAi = create<{ state: AskState; previewHeight: number }>(() => ({ state: { kind: "closed" }, previewHeight: 0 }));
 let sequence = 0;
 const workspace = () => useWorkspace.getState();
-const settingsKey = () => JSON.stringify([workspace().settings.assistantAccess, workspace().settings.providers]);
-const connectionKey = (db: DatabaseRef | null) => JSON.stringify(db ? workspace().configs[db.connectionId] : null);
+const chatOptionsKey = (options: ChatOptions | undefined) =>
+  options ? JSON.stringify([options.provider, options.model, options.effort, options.permission]) : null;
+const settingsKey = () =>
+  JSON.stringify([
+    workspace().settings.assistantAccess,
+    workspace().settings.providers.map((provider) => [
+      provider.provider,
+      provider.enabled,
+      provider.displayName,
+      provider.binaryPath,
+      provider.configDir,
+      provider.launchArgs,
+    ]),
+  ]);
+const connectionKey = (db: DatabaseRef | null) => {
+  const config = db ? workspace().configs[db.connectionId] : null;
+  if (!config) return JSON.stringify(null);
+  const { ssh } = config;
+  return JSON.stringify([
+    config.databaseKind,
+    config.id,
+    config.name,
+    config.host,
+    config.port,
+    config.database,
+    config.user,
+    config.sslMode,
+    config.caCertPath,
+    config.hasPassword,
+    config.color,
+    config.environment,
+    config.sqlServerAuth,
+    ssh && [
+      ssh.host,
+      ssh.port,
+      ssh.user,
+      ssh.hasSecret,
+      ssh.auth.kind,
+      ssh.auth.kind === "Key" ? ssh.auth.path : ssh.auth.kind === "Agent" ? ssh.auth.socket : null,
+    ],
+  ]);
+};
 
 export function captureSql(editor: EditorState): Pick<AskCapture, "doc" | "range" | "source" | "anchor"> {
   const selection = editor.selection.main;
@@ -61,7 +102,7 @@ function valid(capture: AskCapture): boolean {
     tab?.id === capture.tabId &&
     !tab.collapsed &&
     docOf(capture.tabId) === capture.doc &&
-    JSON.stringify(tab.console.db) === JSON.stringify(capture.db) &&
+    sameDb(tab.console.db, capture.db) &&
     (tab.console.schema ?? null) === capture.schema &&
     databaseKindFor(tab.console.db, workspace().configs) === capture.databaseKind &&
     settingsKey() === capture.settingsKey &&
@@ -74,7 +115,6 @@ function setState(state: AskState): void {
   useAskAi.setState({ state, ...(state.kind === "closed" || state.session.draft === null ? { previewHeight: 0 } : {}) });
   if (before.kind !== "closed" && (state.kind === "closed" || before.session.capture !== state.session.capture || state.session.draft === null)) {
     const { tabId, doc } = before.session.capture;
-    // The document transaction already cleared its preview, and may still be notifying workspace listeners.
     if (docOf(tabId) === doc) showAskPreview(tabId, null);
   }
   if (
@@ -203,7 +243,7 @@ export async function submitAsk(): Promise<void> {
       return;
     }
     useLive.getState().hydrateChat(opened.data);
-    if (session.options && JSON.stringify(session.options) !== JSON.stringify(opened.data.state.options)) {
+    if (session.options && chatOptionsKey(session.options) !== chatOptionsKey(opened.data.state.options)) {
       const configured = await commands.assistantConfigure(session.chatId, session.options);
       if (!pending(session.id, request)) return;
       if (configured.status === "error") {
@@ -214,7 +254,7 @@ export async function submitAsk(): Promise<void> {
     }
     if (!pending(session.id, request)) return;
     const options = useLive.getState().chats[session.chatId]?.options ?? opened.data.state.options;
-    setState({ kind: "sending", session: { ...session, options, chatOptionsKey: JSON.stringify(options) }, request, accepted: { kind: "pending" } });
+    setState({ kind: "sending", session: { ...session, options, chatOptionsKey: chatOptionsKey(options) }, request, accepted: { kind: "pending" } });
     const { capture } = session;
     const accepted = await commands.assistantAsk(session.chatId, {
       text: session.prompt,
@@ -241,7 +281,7 @@ export async function submitAsk(): Promise<void> {
 
 export function applyAsk(): boolean {
   const state = useAskAi.getState().state;
-  if (state.kind !== "review") return false;
+  if (state.kind !== "review" || workspace().screen.kind !== "workspace" || workspace().overlay.kind !== "none") return false;
   const { capture, draft } = state.session;
   setState({ kind: "closed" });
   if (!valid(capture)) return false;
@@ -258,7 +298,7 @@ export function startAskAiSync(): () => void {
     const optionsChanged =
       session.chatOptionsKey !== null &&
       session.chatId !== null &&
-      JSON.stringify(useLive.getState().chats[session.chatId]?.options) !== session.chatOptionsKey;
+      chatOptionsKey(useLive.getState().chats[session.chatId]?.options) !== session.chatOptionsKey;
     if (!valid(session.capture) || activeId(workspace()) !== session.capture.tabId || optionsChanged) discardAsk();
   };
   const buffers = onBuffersChanged(invalidate);

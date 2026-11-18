@@ -3,7 +3,17 @@ import { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory } 
 import { bracketMatching, indentOnInput } from "@codemirror/language";
 import { setDiagnostics, type Diagnostic } from "@codemirror/lint";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
-import { Compartment, countColumn, EditorState, StateEffect, StateField, type Extension, type Text, type TransactionSpec } from "@codemirror/state";
+import {
+  Compartment,
+  countColumn,
+  EditorState,
+  StateEffect,
+  StateField,
+  Transaction,
+  type Extension,
+  type Text,
+  type TransactionSpec,
+} from "@codemirror/state";
 import {
   Decoration,
   drawSelection,
@@ -396,7 +406,11 @@ export function askPreviewHeight(id: TabId): number {
 }
 
 export function showAskPreview(id: TabId, preview: AskPreview | null): void {
-  updateEditor(id, () => ({ effects: askPreviewEffect.of(preview) }));
+  updateEditor(id, (state) => ({
+    effects: askPreviewEffect.of(preview),
+    selection: preview && state.doc === preview.doc && !state.selection.main.empty ? { anchor: state.selection.main.head } : undefined,
+    annotations: Transaction.addToHistory.of(false),
+  }));
 }
 
 export function applyCapturedEdit(id: TabId, doc: Text, edit: FormatEdit): boolean {
@@ -416,22 +430,29 @@ export function moveCursor(id: TabId, pos: number): void {
 export function insertAtCursor(id: TabId, text: string): void {
   updateEditor(id, (state) => {
     const { from, to } = state.selection.main;
-    return { changes: { from, to, insert: text }, selection: { anchor: from + text.length } };
+    const insert = state.toText(text);
+    return { changes: { from, to, insert }, selection: { anchor: from + insert.length } };
   });
 }
 
 /** Applies a format in one transaction that history keeps apart from typing, so one undo restores the old text. */
 export function applyFormatEdit(id: TabId, { from, to, insert }: FormatEdit): void {
-  updateEditor(id, () => ({
-    changes: { from, to, insert },
-    selection: { anchor: from + insert.length },
-    annotations: isolateHistory.of("full"),
-    userEvent: "input.format",
-    scrollIntoView: true,
-  }));
+  updateEditor(id, (state) => {
+    const text = state.toText(insert);
+    return {
+      changes: { from, to, insert: text },
+      selection: { anchor: from + text.length },
+      annotations: isolateHistory.of("full"),
+      userEvent: "input.format",
+      scrollIntoView: true,
+    };
+  });
 }
 
 /** Swaps the whole document in one transaction. Its userEvent keeps history from joining it with recent typing, so one undo restores the old text. */
 export function replaceDoc(id: TabId, text: string): void {
-  updateEditor(id, (state) => ({ changes: { from: 0, to: state.doc.length, insert: text }, selection: { anchor: text.length }, userEvent: "input" }));
+  updateEditor(id, (state) => {
+    const insert = state.toText(text);
+    return { changes: { from: 0, to: state.doc.length, insert }, selection: { anchor: insert.length }, userEvent: "input" };
+  });
 }
