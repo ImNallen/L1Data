@@ -13,10 +13,21 @@ import { providerBanner, type ProviderBanner } from "./assistantText";
 
 const MAX_INPUT_PX = 200;
 
-const PERMISSIONS = {
-  AskFirst: { label: "Ask first", hint: "Every query waits for Run or Deny" },
-  Auto: { label: "Auto", hint: "Read-only queries run without asking" },
-} satisfies Record<Permission, unknown>;
+const PERMISSION_LABELS: Record<Permission, string> = { AskFirst: "Ask first", Auto: "Auto" };
+
+type QueryTarget = "Postgres" | "SqlServerReadOnly" | "SqlServerOff";
+
+const PERMISSION_HINTS: Record<QueryTarget, Record<Permission, string>> = {
+  Postgres: { AskFirst: "Every query waits for Run or Deny", Auto: "Read-only queries run without asking" },
+  SqlServerReadOnly: { AskFirst: "Every query waits for Run or Deny", Auto: "SQL Server queries still ask first" },
+  SqlServerOff: { AskFirst: "Queries are off for this connection", Auto: "Queries are off for this connection" },
+};
+
+const SQL_SERVER_LIMITS: Record<Exclude<QueryTarget, "Postgres">, string> = {
+  SqlServerReadOnly: "On this SQL Server connection the assistant runs read-only queries, and every query asks first.",
+  SqlServerOff:
+    "On this SQL Server connection the assistant reads schema only. Turn on read-only queries in the connection's settings, or run suggested SQL in chat or a notebook cell.",
+};
 
 function Picker({ testId, label, children }: { testId: string; label: string; children: ReactNode }) {
   return (
@@ -111,7 +122,11 @@ export function Composer({ chat }: { chat: ChatState | undefined }) {
   const catalog = useCatalog((s) => viewFor(s.views, db)?.catalog);
   const contextLabel = db ? `${db.database} / ${schema ?? catalog?.defaultSchema ?? "default"}` : targetLabel;
   const tabTitle = useWorkspace((s) => activeTab(s)?.title);
-  const sqlServer = useWorkspace((s) => databaseKindFor(tabTarget(activeTab(s)), s.configs) === "SqlServer");
+  const queryTarget = useWorkspace((s): QueryTarget => {
+    const target = tabTarget(activeTab(s));
+    if (databaseKindFor(target, s.configs) !== "SqlServer") return "Postgres";
+    return target && s.configs[target.connectionId]?.assistantReadOnly ? "SqlServerReadOnly" : "SqlServerOff";
+  });
   const picked = useWorkspace((s) => (active ? s.activeResult[active] : undefined));
   const run = useLive((s) => (active ? s.consoles[active]?.run : undefined));
   const hasOutput = useLive((s) => (active ? (s.output[active]?.entries.length ?? 0) : 0) > 0);
@@ -227,8 +242,8 @@ export function Composer({ chat }: { chat: ChatState | undefined }) {
                     checked={chat?.options.permission === permission}
                     onSelect={() => configure({ permission })}
                   >
-                    {PERMISSIONS[permission].label}
-                    <span className="ml-auto pl-3 text-ui-11 text-dim">{PERMISSIONS[permission].hint}</span>
+                    {PERMISSION_LABELS[permission]}
+                    <span className="ml-auto pl-3 text-ui-11 text-dim">{PERMISSION_HINTS[queryTarget][permission]}</span>
                   </MenuItem>
                 ))}
               <MenuLabel>Sharing</MenuLabel>
@@ -284,9 +299,9 @@ export function Composer({ chat }: { chat: ChatState | undefined }) {
           {targetLabel}
         </span>
       )}
-      {sqlServer && (
+      {queryTarget !== "Postgres" && (
         <p data-testid="assistant-sqlserver-limit" className="sr-only">
-          SQL Server assistant tools inspect schema only; run suggested SQL manually in chat or a notebook cell.
+          {SQL_SERVER_LIMITS[queryTarget]}
         </p>
       )}
     </div>

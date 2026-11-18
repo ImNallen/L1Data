@@ -106,3 +106,36 @@ it("follows the shown notebook's active cell, including an unconfigured cell and
   act(() => useWorkspace.getState().showDatabase({ connectionId: "c", database: "archive" }));
   expect(screen.getByTestId("assistant-target").textContent).toBe("No database selected");
 });
+
+it("says per connection whether SQL Server queries are off or always ask", async () => {
+  const user = userEvent.setup();
+  const db = { connectionId: "c", database: "shop" };
+  const sqlServer = { ...connectionConfig("c", "Shop"), databaseKind: "SqlServer" } as const;
+  useWorkspace.setState({
+    ...cellsState([{ id: "t", title: "orders.sql", console: { db, mode: "AutoCommit" }, table: null }]),
+    configs: { c: sqlServer },
+  });
+  useWorkspace.setState((s) => ({ settings: { ...s.settings, assistantAccess: "Full" } }));
+  const chat = {
+    id: "chat",
+    rev: 1,
+    title: "test",
+    updatedAtMs: 1,
+    entryCount: 0,
+    options: { provider: "Claude", model: "test", effort: null, permission: "Auto" },
+    status: { kind: "Idle" },
+  } as const;
+  render(<Composer chat={chat} />);
+  const hints = async () => {
+    await user.click(screen.getByTestId("assistant-options"));
+    const text = ["AskFirst", "Auto"].map((p) => screen.getByTestId(`assistant-permission-${p}`).textContent);
+    await user.keyboard("{Escape}");
+    return text;
+  };
+  expect(screen.getByTestId("assistant-sqlserver-limit").textContent).toContain("Turn on read-only queries");
+  expect(await hints()).toEqual(["Ask firstQueries are off for this connection", "AutoQueries are off for this connection"]);
+
+  act(() => useWorkspace.setState({ configs: { c: { ...sqlServer, assistantReadOnly: true } } }));
+  expect(screen.getByTestId("assistant-sqlserver-limit").textContent).toContain("every query asks first");
+  expect(await hints()).toEqual(["Ask firstEvery query waits for Run or Deny", "AutoSQL Server queries still ask first"]);
+});
