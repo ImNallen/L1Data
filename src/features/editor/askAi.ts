@@ -7,7 +7,6 @@ import { sameDb } from "../../state/dbKey";
 import { useLive } from "../../state/live";
 import { activeId, activeQueryTab, useWorkspace } from "../../state/workspace";
 import { agentErrorText } from "../assistant/assistantText";
-import { showChat } from "../assistant/assistantActions";
 import { applyCapturedEdit, docOf, editorStateOf, focusEditor, onBuffersChanged, showAskPreview } from "./editorStates";
 import { flushSettings } from "./runActions";
 
@@ -215,12 +214,7 @@ function consumeReply(): void {
     if (outcome.sql === session.capture.source.sql) {
       setState({ kind: "prompt", session: { ...session, draft: null, prompt: "" }, message: "No changes." });
     } else setState({ kind: "review", session: { ...session, draft: outcome.sql, prompt: "" } });
-  } else {
-    if (session.draft !== null) setState({ kind: "review", session: { ...session, draft: session.draft, prompt: "" } });
-    else setState({ kind: "closed" });
-    workspace().setLayout({ rightPanel: "Assistant", assistantChat: state.session.chatId });
-    void showChat(state.session.chatId);
-  }
+  } else setState({ kind: "prompt", session: { ...session, prompt: "" }, message: null });
 }
 
 export async function submitAsk(): Promise<void> {

@@ -1,9 +1,12 @@
 import { ArrowUpIcon, LoaderCircleIcon, XIcon } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
+import type { ChatId } from "../../ipc/bindings";
 import { MAC } from "../../shell/hostedWindow";
+import { useLive } from "../../state/live";
 import { useWorkspace } from "../../state/workspace";
 import { cx } from "../../ui/primitives";
+import { ReplyText } from "../assistant/ReplyText";
 import { applyAsk, discardAsk, dismissAsk, openAskAi, setAskPrompt, submitAsk, useAskAi, type AskCapture, type AskState } from "./askAi";
 import { changedHunks } from "./askDiff";
 import { askAnchor, askPreviewHeight, onEditorGeometry } from "./editorStates";
@@ -22,6 +25,40 @@ export function AskAi() {
   const state = useAskAi((s) => s.state);
   const available = useWorkspace((s) => s.screen.kind === "workspace" && s.overlay.kind === "none");
   return state.kind === "closed" || !available ? null : createPortal(<AskSurface state={state} />, document.body);
+}
+
+function AskThread({ chatId, capture }: { chatId: ChatId; capture: AskCapture }) {
+  const root = useRef<HTMLDivElement>(null);
+  const transcript = useLive((s) => s.transcripts[chatId]);
+  const entries = useMemo(() => Object.values(transcript ?? {}).sort((a, b) => a.seq - b.seq), [transcript]);
+
+  useLayoutEffect(() => {
+    const element = root.current;
+    const latest = element ? [...element.querySelectorAll<HTMLElement>("[data-ask-request]")].at(-1) : undefined;
+    if (!element || !latest) return;
+    const top = latest.offsetTop - parseFloat(getComputedStyle(element).paddingTop);
+    element.style.height = `${element.scrollHeight - top}px`;
+    element.scrollTop = top;
+  }, [entries]);
+
+  if (!entries.some(({ entry }) => entry.kind === "User")) return null;
+  return (
+    <div ref={root} data-testid="ask-ai-thread" className="relative mt-1 flex max-h-[min(360px,50vh)] flex-col gap-2.5 overflow-y-auto px-0.5 pt-1 pb-1">
+      {entries.map(({ seq, entry }) =>
+        entry.kind === "User" ? (
+          <p
+            key={seq}
+            data-ask-request
+            className="selectable max-w-[85%] self-end rounded-md bg-selected px-2 py-1 text-ui-13 break-words whitespace-pre-wrap text-fg"
+          >
+            {entry.text}
+          </p>
+        ) : entry.kind === "Text" ? (
+          <ReplyText key={seq} testId={`ask-ai-text-${seq}`} blocks={entry.blocks} db={capture.db} databaseKind={capture.databaseKind} cards={false} />
+        ) : null,
+      )}
+    </div>
+  );
 }
 
 function AskSurface({ state }: { state: Exclude<AskState, { kind: "closed" }> }) {
@@ -137,8 +174,9 @@ function AskSurface({ state }: { state: Exclude<AskState, { kind: "closed" }> })
           <XIcon size={12} />
         </button>
       </div>
+      {state.session.chatId && <AskThread chatId={state.session.chatId} capture={capture} />}
       <form
-        className="mt-[3px] flex items-end gap-2"
+        className="mt-1.5 flex items-end gap-2 rounded-md border border-control bg-hover py-1 pr-1 pl-2 focus-within:border-focus"
         onSubmit={(event) => {
           event.preventDefault();
           void submitAsk();
@@ -162,15 +200,15 @@ function AskSurface({ state }: { state: Exclude<AskState, { kind: "closed" }> })
               void submitAsk();
             }
           }}
-          className="min-h-6 flex-1 resize-none bg-transparent px-0.5 py-0.5 text-ui-13 leading-5 text-fg outline-none placeholder:text-muted disabled:text-muted"
+          className="min-h-6 flex-1 resize-none bg-transparent py-0.5 text-ui-13 leading-5 text-fg outline-none placeholder:text-muted disabled:text-muted"
         />
         <button
           type="submit"
           aria-label={sending ? "Asking AI" : "Send to AI"}
           disabled={sending || !state.session.prompt.trim()}
-          className="mb-0.5 flex size-6 shrink-0 items-center justify-center rounded text-fg hover:bg-hover disabled:text-dim"
+          className="grid size-6 shrink-0 place-items-center rounded-full bg-fg text-bg transition-colors hover:opacity-85 disabled:pointer-events-none disabled:opacity-40"
         >
-          {sending ? <LoaderCircleIcon size={14} className="animate-spin" /> : <ArrowUpIcon size={14} />}
+          {sending ? <LoaderCircleIcon size={13} className="animate-spin" /> : <ArrowUpIcon size={14} strokeWidth={2.25} />}
         </button>
       </form>
       {message && (

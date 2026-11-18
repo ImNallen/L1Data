@@ -282,7 +282,7 @@ it("cancels only the late accepted turn after closing before acknowledgement", a
   expect(textOf(TAB.id)).toBe("SELECT 1;");
 });
 
-it("retains the accepted draft through refinement cancellation, failure and question handoff", async () => {
+it("retains the accepted draft through refinement cancellation, failure and an answered question", async () => {
   setup();
   const { sent, stopped } = boundary();
   const id = await propose("SELECT 2;");
@@ -300,8 +300,12 @@ it("retains the accepted draft through refinement cancellation, failure and ques
   if (failed.kind !== "closed") expect(failed.session.draft).toBe("SELECT 2;");
   sent.mockResolvedValue({ status: "ok", data: { turn: 20 } });
   await send("Explain the draft");
+  const layout = useWorkspace.getState().layout;
   terminal(id, 20, { kind: "Answer" });
-  expect(useWorkspace.getState().layout).toMatchObject({ rightPanel: "Assistant", assistantChat: id });
+  const answered = useAskAi.getState().state;
+  expect(answered.kind === "prompt" && [answered.session.chatId, answered.session.draft, answered.session.prompt]).toEqual([id, "SELECT 2;", ""]);
+  expect(useWorkspace.getState().layout).toBe(layout);
+  dismissAsk();
   expect(useAskAi.getState().state.kind).toBe("review");
   expect(textOf(TAB.id)).toBe("SELECT 1;");
   discardAsk();
