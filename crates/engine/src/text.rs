@@ -1269,4 +1269,22 @@ mod text_commands_never_panic {
             });
         }
     }
+
+    /// `result_drill` rewrites the SQL of a T-SQL batch that ran, for a row of its result.
+    #[test]
+    fn tsql_result_drill_never_panics_on_any_token_sequence() {
+        let kind = DatabaseKind::SqlServer;
+        for text in texts(50_000) {
+            assert_no_panic("result_drill", kind, &text, (), || {
+                let Ok(drill) = crate::sql::tsql::drill::plan(&text) else { return };
+                let types: Vec<_> =
+                    drill.columns().map(|c| ["nvarchar", "int", "datetime2"][usize::from(c) % 3]).collect();
+                let values: Vec<_> = drill
+                    .columns()
+                    .map(|c| (c % 2 == 0).then(|| TOKENS[usize::from(c) % TOKENS.len()].to_owned()))
+                    .collect();
+                let _ = drill.sql(&types, &values, &text);
+            });
+        }
+    }
 }

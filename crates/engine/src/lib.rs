@@ -2178,14 +2178,11 @@ impl Engine {
             .expect("result_profile task panicked")
     }
 
-    /// The SQL of the rows behind one row of a grouped PostgreSQL result. It rewrites the SQL that
-    /// produced the result, and only the SQL that may run again unasked.
+    /// The SQL of the rows behind one row of a grouped result. It rewrites the SQL that produced the
+    /// result, and only the SQL that may run again unasked.
     pub fn result_drill(&self, r: ResultRef, point: DrillPoint) -> Result<DrillQuery, DrillError> {
         let set = self.shared.result_set(r).ok_or(DrillError::Gone)?;
         let unsupported = |reason: &str| DrillError::Unsupported { reason: reason.into() };
-        if set.database_kind != DatabaseKind::Postgres {
-            return Err(unsupported("Drill-down works on PostgreSQL results for now."));
-        }
         if set.origin.page {
             return Err(unsupported("A table page filters the table instead."));
         }
@@ -2196,6 +2193,34 @@ impl Engine {
             }
             results::Rerun::Refused(reason) => return Err(unsupported(reason)),
         };
+        let query = |sql: String| DrillQuery { sql, db: set.db.clone(), schema: set.origin.schema.clone() };
+        if set.database_kind == DatabaseKind::SqlServer {
+            let refused = |reason: sql::tsql::drill::Refusal| {
+                if reason.ungrouped() { DrillError::Ungrouped } else { unsupported(&reason.to_string()) }
+            };
+            let drill = sql::tsql::drill::plan(sql).map_err(refused)?;
+            let types = drill
+                .columns()
+                .map(|c| set.columns.get(usize::from(c)).map(|k| k.r#type.display.as_str()))
+                .collect::<Option<Vec<_>>>()
+                .ok_or(DrillError::OutOfRange)?;
+            types.iter().try_for_each(|t| sql::tsql::drill::comparable(t)).map_err(refused)?;
+            return match point {
+                DrillPoint::Probe => Ok(query(String::new())),
+                DrillPoint::Row { row, title } => {
+                    let values = drill
+                        .columns()
+                        .map(|c| set.cell(row, c))
+                        .collect::<Option<Vec<_>>>()
+                        .ok_or(DrillError::OutOfRange)?;
+                    let text = drill.sql(&types, &values, &title).map_err(refused)?;
+                    match sql::tsql::rerun_refusal(&text) {
+                        None => Ok(query(text)),
+                        Some(reason) => Err(unsupported(reason)),
+                    }
+                }
+            };
+        }
         let drill = sql::drill::plan(sql).map_err(|reason| {
             if sql::drill::UNGROUPED.contains(&reason) { DrillError::Ungrouped } else { unsupported(reason) }
         })?;
@@ -2208,7 +2233,6 @@ impl Engine {
         if keys.iter().any(|k| k.r#type.display == "record") {
             return Err(unsupported("A grouped column is an anonymous ROW, which cannot be compared to its text."));
         }
-        let query = |sql: String| DrillQuery { sql, db: set.db.clone(), schema: set.origin.schema.clone() };
         match point {
             DrillPoint::Probe => Ok(query(String::new())),
             DrillPoint::Row { row, title } => {

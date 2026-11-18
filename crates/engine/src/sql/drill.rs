@@ -506,7 +506,7 @@ impl Drill<'_> {
 }
 
 /// Text that cannot end the comment it goes in: control characters and line breaks become spaces.
-fn one_line(text: &str) -> String {
+pub(super) fn one_line(text: &str) -> String {
     let words: Vec<&str> =
         text.split(|c: char| c.is_whitespace() || c.is_control()).filter(|w| !w.is_empty()).collect();
     let line = words.join(" ");
