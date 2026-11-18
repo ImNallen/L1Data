@@ -127,6 +127,15 @@ pub fn panic_message(payload: &(dyn std::any::Any + Send)) -> Option<String> {
     payload.downcast_ref::<&str>().map(|s| (*s).to_owned()).or_else(|| payload.downcast_ref::<String>().cloned())
 }
 
+/// Whether the assistant's SQL Server read allowlist admits `sql` as a single read, with the reason
+/// it refuses otherwise. Exposed only for the `mssql-tests` conformance test, which compares the
+/// allowlist with SQL Server's own parser.
+#[cfg(feature = "mssql-tests")]
+#[doc(hidden)]
+pub fn assistant_tsql_read_refusal(sql: &str) -> Option<String> {
+    sql::tsql::read::read_refusal(sql).err().map(|r| format!("{r:?}"))
+}
+
 impl Shared {
     pub(crate) fn emit(&self, ev: AppEvent) {
         let _ = self.events.send(ev);

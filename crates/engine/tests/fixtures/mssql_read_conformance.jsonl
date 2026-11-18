@@ -1,0 +1,883 @@
+{"group": "two-statement", "sql": "SELECT 1 PRECISION (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 AVG (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 BINARY (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 CAST (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 CHAR (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 COUNT (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 CUME_DIST (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 DAY (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 DECIMAL (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 FLOAT (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 LOWER (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 MAX (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 MIN (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 MONTH (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 NCHAR (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 NUMERIC (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 PERCENT_RANK (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 SPACE (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 SUBSTRING (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 SUM (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 TIME (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 TRANSLATE (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 TRIM (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 UPPER (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 VARCHAR (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 YEAR (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT -1 rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT 1.5 rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT .5 rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT 1e3 rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT 0x0A rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT $1 rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT 'a' rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT N'a' rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT 1 count (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count (SELECT 2 AS y)"}
+{"group": "two-statement", "sql": "SELECT 1 count (SELECT 2) UNION (SELECT 3)"}
+{"group": "two-statement", "sql": "SELECT 1 count ((SELECT 2))"}
+{"group": "two-statement", "sql": "SELECT 1 count (SELECT 2) ORDER BY 1"}
+{"group": "two-statement", "sql": "SELECT 1 count(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 sum (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 sum (SELECT 2 AS y)"}
+{"group": "two-statement", "sql": "SELECT 1 sum (SELECT 2) UNION (SELECT 3)"}
+{"group": "two-statement", "sql": "SELECT 1 sum ((SELECT 2))"}
+{"group": "two-statement", "sql": "SELECT 1 sum (SELECT 2) ORDER BY 1"}
+{"group": "two-statement", "sql": "SELECT 1 sum(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 abs (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 abs (SELECT 2 AS y)"}
+{"group": "two-statement", "sql": "SELECT 1 abs (SELECT 2) UNION (SELECT 3)"}
+{"group": "two-statement", "sql": "SELECT 1 abs ((SELECT 2))"}
+{"group": "two-statement", "sql": "SELECT 1 abs (SELECT 2) ORDER BY 1"}
+{"group": "two-statement", "sql": "SELECT 1 abs(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 lower (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 lower (SELECT 2 AS y)"}
+{"group": "two-statement", "sql": "SELECT 1 lower (SELECT 2) UNION (SELECT 3)"}
+{"group": "two-statement", "sql": "SELECT 1 lower ((SELECT 2))"}
+{"group": "two-statement", "sql": "SELECT 1 lower (SELECT 2) ORDER BY 1"}
+{"group": "two-statement", "sql": "SELECT 1 lower(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 varchar (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 varchar (SELECT 2 AS y)"}
+{"group": "two-statement", "sql": "SELECT 1 varchar (SELECT 2) UNION (SELECT 3)"}
+{"group": "two-statement", "sql": "SELECT 1 varchar ((SELECT 2))"}
+{"group": "two-statement", "sql": "SELECT 1 varchar (SELECT 2) ORDER BY 1"}
+{"group": "two-statement", "sql": "SELECT 1 varchar(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 decimal (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 decimal (SELECT 2 AS y)"}
+{"group": "two-statement", "sql": "SELECT 1 decimal (SELECT 2) UNION (SELECT 3)"}
+{"group": "two-statement", "sql": "SELECT 1 decimal ((SELECT 2))"}
+{"group": "two-statement", "sql": "SELECT 1 decimal (SELECT 2) ORDER BY 1"}
+{"group": "two-statement", "sql": "SELECT 1 decimal(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 nvarchar (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 nvarchar (SELECT 2 AS y)"}
+{"group": "two-statement", "sql": "SELECT 1 nvarchar (SELECT 2) UNION (SELECT 3)"}
+{"group": "two-statement", "sql": "SELECT 1 nvarchar ((SELECT 2))"}
+{"group": "two-statement", "sql": "SELECT 1 nvarchar (SELECT 2) ORDER BY 1"}
+{"group": "two-statement", "sql": "SELECT 1 nvarchar(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 time (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 time (SELECT 2 AS y)"}
+{"group": "two-statement", "sql": "SELECT 1 time (SELECT 2) UNION (SELECT 3)"}
+{"group": "two-statement", "sql": "SELECT 1 time ((SELECT 2))"}
+{"group": "two-statement", "sql": "SELECT 1 time (SELECT 2) ORDER BY 1"}
+{"group": "two-statement", "sql": "SELECT 1 time(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 float (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 float (SELECT 2 AS y)"}
+{"group": "two-statement", "sql": "SELECT 1 float (SELECT 2) UNION (SELECT 3)"}
+{"group": "two-statement", "sql": "SELECT 1 float ((SELECT 2))"}
+{"group": "two-statement", "sql": "SELECT 1 float (SELECT 2) ORDER BY 1"}
+{"group": "two-statement", "sql": "SELECT 1 float(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 binary (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 binary (SELECT 2 AS y)"}
+{"group": "two-statement", "sql": "SELECT 1 binary (SELECT 2) UNION (SELECT 3)"}
+{"group": "two-statement", "sql": "SELECT 1 binary ((SELECT 2))"}
+{"group": "two-statement", "sql": "SELECT 1 binary (SELECT 2) ORDER BY 1"}
+{"group": "two-statement", "sql": "SELECT 1 binary(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 row FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT 1 openjson (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 openjson (SELECT 2 AS y)"}
+{"group": "two-statement", "sql": "SELECT 1 openjson (SELECT 2) UNION (SELECT 3)"}
+{"group": "two-statement", "sql": "SELECT 1 openjson ((SELECT 2))"}
+{"group": "two-statement", "sql": "SELECT 1 openjson (SELECT 2) ORDER BY 1"}
+{"group": "two-statement", "sql": "SELECT 1 openjson(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 string_split (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 string_split (SELECT 2 AS y)"}
+{"group": "two-statement", "sql": "SELECT 1 string_split (SELECT 2) UNION (SELECT 3)"}
+{"group": "two-statement", "sql": "SELECT 1 string_split ((SELECT 2))"}
+{"group": "two-statement", "sql": "SELECT 1 string_split (SELECT 2) ORDER BY 1"}
+{"group": "two-statement", "sql": "SELECT 1 string_split(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 generate_series (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 generate_series (SELECT 2 AS y)"}
+{"group": "two-statement", "sql": "SELECT 1 generate_series (SELECT 2) UNION (SELECT 3)"}
+{"group": "two-statement", "sql": "SELECT 1 generate_series ((SELECT 2))"}
+{"group": "two-statement", "sql": "SELECT 1 generate_series (SELECT 2) ORDER BY 1"}
+{"group": "two-statement", "sql": "SELECT 1 generate_series(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT id FROM dbo.t rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT * FROM dbo.t rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT COUNT(*) FROM dbo.t rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT COUNT(*) rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT (1) rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT (SELECT 1) rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT CURRENT_TIMESTAMP (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT CURRENT_TIMESTAMP (SELECT 2 AS y)"}
+{"group": "two-statement", "sql": "SELECT CURRENT_TIMESTAMP (SELECT 2) UNION (SELECT 3)"}
+{"group": "two-statement", "sql": "SELECT CURRENT_TIMESTAMP ((SELECT 2))"}
+{"group": "two-statement", "sql": "SELECT CURRENT_TIMESTAMP (SELECT 2) ORDER BY 1"}
+{"group": "two-statement", "sql": "SELECT CURRENT_TIMESTAMP(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT CURRENT_TIMESTAMP rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT CURRENT_USER (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT CURRENT_USER (SELECT 2 AS y)"}
+{"group": "two-statement", "sql": "SELECT CURRENT_USER (SELECT 2) UNION (SELECT 3)"}
+{"group": "two-statement", "sql": "SELECT CURRENT_USER ((SELECT 2))"}
+{"group": "two-statement", "sql": "SELECT CURRENT_USER (SELECT 2) ORDER BY 1"}
+{"group": "two-statement", "sql": "SELECT CURRENT_USER(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT CURRENT_USER rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT SESSION_USER (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT SESSION_USER (SELECT 2 AS y)"}
+{"group": "two-statement", "sql": "SELECT SESSION_USER (SELECT 2) UNION (SELECT 3)"}
+{"group": "two-statement", "sql": "SELECT SESSION_USER ((SELECT 2))"}
+{"group": "two-statement", "sql": "SELECT SESSION_USER (SELECT 2) ORDER BY 1"}
+{"group": "two-statement", "sql": "SELECT SESSION_USER(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT SESSION_USER rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT SYSTEM_USER (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT SYSTEM_USER (SELECT 2 AS y)"}
+{"group": "two-statement", "sql": "SELECT SYSTEM_USER (SELECT 2) UNION (SELECT 3)"}
+{"group": "two-statement", "sql": "SELECT SYSTEM_USER ((SELECT 2))"}
+{"group": "two-statement", "sql": "SELECT SYSTEM_USER (SELECT 2) ORDER BY 1"}
+{"group": "two-statement", "sql": "SELECT SYSTEM_USER(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT SYSTEM_USER rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT USER (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT USER (SELECT 2 AS y)"}
+{"group": "two-statement", "sql": "SELECT USER (SELECT 2) UNION (SELECT 3)"}
+{"group": "two-statement", "sql": "SELECT USER ((SELECT 2))"}
+{"group": "two-statement", "sql": "SELECT USER (SELECT 2) ORDER BY 1"}
+{"group": "two-statement", "sql": "SELECT USER(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT USER rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT NULL rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT CASE WHEN 1 = 1 THEN 1 END rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT 1 FROM dbo.t FOR BROWSE (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 FROM dbo.t FOR BROWSE (SELECT 2 AS y)"}
+{"group": "two-statement", "sql": "SELECT 1 FROM dbo.t FOR BROWSE (SELECT 2) UNION (SELECT 3)"}
+{"group": "two-statement", "sql": "SELECT 1 FROM dbo.t FOR BROWSE ((SELECT 2))"}
+{"group": "two-statement", "sql": "SELECT 1 FROM dbo.t FOR BROWSE (SELECT 2) ORDER BY 1"}
+{"group": "two-statement", "sql": "SELECT 1 FROM dbo.t FOR BROWSE(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT name COLLATE Latin1_General_BIN FROM dbo.t rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT TOP 1 1 rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT TOP (1) 1 rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT TOP 10 PERCENT 1 FROM dbo.t rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT DISTINCT id FROM dbo.t rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT ALL id FROM dbo.t rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT 1 FROM dbo.t CROSS JOIN dbo.u rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT 1 AS x, (SELECT 1) d (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 AS x, (SELECT 1) d (SELECT 2 AS y)"}
+{"group": "two-statement", "sql": "SELECT 1 AS x, (SELECT 1) d (SELECT 2) UNION (SELECT 3)"}
+{"group": "two-statement", "sql": "SELECT 1 AS x, (SELECT 1) d ((SELECT 2))"}
+{"group": "two-statement", "sql": "SELECT 1 AS x, (SELECT 1) d (SELECT 2) ORDER BY 1"}
+{"group": "two-statement", "sql": "SELECT 1 AS x, (SELECT 1) d(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT value FROM STRING_SPLIT('a,b', ',') rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT [key] FROM OPENJSON('{}') rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT a FROM OPENJSON('{}') WITH (a int) rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT value FROM GENERATE_SERIES(1, 2) rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT 1 FROM dbo.tt FOR SYSTEM_TIME ALL rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT 1 FROM dbo.tt FOR SYSTEM_TIME AS OF '2020-01-01' rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT 1 UNION SELECT 2 rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT 1 UNION ALL SELECT 2 rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT 1 EXCEPT SELECT 2 rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT 1 INTERSECT SELECT 2 rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "WITH c AS (SELECT 1 AS a) SELECT a FROM c rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "WITH c(a) AS (SELECT 1) SELECT a FROM c rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT CONVERT(int, 1) rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT CAST(1 AS int) rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT CAST(1 AS decimal(10, 2)) rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT {fn CURRENT_TIMESTAMP()} (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT {fn CURRENT_TIMESTAMP()} (SELECT 2 AS y)"}
+{"group": "two-statement", "sql": "SELECT {fn CURRENT_TIMESTAMP()} (SELECT 2) UNION (SELECT 3)"}
+{"group": "two-statement", "sql": "SELECT {fn CURRENT_TIMESTAMP()} ((SELECT 2))"}
+{"group": "two-statement", "sql": "SELECT {fn CURRENT_TIMESTAMP()} (SELECT 2) ORDER BY 1"}
+{"group": "two-statement", "sql": "SELECT {fn CURRENT_TIMESTAMP()}(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT {fn CURRENT_TIMESTAMP()} rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT $ROWGUID FROM dbo.t2 rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT 1, (SELECT 1) d (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 AS x, (SELECT 1) AS d (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT (SELECT 1) count (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT id FROM dbo.t FOR BROWSE (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1rows FETCH NEXT FROM c"}
+{"group": "two-statement", "sql": "SELECT 1count (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1.5count (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1e2count (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u0001(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u0002(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u0003(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u0004(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u0005(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u0006(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u0007(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\b(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\t(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\n(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u000b(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\f(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\r(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u000e(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u000f(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u0010(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u0011(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u0012(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u0013(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u0014(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u0015(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u0016(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u0017(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u0018(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u0019(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u001a(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u001b(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u001c(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u001d(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u001e(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count\u001f(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count​(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count‌(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count‍(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count‎(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count‏(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count‪(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count‫(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count‬(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count‭(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count‮(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count‿(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count⁀(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count⁠(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count⁡(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count⁢(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count⁣(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count⁪(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count⁫(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count⁬(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count⁭(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count⁮(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count⁯(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count᠎(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count　(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count﻿(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count￹(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count￺(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 count￻(SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT (SELECT 1) count (SELECT 2) OPTION (RECOMPILE)"}
+{"group": "two-statement", "sql": "SELECT 1.5 FOR BROWSE (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 generate_series FOR BROWSE (SELECT 2)"}
+{"group": "two-statement", "sql": "SELECT 1 generate_series , (SELECT 1) d (SELECT 2) ORDER BY 1"}
+{"group": "two-statement", "sql": "SELECT 1 binary (SELECT 1 FROM dbo.t JOIN dbo.u ON t.id = u.id)"}
+{"group": "two-statement", "sql": "SELECT 1 time (SELECT $ROWGUID FROM dbo.t2)"}
+{"group": "two-statement", "sql": "SELECT 1 decimal (SELECT 1 binary)"}
+{"group": "two-statement", "sql": "SELECT 1 count (SELECT N'a')"}
+{"group": "two-statement", "sql": "SELECT 1 string_split (SELECT id FROM dbo.t x)"}
+{"group": "two-statement", "sql": "SELECT 1 binary (SELECT 1 nvarchar)"}
+{"group": "two-statement", "sql": "SELECT SYSTEM_USER (SELECT 1 FROM dbo.t TABLESAMPLE (10 PERCENT))"}
+{"group": "two-statement", "sql": "SELECT 1 nvarchar (SELECT value FROM STRING_SPLIT('a,b', ','))"}
+{"group": "two-statement", "sql": "SELECT 1 AS x, (SELECT 1) d (SELECT id FROM dbo.t varchar)"}
+{"group": "two-statement", "sql": "SELECT 1 float (SELECT [key] FROM OPENJSON('{}'))"}
+{"group": "two-statement", "sql": "SELECT SESSION_USER (SELECT COUNT(*) AS n FROM dbo.orders)"}
+{"group": "two-statement", "sql": "SELECT {fn CURRENT_TIMESTAMP()} (SELECT (1))"}
+{"group": "two-statement", "sql": "SELECT 1 FROM dbo.t FOR BROWSE (SELECT name COLLATE Latin1_General_BIN FROM dbo.t)"}
+{"group": "two-statement", "sql": "SELECT id FROM dbo.t FOR BROWSE (SELECT name COLLATE Latin1_General_BIN FROM dbo.t)"}
+{"group": "two-statement", "sql": "SELECT 1 binary (SELECT 1 FROM dbo.t OUTER APPLY (SELECT 1 AS a) AS d)"}
+{"group": "two-statement", "sql": "SELECT 1 binary (SELECT id FROM dbo.t varchar)"}
+{"group": "two-statement", "sql": "SELECT 1 FROM dbo.t FOR BROWSE (SELECT (SELECT 1) AS one)"}
+{"group": "two-statement", "sql": "SELECT 1 generate_series (SELECT CASE WHEN 1 = 1 THEN 1 END)"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t ADD SIGNATURE TO dbo.p BY CERTIFICATE cert"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t ADD COUNTER SIGNATURE TO dbo.p BY CERTIFICATE cert"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t ADD SENSITIVITY CLASSIFICATION TO dbo.t.x WITH (LABEL = 'a')"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t ALTER TABLE dbo.t2 ADD z int"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t ALTER DATABASE CURRENT SET READ_WRITE"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t ALTER SEQUENCE dbo.seq RESTART WITH 100"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t ALTER AUTHORIZATION ON dbo.t TO dbo"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t ALTER INDEX ALL ON dbo.t REBUILD"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t ALTER LOGIN sa ENABLE"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t ALTER SERVER CONFIGURATION SET PROCESS AFFINITY CPU = AUTO"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t ALTER RESOURCE GOVERNOR RECONFIGURE"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t ALTER QUEUE dbo.q WITH STATUS = ON"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t BACKUP DATABASE __DB__ TO DISK = '/dev/null'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t BACKUP LOG __DB__ TO DISK = '/dev/null'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t BACKUP CERTIFICATE cert TO FILE = '/tmp/c'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t BACKUP MASTER KEY TO FILE = '/tmp/k' ENCRYPTION BY PASSWORD = 'x'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t BEGIN TRAN"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t BEGIN TRANSACTION"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t BEGIN TRANSACTION tx WITH MARK 'm'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t BEGIN DISTRIBUTED TRANSACTION"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t BEGIN SELECT 2 END"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t BEGIN TRY SELECT 2 END TRY BEGIN CATCH SELECT 3 END CATCH"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t BEGIN DIALOG CONVERSATION h FROM SERVICE s TO SERVICE 's'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t BEGIN CONVERSATION TIMER ('00000000-0000-0000-0000-000000000000') TIMEOUT = 1"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t BEGIN ATOMIC WITH (TRANSACTION ISOLATION LEVEL = SNAPSHOT, LANGUAGE = N'us_english') SELECT 2 END"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t BREAK"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t CONTINUE"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t BULK INSERT dbo.t2 FROM '/dev/null'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t CHECKPOINT"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t CHECKPOINT 1"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t CLOSE c"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t CLOSE GLOBAL c"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t CLOSE MASTER KEY"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t CLOSE SYMMETRIC KEY k"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t CLOSE ALL SYMMETRIC KEYS"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t COMMIT"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t COMMIT TRAN"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t COMMIT TRANSACTION"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t COMMIT WORK"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t CREATE TABLE dbo.zz (a int)"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t CREATE INDEX ix ON dbo.t2 (a)"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t CREATE STATISTICS st ON dbo.t2 (a)"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t CREATE VIEW dbo.vv AS SELECT 1 AS a"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t CREATE PROCEDURE dbo.pp AS SELECT 1"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t CREATE SCHEMA s2"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t CREATE USER u2 WITHOUT LOGIN"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t CREATE DATABASE zz_never"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t CREATE LOGIN zz_never WITH PASSWORD = 'Zz_never_1'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t DBCC CHECKIDENT ('dbo.t2')"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t DBCC TRACEON (3604)"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t DBCC FREEPROCCACHE"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t DBCC USEROPTIONS"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t DEALLOCATE c"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t DEALLOCATE GLOBAL c"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t DECLARE @x int"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t DECLARE c2 CURSOR FOR SELECT 1"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t DELETE FROM dbo.t2"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t DELETE dbo.t2"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t DENY SELECT ON dbo.t TO public"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t DISABLE TRIGGER tr ON dbo.t2"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t ENABLE TRIGGER tr ON dbo.t2"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t DROP TABLE dbo.u"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t DROP SEQUENCE dbo.seq"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t DROP DATABASE __DB__"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t DROP SENSITIVITY CLASSIFICATION FROM dbo.t.x"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t DUMP DATABASE __DB__ TO DISK = '/dev/null'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t END CONVERSATION '00000000-0000-0000-0000-000000000000'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t END CONVERSATION '00000000-0000-0000-0000-000000000000' WITH CLEANUP"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t EXEC dbo.p"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t EXECUTE dbo.p"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t EXEC ('SELECT 1')"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t EXECUTE AS USER = 'dbo'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t EXECUTE AS CALLER"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t dbo.p"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t FETCH NEXT FROM c"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t FETCH c"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t FETCH FIRST FROM c"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t FETCH ABSOLUTE 1 FROM c"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t FETCH NEXT FROM GLOBAL c"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t GET CONVERSATION GROUP g FROM dbo.q"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t GET_TRANSMISSION_STATUS ('00000000-0000-0000-0000-000000000000')"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t GO"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t GOTO lbl"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t GRANT SELECT ON dbo.t TO public"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t IF 1 = 1 SELECT 2"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t IF 1 = 1 SELECT 2 ELSE SELECT 3"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t INSERT INTO dbo.t2 (a) VALUES (1)"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t INSERT dbo.t2 (a) VALUES (1)"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t INSERT dbo.t2 (a) SELECT 1"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t INSERT dbo.t2 DEFAULT VALUES"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t KILL 51"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t KILL 'abc'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t KILL QUERY NOTIFICATION SUBSCRIPTION ALL"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t KILL STATS JOB 1"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t LINENO 5"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t LOAD DATABASE __DB__ FROM DISK = '/dev/null'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t MERGE dbo.t2 USING dbo.t ON 1 = 0 WHEN NOT MATCHED THEN INSERT (a) VALUES (1);"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t MOVE CONVERSATION '00000000-0000-0000-0000-000000000000' TO '00000000-0000-0000-0000-000000000000'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t OPEN c"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t OPEN GLOBAL c"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t OPEN MASTER KEY DECRYPTION BY PASSWORD = 'x'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t OPEN SYMMETRIC KEY k DECRYPTION BY PASSWORD = 'x'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t PRINT 'a'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t RAISERROR('a', 16, 1)"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t RAISERROR 50000 'a'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t READTEXT dbo.t.note 0x00 0 5"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t RECEIVE * FROM dbo.q"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t RECEIVE TOP (1) * FROM dbo.q"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t RECONFIGURE"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t RECONFIGURE WITH OVERRIDE"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t RESTORE DATABASE __DB__ FROM DISK = '/dev/null'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t RESTORE HEADERONLY FROM DISK = '/dev/null'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t RETURN"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t RETURN 1"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t REVERT"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t REVOKE SELECT ON dbo.t TO public"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t ROLLBACK"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t ROLLBACK TRAN"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t ROLLBACK WORK"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SAVE TRAN s"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SAVE TRANSACTION s"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SELECT 2"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SEND ON CONVERSATION '00000000-0000-0000-0000-000000000000' (0x00)"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SEND ON CONVERSATION '00000000-0000-0000-0000-000000000000' MESSAGE TYPE m (0x00)"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SET NOCOUNT ON"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SET ROWCOUNT 1"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SET XACT_ABORT ON"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SET IDENTITY_INSERT dbo.t2 ON"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SET CONTEXT_INFO 0x01"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SET LOCK_TIMEOUT 1"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SET DEADLOCK_PRIORITY LOW"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SET LANGUAGE us_english"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SET DATEFIRST 1"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SET TEXTSIZE 10"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SET IMPLICIT_TRANSACTIONS ON"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SET STATISTICS IO ON"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SET ANSI_NULLS OFF"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SET SHOWPLAN_XML OFF"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SET PARSEONLY ON"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SET FMTONLY ON"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SET @x = 1"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SETUSER"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SETUSER 'dbo'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SHUTDOWN"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t SHUTDOWN WITH NOWAIT"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t THROW 50000, 'a', 1"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t THROW"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t TRUNCATE TABLE dbo.t2"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t UPDATE dbo.t2 SET a = 1"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t UPDATE STATISTICS dbo.t"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t UPDATETEXT dbo.t.note 0x00 0 NULL 'a'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t USE master"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t USE [master]"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t WAITFOR DELAY '00:00:00.010'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t WAITFOR TIME '00:00'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t WAITFOR (RECEIVE * FROM dbo.q), TIMEOUT 1"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t WHILE 1 = 0 SELECT 2"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t WITH c AS (SELECT 1 AS a) SELECT a FROM c"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t WITH c AS (SELECT 1 AS a) INSERT dbo.t2 (a) SELECT a FROM c"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t WITH c AS (SELECT 1 AS a) (SELECT a FROM c)"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t WITH XMLNAMESPACES ('urn:x' AS x) SELECT 1"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t WRITETEXT dbo.t.note 0x00 'a'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t COPY INTO dbo.t2 FROM 'x'"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t RENAME OBJECT dbo.t2 TO t3"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t EXPLAIN SELECT 1"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t CREATE TABLE AS SELECT 1"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t TRY_CONVERT(int, 1)"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t lbl:"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t lbl: SELECT 2"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t lbl: (SELECT 2)"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t (SELECT 2)"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t ((SELECT 2))"}
+{"group": "statement-keyword", "sql": "SELECT 1 FROM dbo.t (SELECT 2) UNION (SELECT 3)"}
+{"group": "pr-valid-read", "sql": "select id, name from dbo.customers where id > 10 order by id"}
+{"group": "pr-valid-read", "sql": "SELECT COUNT(*) AS n FROM dbo.orders"}
+{"group": "pr-valid-read", "sql": "WITH c AS (SELECT id FROM dbo.customers) SELECT * FROM c"}
+{"group": "pr-valid-read", "sql": "SELECT TOP 10 * FROM dbo.orders"}
+{"group": "pr-valid-read", "sql": "SELECT id FROM dbo.a UNION ALL SELECT id FROM dbo.b"}
+{"group": "pr-valid-read", "sql": "SELECT CONVERT(decimal(10, 2), total) FROM dbo.orders"}
+{"group": "pr-valid-read", "sql": "SELECT CASE WHEN x > 0 THEN 'a' ELSE 'b' END FROM dbo.t"}
+{"group": "pr-valid-read", "sql": "SELECT id FROM dbo.orders ORDER BY id OFFSET 0 ROWS FETCH NEXT 5 ROWS ONLY"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM dbo.t WITH (NOLOCK)"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM __DB__.dbo.orders"}
+{"group": "pr-valid-read", "sql": "SELECT DATEADD(day, 1, GETDATE())"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM STRING_SPLIT('a,b', ',')"}
+{"group": "pr-valid-read", "sql": "SELECT (1) AS one"}
+{"group": "pr-valid-read", "sql": "SELECT (SELECT 1) AS one"}
+{"group": "pr-valid-read", "sql": "WITH c AS (SELECT 1 AS a) SELECT (a) FROM c"}
+{"group": "pr-valid-read", "sql": "SELECT t.id * 2, dbo.t.id * 3 FROM __DB__.dbo.t"}
+{"group": "pr-valid-read", "sql": "UPDATE dbo.t SET x = 1"}
+{"group": "pr-valid-read", "sql": "SELECT 1; SELECT 2"}
+{"group": "pr-valid-read", "sql": "SELECT 1 SELECT 2"}
+{"group": "pr-valid-read", "sql": "SELECT 1 DROP TABLE dbo.t"}
+{"group": "pr-valid-read", "sql": "SELECT * INTO dbo.backup FROM dbo.orders"}
+{"group": "pr-valid-read", "sql": "SELECT * INTO #t FROM dbo.orders"}
+{"group": "pr-valid-read", "sql": "DECLARE @x int = 1 SELECT @x"}
+{"group": "pr-valid-read", "sql": "USE master"}
+{"group": "pr-valid-read", "sql": "SELECT NEXT VALUE FOR other_db.dbo.seq"}
+{"group": "pr-valid-read", "sql": "select next value for dbo.seq"}
+{"group": "pr-valid-read", "sql": "SELECT full_filesystem_path FROM sys.dm_os_enumerate_filesystem('/etc', '*')"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM dm_os_enumerate_filesystem('/etc', '*')"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM OPENQUERY(srv, 'select 1')"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM OPENROWSET('x', 'y', 'z')"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM OPENDATASOURCE('x', 'y')"}
+{"group": "pr-valid-read", "sql": "SELECT master.dbo.xp_cmdshell('dir')"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM srv.__DB__.dbo.tbl"}
+{"group": "pr-valid-read", "sql": "SELECT dbo.my_udf(1)"}
+{"group": "pr-valid-read", "sql": "SELECT my_udf(1)"}
+{"group": "pr-valid-read", "sql": "EXEC sys.sp_who"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM (EXEC master.dbo.xp_cmdshell 'dir') x"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM srv.__DB__.dbo.tbl.extra"}
+{"group": "pr-valid-read", "sql": "SELECT four.part.name.here FROM dbo.t"}
+{"group": "pr-valid-read", "sql": "SELECT @@VERSION"}
+{"group": "pr-valid-read", "sql": "SELECT @x"}
+{"group": "pr-valid-read", "sql": "SELECT (1"}
+{"group": "pr-valid-read", "sql": "SELECT 'x"}
+{"group": "pr-valid-read", "sql": "VALUES (1), (2)"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM (VALUES (1), (2)) AS v(a)"}
+{"group": "pr-valid-read", "sql": "SELECT 'FIRST_RESULT' AS marker FROM t READTEXT dbo.t.note 0x00 0 5"}
+{"group": "pr-valid-read", "sql": "SELECT 'FIRST' AS marker SETUSER"}
+{"group": "pr-valid-read", "sql": "UPDATETEXT"}
+{"group": "pr-valid-read", "sql": "SELECT 1 AS x DUMP DATABASE d TO DISK = 'f'"}
+{"group": "pr-valid-read", "sql": "SELECT 1 AS x LOAD DATABASE d FROM DISK = 'f'"}
+{"group": "pr-valid-read", "sql": "SELECT 1 AS x END CONVERSATION 'h'"}
+{"group": "pr-valid-read", "sql": "SELECT 1 AS x ELSE SELECT 2"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM dbo.t WITH (HOLDLOCK)"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM dbo.t INNER MERGE JOIN dbo.u ON t.id = u.id"}
+{"group": "pr-valid-read", "sql": "SELECT t.backup FROM dbo.t"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM (SELECT 1 AS a WHERE 1 = 1 SETUSER) d"}
+{"group": "pr-valid-read", "sql": "SELECT 1 AS x {word} a"}
+{"group": "pr-valid-read", "sql": "SELECT t.receive, t.[move] FROM dbo.t"}
+{"group": "pr-valid-read", "sql": "SELECT [get] FROM dbo.t"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM dbo.t WHERE id IN (SELECT send FROM dbo.u)"}
+{"group": "pr-valid-read", "sql": "SELECT 'a' AS x (SELECT 2 AS y)"}
+{"group": "pr-valid-read", "sql": "SELECT COUNT(*) (SELECT 2 AS y) FROM dbo.t"}
+{"group": "pr-valid-read", "sql": "SELECT TOP 1 name FROM dbo.t ORDER BY name DESC (SELECT 2 AS y)"}
+{"group": "pr-valid-read", "sql": "SELECT 1 AS x lbl: (SELECT 2 AS y)"}
+{"group": "pr-valid-read", "sql": "SELECT TOP 1 (SELECT 2) AS x FROM dbo.t"}
+{"group": "pr-valid-read", "sql": "SELECT TOP (1) (SELECT 2) AS x FROM dbo.t"}
+{"group": "pr-valid-read", "sql": "SELECT 2 * (SELECT 3)"}
+{"group": "pr-valid-read", "sql": "SELECT id FROM dbo.a UNION (SELECT id FROM dbo.b)"}
+{"group": "pr-valid-read", "sql": "SELECT id FROM dbo.t WHERE (id = 1) AND (id < 2)"}
+{"group": "pr-valid-read", "sql": "SELECT id FROM dbo.t ORDER BY (id)"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM dbo.t WITH (NOLOCK) WHERE id IN (1, 2)"}
+{"group": "pr-valid-read", "sql": "SELECT COUNT(*) OVER (PARTITION BY id ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM dbo.t"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM linked_server.remote_db..orders"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM a.b..c"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM a..b.c"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM a...b"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM [a].[b]..[c]"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM [a] . [b] . . [c]"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM a /* x */ . b . /* y */ . c"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM a.\nb..c"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM .__DB__.dbo.t"}
+{"group": "pr-valid-read", "sql": "SELECT srv.__DB__.dbo.t.* FROM dbo.t"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM db..t"}
+{"group": "pr-valid-read", "sql": "SELECT __DB__.dbo.t.* FROM __DB__.dbo.t"}
+{"group": "pr-valid-read", "sql": "SELECT t.* FROM dbo.t AS t"}
+{"group": "pr-valid-read", "sql": "SELECT TOP (1) SERVERPROPERTY('Edition')"}
+{"group": "pr-valid-read", "sql": "SELECT TOP (1) my_udf(1) FROM dbo.t"}
+{"group": "pr-valid-read", "sql": "WITH c(id) AS (SELECT my_udf(1)) SELECT id FROM c"}
+{"group": "pr-valid-read", "sql": "SELECT a FROM (SELECT 1) x(a) WHERE my_udf(a) = 1"}
+{"group": "pr-valid-read", "sql": "SELECT a FROM (SELECT 1) x(a) CROSS APPLY my_tvf(a)"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM (SELECT 1 AS a) AS d CROSS APPLY dm_os_enumerate_filesystem('/etc', '*')"}
+{"group": "pr-valid-read", "sql": "WITH XMLNAMESPACES ('urn:x' AS x) SELECT 1"}
+{"group": "pr-valid-read", "sql": "WITH c AS (SELECT 1 AS a) DELETE FROM dbo.t"}
+{"group": "pr-valid-read", "sql": "EXEC [{db}].sys.sp_executesql N'{}'"}
+{"group": "pr-valid-read", "sql": "SELECT id, name FROM dbo.t ORDER BY id"}
+{"group": "pr-valid-read", "sql": "SELECT NEXT VALUE FOR [{}].dbo.seq"}
+{"group": "pr-valid-read", "sql": "SELECT * INTO dbo.copy FROM dbo.t"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM OPENROWSET('a', 'b', 'c')"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM OPENDATASOURCE('a', 'b')"}
+{"group": "pr-valid-read", "sql": "SELECT 'FIRST' AS marker FROM dbo.t READTEXT dbo.t.name 0x00 0 5"}
+{"group": "pr-valid-read", "sql": "SELECT"}
+{"group": "pr-valid-read", "sql": "SELECT * FROM (EXEC sys.sp_who) AS x"}
+{"group": "pr-valid-read", "sql": "EXEC and EXECUTE do not run here"}
+{"group": "pr-valid-read", "sql": "SELECT TOP 1 id FROM dbo.t ORDER BY id"}
+{"group": "pr-valid-read", "sql": "SELECT id FROM dbo.t ORDER BY id"}
+{"group": "recombination", "sql": "DECLARE @x int = 1 SELECT @x SET DATEFIRST 1 DISABLE TRIGGER tr ON dbo.t2"}
+{"group": "recombination", "sql": "DECLARE @x int = 1 SELECT @x THROW 50000, 'a', 1"}
+{"group": "recombination", "sql": "DECLARE @x int = 1 SELECT @x x"}
+{"group": "recombination", "sql": "EXEC and EXECUTE do not run here SELECT 1 FROM dbo.t WHERE id = [id]"}
+{"group": "recombination", "sql": "EXEC and EXECUTE do not run here SETUSER 'dbo' DEALLOCATE GLOBAL c AS [count]"}
+{"group": "recombination", "sql": "EXEC and EXECUTE do not run here SHUTDOWN"}
+{"group": "recombination", "sql": "EXEC sys.sp_who ALTER RESOURCE GOVERNOR RECONFIGURE ELSE SELECT 2"}
+{"group": "recombination", "sql": "EXEC sys.sp_who BEGIN TRAN DELETE FROM dbo.t2 KILL 'abc'"}
+{"group": "recombination", "sql": "EXEC sys.sp_who OPTION (RECOMPILE)"}
+{"group": "recombination", "sql": "EXEC sys.sp_who RECEIVE TOP (1) * FROM dbo.q GET CONVERSATION GROUP g FROM dbo.q (SELECT 2)"}
+{"group": "recombination", "sql": "EXEC sys.sp_who THROW BEGIN ATOMIC WITH (TRANSACTION ISOLATION LEVEL = SNAPSHOT, LANGUAGE = N'us_english') SELECT 2 END DROP DATABASE __DB__"}
+{"group": "recombination", "sql": "SELECT $1 DEALLOCATE c UPDATE dbo.t2 SET a = 1 THROW 50000, 'a', 1"}
+{"group": "recombination", "sql": "SELECT $1 SELECT 1 SELECT 2"}
+{"group": "recombination", "sql": "SELECT $1 SELECT id FROM dbo.t OPTION (USE HINT ('DISABLE_OPTIMIZER_ROWGOAL'))"}
+{"group": "recombination", "sql": "SELECT $IDENTITY FROM dbo.t2 SELECT * FROM dbo.t WHERE id IN (SELECT send FROM dbo.u)"}
+{"group": "recombination", "sql": "SELECT $ROWGUID FROM dbo.t2 COMMIT TRANSACTION"}
+{"group": "recombination", "sql": "SELECT $ROWGUID FROM dbo.t2 FETCH NEXT FROM c OPEN GLOBAL c"}
+{"group": "recombination", "sql": "SELECT 'FIRST' AS marker FROM dbo.t READTEXT dbo.t.name 0x00 0 5 CURRENT_TIMESTAMP (SELECT 2) MOVE CONVERSATION '00000000-0000-0000-0000-000000000000' TO '00000000-0000-0000-0000-000000000000'"}
+{"group": "recombination", "sql": "SELECT 'FIRST' AS marker FROM dbo.t READTEXT dbo.t.name 0x00 0 5 RECONFIGURE ALTER DATABASE CURRENT SET READ_WRITE DROP SEQUENCE dbo.seq"}
+{"group": "recombination", "sql": "SELECT 'FIRST' AS marker SETUSER /* -- /* \n */ SETUSER --*/ WHERE 1 = 1"}
+{"group": "recombination", "sql": "SELECT 'a' SET DATEFIRST 1"}
+{"group": "recombination", "sql": "SELECT 'x (SELECT 1 FROM dbo.t ORDER BY id COLLATE Latin1_General_BIN)"}
+{"group": "recombination", "sql": "SELECT (1 EXEC dbo.p SETUSER SET PARSEONLY ON"}
+{"group": "recombination", "sql": "SELECT (1) KILL 51"}
+{"group": "recombination", "sql": "SELECT (SELECT 1) AS one (SELECT * FROM OPENDATASOURCE('x', 'y'))"}
+{"group": "recombination", "sql": "SELECT (SELECT 1) GOTO lbl"}
+{"group": "recombination", "sql": "SELECT (SELECT 1) count (SELECT 2) BEGIN DIALOG CONVERSATION h FROM SERVICE s TO SERVICE 's'"}
+{"group": "recombination", "sql": "SELECT (SELECT 1) count (SELECT 2) BEGIN DIALOG CONVERSATION h FROM SERVICE s TO SERVICE 's' WITH XMLNAMESPACES ('urn:x' AS x) SELECT 1"}
+{"group": "recombination", "sql": "SELECT (SELECT 1) count (SELECT 2) INSERT INTO dbo.t2 (a) VALUES (1) ALTER SEQUENCE dbo.seq RESTART WITH 100 OPEN MASTER KEY DECRYPTION BY PASSWORD = 'x'"}
+{"group": "recombination", "sql": "SELECT * COPY INTO dbo.t2 FROM 'x'"}
+{"group": "recombination", "sql": "SELECT * FROM (EXEC sys.sp_who) AS x RESTORE HEADERONLY FROM DISK = '/dev/null' SET DATEFIRST 1"}
+{"group": "recombination", "sql": "SELECT * FROM (SELECT 1 AS a) AS d CROSS APPLY dm_os_enumerate_filesystem('/etc', '*') CLOSE GLOBAL c DROP DATABASE __DB__"}
+{"group": "recombination", "sql": "SELECT * FROM (SELECT 1 AS a) AS d CROSS APPLY dm_os_enumerate_filesystem('/etc', '*') SELECT my_udf(1)"}
+{"group": "recombination", "sql": "SELECT * FROM (VALUES (1), (2)) AS v(a) SELECT 1 openjson"}
+{"group": "recombination", "sql": "SELECT * FROM .__DB__.dbo.t (SELECT 2)"}
+{"group": "recombination", "sql": "SELECT * FROM .__DB__.dbo.t SELECT 2 * (SELECT 3)"}
+{"group": "recombination", "sql": "SELECT * FROM OPENQUERY(srv, 'select 1') (SELECT 1e3)"}
+{"group": "recombination", "sql": "SELECT * FROM OPENROWSET('x', 'y', 'z') (SELECT 2) d (SELECT 2)"}
+{"group": "recombination", "sql": "SELECT * FROM OPENROWSET('x', 'y', 'z') BEGIN TRY SELECT 2 END TRY BEGIN CATCH SELECT 3 END CATCH d (SELECT 2)"}
+{"group": "recombination", "sql": "SELECT * FROM [a] . [b] . . [c] DROP TABLE dbo.u dbo.p FETCH NEXT FROM c"}
+{"group": "recombination", "sql": "SELECT * FROM [a] . [b] . . [c] IF 1 = 1 SELECT 2 ELSE SELECT 3 ALTER QUEUE dbo.q WITH STATUS = ON"}
+{"group": "recombination", "sql": "SELECT * FROM [a].[b]..[c] (SELECT * FROM OPENDATASOURCE('a', 'b'))"}
+{"group": "recombination", "sql": "SELECT * FROM [a].[b]..[c] PRINT 'a'"}
+{"group": "recombination", "sql": "SELECT * FROM __DB__.dbo.orders (SELECT * FROM STRING_SPLIT('a,b', ','))"}
+{"group": "recombination", "sql": "SELECT * FROM a /* x */ . b . /* y */ . c RETURN 1"}
+{"group": "recombination", "sql": "SELECT * FROM a /* x */ . b . /* y */ . c lbl: SELECT 2"}
+{"group": "recombination", "sql": "SELECT * FROM a.\nb..c DELETE dbo.t2 OPEN c SEND ON CONVERSATION '00000000-0000-0000-0000-000000000000' MESSAGE TYPE m (0x00)"}
+{"group": "recombination", "sql": "SELECT * FROM a...b (SELECT (SELECT 1))"}
+{"group": "recombination", "sql": "SELECT * FROM a...b DELETE dbo.t2 BACKUP LOG __DB__ TO DISK = '/dev/null'"}
+{"group": "recombination", "sql": "SELECT * FROM a...b SET DEADLOCK_PRIORITY LOW WITH XMLNAMESPACES ('urn:x' AS x) SELECT 1"}
+{"group": "recombination", "sql": "SELECT * FROM a..b.c CREATE VIEW dbo.vv AS SELECT 1 AS a CLOSE SYMMETRIC KEY k"}
+{"group": "recombination", "sql": "SELECT * FROM a..b.c WHERE 1 = 1 READTEXT dbo.t.note 0x00 0 5"}
+{"group": "recombination", "sql": "SELECT * FROM db..t COMMIT TRAN"}
+{"group": "recombination", "sql": "SELECT * FROM dbo.t INNER MERGE JOIN dbo.u ON t.id = u.id THROW"}
+{"group": "recombination", "sql": "SELECT * FROM dbo.t WITH (HOLDLOCK) DENY SELECT ON dbo.t TO public ALTER SEQUENCE dbo.seq RESTART WITH 100"}
+{"group": "recombination", "sql": "SELECT * FROM dbo.t WITH (NOLOCK) WHERE id IN (1, 2) (SELECT id FROM dbo.t FOR JSON PATH (SELECT 2))"}
+{"group": "recombination", "sql": "SELECT * FROM linked_server.remote_db..orders DBCC CHECKIDENT ('dbo.t2')"}
+{"group": "recombination", "sql": "SELECT * FROM linked_server.remote_db..orders RAISERROR('a', 16, 1) UPDATE STATISTICS dbo.t COMMIT"}
+{"group": "recombination", "sql": "SELECT * FROM linked_server.remote_db..orders SET ROWCOUNT 1 WAITFOR TIME '00:00'"}
+{"group": "recombination", "sql": "SELECT * FROM srv.__DB__.dbo.tbl SAVE TRANSACTION s GOTO lbl"}
+{"group": "recombination", "sql": "SELECT * FROM srv.__DB__.dbo.tbl.extra (SELECT * FROM (EXEC sys.sp_who) AS x)"}
+{"group": "recombination", "sql": "SELECT * FROM srv.__DB__.dbo.tbl.extra (SELECT 0x0A)"}
+{"group": "recombination", "sql": "SELECT * FROM srv.__DB__.dbo.tbl.extra UNION ALL (SELECT 2)"}
+{"group": "recombination", "sql": "SELECT * INTO #t FROM dbo.orders DELETE dbo.t2"}
+{"group": "recombination", "sql": "SELECT * INTO dbo.backup FROM dbo.orders DEALLOCATE GLOBAL c DEALLOCATE c SAVE TRANSACTION s"}
+{"group": "recombination", "sql": "SELECT * INTO dbo.copy FROM dbo.t SELECT a FROM (SELECT 1) d (a) (SELECT 2)"}
+{"group": "recombination", "sql": "SELECT -1 (SELECT 2) UNION (SELECT 3) IF 1 = 1 SELECT 2"}
+{"group": "recombination", "sql": "SELECT -1 EXEC ('SELECT 1')"}
+{"group": "recombination", "sql": "SELECT -1 WHERE 1 = 1"}
+{"group": "recombination", "sql": "SELECT 0x0A EXPLAIN SELECT 1"}
+{"group": "recombination", "sql": "SELECT 0x0A MERGE dbo.t2 USING dbo.t ON 1 = 0 WHEN NOT MATCHED THEN INSERT (a) VALUES (1);"}
+{"group": "recombination", "sql": "SELECT 1 AS 'x' BEGIN TRANSACTION AS [count] RECEIVE TOP (1) * FROM dbo.q"}
+{"group": "recombination", "sql": "SELECT 1 AS 'x' varchar (SELECT 2) CLOSE ALL SYMMETRIC KEYS FETCH FIRST FROM c"}
+{"group": "recombination", "sql": "SELECT 1 AS [x] SELECT NEXT VALUE FOR other_db.dbo.seq"}
+{"group": "recombination", "sql": "SELECT 1 AS a FOR JSON AUTO SELECT 1 FROM dbo.t JOIN dbo.u ON t.id = u.id"}
+{"group": "recombination", "sql": "SELECT 1 AS a FOR JSON PATH SET STATISTICS IO ON"}
+{"group": "recombination", "sql": "SELECT 1 AS a FOR JSON PATH SET TEXTSIZE 10 INSERT INTO dbo.t2 (a) VALUES (1)"}
+{"group": "recombination", "sql": "SELECT 1 AS a FOR JSON PATH, WITHOUT_ARRAY_WRAPPER SET STATISTICS IO ON"}
+{"group": "recombination", "sql": "SELECT 1 AS a FOR XML PATH FETCH c"}
+{"group": "recombination", "sql": "SELECT 1 AS a FOR XML PATH SELECT * FROM OPENQUERY(srv, 'select 1')"}
+{"group": "recombination", "sql": "SELECT 1 AS a FOR XML PATH, TYPE BEGIN DISTRIBUTED TRANSACTION INSERT INTO dbo.t2 (a) VALUES (1)"}
+{"group": "recombination", "sql": "SELECT 1 AS a FOR XML PATH, TYPE ROLLBACK TRAN (SELECT 2) ORDER BY 1"}
+{"group": "recombination", "sql": "SELECT 1 AS a FOR XML RAW (SELECT * FROM dbo.t INNER MERGE JOIN dbo.u ON t.id = u.id)"}
+{"group": "recombination", "sql": "SELECT 1 AS a FOR XML RAW /* -- /* \n */ SETUSER --*/ UPDATE STATISTICS dbo.t"}
+{"group": "recombination", "sql": "SELECT 1 AS a FOR XML RAW SAVE TRAN s"}
+{"group": "recombination", "sql": "SELECT 1 AS a FOR XML RAW SELECT * FROM dbo.t INNER MERGE JOIN dbo.u ON t.id = u.id"}
+{"group": "recombination", "sql": "SELECT 1 AS a FOR XML RAW, ELEMENTS XSINIL BACKUP CERTIFICATE cert TO FILE = '/tmp/c' FETCH NEXT FROM c"}
+{"group": "recombination", "sql": "SELECT 1 AS a FOR XML RAW, ELEMENTS XSINIL SET PARSEONLY ON"}
+{"group": "recombination", "sql": "SELECT 1 AS count x EXECUTE dbo.p"}
+{"group": "recombination", "sql": "SELECT 1 AS varchar SELECT a FROM (SELECT 1) d (a) (SELECT 2)"}
+{"group": "recombination", "sql": "SELECT 1 AS x (SELECT 1 AS a FOR XML RAW, ELEMENTS XSINIL)"}
+{"group": "recombination", "sql": "SELECT 1 AS x BEGIN DISTRIBUTED TRANSACTION ALTER SEQUENCE dbo.seq RESTART WITH 100"}
+{"group": "recombination", "sql": "SELECT 1 AS x ELSE SELECT 2 ADD SIGNATURE TO dbo.p BY CERTIFICATE cert UNION SELECT 2"}
+{"group": "recombination", "sql": "SELECT 1 AS x END CONVERSATION 'h' SELECT 1 abs"}
+{"group": "recombination", "sql": "SELECT 1 AS x LOAD DATABASE d FROM DISK = 'f' (SELECT full_filesystem_path FROM sys.dm_os_enumerate_filesystem('/etc', '*'))"}
+{"group": "recombination", "sql": "SELECT 1 AS x LOAD DATABASE d FROM DISK = 'f' BACKUP LOG __DB__ TO DISK = '/dev/null' SET DATEFIRST 1 ALTER INDEX ALL ON dbo.t REBUILD"}
+{"group": "recombination", "sql": "SELECT 1 AS x LOAD DATABASE d FROM DISK = 'f' CHECKPOINT 1"}
+{"group": "recombination", "sql": "SELECT 1 AS x lbl (SELECT 1 AS x {word} a)"}
+{"group": "recombination", "sql": "SELECT 1 AS x lbl SELECT SYSTEM_USER"}
+{"group": "recombination", "sql": "SELECT 1 AS x lbl WRITETEXT dbo.t.note 0x00 'a'"}
+{"group": "recombination", "sql": "SELECT 1 AS x lbl: (SELECT 2 AS y) ROLLBACK TRAN"}
+{"group": "recombination", "sql": "SELECT 1 AS x lbl: (SELECT 2 AS y) lbl: (SELECT 2) END CONVERSATION '00000000-0000-0000-0000-000000000000' CLOSE ALL SYMMETRIC KEYS"}
+{"group": "recombination", "sql": "SELECT 1 AS x {word} a BREAK"}
+{"group": "recombination", "sql": "SELECT 1 AS x {word} a MOVE CONVERSATION '00000000-0000-0000-0000-000000000000' TO '00000000-0000-0000-0000-000000000000'"}
+{"group": "recombination", "sql": "SELECT 1 AS x, (SELECT 1) AS d (SELECT 2) (SELECT 1 FROM dbo.t WITH (NOLOCK))"}
+{"group": "recombination", "sql": "SELECT 1 AS x, (SELECT 1) AS d (SELECT 2) SETUSER"}
+{"group": "recombination", "sql": "SELECT 1 FROM (SELECT 1 AS a) AS d (SELECT 2) BEGIN TRANSACTION tx WITH MARK 'm'"}
+{"group": "recombination", "sql": "SELECT 1 FROM (SELECT 1 AS a) AS d (SELECT 2) lbl: (SELECT 2)"}
+{"group": "recombination", "sql": "SELECT 1 FROM (SELECT 1 AS a) d (a) SELECT * FROM a /* x */ . b . /* y */ . c"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t (NOLOCK) ORDER BY 1"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t CROSS APPLY (SELECT 1 AS a) d SAVE TRAN s"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t CROSS APPLY (SELECT 1 AS a) d SET IMPLICIT_TRANSACTIONS ON (SELECT 2) ORDER BY 1"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t CROSS APPLY (SELECT 1 AS a) d(b) BEGIN TRAN"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t CROSS APPLY (SELECT 1 AS a) d(b) COPY INTO dbo.t2 FROM 'x'"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t CROSS APPLY (SELECT 1 AS a) d(b) DISABLE TRIGGER tr ON dbo.t2 lbl: SELECT 2"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t CROSS JOIN dbo.u ALTER QUEUE dbo.q WITH STATUS = ON SET IMPLICIT_TRANSACTIONS ON"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t FOR BROWSE WAITFOR DELAY '00:00:00.010' ALTER DATABASE CURRENT SET READ_WRITE"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t JOIN (SELECT 1 AS a) d (a) ON 1 = 1 (SELECT 2) EXEC dbo.p DBCC USEROPTIONS"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t JOIN (SELECT 1 AS a) d (a) ON 1 = 1 (SELECT 2) RAISERROR 50000 'a' SET IDENTITY_INSERT dbo.t2 ON"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t ORDER BY 1 ASC EXECUTE AS USER = 'dbo' RECEIVE TOP (1) * FROM dbo.q ALTER SEQUENCE dbo.seq RESTART WITH 100"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t ORDER BY 1 ASC SET CONTEXT_INFO 0x01"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t OUTER APPLY (SELECT 1 AS a) AS d COMMIT TRAN WITH XMLNAMESPACES ('urn:x' AS x) SELECT 1"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t OUTER APPLY (SELECT 1 AS a) AS d REVOKE SELECT ON dbo.t TO public"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t PIVOT (SUM(x) FOR y IN ([1], [2])) p GO BEGIN TRANSACTION"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t PIVOT (SUM(x) FOR y IN ([1], [2])) p SET DATEFIRST 1 UNION SELECT 2"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t TABLESAMPLE SYSTEM (10 PERCENT) (SELECT (1)"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t WHERE EXISTS (SELECT 1) BEGIN SELECT 2 END FETCH c"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t WHERE EXISTS (SELECT 1) SELECT TOP 1 1"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t WHERE id IN (1) CLOSE GLOBAL c CLOSE MASTER KEY (SELECT 2)"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t WHERE id IS NULL (SELECT 2) UNION (SELECT 3) GET_TRANSMISSION_STATUS ('00000000-0000-0000-0000-000000000000')"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t WHERE id IS NULL BEGIN ATOMIC WITH (TRANSACTION ISOLATION LEVEL = SNAPSHOT, LANGUAGE = N'us_english') SELECT 2 END SET DATEFIRST 1"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t WHERE id IS NULL MOVE CONVERSATION '00000000-0000-0000-0000-000000000000' TO '00000000-0000-0000-0000-000000000000' SETUSER 'dbo'"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t WHERE id IS NULL RAISERROR('a', 16, 1) TRUNCATE TABLE dbo.t2 ((SELECT 2))"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t x (NOLOCK) ((SELECT 2)) THROW 50000, 'a', 1"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t x (NOLOCK) (SELECT 1 float)"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t x JOIN dbo.u y ON x.id = y.id (SELECT 1 AS x ELSE SELECT 2)"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t, (VALUES (1)) v (SELECT 2) ALTER QUEUE dbo.q WITH STATUS = ON RESTORE DATABASE __DB__ FROM DISK = '/dev/null' CREATE PROCEDURE dbo.pp AS SELECT 1"}
+{"group": "recombination", "sql": "SELECT 1 FROM dbo.t, (VALUES (1)) v(a) (SELECT 2) ROLLBACK WORK"}
+{"group": "recombination", "sql": "SELECT 1 INTERSECT SELECT 2 (SELECT CAST(1 AS decimal(10, 2)))"}
+{"group": "recombination", "sql": "SELECT 1 INTERSECT SELECT 2 DBCC CHECKIDENT ('dbo.t2')"}
+{"group": "recombination", "sql": "SELECT 1 SELECT 2 (SELECT 1 FROM dbo.t JOIN dbo.u ON t.id = u.id)"}
+{"group": "recombination", "sql": "SELECT 1 SELECT 2 (SELECT id FROM dbo.t FOR XML RAW (SELECT 2))"}
+{"group": "recombination", "sql": "SELECT 1 SELECT 2 BEGIN TRANSACTION READTEXT dbo.t.note 0x00 0 5"}
+{"group": "recombination", "sql": "SELECT 1 SELECT 2 RECONFIGURE lbl: SELECT 2"}
+{"group": "recombination", "sql": "SELECT 1 SELECT 2 SELECT 1 FROM dbo.t JOIN dbo.u ON t.id = u.id"}
+{"group": "recombination", "sql": "SELECT 1 UNION ALL SELECT 2 BULK INSERT dbo.t2 FROM '/dev/null'"}
+{"group": "recombination", "sql": "SELECT 1 WHERE 1 IS DISTINCT FROM 2 CREATE PROCEDURE dbo.pp AS SELECT 1"}
+{"group": "recombination", "sql": "SELECT 1 [count] EXEC ('SELECT 1')"}
+{"group": "recombination", "sql": "SELECT 1 binary BULK INSERT dbo.t2 FROM '/dev/null' INSERT INTO dbo.t2 (a) VALUES (1) SET ANSI_NULLS OFF"}
+{"group": "recombination", "sql": "SELECT 1 binary SELECT 1 FROM dbo.t OUTER APPLY (SELECT 1 AS a) AS d"}
+{"group": "recombination", "sql": "SELECT 1 binary SELECT id FROM dbo.t varchar"}
+{"group": "recombination", "sql": "SELECT 1 binary WRITETEXT dbo.t.note 0x00 'a' CREATE PROCEDURE dbo.pp AS SELECT 1"}
+{"group": "recombination", "sql": "SELECT 1 count DROP DATABASE __DB__"}
+{"group": "recombination", "sql": "SELECT 1 count SELECT * FROM (EXEC sys.sp_who) AS x"}
+{"group": "recombination", "sql": "SELECT 1 float IF 1 = 1 SELECT 2 ELSE SELECT 3 WAITFOR (RECEIVE * FROM dbo.q), TIMEOUT 1 ADD COUNTER SIGNATURE TO dbo.p BY CERTIFICATE cert"}
+{"group": "recombination", "sql": "SELECT 1 generate_series SELECT id FROM dbo.t FOR BROWSE"}
+{"group": "recombination", "sql": "SELECT 1 lower READTEXT dbo.t.note 0x00 0 5 REVERT"}
+{"group": "recombination", "sql": "SELECT 1 nvarchar FETCH FIRST FROM c ENABLE TRIGGER tr ON dbo.t2"}
+{"group": "recombination", "sql": "SELECT 1 row BEGIN ATOMIC WITH (TRANSACTION ISOLATION LEVEL = SNAPSHOT, LANGUAGE = N'us_english') SELECT 2 END"}
+{"group": "recombination", "sql": "SELECT 1 rows DUMP DATABASE __DB__ TO DISK = '/dev/null' BACKUP LOG __DB__ TO DISK = '/dev/null'"}
+{"group": "recombination", "sql": "SELECT 1 string_split RENAME OBJECT dbo.t2 TO t3"}
+{"group": "recombination", "sql": "SELECT 1 sum (SELECT id FROM dbo.t OPTION (HASH JOIN))"}
+{"group": "recombination", "sql": "SELECT 1 time SELECT $ROWGUID FROM dbo.t2"}
+{"group": "recombination", "sql": "SELECT 1 varchar SEND ON CONVERSATION '00000000-0000-0000-0000-000000000000' MESSAGE TYPE m (0x00) varchar (SELECT 2)"}
+{"group": "recombination", "sql": "SELECT 1 x, 2 y (SELECT 2) ORDER BY 1 FOR XML PATH"}
+{"group": "recombination", "sql": "SELECT 1, (SELECT 1) d (SELECT 2) CREATE STATISTICS st ON dbo.t2 (a) GET_TRANSMISSION_STATUS ('00000000-0000-0000-0000-000000000000')"}
+{"group": "recombination", "sql": "SELECT 1.5 GRANT SELECT ON dbo.t TO public"}
+{"group": "recombination", "sql": "SELECT 1; SELECT 2 CREATE LOGIN zz_never WITH PASSWORD = 'Zz_never_1' RECONFIGURE WITH OVERRIDE EXECUTE AS CALLER"}
+{"group": "recombination", "sql": "SELECT 1; SELECT 2 OPEN c EXECUTE dbo.p"}
+{"group": "recombination", "sql": "SELECT 1; SELECT 2 WITH c AS (SELECT 1 AS a) INSERT dbo.t2 (a) SELECT a FROM c FOR XML PATH"}
+{"group": "recombination", "sql": "SELECT 2 * (SELECT 3) (SELECT * FROM (SELECT 1 AS a WHERE 1 = 1 SETUSER) d)"}
+{"group": "recombination", "sql": "SELECT 2 * (SELECT 3) (SELECT id FROM dbo.t x)"}
+{"group": "recombination", "sql": "SELECT @@VERSION KILL 51"}
+{"group": "recombination", "sql": "SELECT @@VERSION SELECT (1)"}
+{"group": "recombination", "sql": "SELECT ALL id FROM dbo.t KILL 51 SETUSER 'dbo'"}
+{"group": "recombination", "sql": "SELECT ALL id FROM dbo.t OPTION (RECOMPILE) (SELECT 2 AS y)"}
+{"group": "recombination", "sql": "SELECT ALL id FROM dbo.t RESTORE HEADERONLY FROM DISK = '/dev/null'"}
+{"group": "recombination", "sql": "SELECT CASE WHEN 1 = 1 THEN 1 END (SELECT id FROM dbo.t FOR JSON PATH, INCLUDE_NULL_VALUES (SELECT 2))"}
+{"group": "recombination", "sql": "SELECT CASE WHEN x > 0 THEN 'a' ELSE 'b' END FROM dbo.t ALTER INDEX ALL ON dbo.t REBUILD lbl: SELECT 2"}
+{"group": "recombination", "sql": "SELECT CASE WHEN x > 0 THEN 'a' ELSE 'b' END FROM dbo.t LOAD DATABASE __DB__ FROM DISK = '/dev/null' SET NOCOUNT ON"}
+{"group": "recombination", "sql": "SELECT CASE WHEN x > 0 THEN 'a' ELSE 'b' END FROM dbo.t SELECT ISNULL(1, 2) x"}
+{"group": "recombination", "sql": "SELECT CONVERT(decimal(10, 2), total) FROM dbo.orders WITH c AS (SELECT 1 AS a) SELECT a FROM c"}
+{"group": "recombination", "sql": "SELECT COUNT(*) (SELECT 2 AS y) FROM dbo.t ADD SENSITIVITY CLASSIFICATION TO dbo.t.x WITH (LABEL = 'a') ENABLE TRIGGER tr ON dbo.t2"}
+{"group": "recombination", "sql": "SELECT COUNT(*) (SELECT 2 AS y) FROM dbo.t DBCC CHECKIDENT ('dbo.t2') SELECT 2 FOR BROWSE (SELECT 2)"}
+{"group": "recombination", "sql": "SELECT COUNT(*) AS n FROM dbo.orders (SELECT id FROM dbo.t FOR XML AUTO, XMLSCHEMA)"}
+{"group": "recombination", "sql": "SELECT COUNT(*) AS n FROM dbo.orders FETCH ABSOLUTE 1 FROM c WITH c AS (SELECT 2 AS a) SELECT a FROM c"}
+{"group": "recombination", "sql": "SELECT COUNT(*) AS n FROM dbo.orders lbl: SELECT 2 ENABLE TRIGGER tr ON dbo.t2"}
+{"group": "recombination", "sql": "SELECT COUNT(*) FETCH c CLOSE MASTER KEY"}
+{"group": "recombination", "sql": "SELECT COUNT(*) FROM dbo.t COMMIT TRANSACTION UPDATE STATISTICS dbo.t"}
+{"group": "recombination", "sql": "SELECT COUNT(*) OVER (PARTITION BY id ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM dbo.t ADD COUNTER SIGNATURE TO dbo.p BY CERTIFICATE cert CREATE DATABASE zz_never"}
+{"group": "recombination", "sql": "SELECT CURRENT_DATE EXECUTE AS CALLER BACKUP DATABASE __DB__ TO DISK = '/dev/null' BEGIN TRAN"}
+{"group": "recombination", "sql": "SELECT CURRENT_USER SET CONTEXT_INFO 0x01 SET DEADLOCK_PRIORITY LOW"}
+{"group": "recombination", "sql": "SELECT DISTINCT id FROM dbo.t lbl: SET ROWCOUNT 1"}
+{"group": "recombination", "sql": "SELECT ISNULL(1, 2) x SELECT 'a'"}
+{"group": "recombination", "sql": "SELECT ISNULL(1, 2) x SET DATEFIRST 1"}
+{"group": "recombination", "sql": "SELECT NEXT VALUE FOR other_db.dbo.seq WITH (TABLOCKX) KILL 51"}
+{"group": "recombination", "sql": "SELECT NULL FETCH NEXT FROM GLOBAL c"}
+{"group": "recombination", "sql": "SELECT ROLLBACK TRAN"}
+{"group": "recombination", "sql": "SELECT SUM(id) OVER w FROM dbo.t WINDOW w AS (ORDER BY id) LINENO 5 FETCH NEXT FROM c KILL STATS JOB 1"}
+{"group": "recombination", "sql": "SELECT SUM(id) OVER w FROM dbo.t WINDOW w AS (ORDER BY id) SET FMTONLY ON FETCH NEXT FROM c INSERT dbo.t2 (a) SELECT 1"}
+{"group": "recombination", "sql": "SELECT SUM(id) OVER w FROM dbo.t WINDOW w AS (ORDER BY id) TRY_CONVERT(int, 1) WHERE 1 = 1"}
+{"group": "recombination", "sql": "SELECT TOP (1) (SELECT 2) AS x FROM dbo.t SELECT 1 FROM dbo.t (NOLOCK)"}
+{"group": "recombination", "sql": "SELECT TOP (1) 1 CHECKPOINT ALTER TABLE dbo.t2 ADD z int"}
+{"group": "recombination", "sql": "SELECT TOP (1) 1 SELECT 1 FROM dbo.t PIVOT (SUM(x) FOR y IN ([1], [2])) p"}
+{"group": "recombination", "sql": "SELECT TOP (1) my_udf(1) FROM dbo.t ALTER QUEUE dbo.q WITH STATUS = ON BACKUP MASTER KEY TO FILE = '/tmp/k' ENCRYPTION BY PASSWORD = 'x'"}
+{"group": "recombination", "sql": "SELECT TOP (1) my_udf(1) FROM dbo.t WITH c AS (SELECT 1 AS a) SELECT a FROM c SET LOCK_TIMEOUT 1"}
+{"group": "recombination", "sql": "SELECT TOP 1 (SELECT 2) AS x FROM dbo.t REVOKE SELECT ON dbo.t TO public"}
+{"group": "recombination", "sql": "SELECT TOP 1 (SELECT 2) AS x FROM dbo.t UPDATE STATISTICS dbo.t SET LANGUAGE us_english"}
+{"group": "recombination", "sql": "SELECT TOP 1 1 DEALLOCATE GLOBAL c RECONFIGURE ENABLE TRIGGER tr ON dbo.t2"}
+{"group": "recombination", "sql": "SELECT TOP 1 1 OPEN SYMMETRIC KEY k DECRYPTION BY PASSWORD = 'x'"}
+{"group": "recombination", "sql": "SELECT TOP 10 * FROM dbo.orders DEALLOCATE c"}
+{"group": "recombination", "sql": "SELECT TOP 10 * FROM dbo.orders WITH c AS (SELECT 2 AS a) SELECT a FROM c SET TRANSACTION ISOLATION LEVEL SERIALIZABLE WITH c AS (SELECT 2 AS a) SELECT a FROM c"}
+{"group": "recombination", "sql": "SELECT [get] FROM dbo.t UPDATE dbo.t2 SET a = 1"}
+{"group": "recombination", "sql": "SELECT [key] FROM OPENJSON('{}') (SELECT 1 generate_series)"}
+{"group": "recombination", "sql": "SELECT __DB__.dbo.t.* FROM __DB__.dbo.t EXEC ('SELECT 1') ALTER TABLE dbo.t2 ADD z int CREATE DATABASE zz_never"}
+{"group": "recombination", "sql": "SELECT a FROM (SELECT 1 AS a) AS d (SELECT t.* FROM dbo.t AS t)"}
+{"group": "recombination", "sql": "SELECT a FROM (SELECT 1) AS x(a) CLOSE ALL SYMMETRIC KEYS SET XACT_ABORT ON"}
+{"group": "recombination", "sql": "SELECT a FROM (SELECT 1) d (a) (SELECT 2) (SELECT id FROM dbo.t AS x)"}
+{"group": "recombination", "sql": "SELECT a FROM (SELECT 1) d (a) (SELECT 2) (SELECT id FROM dbo.t OPTION (FAST 1))"}
+{"group": "recombination", "sql": "SELECT a FROM (SELECT 1) d (a) (SELECT 2) CURRENT_TIMESTAMP (SELECT 2) END CONVERSATION '00000000-0000-0000-0000-000000000000'"}
+{"group": "recombination", "sql": "SELECT a FROM (SELECT 1) d (a) (SELECT 2) SELECT 1 FROM (SELECT 1 AS a) d (SELECT 2)"}
+{"group": "recombination", "sql": "SELECT a FROM (SELECT 1) x(a) SET TRANSACTION ISOLATION LEVEL SERIALIZABLE COMMIT WORK"}
+{"group": "recombination", "sql": "SELECT a FROM (VALUES (1)) v(a) DEALLOCATE c SET FMTONLY ON"}
+{"group": "recombination", "sql": "SELECT a FROM (VALUES (1)) v(a) SETUSER 'dbo' CREATE DATABASE zz_never"}
+{"group": "recombination", "sql": "SELECT a FROM OPENJSON('{}') WITH (a int) (SELECT 1 FROM dbo.t ORDER BY id COLLATE Latin1_General_BIN)"}
+{"group": "recombination", "sql": "SELECT a FROM OPENJSON('{}') WITH (a int) AS y ALTER SEQUENCE dbo.seq RESTART WITH 100"}
+{"group": "recombination", "sql": "SELECT a FROM dbo.t, (SELECT 1) d (SELECT 2) OPEN GLOBAL c ALTER DATABASE CURRENT SET READ_WRITE"}
+{"group": "recombination", "sql": "SELECT a FROM dbo.t, (SELECT 1) d(a) WRITETEXT dbo.t.note 0x00 'a'"}
+{"group": "recombination", "sql": "SELECT full_filesystem_path FROM sys.dm_os_enumerate_filesystem('/etc', '*') GO"}
+{"group": "recombination", "sql": "SELECT full_filesystem_path FROM sys.dm_os_enumerate_filesystem('/etc', '*') SELECT 1 string_split"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.a UNION ALL SELECT id FROM dbo.b CLOSE SYMMETRIC KEY k"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.orders ORDER BY id OFFSET 0 ROWS FETCH NEXT 5 ROWS ONLY BACKUP DATABASE __DB__ TO DISK = '/dev/null' ALTER SEQUENCE dbo.seq RESTART WITH 100 RAISERROR 50000 'a'"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t AS count (SELECT 2) UNION (SELECT 3) RENAME OBJECT dbo.t2 TO t3"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t AS x (EXEC sys.sp_who)"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t CREATE USER u2 WITHOUT LOGIN SET DEADLOCK_PRIORITY LOW FOR XML PATH"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t FOR BROWSE count (SELECT 2) BACKUP CERTIFICATE cert TO FILE = '/tmp/c'"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t FOR JSON PATH (SELECT 2) BEGIN DISTRIBUTED TRANSACTION"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t FOR JSON PATH (SELECT 2) SEND ON CONVERSATION '00000000-0000-0000-0000-000000000000' (0x00) TRUNCATE TABLE dbo.t2 WAITFOR DELAY '00:00:00.010'"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t FOR JSON PATH, INCLUDE_NULL_VALUES (SELECT 2) SELECT 2 BEGIN SELECT 2 END"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t FOR JSON PATH, ROOT('r') ALTER SERVER CONFIGURATION SET PROCESS AFFINITY CPU = AUTO"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t FOR JSON PATH, ROOT('r') WAITFOR TIME '00:00'"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t FOR READ ONLY (SELECT id FROM dbo.t OPTION (MERGE JOIN))"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t FOR READ ONLY BEGIN DIALOG CONVERSATION h FROM SERVICE s TO SERVICE 's'"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t FOR UPDATE OF id MOVE CONVERSATION '00000000-0000-0000-0000-000000000000' TO '00000000-0000-0000-0000-000000000000' BEGIN DISTRIBUTED TRANSACTION UNION SELECT 2"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t FOR XML PATH (SELECT 2) rows FETCH NEXT FROM c RECONFIGURE WITH OVERRIDE"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t FOR XML PATH RECONFIGURE FETCH c"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t FOR XML PATH(''), TYPE (SELECT (1)"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t FOR XML PATH(''), TYPE BEGIN SELECT 2 END WAITFOR (RECEIVE * FROM dbo.q), TIMEOUT 1"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t FOR XML PATH, ROOT('r') IF 1 = 1 SELECT 2 ELSE SELECT 3 WHILE 1 = 0 SELECT 2"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t FOR XML PATH, ROOT('r') SELECT t.receive, t.[move] FROM dbo.t"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t FOR XML PATH, TYPE (SELECT 2) INSERT INTO dbo.t2 (a) VALUES (1) MOVE CONVERSATION '00000000-0000-0000-0000-000000000000' TO '00000000-0000-0000-0000-000000000000' BEGIN TRAN"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t GROUP BY ALL id EXEC dbo.p SET SHOWPLAN_XML OFF"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t GROUP BY ALL id GOTO lbl BEGIN DISTRIBUTED TRANSACTION"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t GROUP BY id EXPLAIN SELECT 1"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t GROUP BY id HAVING COUNT(*) > 1 DELETE dbo.t2 BEGIN TRANSACTION tx WITH MARK 'm'"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t OPTION (FAST 1) (SELECT id FROM dbo.t OPTION (MERGE JOIN))"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t OPTION (FAST 1) SELECT id FROM dbo.t OPTION (MERGE JOIN)"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t OPTION (FORCE ORDER) CLOSE MASTER KEY"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t OPTION (FORCE ORDER) SET IMPLICIT_TRANSACTIONS ON"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t OPTION (HASH JOIN) KILL QUERY NOTIFICATION SUBSCRIPTION ALL WITH XMLNAMESPACES ('urn:x' AS x) SELECT 1 EXPLAIN SELECT 1"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t OPTION (MAXRECURSION 10) COPY INTO dbo.t2 FROM 'x' RESTORE HEADERONLY FROM DISK = '/dev/null'"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t OPTION (TABLE HINT (t, NOLOCK)) CONTINUE"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t OPTION (TABLE HINT (t, NOLOCK)) SET FMTONLY ON"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t OPTION (USE HINT ('DISABLE_OPTIMIZER_ROWGOAL')) (SELECT four.part.name.here FROM dbo.t)"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t ORDER BY (id) (SELECT TOP (1) my_udf(1) FROM dbo.t)"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t ORDER BY id FOR XML PATH OPTION (MAXDOP 1) PRINT 'a'"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t ORDER BY id FOR XML PATH OPTION (MAXDOP 1) WITH c AS (SELECT 2 AS a) SELECT a FROM c SET XACT_ABORT ON"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t ORDER BY id RECEIVE TOP (1) * FROM dbo.q SET IDENTITY_INSERT dbo.t2 ON KILL 'abc'"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t WHERE (id = 1) AND (id < 2) EXECUTE AS USER = 'dbo' (SELECT 2)"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t WHERE (id = 1) AND (id < 2) SHUTDOWN WITH NOWAIT REVOKE SELECT ON dbo.t TO public"}
+{"group": "recombination", "sql": "SELECT id FROM dbo.t varchar SAVE TRANSACTION s"}
+{"group": "recombination", "sql": "SELECT master.dbo.xp_cmdshell('dir') ((SELECT 2))"}
+{"group": "recombination", "sql": "SELECT master.dbo.xp_cmdshell('dir') COMMIT WORK"}
+{"group": "recombination", "sql": "SELECT master.dbo.xp_cmdshell('dir') EXEC ('SELECT 1') INSERT dbo.t2 (a) VALUES (1)"}
+{"group": "recombination", "sql": "SELECT master.dbo.xp_cmdshell('dir') SET IMPLICIT_TRANSACTIONS ON SELECT 2 DBCC TRACEON (3604)"}
+{"group": "recombination", "sql": "SELECT my_udf(1) END CONVERSATION '00000000-0000-0000-0000-000000000000'"}
+{"group": "recombination", "sql": "SELECT srv.__DB__.dbo.t.* FROM dbo.t (SELECT 2)"}
+{"group": "recombination", "sql": "SELECT srv.__DB__.dbo.t.* FROM dbo.t SHUTDOWN WITH NOWAIT"}
+{"group": "recombination", "sql": "SELECT t.backup FROM dbo.t (SELECT 1 AS a FOR XML RAW)"}
+{"group": "recombination", "sql": "SELECT t.backup FROM dbo.t SELECT id FROM dbo.t OPTION (FORCE ORDER)"}
+{"group": "recombination", "sql": "SELECT t.id * 2, dbo.t.id * 3 FROM __DB__.dbo.t (SELECT $1)"}
+{"group": "recombination", "sql": "SELECT t.receive, t.[move] FROM dbo.t ALTER QUEUE dbo.q WITH STATUS = ON CONTINUE LOAD DATABASE __DB__ FROM DISK = '/dev/null'"}
+{"group": "recombination", "sql": "SELECT value FROM STRING_SPLIT('a,b', ',') s CONTINUE"}
+{"group": "recombination", "sql": "SELECT {fn CURRENT_TIMESTAMP()} FETCH c DUMP DATABASE __DB__ TO DISK = '/dev/null'"}
+{"group": "recombination", "sql": "SELECT {fn CURRENT_TIMESTAMP()} SELECT (1)"}
+{"group": "recombination", "sql": "USE master SELECT 1 FROM dbo.t, (VALUES (1)) v (SELECT 2)"}
+{"group": "recombination", "sql": "VALUES (1), (2) (SELECT $1)"}
+{"group": "recombination", "sql": "WITH XMLNAMESPACES ('urn:x' AS x) SELECT 1 CONTINUE ALTER INDEX ALL ON dbo.t REBUILD"}
+{"group": "recombination", "sql": "WITH c (id, n) AS (SELECT 1, 2), d(x) AS (SELECT id FROM c) SELECT x FROM d COPY INTO dbo.t2 FROM 'x' EXECUTE AS USER = 'dbo'"}
+{"group": "recombination", "sql": "WITH c AS (SELECT 1 AS a) SELECT a FROM c (SELECT name COLLATE Latin1_General_BIN FROM dbo.t)"}
+{"group": "recombination", "sql": "WITH c AS (SELECT 1 AS a) SELECT a FROM c --c\rSETUSER"}
+{"group": "recombination", "sql": "WITH c AS (SELECT id FROM dbo.customers) SELECT * FROM c WITH c(a) AS (SELECT 1) SELECT a FROM c"}
+{"group": "recombination", "sql": "WITH c(a) AS (SELECT 1) SELECT a FROM c x (SELECT 2) END CONVERSATION '00000000-0000-0000-0000-000000000000' WITH CLEANUP"}
+{"group": "recombination", "sql": "WITH c(a) AS (SELECT 1) SELECT a FROM c x (SELECT 2) SET LOCK_TIMEOUT 1 SELECT 2"}
+{"group": "recombination", "sql": "WITH c(id) AS (SELECT 1) SELECT id FROM c CREATE STATISTICS st ON dbo.t2 (a) EXECUTE AS CALLER"}
+{"group": "recombination", "sql": "WITH c(n) AS (SELECT id FROM dbo.t) SELECT TOP 2 a FROM c, (VALUES (1)) v(a) (SELECT (SELECT 1) count (SELECT 2))"}
+{"group": "recombination", "sql": "select id, name from dbo.customers where id > 10 order by id FETCH NEXT FROM c"}
+{"group": "recombination", "sql": "select next value for dbo.seq RESTORE HEADERONLY FROM DISK = '/dev/null' INSERT INTO dbo.t2 (a) VALUES (1) COMMIT"}
