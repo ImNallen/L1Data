@@ -202,7 +202,7 @@ const EXPRESSION_ENDS: &[&str] = &[
 
 /// Locking table hints that can take a lock blocking another session's write for the statement's
 /// duration, which no PostgreSQL read can do in the assistant's READ ONLY session. A read never needs
-/// to escalate locking, so these are refused by name wherever they appear as a bare word, in the
+/// to escalate locking, so these are refused by name wherever they appear as a bare word or a quoted name, in the
 /// `WITH (…)`, legacy, and `OPTION (TABLE HINT (…))` forms. `HOLDLOCK` is a reserved word, already
 /// refused as a keyword. `ROWLOCK` does not block a write on its own and only escalates beside one of
 /// these, which is refused for its own name. `NOLOCK`, `READUNCOMMITTED`, `READPAST`,
@@ -319,6 +319,14 @@ pub(crate) fn read_refusal(sql: &str) -> Result<(), Refusal> {
         }
         if t.kind == Kind::Word && tk.word_in(i, LOCK_HINTS) {
             return Err(Refusal::LockHint(t.text.to_ascii_uppercase()));
+        }
+        // The legacy `t ([XLOCK])` form takes a bracketed or quoted hint, so a quoted name that spells
+        // a lock hint is refused too, at the cost of a column quoted with such a name.
+        if t.kind == Kind::Ident
+            && let Some(name) = t.name().map(|n| n.to_ascii_uppercase())
+            && (LOCK_HINTS.contains(&name.as_str()) || name == "HOLDLOCK")
+        {
+            return Err(Refusal::LockHint(name));
         }
         if t.word("USE") {
             return Err(Refusal::Use);
@@ -881,6 +889,10 @@ mod tests {
             ("SELECT id FROM dbo.t (UPDLOCK)", "UPDLOCK"),
             ("SELECT id FROM dbo.t WITH (NOLOCK, UPDLOCK)", "UPDLOCK"),
             ("SELECT id FROM dbo.t WITH (ROWLOCK, HOLDLOCK) OPTION (TABLE HINT (t, XLOCK))", "XLOCK"),
+            ("SELECT id FROM abs ([XLOCK])", "XLOCK"),
+            ("SELECT id FROM len (\"UPDLOCK\")", "UPDLOCK"),
+            ("SELECT id FROM char ([tablockx])", "TABLOCKX"),
+            ("SELECT id FROM abs ([HOLDLOCK])", "HOLDLOCK"),
         ] {
             assert_eq!(refusal(sql), Some(Refusal::LockHint(name.into())), "{sql}");
         }
