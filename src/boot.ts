@@ -14,6 +14,7 @@ import { startAssistantSync } from "./features/assistant/assistantActions";
 import { startUpdateSync } from "./features/updates/updateActions";
 import { unreadableConnectionsNotice } from "./features/connections/connectionForm";
 import { useSchemaMapData } from "./features/schemaMap/data";
+import { startAskAiSync } from "./features/editor/askAi";
 
 /** The catalog store holds exactly the catalogs the connection snapshots serve, and the detail store only their relations. */
 function startCatalogSync() {
@@ -61,5 +62,6 @@ export async function boot(): Promise<void> {
   void reconcileNotebookFiles();
   startCatalogSync();
   startAssistantSync();
+  startAskAiSync();
   startUpdateSync();
 }

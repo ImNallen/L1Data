@@ -22,9 +22,11 @@ import type { CatalogView } from "../../state/catalog";
 import { engineCompletion } from "./completion";
 import { SQL_DIALECT } from "./sqlDialect";
 import { editorHighlighting, editorTheme, functionCallStyle, LINE_PADDING_LEFT } from "./theme";
+import { askDiffTheme, askPreviewEffect, askPreviewField, type AskPreview } from "./askDiff";
 
 const states = new Map<TabId, EditorState>();
 const bufferListeners = new Set<() => void>();
+const geometryListeners = new Set<() => void>();
 let view: EditorView | null = null;
 let activeId: TabId | null = null;
 let behavior: Extension = [];
@@ -213,8 +215,11 @@ function createState(text: string): EditorState {
     doc: text,
     extensions: [
       behavior,
+      EditorView.updateListener.of(() => {
+        for (const listener of geometryListeners) listener();
+      }),
       lineNumbers(),
-      placeholder("Write SQL, or ask the assistant to add a query…"),
+      placeholder("Write SQL, or use Ask AI (⌘/Ctrl+J)…"),
       highlightActiveLineGutter(),
       highlightActiveLine(),
       history(),
@@ -227,6 +232,8 @@ function createState(text: string): EditorState {
       keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...completionKeymap, indentWithTab]),
       sqlConfig.of(sqlLanguage(undefined, "Postgres")),
       flashField,
+      askPreviewField,
+      askDiffTheme,
       previewField,
       referenceField,
       runTargetField,
@@ -357,6 +364,45 @@ export function cursorAnchor(): { right: number; top: number; bottom: number } |
   const box = view.scrollDOM.getBoundingClientRect();
   const at = view.coordsAtPos(view.state.selection.main.head);
   return { right: box.right, top: at?.top ?? box.top, bottom: at?.bottom ?? box.top };
+}
+
+export function onEditorGeometry(listener: () => void): () => void {
+  geometryListeners.add(listener);
+  return () => {
+    geometryListeners.delete(listener);
+  };
+}
+
+export function askAnchor(id: TabId, position: number, end = position): { left: number; right: number; top: number; bottom: number } | null {
+  if (!view || activeId !== id) return null;
+  const box = view.scrollDOM.getBoundingClientRect();
+  const at = view.coordsAtPos(Math.min(position, view.state.doc.length));
+  let left = at?.left ?? box.left;
+  const last = view.state.doc.lineAt(Math.min(end, view.state.doc.length));
+  const firstVisible = view.state.doc.lineAt(Math.max(position, view.viewport.from)).number;
+  const lastVisible = Math.min(last.number, view.state.doc.lineAt(view.viewport.to).number);
+  for (let line = firstVisible; line <= lastVisible; line++) {
+    const edge = view.coordsAtPos(view.state.doc.line(line).to);
+    if (edge) left = Math.max(left, edge.right);
+  }
+  const bottom = view.coordsAtPos(Math.min(end, view.state.doc.length))?.bottom ?? at?.bottom;
+  const top = Math.max(box.top, Math.min(at?.top ?? box.top, box.bottom));
+  return { left: Math.max(box.left, Math.min(left, box.right)), right: box.right, top, bottom: Math.min(box.bottom, Math.max(top, bottom ?? top)) };
+}
+
+export function askPreviewHeight(id: TabId): number {
+  if (!view || activeId !== id) return 0;
+  return Array.from(view.dom.querySelectorAll(".cm-ask-added")).reduce((total, element) => total + element.getBoundingClientRect().height, 0);
+}
+
+export function showAskPreview(id: TabId, preview: AskPreview | null): void {
+  updateEditor(id, () => ({ effects: askPreviewEffect.of(preview) }));
+}
+
+export function applyCapturedEdit(id: TabId, doc: Text, edit: FormatEdit): boolean {
+  if (docOf(id) !== doc) return false;
+  applyFormatEdit(id, edit);
+  return true;
 }
 
 export function showDiagnostics(id: TabId, diagnostics: Diagnostic[]): void {

@@ -9,6 +9,7 @@ import { sendMessage } from "./assistantActions";
 import { ReplyText } from "./ReplyText";
 import { ChatChoices } from "./ChatChoices";
 import { ToolCard } from "./ToolCard";
+import { SqlHighlight } from "./SqlHighlight";
 
 const PIN_SLACK_PX = 32;
 
@@ -18,6 +19,22 @@ function UserMessage({ seq, entry }: { seq: number; entry: UserEntry }) {
     <div data-testid={`chat-user-${seq}`} className="flex flex-col items-end gap-1 pl-8">
       <p className="selectable rounded-lg bg-selected p-3 text-ui-13 leading-[22px] break-words whitespace-pre-wrap text-fg">{entry.text}</p>
       {chip && <p className="px-1 text-right text-ui-11.5 text-dim">{chip}</p>}
+      {entry.context?.ask && (
+        <div className="w-full overflow-hidden rounded-md border border-control text-ui-11 text-muted">
+          <p className="border-b border-control px-2.5 py-1.5">{entry.context.ask.scope === "Selection" ? "Selected SQL" : "Cell SQL"}</p>
+          <div className="max-h-40 overflow-auto px-2.5 py-2">
+            <SqlHighlight sql={entry.context.ask.sql} databaseKind={entry.context.databaseKind ?? "Postgres"} />
+          </div>
+          {entry.context.ask.draft !== null && (
+            <>
+              <p className="border-y border-control px-2.5 py-1.5">Proposed SQL</p>
+              <div className="max-h-40 overflow-auto px-2.5 py-2">
+                <SqlHighlight sql={entry.context.ask.draft} databaseKind={entry.context.databaseKind ?? "Postgres"} />
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -71,6 +88,7 @@ function EndBody({
   const { outcome } = end;
   switch (outcome.kind) {
     case "Completed":
+      if (end.ask?.kind === "Invalid") return <p className="text-ui-12.5 text-danger">{end.ask.message}</p>;
       if (!last) return null;
       return end.suggestions.length > 0 ? (
         <ChatChoices options={end.suggestions} disabled={!idle} onContinue={(choices) => void sendMessage(chatId, choices.join("\n"), false)} />
@@ -130,7 +148,7 @@ function Turn({ chat, view, last, voice }: { chat: ChatState; view: TurnView; la
 /** A reply as a screen reader should hear it: the words without the markdown marks around them. */
 function spoken(blocks: readonly ReplyBlock[]): string {
   return blocks
-    .map((b) => (b.kind === "Sql" ? b.sql : b.text.replace(/^\s*(?:#+|>)\s*/gm, "").replace(/[*`|]|-{3,}/g, " ")))
+    .map((b) => (b.kind !== "Markdown" ? b.sql : b.text.replace(/^\s*(?:#+|>)\s*/gm, "").replace(/[*`|]|-{3,}/g, " ")))
     .join(" ")
     .replace(/\s+/g, " ")
     .trim();

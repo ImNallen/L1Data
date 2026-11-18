@@ -11,6 +11,7 @@ import { adjacentCell, type Notebook } from "../state/notebooks";
 import { pendingCount, useTableEdits } from "../state/tableEdits";
 import { activeId, activeQueryTab, activeTab, DEFAULT_PANEL_SIZES, shownDb, shownNotebook, useWorkspace, type Overlay } from "../state/workspace";
 import { MAC } from "./hostedWindow";
+import { openAskAi } from "../features/editor/askAi";
 
 export type CommandGroup = "Query" | "Connections" | "Workspace";
 export const COMMAND_GROUPS: CommandGroup[] = ["Query", "Connections", "Workspace"];
@@ -233,6 +234,18 @@ export const COMMANDS: Command[] = [
   SAVE,
   SAVE_AS,
   SAVE_QUERY,
+  {
+    id: "ask-ai",
+    group: "Query",
+    label: "Ask AI",
+    key: "j",
+    available: () => {
+      const state = ws();
+      const tab = activeQueryTab(state);
+      return state.screen.kind === "workspace" && (state.overlay.kind === "none" || state.overlay.kind === "commands") && tab !== undefined && !tab.collapsed;
+    },
+    run: openAskAi,
+  },
   runCells("run-all-cells", "Run all cells", "all", () => true),
   runCells("run-stale-cells", "Run stale cells", "stale", (n) => n.cells.some((c) => staleReason(c) !== "")),
   runCells("run-from-active-cell", "Run from active cell", "fromActive", (n) => n.active !== null),

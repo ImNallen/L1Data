@@ -66,7 +66,7 @@ const FIRST_TURN = [
     kind: "User",
     atMs: 1,
     text: "Which regions grew the most compared with the 90 days before?",
-    context: { databaseKind: "Postgres", db: DB, connectionName: "prod-postgres", tabTitle: "orders_by_region.sql" },
+    context: { databaseKind: "Postgres", db: DB, connectionName: "prod-postgres", tabTitle: "orders_by_region.sql", ask: null },
     attachment: { tabTitle: "orders_by_region.sql", columns: ["region"], rows: [["EU-West"]], totalRows: 6 },
   }),
   snap(1, 0, {
@@ -239,7 +239,7 @@ it("highlights SQL cards from saved SQL Server context after its connection is d
       kind: "User",
       atMs: 1,
       text: "Show top rows",
-      context: { db: DB, databaseKind: "SqlServer", connectionName: "removed", tabTitle: "old" },
+      context: { db: DB, databaseKind: "SqlServer", connectionName: "removed", tabTitle: "old", ask: null },
       attachment: null,
     }),
     snap(1, 0, {

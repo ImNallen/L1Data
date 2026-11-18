@@ -245,7 +245,9 @@ it("shares the command registry with Cmd and Ctrl Shift+P while keeping plain P 
   expect(press("p")?.id).toBe("navigation");
   expect(pressOff("p", { ctrlKey: true })?.id).toBe("navigation");
   expect(new Set(COMMANDS.map((c) => c.id)).size).toBe(COMMANDS.length);
-  expect(COMMANDS.filter((c) => c.palette !== false)).toHaveLength(19);
+  expect(press("j", { metaKey: true })?.id).toBe("ask-ai");
+  expect(pressOff("j", { ctrlKey: true })?.id).toBe("ask-ai");
+  expect(COMMANDS.filter((c) => c.palette !== false)).toHaveLength(20);
   expect(START_COMMANDS.map((c) => c.id)).toEqual(["new-query", "open-file", "new-connection", "navigation", "saved-queries", "settings"]);
   expect(START_COMMANDS.every((c) => COMMANDS.includes(c))).toBe(true);
 });

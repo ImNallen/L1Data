@@ -35,6 +35,7 @@ import { staleReason } from "../notebooks/cellReferences";
 import { activateEditor, onBuffersChanged, textOf } from "./editorStates";
 import { cancelActive, formatActive, openSqlTab, runActive } from "./runActions";
 import { SqlEditor } from "./SqlEditor";
+import { useAskAi } from "./askAi";
 import { SqlText } from "./SqlText";
 import { databaseKindFor } from "../../state/databaseKind";
 import { MAP_TITLE } from "../../state/notebookFile";
@@ -236,6 +237,7 @@ function RunStatus({ id, run, picked }: { id: TabId; run: RunState; picked: Resu
 }
 
 function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: number; viewport: number; focused: boolean }) {
+  const previewHeight = useAskAi((s) => (s.state.kind !== "closed" && s.state.session.capture.tabId === id ? s.previewHeight : 0));
   const tab = useWorkspace((s) => s.tabs[id]);
   const active = useWorkspace((s) => activeId(s) === id);
   const codeSize = useWorkspace((s) => s.settings.codeFont.size);
@@ -408,7 +410,7 @@ function NotebookCell({ id, index, viewport, focused }: { id: TabId; index: numb
         {!collapsed && (
           <div
             className="notebook-editor"
-            style={{ height: heights.editor }}
+            style={{ height: Math.min(heights.editorMax, heights.editor + previewHeight) }}
             onMouseDownCapture={(event) => {
               if (active || event.button !== 0) return;
               // The preview would take focus itself, then lose it as the shared editor replaces it.

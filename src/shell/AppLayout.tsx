@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { NotebookWorkspace } from "../features/editor/NotebookWorkspace";
 import { StatementChooser } from "../features/editor/StatementChooser";
+import { AskAi } from "../features/editor/AskAiPopover";
 import { NavigationPalette } from "../features/navigation/NavigationPalette";
 import { NotebookSwitcher } from "../features/notebooks/NotebookSwitcher";
 import { QueriesDialog } from "../features/queries/QueriesDialog";
@@ -75,6 +76,7 @@ export function AppLayout() {
       <SchemaMapDialog />
       {connectionMounted && <ConnectionDialog />}
       <StatementChooser />
+      <AskAi />
       <Overlays />
       <InstallingOverlay />
     </div>

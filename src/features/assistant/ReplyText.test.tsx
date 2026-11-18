@@ -15,3 +15,9 @@ it("draws a link as its text with no href and an image as its alt text with no i
   expect(html.replace(/<[^>]+>/g, "")).toBe("See orders and growth chart.");
   expect([html.includes("<a "), html.includes("href="), html.includes("<img")]).toEqual([false, false, false]);
 });
+
+it("shows a validated replacement as code without query actions", () => {
+  const html = renderToStaticMarkup(<ReplyText blocks={[{ kind: "Replacement", sql: "SELECT 2;" }]} db={null} testId="reply" />);
+  expect(html.replace(/<[^>]+>/g, "")).toBe("SELECT 2;");
+  expect(html).not.toContain("<button");
+});
