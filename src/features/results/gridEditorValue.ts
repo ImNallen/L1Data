@@ -77,7 +77,13 @@ export function editOutcome(initial: InitialValue, draft: EditorDraft): EditOutc
 export function jsonError(text: string): string | null {
   const errors: ParseError[] = [];
   parseTree(text, errors, { allowTrailingComma: false, disallowComments: true });
-  return errors.length ? `${printParseErrorCode(errors[0]!.error)} at character ${errors[0]!.offset + 1}.` : null;
+  const issue = errors[0];
+  if (!issue) return null;
+  const message = printParseErrorCode(issue.error)
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .toLowerCase();
+  const lines = text.slice(0, issue.offset).split(/\r\n?|\n/);
+  return `${message[0]!.toUpperCase()}${message.slice(1)} at line ${lines.length}, column ${lines.at(-1)!.length + 1}.`;
 }
 export function formatJson(text: string): string {
   return applyEdits(text, format(text, undefined, { tabSize: 2, insertSpaces: true, eol: "\n" }));

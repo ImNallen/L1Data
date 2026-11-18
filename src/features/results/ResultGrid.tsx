@@ -814,7 +814,6 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
     useWorkspace.getState().open({ kind: "record", meta, row: rowOffset + row });
   };
 
-  // The editor owns typing; the seed also captures keys arriving before it takes focus.
   const [editingCell, setEditingCell] = useState<
     (Cell & { seed: { text: string; edited: boolean }; initial: InitialValue; stored: CellValue; descriptor: EditorDescriptor }) | null
   >(null);

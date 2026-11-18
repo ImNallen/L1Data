@@ -259,7 +259,7 @@ it("blocks invalid JSON outside presses, Find and save, then formats exact token
   screen.getByRole("button", { name: "Outside destination" }).addEventListener("click", outsideCommand);
   await user.click(screen.getByRole("button", { name: "Outside destination" }));
   expect(outsideCommand).not.toHaveBeenCalled();
-  expect(screen.getByRole("alert").textContent).toMatch(/Expected/);
+  expect(screen.getByRole("alert").textContent).toMatch(/expected/i);
   expect(screen.getByRole("button", { name: "Apply" }).hasAttribute("disabled")).toBe(true);
   await user.click(exact);
   await user.keyboard("{Control>}f{/Control}{Control>}s{/Control}");
@@ -559,4 +559,53 @@ it("preserves pristine temporal NULL on popup Apply and deliberately empty NULL 
   expect(screen.getByRole("textbox", { name: "Exact status" })).toHaveProperty("value", "");
   await user.click(screen.getByRole("button", { name: "Apply" }));
   expect(stagedStatus()).toBe("");
+});
+
+it("reaches both boolean choices by keyboard and stages when leaving the cell", async () => {
+  const user = userEvent.setup();
+  gridWith(null, { display: "boolean", category: "Bool" });
+  await openStatus(user);
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "True" }));
+  await user.keyboard("{ArrowRight}");
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "False" }));
+  expect(screen.getByRole("button", { name: "False" }).getAttribute("aria-pressed")).toBe("true");
+  await user.keyboard("{Tab}");
+  expect(stagedStatus()).toBe("f");
+});
+
+it("opens a false boolean with its selected choice focused", async () => {
+  const user = userEvent.setup();
+  gridWith("f", { display: "boolean", category: "Bool" });
+  await openStatus(user);
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "False" }));
+  await user.keyboard("{ArrowLeft}{Tab}");
+  expect(stagedStatus()).toBe("t");
+});
+
+it.each(["Control", "Meta"])("applies an expanded draft with %s+Enter", async (modifier) => {
+  const user = userEvent.setup();
+  gridWith("original", { display: "text", category: "Text" });
+  await openStatus(user);
+  await user.click(screen.getByRole("button", { name: "Expand value" }));
+  await user.clear(screen.getByRole("textbox", { name: "Exact status" }));
+  await user.type(screen.getByRole("textbox", { name: "Exact status" }), "first{Enter}second");
+  await user.keyboard(`{${modifier}>}{Enter}{/${modifier}}`);
+  expect(stagedStatus()).toBe("first\nsecond");
+  expect(screen.queryByRole("textbox", { name: "Exact status" })).toBeNull();
+});
+
+it("lets an explicit plain-text mode defer JSON validation to the database", async () => {
+  const user = userEvent.setup();
+  gridWith("{}", { display: "json", category: "Json" });
+  await openStatus(user);
+  await user.click(screen.getByRole("button", { name: "Expand value" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Exact status" }), { target: { value: "{unfinished" } });
+  expect(screen.getByRole("button", { name: "Apply" }).hasAttribute("disabled")).toBe(true);
+  await user.click(screen.getByRole("button", { name: "Edit as plain text" }));
+  expect(screen.getByRole("button", { name: "Apply" }).hasAttribute("disabled")).toBe(false);
+  await user.click(screen.getByRole("button", { name: "Validate JSON" }));
+  expect(screen.getByRole("button", { name: "Apply" }).hasAttribute("disabled")).toBe(true);
+  await user.click(screen.getByRole("button", { name: "Edit as plain text" }));
+  await user.click(screen.getByRole("button", { name: "Apply" }));
+  expect(stagedStatus()).toBe("{unfinished");
 });

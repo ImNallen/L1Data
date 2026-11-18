@@ -227,7 +227,7 @@ export function GridTemporalPicker({
           {error}
         </p>
       )}
-      <div className="mt-3 flex items-center gap-4 border-t border-grid pt-3 text-muted">
+      <div className="sticky bottom-0 mt-3 flex items-center gap-4 border-t border-grid bg-raised pt-3 text-muted">
         {shape.kind !== "time" && (
           <button
             type="button"

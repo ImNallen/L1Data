@@ -9,7 +9,6 @@ export type EditorDescriptor =
   | { kind: "temporal"; shape: TemporalShape }
   | { kind: "json" };
 
-// Split SQL identifiers without losing dots or escaped quotes inside quoted names.
 function identifiers(text: string, dialect: DatabaseKind): string[] | null {
   const parts: string[] = [];
   let rest = text.trim();

@@ -113,3 +113,7 @@ it("preserves source CRLF/CR and maps textarea selections for typing and paste",
   expect(textareaChange(source, "one\ntwo\nthree")).toBe(source);
   expect(spliceSource(source, 4, 7, "X\r\nY")).toBe("one\r\nX\r\nY\rthree");
 });
+
+it("reports JSON errors in plain language with a line and column", () => {
+  expect(jsonError('{\n "x": }')).toBe("Value expected at line 2, column 7.");
+});

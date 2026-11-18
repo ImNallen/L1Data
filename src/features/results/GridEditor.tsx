@@ -2,6 +2,7 @@ import * as Popover from "@radix-ui/react-popover";
 import { CalendarIcon, ChevronDownIcon, ClockIcon, ExpandIcon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { commandForKey } from "../../shell/commands";
+import { MOD_LABEL } from "../../shell/hostedWindow";
 import { Button, cx } from "../../ui/primitives";
 import { GridTemporalPicker, POPUP_FIELD } from "./GridTemporalPicker";
 import type { EditorDescriptor } from "./gridEditorType";
@@ -81,7 +82,7 @@ export function GridEditor({
   }, [draft.kind, surface]);
   const validation = (value: EditorDraft) => {
     if (!value.edited) return null;
-    if (descriptor.kind === "json") return jsonError(draftText(value));
+    if (descriptor.kind === "json" && surface !== "exact") return jsonError(draftText(value));
     return descriptor.kind === "temporal" && value.kind === "parts" ? temporalError(value.parts, descriptor.shape) : null;
   };
   const finish = (action: FinishAction = { kind: "stage", focusGrid: false }) => {
@@ -117,7 +118,6 @@ export function GridEditor({
   }, []);
   const blur = (target: EventTarget | null) => {
     if (belongs(target)) return;
-    // Focus scopes can briefly report no related target while mounting a portal.
     queueMicrotask(() => {
       if (belongs(document.activeElement) || finished.current) return;
       if (!finishRef.current()) (popup.current?.querySelector<HTMLElement>("textarea, input, button") ?? input.current)?.focus();
@@ -142,6 +142,11 @@ export function GridEditor({
     if (e.key === "Escape") {
       e.preventDefault();
       finish({ kind: "cancel" });
+      return;
+    }
+    if (inPopup && e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      finish({ kind: "stage", focusGrid: true });
       return;
     }
     const find = (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "f";
@@ -217,7 +222,19 @@ export function GridEditor({
           onBlur={(e) => blur(e.relatedTarget)}
         >
           {descriptor.kind === "boolean" ? (
-            <div className="flex w-full gap-px bg-control p-px">
+            <div
+              role="group"
+              aria-label={`${column} value`}
+              className="flex w-full gap-px bg-control p-px"
+              onKeyDown={(e) => {
+                if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+                e.preventDefault();
+                e.stopPropagation();
+                const index = e.key === "ArrowRight" || e.key === "End" ? 1 : 0;
+                changeText(index === 0 ? descriptor.trueValue : descriptor.falseValue);
+                e.currentTarget.querySelectorAll("button")[index]?.focus();
+              }}
+            >
               {[
                 { label: "True", value: descriptor.trueValue },
                 { label: "False", value: descriptor.falseValue },
@@ -225,7 +242,7 @@ export function GridEditor({
                 <button
                   type="button"
                   key={label}
-                  autoFocus={index === 0}
+                  autoFocus={text === descriptor.falseValue ? index === 1 : index === 0}
                   aria-pressed={(draft.edited || initial.kind === "text") && text === value}
                   className={cx(
                     "min-w-0 flex-1 font-sans text-ui-11 outline-none focus:ring-1 focus:ring-inset focus:ring-focus",
@@ -309,7 +326,7 @@ export function GridEditor({
           onKeyDown={(e) => keyDown(e, true)}
           onBlur={(e) => blur(e.relatedTarget)}
           className={cx(
-            "motion-pop z-50 max-w-[calc(100vw-16px)] rounded-xl border border-control bg-raised p-4 font-sans text-ui-12 text-fg shadow-[var(--shadow-float)] outline-none",
+            "motion-pop z-50 max-h-[var(--radix-popover-content-available-height)] max-w-[calc(100vw-16px)] overflow-y-auto overscroll-contain rounded-xl border border-control bg-raised p-4 font-sans text-ui-12 text-fg shadow-[var(--shadow-float)] outline-none",
             descriptor.kind === "temporal" ? "w-[400px]" : "w-[440px]",
           )}
         >
@@ -369,9 +386,22 @@ export function GridEditor({
               <div className="mb-3 flex items-center justify-between">
                 <span>{column}</span>
                 {descriptor.kind === "json" && (
-                  <button type="button" className="text-accent disabled:text-dim" disabled={!!jsonError(text)} onClick={() => changeText(formatJson(text))}>
-                    Format
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      aria-pressed={surface === "exact"}
+                      className="text-accent"
+                      onClick={() => {
+                        setSurface(surface === "exact" ? "popup" : "exact");
+                        setError(null);
+                      }}
+                    >
+                      {surface === "exact" ? "Validate JSON" : "Edit as plain text"}
+                    </button>
+                    <button type="button" className="text-accent disabled:text-dim" disabled={!!jsonError(text)} onClick={() => changeText(formatJson(text))}>
+                      Format
+                    </button>
+                  </div>
                 )}
               </div>
               <textarea
@@ -389,6 +419,7 @@ export function GridEditor({
                 className="h-52 w-full resize-y rounded-lg border border-control bg-bg p-2 font-mono text-code whitespace-pre outline-none focus:border-focus"
               />
               <p className="mt-2 text-ui-11 text-dim">{hint}</p>
+              {descriptor.kind === "json" && surface === "exact" && <p className="mt-2 text-ui-11 text-dim">Plain text. The database checks it on Submit.</p>}
               {descriptor.kind === "temporal" && (
                 <button type="button" className="mt-2 text-accent disabled:text-dim" disabled={!parseTemporal(text, descriptor.shape)} onClick={openPopup}>
                   Use picker
@@ -401,7 +432,12 @@ export function GridEditor({
               {shownError}
             </p>
           )}
-          {!assisted && <div className="mt-3 flex justify-end gap-2">{actions}</div>}
+          {!assisted && (
+            <div className="sticky bottom-0 mt-3 flex items-center justify-end gap-2 bg-raised pt-2">
+              <span className="mr-auto text-ui-11 text-dim">{MOD_LABEL}Enter applies</span>
+              {actions}
+            </div>
+          )}
         </Popover.Content>
       </Popover.Portal>
       {surface === "inline" && shownError && (
