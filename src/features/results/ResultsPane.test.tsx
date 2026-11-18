@@ -10,6 +10,10 @@ import { dropEditor, seedEditor } from "../editor/editorStates";
 import { browseTemplate } from "../editor/runActions";
 import { ResultsPane } from "./ResultsPane";
 import { cellsState } from "../../testing/notebooks";
+import { connectionConfig } from "../../testing/connections";
+import { shopCatalog } from "../../testing/shopCatalog";
+import { buildCatalogView, useCatalog } from "../../state/catalog";
+import { dbKey } from "../../state/dbKey";
 
 const db = { connectionId: "c1", database: "shop" };
 const tab: TableTab = {
@@ -51,6 +55,7 @@ afterEach(() => {
   dropEditor(tab.id);
   useWorkspace.setState(useWorkspace.getInitialState(), true);
   useLive.setState(useLive.getInitialState(), true);
+  useCatalog.setState(useCatalog.getInitialState(), true);
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -185,4 +190,18 @@ it("offers no chart for a result without a number column, or for a plan", async 
   await act(async () => view.rerender(<ResultsPane tabId={tab.id} />));
   expect(screen.queryByTestId("view-chart")).toBeNull();
   expect(screen.getByTestId("plan-rows-toggle")).toBeTruthy();
+});
+
+it("says a SQL Server view's rows are read-only, without asking the engine to check it for edits", async () => {
+  const catalog = { ...shopCatalog("c1", 1), databaseKind: "SqlServer" as const };
+  catalog.schemas[1]!.relations.find((r) => r.name === "customers")!.kind = "View";
+  useCatalog.setState({ views: { [dbKey(db)]: buildCatalogView(catalog) } });
+  useWorkspace.setState({ configs: { c1: { ...connectionConfig("c1", "mssql"), databaseKind: "SqlServer" } } });
+  await browseTemplate(db, tab.table.schema, tab.table.table);
+  const state = finishedWith((result) => ({ kind: "Rows", result: { ...result, databaseKind: "SqlServer" }, state: "Complete" }), [region]);
+  useLive.setState({ consoles: { [tab.id]: state } });
+  await act(async () => {
+    render(<ResultsPane tabId={tab.id} />);
+  });
+  expect(screen.getByTestId("edit-refusal").textContent).toBe("Views are read-only here. Use a SQL script to change their rows.");
 });

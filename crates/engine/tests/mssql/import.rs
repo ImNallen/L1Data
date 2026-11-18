@@ -1,7 +1,7 @@
 use super::*;
 
 async fn import_request(h: &Harness, table: &str, text: &str) -> ImportRequest {
-    h.engine.refresh_catalog(h.db()).await.unwrap();
+    h.refresh().await;
     let catalog = h.engine.catalog(h.db()).await.unwrap();
     let target = ImportTarget {
         db: h.db(),
@@ -87,7 +87,7 @@ async fn csv_import_refuses_unsafe_and_stale_targets_and_native_transactions() {
         ),
     ] {
         h.ok(&ddl).await;
-        h.engine.refresh_catalog(h.db()).await.unwrap();
+        h.refresh().await;
         let catalog = h.engine.catalog(h.db()).await.unwrap();
         let target = ImportTarget {
             db: h.db(),

@@ -351,15 +351,8 @@ async fn run_mssql(
     let lost = session.closed_reason_settled(None).await;
     let txn = session.observed_txn().unwrap_or(TxnState::Idle);
     let outcome_unknown = matches!(result, Err(ImportError::OutcomeUnknown { .. }));
-    let returned = console
-        .edit(s, run_id, |inner| {
-            let due = Console::return_session(inner, session, txn, lost);
-            if let SessionSlot::Lost { transaction, .. } = &mut inner.session {
-                *transaction = if outcome_unknown { TransactionLoss::Unknown } else { TransactionLoss::None };
-            }
-            due
-        })
-        .await;
+    let returned =
+        console.edit(s, run_id, |inner| Console::return_settled(inner, session, txn, lost, outcome_unknown)).await;
     let body = match &result {
         Ok(rows) => OutputBody::Notice {
             severity: "INFO".into(),

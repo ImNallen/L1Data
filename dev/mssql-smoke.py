@@ -158,13 +158,24 @@ def check(bridge, work, assistant=True):
         return next((r for s in catalog["schemas"] if s["name"] == "lab"
                      for r in s["relations"] if r["name"] == table), None)
 
-    def refused_apply(**changes):
-        before = bridge.console(tab)
-        response = bridge.response("table_apply", tabId=tab, changes={
+    def apply(**changes):
+        return bridge.response("table_apply", tabId=tab, changes={
             "schema": "lab", "table": table, "inserts": [], "updates": [], "deletes": [], **changes,
         })
-        assert response["status"] == "error" and response["error"]["kind"] == "Unsupported", response
-        assert bridge.console(tab) == before
+
+    def refused_apply(kind, **changes):
+        before = bridge.console(tab)
+        response = apply(**changes)
+        assert response["status"] == "error" and response["error"]["kind"] == kind, response
+        after = bridge.console(tab)
+        if kind == "RowChanged":
+            assert after["txn"] == "Idle" and after["session"]["kind"] == "Open", after
+        else:
+            assert after == before
+        return response["error"]
+
+    def support():
+        return bridge.invoke("table_edit_support", tabId=tab, schema="lab", table=table)
 
     def refused_manual():
         before = bridge.console(tab)
@@ -208,16 +219,31 @@ def check(bridge, work, assistant=True):
         quoted = original.replace("'", "''")
         bridge.run(tab, f"INSERT INTO {qualified} ([id],[value],[amount],[cash]) VALUES (1,N'{quoted}',{precise},{cash})")
         refused_manual()
-        refused_apply()
-        refused_apply(inserts=[[cell("id", "3"), cell("value", "x" * 101)]])
+        editable = support()
+        assert editable["kind"] == "Editable" and editable["rowCheck"] == {"kind": "Values"}, editable
+        assert all(c["readOnly"] is None for c in editable["columns"]) and editable["delete"] is None, editable
+        refused_apply("Failed", inserts=[[cell("id", "3"), cell("value", "x" * 101)]])
         assert bridge.rows(bridge.run(observer, f"SELECT COUNT_BIG(*) FROM {qualified} WHERE id = 3")) == [[["0"]]]
+        applied = apply(inserts=[[cell("id", "3"), cell("value", "staged")]],
+                        updates=[{"key": [cell("id", "1")], "set": [cell("value", "edited 世界")], "expect": [cell("value", original)]}])
+        assert applied == {"status": "ok", "data": {"committed": True}}, applied
+        assert bridge.rows(bridge.run(observer, f"SELECT [id], [value] FROM {qualified} ORDER BY id")) == [[["1", "edited 世界"], ["3", "staged"]]]
+        stale = refused_apply("RowChanged", updates=[{"key": [cell("id", "1")], "set": [cell("value", "lost")], "expect": [cell("value", original)]}])
+        assert stale["change"] == {"kind": "Update", "index": 0}, stale
+        applied = apply(deletes=[{"key": [cell("id", "3")], "expect": []}],
+                        updates=[{"key": [cell("id", "1")], "set": [cell("value", original)], "expect": [cell("value", "edited 世界")]}])
+        assert applied["status"] == "ok", applied
+        assert bridge.rows(bridge.run(observer, f"SELECT [id], [value] FROM {qualified}")) == [[["1", original]]]
         bridge.run(tab, f"CREATE TRIGGER [lab].[trg_{table}] ON {qualified} AFTER UPDATE AS BEGIN SET NOCOUNT ON; SELECT 99 AS trigger_result; END")
-        refused_apply(updates=[{"key": [cell("id", "1")], "set": [cell("value", "must not save")]}])
+        trigger = {"kind": "Trigger", "table": f"lab.{table}", "trigger": f"lab.trg_{table}"}
+        assert support() == {"kind": "Refused", "reason": trigger}
+        error = refused_apply("Refused", updates=[{"key": [cell("id", "1")], "set": [cell("value", "must not save")], "expect": [cell("value", original)]}])
+        assert error["reason"] == trigger, error
         assert bridge.rows(bridge.run(observer, f"SELECT [value] FROM {qualified} WHERE id=1")) == [[[original]]]
         state = bridge.run(tab, f"UPDATE {qualified} SET [value]=N'{quoted} changed' WHERE id=1")
         assert bridge.rows(state) == [[["99"]]]
         assert bridge.rows(bridge.run(observer, f"SELECT [value], [amount] FROM {qualified} WHERE id = 1")) == [[[original + " changed", precise]]]
-        refused_apply(deletes=[[cell("id", "1")]])
+        refused_apply("Refused", deletes=[{"key": [cell("id", "1")], "expect": []}])
         filtered = {**query, "filters": [{"column": "value", "op": "Contains", "value": "%_[x]"}]}
         assert bridge.invoke("exact_row_count", tabId=tab, db=db, schema="lab", table=table, query=filtered) == 1
         accepted = bridge.invoke("console_run", tabId=tab, request={"kind": "tablePage", "schema": "lab", "table": table, "page": 0, "query": filtered})
@@ -228,7 +254,7 @@ def check(bridge, work, assistant=True):
         assert bridge.rows(bridge.run(observer, f"SELECT COUNT_BIG(*) FROM {qualified}")) == [[["1"]]]
         sort = bridge.invoke("table_order", db=db, schema="lab", table="awkward names", orderBy="", edit={"kind": "Cycle", "column": "a]b", "additive": False})
         assert sort["sql"] == "[a]]b] ASC" and sort["keys"] == [{"column": "a]b", "desc": False}], sort
-        print("PASS catalog, native writes and trigger results, capability refusals, filters and injection rejection")
+        print("PASS catalog, staged edits applied and a changed row refused, trigger refusal, native writes and trigger results, filters and injection rejection")
 
         accepted = bridge.invoke("console_run", tabId=tab, request={"kind": "tablePage", "schema": "lab", "table": "type_zoo", "page": 0, "query": query})
         state = bridge.finished(tab, accepted["runId"])
@@ -256,7 +282,7 @@ def check(bridge, work, assistant=True):
         bridge.run(tab, f"SET XACT_ABORT ON; BEGIN TRANSACTION; INSERT INTO {qualified} ([id],[value]) VALUES(2,N'rollback')")
         assert bridge.console(tab)["txn"] == "Open"
         refused_manual()
-        refused_apply(inserts=[[cell("id", "1"), cell("value", "duplicate")]])
+        refused_apply("Refused", inserts=[[cell("id", "4"), cell("value", "held")]])
         assert bridge.rows(bridge.run(tab, f"SELECT [value],@@TRANCOUNT,XACT_STATE() FROM {qualified} WHERE id=2")) == [[["rollback", "1", "1"]]]
         bridge.invoke("console_rollback", tabId=tab)
         assert bridge.rows(bridge.run(observer, f"SELECT COUNT_BIG(*) FROM {qualified} WHERE id = 2")) == [[["0"]]]

@@ -48,6 +48,7 @@ export const commands = {
 	consoleCancel: (tabId: TabId) => __TAURI_INVOKE<void>("console_cancel", { tabId }),
 	consoleCommit: (tabId: TabId, confirmed: string | null) => typedError<null, TxnError>(__TAURI_INVOKE("console_commit", { tabId, confirmed })),
 	consoleRollback: (tabId: TabId) => typedError<null, TxnError>(__TAURI_INVOKE("console_rollback", { tabId })),
+	tableEditSupport: (tabId: TabId, schema: string, table: string) => typedError<EditSupport, ApplyError>(__TAURI_INVOKE("table_edit_support", { tabId, schema, table })),
 	tableApply: (tabId: TabId, changes: TableChanges, confirmed: string | null) => typedError<ApplySummary, ApplyError>(__TAURI_INVOKE("table_apply", { tabId, changes, confirmed })),
 	tableImportPrepare: (tabId: TabId, target: ImportTarget, file: string) => typedError<ImportSourceId, ImportError>(__TAURI_INVOKE("table_import_prepare", { tabId, target, file })),
 	tableImportPreview: (tabId: TabId, source: ImportSourceId, header: boolean) => typedError<ImportPreview, ImportError>(__TAURI_INVOKE("table_import_preview", { tabId, source, header })),
@@ -152,7 +153,22 @@ export type ApplyError = { kind: "Busy" } | { kind: "NotConfigured" } | { kind: 
 /**  An update or delete matched `rows` rows instead of one, so the row changed underneath. */
 { kind: "RowMismatch"; change: ChangeRef; rows: number } | 
 /**  Opening or committing the transaction failed. */
-{ kind: "Transaction"; error: QueryError } | { kind: "OutcomeUnknown"; error: QueryError } | { kind: "ConfirmWrites"; confirmation: WriteConfirmation };
+{ kind: "Transaction"; error: QueryError } | { kind: "OutcomeUnknown"; error: QueryError } | { kind: "ConfirmWrites"; confirmation: WriteConfirmation } | 
+/**  SQL Server: server code could run during the edit. Nothing was applied. */
+{ kind: "Refused"; reason: EditRefusal } | 
+/**  SQL Server: a row to update or delete no longer holds what the page showed. Nothing was applied. */
+{ kind: "RowChanged"; change: ChangeRef } | 
+/**  SQL Server: a double-byte code page could show two stored values alike, so this original cannot be compared. */
+{ kind: "Unverifiable"; change: ChangeRef; column: string } | 
+/**  The table's columns changed since the page read them. Nothing was applied. */
+{ kind: "TableChanged" } | 
+/**
+ *  SQL Server: another session held a lock past the edit's lock timeout, or chose the edit as a deadlock victim.
+ *  Nothing was applied.
+ */
+{ kind: "Locked" } | { kind: "Session"; reason: SessionRefusal } | 
+/**  Cancel stopped the edit, and nothing was applied. */
+{ kind: "Cancelled" };
 
 export type ApplySummary = {
 	/**  False when the changes wait in the tab's open transaction (manual mode) for Commit. */
@@ -372,6 +388,11 @@ export type ColumnDefault = {
 	value: DefaultValue,
 };
 
+export type ColumnEdit = {
+	name: string,
+	readOnly: ReadOnlyReason | null,
+};
+
 export type ColumnFilter = {
 	column: string,
 	op: FilterOp,
@@ -413,6 +434,8 @@ export type ColumnSource = {
 	tableOid: number,
 	attnum: number,
 };
+
+export type ColumnTypeIssue = { kind: "Clr" } | { kind: "Alias" } | { kind: "Encrypted" } | { kind: "BoundRule" } | { kind: "BoundDefault" } | { kind: "Unsupported"; typeName: string };
 
 /**  What the editor may offer at a cursor, read from the statement under it. */
 export type CompletionContext = 
@@ -662,6 +685,23 @@ export type DrillQuery = {
 	db: DatabaseRef,
 	schema: string | null,
 };
+
+/**  Why SQL Server server code could run during an edit, or why the edit cannot prove it cannot. */
+export type EditRefusal = { kind: "NeedsSqlServer2022" } | { kind: "Permission"; missing: string } | 
+/**  A `DENY VIEW DEFINITION` or `DENY CONTROL` could hide a trigger or policy from the check. */
+{ kind: "HiddenMetadata" } | { kind: "NoPrimaryKey" } | { kind: "MaskedKey"; column: string } | { kind: "TableKind"; table: string; tableKind: TableKind } | { kind: "Trigger"; table: string; trigger: string } | { kind: "SecurityPolicy"; table: string; policy: string } | { kind: "IndexedView"; table: string; view: string } | { kind: "IgnoreDupKey"; table: string; index: string } | { kind: "Function"; table: string; object: string } | { kind: "ColumnType"; table: string; column: string; issue: ColumnTypeIssue } | 
+/**  More than 64 tables in the cascade closure. */
+{ kind: "CascadeTooWide" } | { kind: "Cascade"; foreignKey: string; table: string; cause: EditRefusal };
+
+/**
+ *  Whether a SQL Server table tab's grid can stage edits, from the check `table_apply` repeats inside its
+ *  transaction.
+ */
+export type EditSupport = { kind: "Refused"; reason: EditRefusal } | { kind: "Editable"; rowCheck: RowCheck; 
+/**  One per table column, in column order. */
+columns: ColumnEdit[]; 
+/**  `Some` disables Delete rows, with this reason. */
+delete: EditRefusal | null };
 
 /**  An effort level as its provider names it (`high`). Valid only for a model that lists it. */
 export type EffortId = string;
@@ -1353,6 +1393,12 @@ export type QueryError = {
 	position: DocOffset | null,
 };
 
+export type ReadOnlyReason = { kind: "Identity" } | { kind: "Computed" } | { kind: "Rowversion" } | { kind: "GeneratedAlways" } | { kind: "ColumnSet" } | { kind: "Masked" } | { kind: "SqlVariant" } | 
+/**  `text`, `ntext`, or `image`. */
+{ kind: "LegacyLob" } | 
+/**  Changing it runs a foreign key's update action into a table that fails the edit checks. */
+{ kind: "Cascade"; foreignKey: string; table: string; cause: EditRefusal };
+
 /**  `System` follows the operating system's reduce-motion accessibility setting. */
 export type ReduceMotion = "System" | "On" | "Off";
 
@@ -1468,6 +1514,15 @@ export type ResultRef = {
 
 export type RightPanel = "Assistant";
 
+/**  How Submit proves that a row to update or delete is still the row the page showed. */
+export type RowCheck = { kind: "Rowversion"; column: string } | { kind: "Values" };
+
+export type RowDelete = {
+	key: CellWrite[],
+	/**  SQL Server with `RowCheck::Rowversion`: the rowversion cell. Otherwise empty, and the row matches by key. */
+	expect: CellWrite[],
+};
+
 export type RowPage = {
 	start: number,
 	rows: ((string | null)[])[],
@@ -1483,6 +1538,11 @@ export type RowSpan = {
 export type RowUpdate = {
 	key: CellWrite[],
 	set: CellWrite[],
+	/**
+	 *  SQL Server: the row as the page showed it, which must still match. With `RowCheck::Rowversion`, the
+	 *  rowversion cell; with `RowCheck::Values`, the stored value of each `set` column. PostgreSQL sends none.
+	 */
+	expect: CellWrite[],
 };
 
 export type RowsState = "Streaming" | "Complete" | "Failed" | "Cancelled";
@@ -1744,6 +1804,14 @@ export type ServerInfo = {
 	encoding: string,
 };
 
+/**  A tab session state in which a SQL Server Submit could not keep its promise, refused before `BEGIN`. */
+export type SessionRefusal = "OpenTransaction" | "ImplicitTransactions" | "LimitedTextSize" | 
+/**
+ *  A setting such as `SHOWPLAN`, `NOEXEC`, `FMTONLY`, `PARSEONLY`, or `STATISTICS XML` or `PROFILE` changes what
+ *  the session's batches return.
+ */
+"ResultShape";
+
 export type SessionState = { kind: "None" } | { kind: "Open"; backendPid: number } | { kind: "Lost"; reason: string; transaction: TransactionLoss };
 
 export type Settings = {
@@ -1912,9 +1980,10 @@ export type TableChanges = {
 	/**  Columns left out take their default. */
 	inserts: CellWrite[][],
 	updates: RowUpdate[],
-	/**  Each entry is the primary key of a row to delete. */
-	deletes: CellWrite[][],
+	deletes: RowDelete[],
 };
+
+export type TableKind = "MemoryOptimized" | "Temporal" | "Graph" | "Ledger" | "FileTable" | "External" | "Replicated" | "Stretch";
 
 export type TableName = {
 	schema: string | null,

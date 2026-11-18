@@ -1,6 +1,9 @@
+mod batch;
 mod catalog;
+mod checks;
 mod describe;
 mod detail;
+pub(super) mod edit;
 pub(super) mod import;
 #[cfg(all(test, feature = "mssql-tests"))]
 mod import_tests;

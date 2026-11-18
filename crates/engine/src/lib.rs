@@ -4,6 +4,7 @@ mod assistant;
 mod catalog;
 mod connection;
 mod console;
+mod edits;
 mod entra;
 mod explain;
 mod export;
@@ -1878,9 +1879,21 @@ impl Engine {
         self.shared.console_txn_command(tab, false, None).await
     }
 
-    /// Applies PostgreSQL staged table edits on the tab's own session, all or nothing. With no transaction open, auto-commit
-    /// mode commits them and manual mode leaves them in a new open transaction. Inside an open transaction they
-    /// run under a savepoint, so a failure leaves that transaction as it was.
+    /// Whether a SQL Server table tab's grid can stage edits, and which columns and actions it allows. Submit checks
+    /// again inside its transaction.
+    pub async fn table_edit_support(
+        &self,
+        tab: TabId,
+        schema: String,
+        table: String,
+    ) -> Result<EditSupport, ApplyError> {
+        edits::support(&self.shared, tab, schema, table).await
+    }
+
+    /// Applies staged table edits on the tab's own session, all or nothing. On PostgreSQL with no transaction open,
+    /// auto-commit mode commits them and manual mode leaves them in a new open transaction; inside an open
+    /// transaction they run under a savepoint, so a failure leaves that transaction as it was. SQL Server goes
+    /// through `edits::apply`.
     pub async fn table_apply(
         &self,
         tab: TabId,
@@ -1892,7 +1905,7 @@ impl Engine {
         let config = console.inner.lock().await.config.clone();
         let connection = s.config(config.connection_id).ok_or(ApplyError::NotConfigured)?;
         if connection.database_kind == DatabaseKind::SqlServer {
-            return Err(ApplyError::Unsupported { what: session::SQL_SERVER_EDITS_UNSUPPORTED.into() });
+            return edits::apply(s, tab, changes, confirmed).await;
         }
         s.connect(config.connection_id).await.map_err(|error| ApplyError::Connect { error })?;
         let catalog = self.catalog(config.db()).await.map_err(|_| ApplyError::NotConfigured)?;
@@ -1901,7 +1914,7 @@ impl Engine {
         let full_key = |key: &[CellWrite]| {
             !pk.is_empty() && key.len() == pk.len() && pk.iter().all(|p| key.iter().any(|k| &k.column == p))
         };
-        if !changes.deletes.iter().all(|k| full_key(k)) || !changes.updates.iter().all(|u| full_key(&u.key)) {
+        if !changes.deletes.iter().all(|d| full_key(&d.key)) || !changes.updates.iter().all(|u| full_key(&u.key)) {
             return Err(ApplyError::NoPrimaryKey);
         }
 
@@ -1919,7 +1932,7 @@ impl Engine {
             if current.database_kind == DatabaseKind::SqlServer
                 || matches!(&inner.session, SessionSlot::Idle(idle) if idle.database_kind() == DatabaseKind::SqlServer)
             {
-                return Err(ApplyError::Unsupported { what: session::SQL_SERVER_EDITS_UNSUPPORTED.into() });
+                return Err(ApplyError::Busy);
             }
             if inner.config != config {
                 return Err(ApplyError::Busy);
@@ -3256,7 +3269,7 @@ mod tests {
             updates: vec![],
             deletes: vec![],
         };
-        assert!(matches!(engine.table_apply(tab, edit.clone(), None).await, Err(ApplyError::Unsupported { .. })));
+        assert!(matches!(engine.table_apply(tab, edit, None).await, Err(ApplyError::Unsupported { .. })));
         engine
             .console_configure(
                 tab,
@@ -3269,7 +3282,6 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(matches!(engine.table_apply(tab, edit, None).await, Err(ApplyError::Unsupported { .. })));
         assert_eq!(refuser.accepted.load(Ordering::SeqCst), 0);
         assert!(engine.shared.instance(connection.id).is_none());
         assert!(matches!(legacy.inner.lock().await.session, SessionSlot::Empty));
@@ -3465,7 +3477,7 @@ mod tests {
             }
             let edit = TableChanges {
                 schema: "dbo".into(), table: name.clone(), inserts: vec![], deletes: vec![],
-                updates: vec![RowUpdate { key: vec![CellWrite { column: "id".into(), value: Some("1".into()) }], set: vec![CellWrite { column: "n".into(), value: Some("3".into()) }] }],
+                updates: vec![RowUpdate { key: vec![CellWrite { column: "id".into(), value: Some("1".into()) }], set: vec![CellWrite { column: "n".into(), value: Some("3".into()) }], expect: vec![] }],
             };
             assert!(matches!(engine.table_apply(tab, edit, None).await, Err(ApplyError::Unsupported { .. })));
             assert_eq!(serde_json::to_value(console.snapshot(&*console.inner.lock().await)).unwrap(), before);

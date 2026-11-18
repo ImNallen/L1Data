@@ -7,15 +7,16 @@ fn base_type(native: &str) -> &str {
 
 /// Date and time convert with an explicit style, so DATEFORMAT cannot change them.
 pub(crate) fn input_sql(native: &str, value: &str) -> Result<String, String> {
-    let expression = quote_literal(value);
+    check_input(native, value)?;
+    input_expression(native, &quote_literal(value))
+}
+
+fn check_input(native: &str, value: &str) -> Result<(), String> {
     let base = base_type(native);
     let bound = native.strip_suffix(')').and_then(|s| s.split_once('(')).and_then(|(_, n)| n.parse::<usize>().ok());
     match base {
-        "char" | "varchar" | "nchar" | "nvarchar" | "text" | "ntext" => {
-            if matches!(base, "nchar" | "nvarchar") && bound.is_some_and(|n| value.encode_utf16().count() > n) {
-                return Err(format!("Text value exceeds the capacity of {native}"));
-            }
-            Ok(expression)
+        "nchar" | "nvarchar" if bound.is_some_and(|n| value.encode_utf16().count() > n) => {
+            Err(format!("Text value exceeds the capacity of {native}"))
         }
         "binary" | "varbinary" | "image" | "timestamp" | "rowversion" => {
             let hex = value.strip_prefix("0x").ok_or("Binary values must use 0x-prefixed hexadecimal text")?;
@@ -26,6 +27,18 @@ pub(crate) fn input_sql(native: &str, value: &str) -> Result<String, String> {
             if bound.is_some_and(|n| hex.len() / 2 > n) {
                 return Err(format!("Binary value exceeds the capacity of {native}"));
             }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+/// `expression`, a text literal or an `nvarchar` parameter, converted to `native` the way `input_sql` converts a
+/// literal.
+pub(crate) fn input_expression(native: &str, expression: &str) -> Result<String, String> {
+    match base_type(native) {
+        "char" | "varchar" | "nchar" | "nvarchar" | "text" | "ntext" => Ok(expression.to_owned()),
+        "binary" | "varbinary" | "image" | "timestamp" | "rowversion" => {
             Ok(format!("CONVERT(varbinary(max), {expression}, 1)"))
         }
         "date" => Ok(format!("CONVERT({native}, {expression}, 23)")),

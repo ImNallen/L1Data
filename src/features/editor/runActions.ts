@@ -19,7 +19,7 @@ import {
   type WriteConfirmation,
   type WriteDigest,
 } from "../../ipc/bindings";
-import { applyErrorText, configureErrorText, runErrorText, settingsErrorText, txnErrorText } from "../../ipc/errors";
+import { applyErrorText, changedRowText, configureErrorText, runErrorText, settingsErrorText, txnErrorText } from "../../ipc/errors";
 import { databaseKindFor } from "../../state/databaseKind";
 import { homeDb, resolveDb, sameDb } from "../../state/dbKey";
 import { useLive } from "../../state/live";
@@ -27,7 +27,8 @@ import { MAP_TITLE } from "../../state/notebookFile";
 import { notebookOf } from "../../state/notebooks";
 import { dropRowCaches } from "../../state/rowCache";
 import { canCancel, isBusy } from "../../state/status";
-import { NO_EDITS, pendingCount, toChanges, useTableEdits, type TableEdits } from "../../state/tableEdits";
+import { dropStale, markStale, NO_EDITS, pendingCount, stagingSettled, toChanges, useTableEdits, type TableEdits } from "../../state/tableEdits";
+import { forgetEditSupport, useEditSupport } from "../../state/editSupport";
 import {
   EMPTY_QUERY,
   activeId,
@@ -333,7 +334,7 @@ export async function runOrChoose(ask = false): Promise<void> {
 
 export function cancelActive(): boolean {
   const id = activeQueryTab(ws())?.id;
-  if (!id || !canCancel(useLive.getState().consoles[id])) return false;
+  if (!id || !canCancel(useLive.getState().consoles[id], databaseKindFor(tabTarget(ws().tabs[id]), ws().configs))) return false;
   cancelCell(id);
   return true;
 }
@@ -341,7 +342,8 @@ export function cancelActive(): boolean {
 /** Says that a SQL Server cancel resets the session. The engine ignores a cancel of an idle cell. */
 export function cancelCell(id: TabId): void {
   queuedPages.delete(id);
-  if (databaseKindFor(tabTarget(ws().tabs[id]), ws().configs) === "SqlServer" && useLive.getState().consoles[id]?.work !== "Import")
+  const work = useLive.getState().consoles[id]?.work;
+  if (databaseKindFor(tabTarget(ws().tabs[id]), ws().configs) === "SqlServer" && work !== "Import" && work !== "Edit")
     notify("Cancelling SQL Server resets this session. Earlier commits remain committed; the last transaction outcome may be unknown.");
   void commands.consoleCancel(id);
 }
@@ -575,6 +577,7 @@ export function updateTableQuery(tabId: TabId, update: (q: TableQuery) => TableQ
 }
 
 export async function submitEdits(tabId: TabId): Promise<void> {
+  await stagingSettled(tabId);
   const tab = ws().tabs[tabId];
   const edits = useTableEdits.getState().byTab[tabId];
   if (!isTableTab(tab) || !edits || pendingCount(edits) === 0) return;
@@ -603,7 +606,8 @@ async function editsConfirmed(tab: TableTab, edits: TableEdits, asked: WriteConf
     ]
       .filter(Boolean)
       .join(" "),
-    statements: asked.holds.statements,
+    // SQL Server shows the batch of each change Submit sends. PostgreSQL shows only the writes the transaction holds.
+    ...(asked.unit === "Batch" ? shownWrites(asked) : { statements: asked.holds.statements }),
     confirmLabel: "Apply changes",
   });
   const now = ws().tabs[tab.id];
@@ -622,20 +626,44 @@ export async function revertEdits(tabId: TabId): Promise<void> {
   if (ok && useTableEdits.getState().byTab[tabId] === edits) useTableEdits.getState().clear(tabId);
 }
 
+/** Drops the staged edits of the rows another session changed, and reloads the page to show their current values. */
+export async function dropChangedRows(tabId: TabId): Promise<void> {
+  const edits = useTableEdits.getState().byTab[tabId];
+  const n = Object.keys(edits?.stale ?? {}).length;
+  if (n === 0) return;
+  const ok = await confirm({
+    title: n === 1 ? "Drop the changed row's edits?" : `Drop the edits of ${n} changed rows?`,
+    body:
+      n === 1
+        ? "Another session changed this row after the page read it. Its staged edits are discarded and the page reloads, so you can edit its current values. Other staged changes stay."
+        : "Another session changed these rows after the page read them. Their staged edits are discarded and the page reloads, so you can edit their current values. Other staged changes stay.",
+    confirmLabel: "Drop edits",
+  });
+  if (!ok || useTableEdits.getState().byTab[tabId] !== edits || !useTableEdits.getState().edit(tabId, dropStale)) return;
+  const now = ws().tabs[tabId];
+  if (isTableTab(now)) setTablePage(tabId, now.table.page);
+}
+
 async function applyEdits(tab: TableTab, edits: TableEdits): Promise<void> {
   const tabId = tab.id;
   if (!(await ensureConsole(tab))) return;
   const count = pendingCount(edits);
-  const { changes, rowOf } = toChanges(edits, tab.table.schema, tab.table.table);
+  const support = useEditSupport.getState().byTab[tabId]?.support;
+  const rowCheck = support?.kind === "Editable" ? support.rowCheck : null;
+  const { changes, rowOf } = toChanges(edits, tab.table.schema, tab.table.table, rowCheck);
   let res = await commands.tableApply(tabId, changes, null);
   while (res.status === "error" && res.error.kind === "ConfirmWrites") {
     if (!(await editsConfirmed(tab, edits, res.error.confirmation))) return;
     res = await commands.tableApply(tabId, changes, res.error.confirmation.digest);
   }
   if (res.status === "error") {
-    const failedAt = "change" in res.error ? rowOf(res.error.change) : null;
-    useTableEdits.setState((s) => ({ byTab: { ...s.byTab, [tabId]: { ...edits, failedAt } } }));
-    notify(applyErrorText(res.error));
+    const error = res.error;
+    if (error.kind === "Refused" || error.kind === "TableChanged") forgetEditSupport(tabId);
+    const failedAt = "change" in error ? rowOf(error.change) : null;
+    const gone = error.kind === "RowMismatch" && error.rows === 0;
+    const stale = rowCheck !== null && (error.kind === "RowChanged" || gone) && failedAt !== null && "key" in failedAt ? failedAt.key : null;
+    useTableEdits.setState((s) => ({ byTab: { ...s.byTab, [tabId]: { ...(stale === null ? edits : markStale(edits, stale)), failedAt } } }));
+    notify(stale !== null && error.kind === "RowMismatch" ? changedRowText(error.change, true) : applyErrorText(error));
     return;
   }
   useTableEdits.getState().clear(tabId);
@@ -651,6 +679,7 @@ export function forgetTab(tabId: TabId) {
   dropRowCaches(tabId);
   dropEditor(tabId);
   useTableEdits.getState().clear(tabId);
+  forgetEditSupport(tabId);
   forgetMapView(tabId);
   ws().closeTab(tabId);
   useLive.getState().forgetTab(tabId);

@@ -174,9 +174,9 @@ async fn named_keys_refuse_updates_and_deletes_after_pk_replacement_and_catalog_
             assert_eq!(key, [CellWrite { column: "id".into(), value: Some("1".into()) }]);
             let update = TableChanges {
                 schema: h.schema.clone(), table: table.into(), inserts: vec![], deletes: vec![],
-                updates: vec![RowUpdate { key: key.clone(), set: vec![CellWrite { column: "note".into(), value: Some("edited".into()) }] }],
+                updates: vec![RowUpdate { key: key.clone(), set: vec![CellWrite { column: "note".into(), value: Some("edited".into()) }], expect: vec![] }],
             };
-            let delete = TableChanges { updates: vec![], deletes: vec![key], ..update.clone() };
+            let delete = TableChanges { updates: vec![], deletes: vec![RowDelete { key, expect: vec![] }], ..update.clone() };
             h.sql(h.ddl, &format!("ALTER TABLE {target} DROP CONSTRAINT {table}_pkey; ALTER TABLE {target} ADD PRIMARY KEY (alternate)")).await;
             h.engine.refresh_catalog(h.db.clone()).await.unwrap();
             let refreshed = h.engine.catalog(h.db.clone()).await.unwrap();

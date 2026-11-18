@@ -1,4 +1,15 @@
-import type { ConnectionState, ConsoleState, OutputEntry, ResultMeta, ResultRef, RowsState, RunState, StatementRun, TabId } from "../ipc/bindings";
+import type {
+  ConnectionState,
+  ConsoleState,
+  DatabaseKind,
+  OutputEntry,
+  ResultMeta,
+  ResultRef,
+  RowsState,
+  RunState,
+  StatementRun,
+  TabId,
+} from "../ipc/bindings";
 import { formatElapsed, groupCount, pluralRows } from "../features/results/format";
 
 export function hasUncommittedWork(console: ConsoleState | undefined): boolean {
@@ -13,7 +24,9 @@ export function isBusy(console: ConsoleState | undefined): boolean {
   return console?.work != null || isRunning(console);
 }
 
-export function canCancel(console: ConsoleState | undefined): boolean {
+/** A SQL Server Submit settles its own transaction after Cancel. A PostgreSQL one is too short to need it. */
+export function canCancel(console: ConsoleState | undefined, databaseKind?: DatabaseKind): boolean {
+  if (console?.work === "Edit") return databaseKind === "SqlServer";
   return console?.work === "Count" || console?.work === "Export" || console?.work === "Import" || isRunning(console);
 }
 

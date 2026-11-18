@@ -42,20 +42,26 @@ import {
   type ColumnMeta,
   type ColSpan,
   type Density,
+  type EditSupport,
   type FontSetting,
   type ResultCell,
   type ResultMeta,
+  type RowCheck,
   type RowSpan,
   type TypeCategory,
 } from "../../ipc/bindings";
+import { editRefusalText, readOnlyText } from "../../ipc/errors";
 import { DENSITY_FACTOR, gridRowHeight } from "../../shell/appearance";
 import { MAC, MOD_LABEL } from "../../shell/hostedWindow";
 import { rowCacheFor, windowedRows, type Row, type RowView } from "../../state/rowCache";
+import { useLive } from "../../state/live";
 import { refKey } from "../../state/status";
 import { findRelation, isPrimaryKey, useCatalog, viewFor, type CatalogView } from "../../state/catalog";
 import { sameDb, type DbKey } from "../../state/dbKey";
 import {
   NO_EDITS,
+  holdSubmit,
+  keepVersion,
   markDeleted,
   removeNewRows,
   resetNewCell,
@@ -70,7 +76,7 @@ import {
 import { useWorkspace } from "../../state/workspace";
 import { fontStack } from "../../themes/fonts";
 import { ContextMenuArea, ContextMenuItem, ContextMenuSeparator, IconButton, cx } from "../../ui/primitives";
-import { openTableTab } from "../editor/runActions";
+import { cancelCell, openTableTab } from "../editor/runActions";
 import { useKeyLinks, type KeyLink } from "./foreignKeys";
 import { ColumnProfilePopover } from "./ColumnProfile";
 import { cellAt, DEFAULT, EMPTY_MARK, GridEditor, GridRow, NULL_MARK, rowNumberAt, type Cell } from "./GridRows";
@@ -102,16 +108,28 @@ const SORT_BADGE_W = 20;
 const FILTER_BUTTON_W = 20;
 const QUERY_CONTROLS = SORT_BADGE_W + FILTER_BUTTON_W + 2 * HEADER_GAP;
 
-export type GridEditing = { pkColumns: string[]; writableColumns: ReadonlySet<string> };
+export type GridEditing = {
+  pkColumns: string[];
+  writableColumns: ReadonlySet<string>;
+  /** SQL Server: each read-only column's header line. */
+  readOnly?: ReadonlyMap<string, string>;
+  /** SQL Server: why Delete rows is disabled. */
+  deleteRefusal?: string;
+  /** SQL Server: how Submit proves a row unchanged. PostgreSQL has none. */
+  rowCheck?: RowCheck;
+};
 export type GridActions = { addRow(): void; deleteSelectedRows(): void };
 
+/** `support` is a SQL Server table's answer from `tableEditSupport`. PostgreSQL decides from the catalog. */
 export function gridEditing(
   view: CatalogView | undefined,
   schema: string,
   table: string,
   meta: Pick<ResultMeta, "databaseKind" | "db" | "columns">,
+  support: EditSupport | null = null,
 ): GridEditing | null {
-  if (view?.catalog.databaseKind !== "Postgres" || meta.databaseKind !== "Postgres") return null;
+  const kind = view?.catalog.databaseKind;
+  if (!kind || kind !== meta.databaseKind || (kind === "SqlServer" && support?.kind !== "Editable")) return null;
   const relation = findRelation(view, schema, table);
   if (!relation || relation.kind !== "Table" || !sameDb(view?.catalog.db, meta.db)) return null;
   const pkColumns = relation.columns.filter((c) => c.pk).map((c) => c.name);
@@ -122,7 +140,14 @@ export function gridEditing(
     )
   )
     return null;
-  return { pkColumns, writableColumns: new Set(relation.columns.filter((c) => c.writable).map((c) => c.name)) };
+  if (support?.kind !== "Editable") return { pkColumns, writableColumns: new Set(relation.columns.filter((c) => c.writable).map((c) => c.name)) };
+  return {
+    pkColumns,
+    writableColumns: new Set(support.columns.filter((c) => c.readOnly === null).map((c) => c.name)),
+    readOnly: new Map(support.columns.flatMap((c) => (c.readOnly ? [[c.name, readOnlyText(c.readOnly)] as const] : []))),
+    deleteRefusal: support.delete ? `Delete is unavailable: ${editRefusalText(support.delete)}.` : undefined,
+    rowCheck: support.rowCheck,
+  };
 }
 
 export function gridKeyColumns(editing: GridEditing | null, edits: TableEdits): string[] {
@@ -398,7 +423,7 @@ const GridHeader = memo(function GridHeader({
             role="columnheader"
             aria-colindex={vc.index + 2}
             aria-sort={sortKey ? (sortKey.desc ? "descending" : "ascending") : undefined}
-            title={`${c.name} ${c.type.display}${editing && !editing.writableColumns.has(c.name) ? "\nRead-only column" : ""}${query ? `\nClick to sort, Shift-click to add to the sort. ${ALT_KEY}S sorts by the selected cell's column.\nRight-click to profile.` : "\nClick to profile."}`}
+            title={`${c.name} ${c.type.display}${editing && !editing.writableColumns.has(c.name) ? `\n${editing.readOnly?.get(c.name) ?? "Read-only column"}` : ""}${query ? `\nClick to sort, Shift-click to add to the sort. ${ALT_KEY}S sorts by the selected cell's column.\nRight-click to profile.` : "\nClick to profile."}`}
             onClick={query ? (e) => query.onSort(c.name, e.shiftKey) : () => onProfile(vc.index)}
             className={cx(
               "group/header absolute top-0 flex h-full cursor-pointer items-center gap-1.5 border-r border-grid px-2 hover:bg-hover hover:text-fg",
@@ -790,7 +815,14 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
   const [editingCell, setEditingCell] = useState<(Cell & { draft: string; initial: string; stored: CellValue }) | null>(null);
   const lastEnded = useRef<typeof editingCell>(null);
   const opening = useRef(0);
-  const refused = () => useWorkspace.getState().notify("A submit is running. Try again when it finishes.");
+  const notify = (text: string) => useWorkspace.getState().notify(text);
+  const refused = () => notify("A submit is running. Try again when it finishes.");
+  // SQL Server compares the row Submit reads with the page, so it needs whole keys, and the rowversion or whole originals.
+  const rowversion = editing?.rowCheck?.kind === "Rowversion" ? editing.rowCheck.column : null;
+  const versionAt = rowversion === null ? -1 : columns.findIndex((c) => c.name === rowversion);
+  const versionOf = (row: number): CellValue | undefined => (versionAt >= 0 ? (cache.get(row)?.[versionAt] ?? null) : undefined);
+  const keyCut = (row: number) => editing?.rowCheck !== undefined && pkIdx.some((i) => cache.isCut(row, i));
+  const KEY_CUT = "This row's key is too long for the grid to find it. Change it with a SQL script.";
   const canWrite = (col: number) => editable && editing?.writableColumns.has(columns[col]?.name ?? "") === true;
   const startEdit = (row: number, col: number, typed?: string) => {
     const key = rowKeyOf(row);
@@ -822,7 +854,20 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
       return;
     }
     const id = rowIdOf(row);
-    if (id && value !== DEFAULT && !edit((e) => setCell(e, id, name, value, stored))) refused();
+    if (!id || value === DEFAULT) return;
+    if (keyCut(row)) return notify(KEY_CUT);
+    const version = versionOf(row);
+    const stage = (original: CellValue) => {
+      if (!edit((e) => (version === undefined ? setCell(e, id, name, value, original) : keepVersion(setCell(e, id, name, value, original), id, version))))
+        refused();
+    };
+    if (editing?.rowCheck?.kind !== "Values" || !cache.isCut(row, col)) return stage(stored);
+    holdSubmit(
+      tabId,
+      cache
+        .loadFull(row, col)
+        .then((full) => (full === undefined ? notify("This cell's full value is gone. Reload the page, then edit it again.") : stage(full))),
+    );
   };
   const finishEdit = (save: boolean, draft: string) => {
     if (!editingCell || lastEnded.current === editingCell) return;
@@ -857,13 +902,21 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
       deleting.current = false;
     }
     const added = picked.flatMap((r) => newRowAt(r)?.id ?? []);
-    const stored = storedRows.flatMap((r) => {
+    const staged = storedRows.flatMap((r) => {
       const id = rowIdOf(r);
-      return id ? [id] : [];
+      return id ? [{ id, version: versionOf(r) }] : [];
     });
+    const stored = staged.map((s) => s.id);
     const marked = useTableEdits.getState().byTab[tabId]?.deletes ?? {};
     const restore = stored.length > 0 && stored.every((r) => rowKey(r) in marked);
-    if (!edit((e) => markDeleted(removeNewRows(e, added), stored, !restore))) refused();
+    if (!restore && stored.length > 0 && editing?.deleteRefusal) return notify(editing.deleteRefusal);
+    if (storedRows.some(keyCut)) return notify(KEY_CUT);
+    const mark = (e: TableEdits) =>
+      staged.reduce(
+        (next, { id, version }) => (version === undefined ? next : keepVersion(next, id, version)),
+        markDeleted(removeNewRows(e, added), stored, !restore),
+      );
+    if (!edit(mark)) refused();
   };
   const insertsSeen = useRef(edits.inserts.length);
   useEffect(() => {
@@ -933,6 +986,9 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
       query.onSort(columns[selection.focus.col]!.name, e.shiftKey);
     } else if (e.key === "Enter" && selection) {
       void openCell(selection.focus.row, selection.focus.col);
+    } else if (e.key === "Escape" && meta.databaseKind === "SqlServer" && useLive.getState().consoles[tabId]?.work === "Edit") {
+      e.preventDefault();
+      cancelCell(tabId);
     } else {
       const focus = nextFocus(e.key, mod, selection?.focus ?? { row: 0, col: 0 }, total, columns.length);
       if (!focus) return;
@@ -1080,7 +1136,9 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
           const added = newRowAt(index);
           const key = added ? null : rowKeyOf(index);
           const deleted = key ? key in edits.deletes : false;
-          const failed = !!edits.failedAt && ("insert" in edits.failedAt ? added?.id === edits.failedAt.insert : key === edits.failedAt.key);
+          const failed =
+            (!!key && key in (edits.stale ?? {})) ||
+            (!!edits.failedAt && ("insert" in edits.failedAt ? added?.id === edits.failedAt.insert : key === edits.failedAt.key));
           const selectedHere = bounds !== null && index >= bounds.r0 && index <= bounds.r1;
           return (
             <GridRow

@@ -2785,8 +2785,7 @@ pub struct TableChanges {
     /// Columns left out take their default.
     pub inserts: Vec<Vec<CellWrite>>,
     pub updates: Vec<RowUpdate>,
-    /// Each entry is the primary key of a row to delete.
-    pub deletes: Vec<Vec<CellWrite>>,
+    pub deletes: Vec<RowDelete>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Type)]
@@ -2802,6 +2801,155 @@ pub struct CellWrite {
 pub struct RowUpdate {
     pub key: Vec<CellWrite>,
     pub set: Vec<CellWrite>,
+    /// SQL Server: the row as the page showed it, which must still match. With `RowCheck::Rowversion`, the
+    /// rowversion cell; with `RowCheck::Values`, the stored value of each `set` column. PostgreSQL sends none.
+    pub expect: Vec<CellWrite>,
+}
+
+#[derive(Debug, Clone, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RowDelete {
+    pub key: Vec<CellWrite>,
+    /// SQL Server with `RowCheck::Rowversion`: the rowversion cell. Otherwise empty, and the row matches by key.
+    pub expect: Vec<CellWrite>,
+}
+
+/// Whether a SQL Server table tab's grid can stage edits, from the check `table_apply` repeats inside its
+/// transaction.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(tag = "kind", rename_all_fields = "camelCase")]
+pub enum EditSupport {
+    Refused {
+        reason: EditRefusal,
+    },
+    Editable {
+        row_check: RowCheck,
+        /// One per table column, in column order.
+        columns: Vec<ColumnEdit>,
+        /// `Some` disables Delete rows, with this reason.
+        delete: Option<EditRefusal>,
+    },
+}
+
+/// How Submit proves that a row to update or delete is still the row the page showed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(tag = "kind", rename_all_fields = "camelCase")]
+pub enum RowCheck {
+    Rowversion { column: String },
+    Values,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ColumnEdit {
+    pub name: String,
+    pub read_only: Option<ReadOnlyReason>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(tag = "kind", rename_all_fields = "camelCase")]
+pub enum ReadOnlyReason {
+    Identity,
+    Computed,
+    Rowversion,
+    GeneratedAlways,
+    ColumnSet,
+    Masked,
+    SqlVariant,
+    /// `text`, `ntext`, or `image`.
+    LegacyLob,
+    /// Changing it runs a foreign key's update action into a table that fails the edit checks.
+    Cascade {
+        foreign_key: String,
+        table: String,
+        cause: Box<EditRefusal>,
+    },
+}
+
+/// Why SQL Server server code could run during an edit, or why the edit cannot prove it cannot.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(tag = "kind", rename_all_fields = "camelCase")]
+pub enum EditRefusal {
+    NeedsSqlServer2022,
+    Permission {
+        missing: String,
+    },
+    /// A `DENY VIEW DEFINITION` or `DENY CONTROL` could hide a trigger or policy from the check.
+    HiddenMetadata,
+    NoPrimaryKey,
+    MaskedKey {
+        column: String,
+    },
+    TableKind {
+        table: String,
+        table_kind: TableKind,
+    },
+    Trigger {
+        table: String,
+        trigger: String,
+    },
+    SecurityPolicy {
+        table: String,
+        policy: String,
+    },
+    IndexedView {
+        table: String,
+        view: String,
+    },
+    IgnoreDupKey {
+        table: String,
+        index: String,
+    },
+    Function {
+        table: String,
+        object: String,
+    },
+    ColumnType {
+        table: String,
+        column: String,
+        issue: ColumnTypeIssue,
+    },
+    /// More than 64 tables in the cascade closure.
+    CascadeTooWide,
+    Cascade {
+        foreign_key: String,
+        table: String,
+        cause: Box<EditRefusal>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+pub enum TableKind {
+    MemoryOptimized,
+    Temporal,
+    Graph,
+    Ledger,
+    FileTable,
+    External,
+    Replicated,
+    Stretch,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(tag = "kind", rename_all_fields = "camelCase")]
+pub enum ColumnTypeIssue {
+    Clr,
+    Alias,
+    Encrypted,
+    BoundRule,
+    BoundDefault,
+    Unsupported { type_name: String },
+}
+
+/// A tab session state in which a SQL Server Submit could not keep its promise, refused before `BEGIN`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+pub enum SessionRefusal {
+    OpenTransaction,
+    ImplicitTransactions,
+    LimitedTextSize,
+    /// A setting such as `SHOWPLAN`, `NOEXEC`, `FMTONLY`, `PARSEONLY`, or `STATISTICS XML` or `PROFILE` changes what
+    /// the session's batches return.
+    ResultShape,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
@@ -2860,6 +3008,29 @@ pub enum ApplyError {
     ConfirmWrites {
         confirmation: WriteConfirmation,
     },
+    /// SQL Server: server code could run during the edit. Nothing was applied.
+    Refused {
+        reason: EditRefusal,
+    },
+    /// SQL Server: a row to update or delete no longer holds what the page showed. Nothing was applied.
+    RowChanged {
+        change: ChangeRef,
+    },
+    /// SQL Server: a double-byte code page could show two stored values alike, so this original cannot be compared.
+    Unverifiable {
+        change: ChangeRef,
+        column: String,
+    },
+    /// The table's columns changed since the page read them. Nothing was applied.
+    TableChanged,
+    /// SQL Server: another session held a lock past the edit's lock timeout, or chose the edit as a deadlock victim.
+    /// Nothing was applied.
+    Locked,
+    Session {
+        reason: SessionRefusal,
+    },
+    /// Cancel stopped the edit, and nothing was applied.
+    Cancelled,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]

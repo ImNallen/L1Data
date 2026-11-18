@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import type { ApproveError, ChatError, FileWriteError, SaveTarget, SendError, UpdateFailure } from "./bindings";
 import {
   applyErrorText,
+  readOnlyText,
   approveErrorText,
   chatErrorText,
   configureErrorText,
@@ -102,4 +103,17 @@ it("points a failed save at Save As, and a failed Save As elsewhere", () => {
     "You don't have permission to save /q/a.sql. Use Save As to save a copy elsewhere.",
   ]);
   expect(errors.map((e) => fileWriteErrorText(e, saveAs))).toEqual(["The folder for /q/a.sql doesn't exist.", "You don't have permission to save /q/a.sql."]);
+});
+
+it("names the table, object, and foreign key that refuse a SQL Server edit", () => {
+  const trigger = { kind: "Trigger" as const, table: "dbo.order_items", trigger: "dbo.items_audit" };
+  expect(applyErrorText({ kind: "Refused", reason: { kind: "Cascade", foreignKey: "FK_items_order", table: "dbo.order_items", cause: trigger } })).toBe(
+    "Nothing was applied. Edits are unavailable here: FK_items_order changes rows in dbo.order_items, and dbo.order_items has an enabled trigger, dbo.items_audit, which could commit or roll back them.",
+  );
+  expect(readOnlyText({ kind: "Identity" })).toBe("Read-only: identity");
+  expect(applyErrorText({ kind: "RowChanged", change: { kind: "Update", index: 0 } })).toBe(
+    "Nothing was applied. Another session changed a row to update after the page read it. Drop changed row discards that row's edits and reloads the page. Your other edits stay.",
+  );
+  expect(applyErrorText({ kind: "Session", reason: "OpenTransaction" })).toContain("Commit or roll back");
+  expect(applyErrorText({ kind: "Cancelled" })).toBe("Cancelled. Nothing was applied.");
 });

@@ -1,5 +1,11 @@
 import type {
   ApplyError,
+  ChangeRef,
+  ColumnTypeIssue,
+  EditRefusal,
+  ReadOnlyReason,
+  SessionRefusal,
+  TableKind,
   ApproveError,
   CatalogError,
   ChatError,
@@ -125,8 +131,144 @@ export function applyErrorText(e: ApplyError): string {
     }
     case "ConfirmWrites":
       return `Nothing was applied. These edits write to Production on ${e.confirmation.connection} / ${e.confirmation.database} and need your confirmation.`;
+    case "Refused":
+      return `Nothing was applied. Edits are unavailable here: ${editRefusalText(e.reason)}.`;
+    case "RowChanged":
+      return changedRowText(e.change, false);
+    case "Unverifiable":
+      return `Nothing was applied. The stored value of ${e.column} can't be compared exactly in its code page. Add a rowversion column, or change this value with SQL.`;
+    case "TableChanged":
+      return "Nothing was applied. The table changed since it was read. Reload and try again.";
+    case "Locked":
+      return "Nothing was applied. A row or table is locked by another session. Try again when it finishes.";
+    case "Session":
+      return `Nothing was applied. ${sessionRefusalText(e.reason)}`;
+    case "Cancelled":
+      return "Cancelled. Nothing was applied.";
     default: {
       const unreachable: never = e;
+      return unreachable;
+    }
+  }
+}
+
+/** A SQL Server Submit found a row changed or gone. The grid marks the row until Drop changed row clears it. */
+export function changedRowText(change: ChangeRef, gone: boolean): string {
+  const verb = change.kind === "Delete" ? "delete" : "update";
+  const what = gone ? `A row to ${verb} no longer exists` : `Another session changed a row to ${verb} after the page read it`;
+  return `Nothing was applied. ${what}. Drop changed row discards that row's edits and reloads the page. Your other edits stay.`;
+}
+
+const TABLE_KINDS: Record<TableKind, string> = {
+  MemoryOptimized: "a memory-optimized table",
+  Temporal: "a temporal table",
+  Graph: "a graph table",
+  Ledger: "a ledger table",
+  FileTable: "a FileTable",
+  External: "an external table",
+  Replicated: "a replicated table",
+  Stretch: "a Stretch-enabled table",
+};
+
+function columnIssueText(issue: ColumnTypeIssue): string {
+  switch (issue.kind) {
+    case "Clr":
+      return "has a CLR type, whose methods run code";
+    case "Alias":
+      return "has an alias type";
+    case "Encrypted":
+      return "is Always Encrypted";
+    case "BoundRule":
+      return "has a bound rule";
+    case "BoundDefault":
+      return "has a bound default";
+    case "Unsupported":
+      return `has type ${issue.typeName}, which the grid cannot write`;
+    default: {
+      const unreachable: never = issue;
+      return unreachable;
+    }
+  }
+}
+
+/** Why SQL Server server code could run during a staged edit, as a clause: "dbo.t has an enabled trigger, …". */
+export function editRefusalText(reason: EditRefusal): string {
+  switch (reason.kind) {
+    case "NeedsSqlServer2022":
+      return "checking this table needs SQL Server 2022 or later";
+    case "Permission":
+      return `checking this table needs ${reason.missing} permission`;
+    case "HiddenMetadata":
+      return "a DENY VIEW DEFINITION or DENY CONTROL permission could hide a trigger or policy from the check";
+    case "NoPrimaryKey":
+      return "the table has no primary key";
+    case "MaskedKey":
+      return `the primary key column ${reason.column} is masked`;
+    case "TableKind":
+      return `${reason.table} is ${TABLE_KINDS[reason.tableKind]}`;
+    case "Trigger":
+      return `${reason.table} has an enabled trigger, ${reason.trigger}, which could commit or roll back them`;
+    case "SecurityPolicy":
+      return `${reason.table} has row-level security policy ${reason.policy}`;
+    case "IndexedView":
+      return `${reason.table} feeds indexed view ${reason.view}`;
+    case "IgnoreDupKey":
+      return `${reason.table} has index ${reason.index} with IGNORE_DUP_KEY, which drops rows without an error`;
+    case "Function":
+      return `${reason.table} calls ${reason.object} from a constraint, default, or computed column`;
+    case "ColumnType":
+      return `${reason.table}.${reason.column} ${columnIssueText(reason.issue)}`;
+    case "CascadeTooWide":
+      return "its foreign key actions reach more than 64 tables";
+    case "Cascade":
+      return `${reason.foreignKey} changes rows in ${reason.table}, and ${editRefusalText(reason.cause)}`;
+    default: {
+      const unreachable: never = reason;
+      return unreachable;
+    }
+  }
+}
+
+/** A read-only column's header tooltip line. */
+export function readOnlyText(reason: ReadOnlyReason): string {
+  switch (reason.kind) {
+    case "Identity":
+      return "Read-only: identity";
+    case "Computed":
+      return "Read-only: computed";
+    case "Rowversion":
+      return "Read-only: rowversion";
+    case "GeneratedAlways":
+      return "Read-only: generated always";
+    case "ColumnSet":
+      return "Read-only: sparse column set";
+    case "Masked":
+      return "Read-only: masked";
+    case "SqlVariant":
+      return "Read-only: sql_variant, whose grid text drops its type";
+    case "LegacyLob":
+      return "Read-only: text, ntext, or image";
+    case "Cascade":
+      return `Read-only: changing it cascades through ${reason.foreignKey} to ${reason.table}, and ${editRefusalText(reason.cause)}`;
+    default: {
+      const unreachable: never = reason;
+      return unreachable;
+    }
+  }
+}
+
+function sessionRefusalText(reason: SessionRefusal): string {
+  switch (reason) {
+    case "OpenTransaction":
+      return "Commit or roll back this tab's transaction before submitting edits.";
+    case "ImplicitTransactions":
+      return "This tab has IMPLICIT_TRANSACTIONS on. Turn it off before submitting edits.";
+    case "LimitedTextSize":
+      return "This tab has a limited SET TEXTSIZE, so its pages may hold cut values. Run SET TEXTSIZE -1, then reload.";
+    case "ResultShape":
+      return "A setting on this tab, such as SHOWPLAN, NOEXEC, FMTONLY, PARSEONLY, or STATISTICS XML or PROFILE, changes what batches return. Turn it off before submitting edits.";
+    default: {
+      const unreachable: never = reason;
       return unreachable;
     }
   }
