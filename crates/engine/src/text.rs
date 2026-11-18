@@ -138,11 +138,24 @@ pub fn completion_context(text: &str, cursor: DocOffset, database_kind: Database
 pub fn format_edit(text: &str, target: RunTarget, database_kind: DatabaseKind) -> Result<FormatEdit, FormatError> {
     if database_kind == DatabaseKind::SqlServer {
         let map = OffsetMap::new(text);
-        let spans = sql::tsql::pick(text, map.target(target)).map_err(|_| FormatError::Unsupported)?;
+        let spans = match map.target(target) {
+            ByteTarget::Selection { from, to } if from < to => sql::tsql::split_batches(text).and_then(|spans| {
+                let touched: Vec<_> = spans.into_iter().filter(|s| s.start < to && from < s.end).collect();
+                touched.iter().try_for_each(|s| sql::tsql::validate_batch(s.text(text)))?;
+                Ok(touched)
+            }),
+            target => sql::tsql::pick(text, target),
+        }
+        .map_err(|_| FormatError::Unsupported)?;
         let (Some(first), Some(last)) = (spans.first(), spans.last()) else {
             return Err(FormatError::NothingToFormat);
         };
-        let insert = sql::tsql::format(&text[first.start..last.end]).map_err(|_| FormatError::Unsupported)?;
+        let line_ending = sql::tsql::LineEnding::of(text);
+        let insert = sql::tsql::format(&text[first.start..last.end], line_ending).map_err(|refusal| match refusal {
+            sql::tsql::Refusal::ChangesTokens => FormatError::Unsafe,
+            sql::tsql::Refusal::NoBatch => FormatError::NothingToFormat,
+            _ => FormatError::Unsupported,
+        })?;
         return Ok(FormatEdit { from: map.to_utf16(first.start), to: map.to_utf16(last.end), insert });
     }
     let map = OffsetMap::new(text);
@@ -354,7 +367,7 @@ mod tests {
         let map = OffsetMap::new(text);
         let start = text.find("insert").unwrap();
         let end = text.find(";\nGO\n").unwrap() + 1;
-        let expected = "insert dbo.t(id)\nselect id\nfrom s;\nupdate dbo.t\nset n = @n\nwhere id = 1;";
+        let expected = "INSERT dbo.t(id)\nSELECT id\nFROM s;\nUPDATE dbo.t\nSET n = @n\nWHERE id = 1;";
         for target in
             [cursor_at(text, "set"), RunTarget::Selection { from: map.to_utf16(start), to: map.to_utf16(end) }]
         {
@@ -373,12 +386,56 @@ mod tests {
             format!("-- 😀\nSELECT 1;\nGO -- boundary\n{expected}\nGO\nDELETE FROM t\nWHERE id = 2;")
         );
         let fragment = RunTarget::Selection { from: map.to_utf16(start + 3), to: map.to_utf16(start + 8) };
-        assert!(matches!(format_edit(text, fragment, DatabaseKind::SqlServer), Err(FormatError::Unsupported)));
-        let unsafe_batch = "UPDATE t SET n=1; SET NOCOUNT ON";
+        let edit = format_edit(text, fragment, DatabaseKind::SqlServer).unwrap();
+        assert_eq!((edit.from, edit.to, edit.insert.as_str()), (map.to_utf16(start), map.to_utf16(end), expected));
+        let unsupported = "UPDATE t SET n=1; EXEC dbo.p";
         assert!(matches!(
-            format_edit(unsafe_batch, cursor_at(unsafe_batch, "UPDATE"), DatabaseKind::SqlServer),
+            format_edit(unsupported, cursor_at(unsupported, "UPDATE"), DatabaseKind::SqlServer),
             Err(FormatError::Unsupported)
         ));
+        let go_line = "SELECT a, go FROM t";
+        assert!(matches!(format_edit(go_line, RunTarget::All, DatabaseKind::SqlServer), Err(FormatError::Unsafe)));
+    }
+
+    /// The document after the edit `format_edit` returns for a selection of `needle`.
+    fn tsql_format_selected(text: &str, needle: &str) -> Result<String, FormatError> {
+        let map = OffsetMap::new(text);
+        let from = text.find(needle).unwrap();
+        let target = RunTarget::Selection { from: map.to_utf16(from), to: map.to_utf16(from + needle.len()) };
+        let edit = format_edit(text, target, DatabaseKind::SqlServer)?;
+        Ok(format!("{}{}{}", &text[..map.to_byte(edit.from)], edit.insert, &text[map.to_byte(edit.to)..]))
+    }
+
+    #[test]
+    fn a_tsql_selection_inside_a_string_comment_or_name_formats_the_batch_around_it() {
+        let inner = "select   1   from   t";
+        for text in [
+            "select 'x' as a, 'select   1   from   t' as b",
+            "select a /* select   1   from   t */ from t",
+            "select a -- select   1   from   t\nfrom t",
+            "select [select   1   from   t] from t",
+        ] {
+            let all = format_edit(text, RunTarget::All, DatabaseKind::SqlServer).unwrap().insert;
+            assert!(all.contains(inner), "{all:?}");
+            assert_eq!(tsql_format_selected(text, inner).as_ref(), Ok(&all), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_tsql_selection_formats_every_batch_it_touches_and_no_other() {
+        let text = "select  1 from a\nGO\nselect  2 from b\nGO\nselect  3 from c\n";
+        assert_eq!(
+            tsql_format_selected(text, "from a\nGO\nselect").as_deref(),
+            Ok("SELECT 1\nFROM a\nGO\nSELECT 2\nFROM b\nGO\nselect  3 from c\n")
+        );
+        assert!(matches!(tsql_format_selected(text, "\nGO\n"), Err(FormatError::NothingToFormat)));
+    }
+
+    #[test]
+    fn a_tsql_batch_on_one_line_takes_the_documents_crlf_line_breaks() {
+        let text = "select 1\r\nGO\r\nselect  a from t";
+        let edit = format_edit(text, cursor_at(text, "a from"), DatabaseKind::SqlServer).unwrap();
+        assert_eq!(edit.insert, "SELECT a\r\nFROM t");
     }
 
     #[test]
@@ -858,7 +915,7 @@ pub fn table_count(
 }
 
 #[cfg(test)]
-mod text_commands_never_panic {
+pub(crate) mod text_commands_never_panic {
     //! The editor's sync commands run on the desktop app's main thread, so a panic in one ends the app. Each test
     //! feeds its command random token sequences at every cursor offset, in both dialects. `L1_DATA_FUZZ_SEED` and
     //! `L1_DATA_FUZZ_ITERATIONS` rerun them on other inputs.
@@ -1071,21 +1128,26 @@ mod text_commands_never_panic {
         "_;\n_\nGO\n_",
     ];
 
-    fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {
+    pub(crate) fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {
         std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    }
+
+    /// An xorshift generator seeded from `L1_DATA_FUZZ_SEED`, so each run sees the same numbers.
+    pub(crate) fn random() -> impl FnMut() -> u64 {
+        let mut state: u64 = env_or("L1_DATA_FUZZ_SEED", 0x9E37_79B9_7F4A_7C15u64).max(1);
+        move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        }
     }
 
     /// Templates with random tokens in their holes, from an xorshift generator so each run sees the same texts.
     /// Each text draws from its own few tokens, so any two tokens meet often enough to find what they break
     /// together, and a quarter of the texts end at a random point.
-    fn texts(iterations: usize) -> impl Iterator<Item = String> {
-        let mut state: u64 = env_or("L1_DATA_FUZZ_SEED", 0x9E37_79B9_7F4A_7C15u64).max(1);
-        let mut next = move || {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            state
-        };
+    pub(crate) fn texts(iterations: usize) -> impl Iterator<Item = String> {
+        let mut next = random();
         (0..env_or("L1_DATA_FUZZ_ITERATIONS", iterations)).map(move |_| {
             let palette: Vec<&str> = (0..6).map(|_| TOKENS[(next() % TOKENS.len() as u64) as usize]).collect();
             let template = TEMPLATES[(next() % TEMPLATES.len() as u64) as usize];
@@ -1095,14 +1157,14 @@ mod text_commands_never_panic {
                 if i > 0 {
                     for _ in 0..next() % (1 + 12 / holes) {
                         text.push_str(palette[(next() % palette.len() as u64) as usize]);
-                        if next() % 3 != 0 {
+                        if !next().is_multiple_of(3) {
                             text.push(' ');
                         }
                     }
                 }
                 text.push_str(part);
             }
-            if next() % 4 == 0 {
+            if next().is_multiple_of(4) {
                 let cut = (next() % (text.len() as u64 + 1)) as usize;
                 text.truncate(text.floor_char_boundary(cut));
             }

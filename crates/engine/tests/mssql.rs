@@ -1946,3 +1946,33 @@ async fn schema_map_joins_declared_and_inferred_references_at_one_version() {
     h.ok(&format!("DROP TABLE {schema}.widget_parts, {schema}.pairs, {schema}.widgets")).await;
     h.ok(&format!("DROP SCHEMA {schema}")).await;
 }
+
+#[tokio::test]
+async fn formatting_a_selection_inside_a_string_comment_or_name_keeps_every_column_and_value() {
+    let mut h = Harness::open(TxnMode::AutoCommit).await;
+    let inner = "select   1   from   t";
+    for text in [
+        "select 'x' as a, 'select   1   from   t' as b",
+        "select 'x' as a /* select   1   from   t */, 2 as b",
+        "select 'x' as a -- select   1   from   t\n, 2 as b",
+        "select 'x' as a, 2 as [select   1   from   t]",
+        "select 'x' as a,\r\n'select   1   from   t' as b\r\nGO\r\nselect  N'l1\nl2' as c",
+    ] {
+        let from = text.find(inner).unwrap() as u32;
+        let target = RunTarget::Selection { from: DocOffset(from), to: DocOffset(from + inner.len() as u32) };
+        let edit = h.engine.editor_format(text, target, DatabaseKind::SqlServer).unwrap();
+        let formatted = format!("{}{}{}", &text[..edit.from.0 as usize], edit.insert, &text[edit.to.0 as usize..]);
+        assert_ne!(formatted, text);
+        let mut results = Vec::new();
+        for sql in [text, formatted.as_str()] {
+            let state = h.ok(sql).await;
+            let sets: Vec<_> = Harness::rowsets(&state)
+                .into_iter()
+                .map(|set| (set.columns.iter().map(|c| c.name.clone()).collect::<Vec<_>>(), h.rows(set)))
+                .collect();
+            results.push(sets);
+        }
+        assert_eq!(results[0], results[1], "{text:?} formatted as {formatted:?}");
+        assert!(formatted.contains(inner), "{formatted:?}");
+    }
+}
