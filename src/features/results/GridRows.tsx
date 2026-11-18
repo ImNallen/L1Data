@@ -240,17 +240,20 @@ export const GridRow = memo(function GridRow({
   editingCol,
   editor,
 }: RowProps) {
+  const background = added
+    ? "bg-[color-mix(in_srgb,var(--color-green)_10%,var(--color-bg))]"
+    : deleted
+      ? "bg-[color-mix(in_srgb,var(--color-danger)_10%,var(--color-bg))]"
+      : changed
+        ? "bg-[color-mix(in_srgb,var(--color-amber)_8%,var(--color-bg))]"
+        : "hover:bg-hover";
   return (
     <div
       data-testid={`grid-row-${index}`}
       role="row"
       aria-rowindex={rowOffset + index + 2}
       data-state={added ? "new" : deleted ? "deleted" : changed ? "changed" : undefined}
-      className={cx(
-        "group absolute right-0 left-0 border-b border-grid",
-        added ? "bg-green/10" : deleted ? "bg-danger/10" : "hover:bg-hover",
-        failed && "outline outline-1 -outline-offset-1 outline-danger",
-      )}
+      className={cx("group absolute right-0 left-0 border-b border-grid", background, failed && "outline outline-1 -outline-offset-1 outline-danger")}
       style={{ top, height }}
     >
       <div
@@ -260,7 +263,13 @@ export const GridRow = memo(function GridRow({
         aria-colindex={1}
         className={cx(
           "sticky left-0 z-10 flex h-full items-center justify-center border-r border-grid font-mono text-code-sm tabular-nums",
-          fullRow ? "bg-cell-select text-fg" : focusCol >= 0 ? "bg-hover text-fg" : "bg-bg text-dim group-hover:bg-hover",
+          fullRow
+            ? "bg-cell-select text-fg"
+            : focusCol >= 0
+              ? "bg-hover text-fg"
+              : added || deleted || changed
+                ? "bg-inherit text-dim"
+                : "bg-bg text-dim group-hover:bg-hover",
         )}
         style={{ width: rowNumW }}
       >
