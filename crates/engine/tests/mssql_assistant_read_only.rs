@@ -365,6 +365,9 @@ async fn the_assistant_reads_only_a_read_only_sql_server_database() {
             ("SELECT * FROM linked_server.remote_db..orders".into(), "four-part"),
             ("SELECT 1; SELECT 2".into(), "one statement"),
             ("SELECT 1 AS x (SELECT 2 AS y)".into(), "one statement"),
+            ("SELECT 1 AS x, (SELECT 1) d (SELECT 2 AS y)".into(), "one statement"),
+            ("SELECT id FROM dbo.t WITH (UPDLOCK)".into(), "UPDLOCK"),
+            ("SELECT id FROM dbo.t rows FETCH NEXT FROM c".into(), "FETCH"),
             ("SELECT 'FIRST' AS marker SETUSER".into(), "SETUSER is not part of a single SELECT"),
             ("SELECT 'FIRST' AS marker FROM dbo.t READTEXT dbo.t.name 0x00 0 5".into(), "READTEXT"),
             ("USE master".into(), "SELECT"),
@@ -383,13 +386,6 @@ async fn the_assistant_reads_only_a_read_only_sql_server_database() {
                 assert_eq!(rows.len(), 2);
             }
             other => panic!("expected rows, got {other:?}"),
-        }
-
-        // A parenthesized query the lexer reads as a column list still runs as a second statement on
-        // the server, so the session refuses its second result set.
-        match h.approved(on, "SELECT 1 AS x, (SELECT 1) d (SELECT 2 AS y)").await {
-            ToolStatus::Failed { message } => assert!(message.contains("one statement"), "{message}"),
-            other => panic!("a second result set must be refused, got {other:?}"),
         }
 
         // The setting takes effect at once on a connected connection. Turned on, the next query runs.

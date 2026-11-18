@@ -21,10 +21,16 @@ pub(crate) enum Refusal {
     Use,
     Variable,
     Write,
+    /// A character the lexer reads as a symbol but SQL Server treats as whitespace or does not allow,
+    /// such as a control or zero-width character. It can split one read into two statements, so it
+    /// fails closed.
+    BadToken,
     /// A word that is not part of one `SELECT`, in upper case for the model.
     Keyword(String),
     /// A function call that is not a vetted in-database built-in, named for the model.
     Unvetted(String),
+    /// A locking table hint that can block another session's write, named for the model.
+    LockHint(String),
 }
 
 impl std::fmt::Display for Refusal {
@@ -43,6 +49,15 @@ impl std::fmt::Display for Refusal {
             Refusal::Use => "USE does not run here. The query runs against the connection's database.",
             Refusal::Variable => "A variable does not run here. Inline the value instead.",
             Refusal::Write => "Only a read runs here. Put a write in a ```sql block for the user to run.",
+            Refusal::BadToken => {
+                "The statement has a character that is not part of a single SELECT, so it does not run here."
+            }
+            Refusal::LockHint(name) => {
+                return write!(
+                    f,
+                    "The locking hint {name} can block another session, so it does not run here. A read needs no lock; remove it or use NOLOCK."
+                );
+            }
             Refusal::Keyword(word) => {
                 return write!(
                     f,
@@ -168,9 +183,31 @@ const SELECT_WORDS: &[&str] = &[
 /// `tokens` refuses, so this only keeps a parse change from opening them.
 const OTHER_STATEMENTS: &[&str] = &["DISABLE", "ENABLE", "GET", "GO", "MOVE", "RECEIVE", "SEND", "THROW"];
 
-/// Reserved words that finish an expression, so a `(` right after one at the top level opens a
-/// second statement.
-const EXPRESSION_ENDS: &[&str] = &["ASC", "DESC", "END", "NULL"];
+/// Reserved words that finish an expression or a select, so a `(` right after one at the top level
+/// opens a second statement (measured). The niladic value functions and `BROWSE` never take a `(`,
+/// and `PRECISION` ends `DOUBLE PRECISION`.
+const EXPRESSION_ENDS: &[&str] = &[
+    "ASC",
+    "BROWSE",
+    "CURRENT_TIMESTAMP",
+    "CURRENT_USER",
+    "DESC",
+    "END",
+    "NULL",
+    "PRECISION",
+    "SESSION_USER",
+    "SYSTEM_USER",
+    "USER",
+];
+
+/// Locking table hints that can take a lock blocking another session's write for the statement's
+/// duration, which no PostgreSQL read can do in the assistant's READ ONLY session. A read never needs
+/// to escalate locking, so these are refused by name wherever they appear as a bare word, in the
+/// `WITH (…)`, legacy, and `OPTION (TABLE HINT (…))` forms. `HOLDLOCK` is a reserved word, already
+/// refused as a keyword. `ROWLOCK` does not block a write on its own and only escalates beside one of
+/// these, which is refused for its own name. `NOLOCK`, `READUNCOMMITTED`, `READPAST`,
+/// `READCOMMITTED`, and index hints stay allowed.
+const LOCK_HINTS: &[&str] = &["PAGLOCK", "REPEATABLEREAD", "SERIALIZABLE", "TABLOCK", "TABLOCKX", "UPDLOCK", "XLOCK"];
 
 struct Tokens<'a> {
     t: Vec<Token<'a>>,
@@ -204,6 +241,38 @@ impl Tokens<'_> {
     fn closer(&self, open: usize) -> usize {
         (open + 1..self.t.len()).find(|&j| self.depth[j] == self.depth[open] && self.sym(j, ")")).expect("balanced")
     }
+}
+
+/// Whether a symbol token holds a character that is not T-SQL punctuation. The lexer makes a symbol
+/// from any run it does not recognise, so a control, zero-width, or format character SQL Server reads
+/// as whitespace arrives here as a symbol; letting it stand would hide the statement boundary around
+/// it, as in `count\u{1}(SELECT 2)`. An operator is only ever these characters.
+fn garbage_symbol(t: &Token<'_>) -> bool {
+    t.kind == Kind::Symbol
+        && t.text.chars().any(|c| {
+            !matches!(
+                c,
+                '(' | ')'
+                    | ','
+                    | '.'
+                    | ';'
+                    | ':'
+                    | '*'
+                    | '+'
+                    | '-'
+                    | '/'
+                    | '%'
+                    | '&'
+                    | '|'
+                    | '^'
+                    | '~'
+                    | '='
+                    | '<'
+                    | '>'
+                    | '!'
+                    | '$'
+            )
+        })
 }
 
 fn tokens(sql: &str) -> Result<Tokens<'_>, Refusal> {
@@ -244,6 +313,12 @@ pub(crate) fn read_refusal(sql: &str) -> Result<(), Refusal> {
     for (i, t) in tk.t.iter().enumerate() {
         if matches!(t.kind, Kind::Variable | Kind::Reference) {
             return Err(Refusal::Variable);
+        }
+        if garbage_symbol(t) {
+            return Err(Refusal::BadToken);
+        }
+        if t.kind == Kind::Word && tk.word_in(i, LOCK_HINTS) {
+            return Err(Refusal::LockHint(t.text.to_ascii_uppercase()));
         }
         if t.word("USE") {
             return Err(Refusal::Use);
@@ -311,7 +386,8 @@ fn main_select(tk: &Tokens<'_>) -> Result<usize, Refusal> {
 /// at the top level after the read's own `SELECT`, anything that would begin a second statement with
 /// no semicolon: a `SELECT` that does not follow a set operator, a word in `OTHER_STATEMENTS`, a
 /// label's `:`, or a parenthesized query (`opens_statement`). `END`, `ELSE`, and `FETCH` also begin or
-/// end statements, so they count as `SELECT` words only inside a `CASE` or after `ROWS`.
+/// end statements, so they count as `SELECT` words only inside a `CASE` or in the `OFFSET … ROWS
+/// FETCH` tail.
 fn one_select(tk: &Tokens<'_>, main: usize) -> Result<(), Refusal> {
     let mut cases = Vec::new();
     for (i, t) in tk.t.iter().enumerate() {
@@ -333,7 +409,7 @@ fn one_select(tk: &Tokens<'_>, main: usize) -> Result<(), Refusal> {
                 return keyword();
             }
         } else if tk.word(i, "FETCH") {
-            if !tk.word_in(i - 1, &["ROW", "ROWS"]) {
+            if !fetch_after_offset(tk, i) {
                 return keyword();
             }
         } else if tk.word(i, "SELECT") {
@@ -359,9 +435,11 @@ fn set_operand(tk: &Tokens<'_>, i: usize) -> bool {
 }
 
 /// Whether the top-level `(` at `i` opens a parenthesized query after a finished expression or an
-/// alias, as in `SELECT 1 (SELECT 2)` and `SELECT 1 AS x (SELECT 2)`, which SQL Server runs as two
-/// statements (measured). A `TOP` count is not a finished expression, and a derived table's alias may
-/// take a column list. The session refuses a second result set too, for the forms this cannot see.
+/// alias, as in `SELECT 1 (SELECT 2)`, `SELECT 1 AS x (SELECT 2)`, `SELECT 1 count (SELECT 2)`, and
+/// `SELECT (SELECT 1) d (SELECT 2)`, which SQL Server runs as two statements (measured). A `TOP`
+/// count is not a finished expression. A name before the `(` opens a statement only when it is an
+/// alias of a complete item or source and the `(` holds a query, so a real function call and a
+/// derived table's column list, `d (a)`, stay one read.
 fn opens_statement(tk: &Tokens<'_>, i: usize, main: usize) -> bool {
     let p = i - 1;
     let t = &tk.t[p];
@@ -369,9 +447,48 @@ fn opens_statement(tk: &Tokens<'_>, i: usize, main: usize) -> bool {
         Kind::String | Kind::Number => !tk.word(p - 1, "TOP"),
         Kind::Symbol => t.text == ")" && !tk.word(tk.opener(p) - 1, "TOP"),
         Kind::Word if tk.reserved(p) => tk.word_in(p, EXPRESSION_ENDS),
-        Kind::Word | Kind::Ident => tk.word(p - 1, "AS") && !column_list(tk, p, main),
+        Kind::Word | Kind::Ident => {
+            p > main && (tk.word(p - 1, "AS") || ends_item(tk, p - 1)) && paren_holds_query(tk, i)
+        }
         _ => false,
     }
+}
+
+/// Whether the token at `q` ends a complete select-list item or table source, so a name right after
+/// it is an alias, not a function or type before its `(`. A dotted part (`.`), `::`, an operator, or
+/// a comma leaves the following name a call or a new item, not an alias.
+fn ends_item(tk: &Tokens<'_>, q: usize) -> bool {
+    let t = &tk.t[q];
+    match t.kind {
+        Kind::String | Kind::Number => true,
+        Kind::Symbol => t.text == ")",
+        Kind::Word if tk.reserved(q) => tk.word_in(q, EXPRESSION_ENDS),
+        Kind::Word | Kind::Ident => true,
+        _ => false,
+    }
+}
+
+/// Whether the group opened by the `(` at `i` is a query, `(SELECT …)` or `(WITH …)`, through any
+/// extra opening parentheses. A derived table's or CTE's column list, `(a, b)`, is not, so it stays a
+/// column list; a query after an alias is a second statement.
+fn paren_holds_query(tk: &Tokens<'_>, i: usize) -> bool {
+    let mut j = i;
+    while tk.sym(j, "(") {
+        j += 1;
+    }
+    tk.word(j, "SELECT") || tk.word(j, "WITH")
+}
+
+/// Whether the `FETCH` at `i` is the `OFFSET … ROWS FETCH` paging tail, not a cursor `FETCH` opening
+/// a second statement. The tail follows an `OFFSET` at the same parenthesis depth, so an implicit
+/// `row`/`rows` alias before a cursor `FETCH`, `SELECT 1 rows FETCH NEXT FROM c`, has no `OFFSET` and
+/// is refused.
+fn fetch_after_offset(tk: &Tokens<'_>, i: usize) -> bool {
+    if !tk.word_in(i - 1, &["ROW", "ROWS"]) {
+        return false;
+    }
+    let depth = tk.depth[i];
+    (0..i).rev().take_while(|&j| tk.depth[j] >= depth).any(|j| tk.depth[j] == depth && tk.word(j, "OFFSET"))
 }
 
 /// Whether the name at `i`, before a `(`, is a CTE's or a derived table's alias, so the `(` opens its
@@ -664,5 +781,129 @@ mod tests {
         }
         assert_eq!(refusal("WITH XMLNAMESPACES ('urn:x' AS x) SELECT 1"), Some(Refusal::NotSelect));
         assert_eq!(refusal("WITH c AS (SELECT 1 AS a) DELETE FROM dbo.t"), Some(Refusal::NotSelect));
+    }
+
+    /// Measured on SQL Server 2022: an implicit alias, a built-in, or a type name before a
+    /// parenthesized query runs as two statements, as does a niladic value function or `FOR BROWSE`
+    /// before one. `read_refusal` admitted these before the fix.
+    #[test]
+    fn an_implicit_alias_before_a_parenthesized_query_is_refused() {
+        for sql in [
+            "SELECT 1 count (SELECT 2)",
+            "SELECT 1 count(SELECT 2)",
+            "SELECT 1 abs (SELECT 2)",
+            "SELECT 1 varchar (SELECT 2)",
+            "SELECT 1 decimal(SELECT 2)",
+            "SELECT 1count (SELECT 2)",
+            "SELECT 1 count ((SELECT 2))",
+            "SELECT CURRENT_TIMESTAMP (SELECT 2)",
+            "SELECT USER (SELECT 2)",
+            "SELECT SYSTEM_USER(SELECT 2)",
+            "SELECT 1 PRECISION (SELECT 2)",
+            "SELECT NULL (SELECT 2)",
+            "SELECT id FROM dbo.t count (SELECT 2)",
+            "SELECT 1 FROM dbo.t FOR BROWSE (SELECT 2)",
+            "SELECT 1 AS x, (SELECT 1) d (SELECT 2)",
+            "SELECT (SELECT 1) d (SELECT 2)",
+            "SELECT a FROM dbo.t, (SELECT 1) d (SELECT 2)",
+            "SELECT 1 FROM dbo.t CROSS APPLY (SELECT 1 AS a) d (SELECT 2)",
+        ] {
+            assert_eq!(refusal(sql), Some(Refusal::SecondStatement), "{sql}");
+        }
+        // A real function call, a derived-table column list, and a set operation stay admitted.
+        for sql in [
+            "SELECT COUNT(*) FROM dbo.t",
+            "SELECT 1 + abs(x) FROM dbo.t",
+            "SELECT a, count(*) FROM dbo.t GROUP BY a",
+            "SELECT a FROM (SELECT 1) d (a)",
+            "SELECT a FROM dbo.t, (SELECT 1) d(a)",
+            "SELECT a FROM (VALUES (1)) v (a)",
+            "SELECT id FROM dbo.a UNION (SELECT id FROM dbo.b)",
+            "SELECT abs((SELECT 2))",
+        ] {
+            assert_eq!(read_refusal(sql), Ok(()), "{sql}");
+        }
+    }
+
+    /// Measured: a separator SQL Server treats as whitespace but the lexer reads as a symbol, such as
+    /// a control or zero-width character, let an implicit alias before `(query)` through. Any such
+    /// character is refused, fail-closed.
+    #[test]
+    fn a_character_that_is_not_t_sql_syntax_is_refused() {
+        for sql in [
+            "SELECT 1 count\u{1}(SELECT 2)",
+            "SELECT 1 count\u{200b}(SELECT 2)",
+            "SELECT 1 count\u{feff}(SELECT 2)",
+            "SELECT 1 count\u{2060}(SELECT 2)",
+            "SELECT 1 count\u{180e}(SELECT 2)",
+            "SELECT {fn CURRENT_TIMESTAMP()} (SELECT 2)",
+            "SELECT 1 AS x\u{1}SETUSER",
+        ] {
+            assert_eq!(refusal(sql), Some(Refusal::BadToken), "{sql:?}");
+        }
+    }
+
+    /// Measured: an implicit `rows`/`row` alias before a cursor `FETCH` runs as a `SELECT` and a
+    /// cursor `FETCH`. `FETCH` is part of one read only in the `OFFSET … ROWS FETCH` tail.
+    #[test]
+    fn an_implicit_rows_alias_before_fetch_is_refused() {
+        for sql in [
+            "SELECT 1 rows FETCH NEXT FROM c",
+            "SELECT 1 row FETCH NEXT FROM c",
+            "SELECT 1rows FETCH NEXT FROM c",
+            "SELECT COUNT(*) rows FETCH NEXT FROM c",
+            "SELECT id FROM dbo.t ORDER BY id OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY FETCH NEXT FROM c",
+        ] {
+            assert_eq!(refusal(sql), Some(Refusal::Keyword("FETCH".into())), "{sql}");
+        }
+        for sql in [
+            "SELECT id FROM dbo.t ORDER BY id OFFSET 0 ROWS FETCH NEXT 5 ROWS ONLY",
+            "SELECT id FROM dbo.t ORDER BY id OFFSET 0 ROWS",
+            "SELECT * FROM (SELECT id FROM dbo.t ORDER BY id OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY) d",
+        ] {
+            assert_eq!(read_refusal(sql), Ok(()), "{sql}");
+        }
+    }
+
+    /// Measured: a locking table hint on a three-part name into a writable database blocks another
+    /// session's write for up to the statement timeout, which no PostgreSQL read can do. These hints
+    /// are refused by name, in the `WITH (…)`, legacy, and `OPTION (TABLE HINT (…))` forms.
+    #[test]
+    fn a_locking_table_hint_is_refused() {
+        for (sql, name) in [
+            ("SELECT id FROM dbo.t WITH (UPDLOCK)", "UPDLOCK"),
+            ("SELECT id FROM dbo.t WITH (XLOCK)", "XLOCK"),
+            ("SELECT id FROM dbo.t WITH (TABLOCK)", "TABLOCK"),
+            ("SELECT id FROM dbo.t WITH (TABLOCKX)", "TABLOCKX"),
+            ("SELECT id FROM dbo.t WITH (PAGLOCK)", "PAGLOCK"),
+            ("SELECT id FROM dbo.t WITH (SERIALIZABLE)", "SERIALIZABLE"),
+            ("SELECT id FROM dbo.t WITH (REPEATABLEREAD)", "REPEATABLEREAD"),
+            ("SELECT id FROM dbo.t (UPDLOCK)", "UPDLOCK"),
+            ("SELECT id FROM dbo.t WITH (NOLOCK, UPDLOCK)", "UPDLOCK"),
+            ("SELECT id FROM dbo.t WITH (ROWLOCK, HOLDLOCK) OPTION (TABLE HINT (t, XLOCK))", "XLOCK"),
+        ] {
+            assert_eq!(refusal(sql), Some(Refusal::LockHint(name.into())), "{sql}");
+        }
+        // `HOLDLOCK` is a reserved word, refused as a keyword before the hint check sees it.
+        assert_eq!(refusal("SELECT id FROM dbo.t WITH (HOLDLOCK)"), Some(Refusal::Keyword("HOLDLOCK".into())));
+        // Read hints, index hints, and a column named like a non-lock hint stay admitted.
+        for sql in [
+            "SELECT * FROM dbo.t WITH (NOLOCK)",
+            "SELECT id FROM dbo.t WITH (READUNCOMMITTED)",
+            "SELECT id FROM dbo.t WITH (READPAST)",
+            "SELECT id FROM dbo.t WITH (READCOMMITTED)",
+            "SELECT id FROM dbo.t WITH (ROWLOCK)",
+            "SELECT id FROM dbo.t WITH (INDEX (1))",
+        ] {
+            assert_eq!(read_refusal(sql), Ok(()), "{sql}");
+        }
+    }
+
+    /// `SET TRANSACTION ISOLATION LEVEL` cannot be reached: `SET` is not a read, and a trailing `SET`
+    /// is a reserved word outside `SELECT` syntax.
+    #[test]
+    fn set_transaction_isolation_level_is_unreachable() {
+        assert_eq!(refusal("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"), Some(Refusal::NotSelect));
+        assert_eq!(refusal("SELECT 1 SET TRANSACTION ISOLATION LEVEL SNAPSHOT"), Some(Refusal::Keyword("SET".into())));
     }
 }
