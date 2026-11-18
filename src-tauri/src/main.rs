@@ -520,7 +520,7 @@ mod tests {
             }
             checked += 1;
         }
-        assert_eq!(checked, 31, "the sync commands in ipc.rs");
+        assert_eq!(checked, 32, "the sync commands in ipc.rs");
     }
 
     /// The engine decides what to install and when. A webview that could call the plugin would

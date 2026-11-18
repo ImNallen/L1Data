@@ -314,7 +314,11 @@ impl Turn {
             other => StartError::Reported(other),
         })?;
         let access = self.purpose.access(self.access.mode);
-        let prompt = system_prompt(self.database_kind().unwrap_or(DatabaseKind::Postgres), access);
+        let prompt = if self.purpose.is_ask() {
+            ask::SYSTEM_PROMPT
+        } else {
+            system_prompt(self.database_kind().unwrap_or(DatabaseKind::Postgres), access)
+        };
         let codec = p.codec(cfg, Open { system_prompt: prompt, tools: tools::offered(access) });
         let shared = self.shared.clone();
         tokio::select! {
@@ -392,9 +396,8 @@ impl Turn {
         });
         if let ask::Purpose::Ask { source, schema } = &self.purpose {
             return format!(
-                "{block}\nSchema for this cell: {}\n{}\n{}\n\nUser request:\n{}",
+                "{block}\nSchema for this cell: {}\n{}\n\nUser request:\n{}",
                 schema.as_deref().unwrap_or("database default"),
-                ask::INSTRUCTIONS,
                 ask::source_text(source),
                 self.user_text
             );
@@ -540,9 +543,17 @@ impl Turn {
 
     fn publish_texts(&mut self, close: bool) {
         let kind = self.database_kind().unwrap_or(DatabaseKind::Postgres);
-        let parse = if self.purpose.is_ask() { reply::parse_ask_text } else { reply::parse_text };
+        let ask = self.purpose.is_ask();
+        if ask && !close {
+            return;
+        }
+        // A provider can split one fence across several text blocks.
+        let mut ask_blocks = ask.then(|| {
+            reply::parse_ask_text(&self.texts.iter().map(|t| t.text.as_str()).collect::<Vec<_>>().join("\n"), true)
+                .blocks
+        });
         for state in &mut self.texts {
-            if close && !state.done {
+            if close && (ask || !state.done) {
                 state.done = true;
                 state.dirty = true;
             }
@@ -550,10 +561,12 @@ impl Turn {
                 continue;
             }
             state.dirty = false;
-            let entry = Entry::Text {
-                blocks: resolve_blocks(parse(&state.text, state.done).blocks, self.catalog.as_deref(), kind),
-                done: state.done,
+            let blocks = if ask {
+                ask_blocks.take().unwrap_or_default()
+            } else {
+                reply::parse_text(&state.text, state.done).blocks
             };
+            let entry = Entry::Text { blocks: resolve_blocks(blocks, self.catalog.as_deref(), kind), done: state.done };
             if state.done {
                 self.chat.store_entry(&self.shared, state.seq, self.turn, &entry);
             }

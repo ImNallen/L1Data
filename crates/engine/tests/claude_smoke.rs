@@ -49,7 +49,7 @@ impl Smoke {
                         .iter()
                         .map(|b| match b {
                             ReplyBlock::Markdown { text } => text.clone(),
-                            ReplyBlock::Sql { sql, .. } => sql.clone(),
+                            ReplyBlock::Sql { sql, .. } | ReplyBlock::Replacement { sql } => sql.clone(),
                         })
                         .collect::<Vec<_>>()
                         .join("\n"),

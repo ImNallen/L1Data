@@ -65,7 +65,7 @@ fn parse(text: &str, done: bool, hide_edit: bool) -> Parsed {
                 complete: closed || done,
             });
         } else if hide_edit && info == super::ask::FENCE {
-            // Proposals become displayable only after the complete turn passes the Ask decoder.
+            continue;
         } else if info == FOLLOWUPS_INFO {
             if closed || done {
                 parsed.followups = body
@@ -192,11 +192,12 @@ pub(crate) fn recap(entries: &[(u32, u32, Entry)], max_chars: usize) -> String {
     let mut turns: Vec<(u32, String)> = Vec::new();
     for (_, turn, entry) in entries {
         let line = match entry {
-            Entry::User { text, context, .. } => {
-                let attached =
-                    context.as_ref().and_then(|c| c.ask.as_ref()).map(super::ask::source_text).unwrap_or_default();
-                format!("User: {text}\n{attached}{}", if attached.is_empty() { "" } else { "\n" })
-            }
+            Entry::User { text, context, .. } => match context.as_ref().and_then(|c| c.ask.as_ref()) {
+                Some(source) => {
+                    format!("User: {}\n{}\n", context_excerpt(text, max_chars / 8), recap_source(source, max_chars / 4))
+                }
+                None => format!("User: {text}\n"),
+            },
             Entry::Text { blocks, .. } => {
                 let text: Vec<String> = blocks
                     .iter()
@@ -215,20 +216,49 @@ pub(crate) fn recap(entries: &[(u32, u32, Entry)], max_chars: usize) -> String {
             _ => turns.push((*turn, line)),
         }
     }
-    let mut kept: Vec<&str> = Vec::new();
+    let mut kept = Vec::new();
     let mut total = 0;
     for (_, text) in turns.iter().rev() {
         let len = text.chars().count();
         if total + len > max_chars {
+            if kept.is_empty() {
+                kept.push(context_excerpt(text, max_chars));
+            }
             break;
         }
         total += len;
-        kept.push(text);
+        kept.push(text.clone());
     }
     kept.reverse();
-    let mut out = String::from("Earlier in this conversation, restored after the session was lost:\n\n");
+    let mut out = String::from("Earlier in this conversation:\n\n");
     out.push_str(&kept.join("\n"));
     out
+}
+
+fn recap_source(source: &crate::model::AskSource, budget: usize) -> String {
+    let mut text = format!(
+        "Explicit SQL attachment ({:?}):\nOriginal SQL:\n{}",
+        source.scope,
+        context_excerpt(&source.sql, budget)
+    );
+    if let Some(draft) = &source.draft {
+        text.push_str(&format!("\nLatest proposed SQL:\n{}", context_excerpt(draft, budget)));
+    }
+    text
+}
+
+fn context_excerpt(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_owned();
+    }
+    let marker = "\n[Conversation excerpt truncated here to fit the context budget.]\n";
+    let available = max_chars.saturating_sub(marker.chars().count());
+    if available == 0 {
+        return cut(marker, max_chars);
+    }
+    let head = available * 2 / 3;
+    let tail: String = text.chars().rev().take(available - head).collect::<Vec<_>>().into_iter().rev().collect();
+    format!("{}{marker}{tail}", text.chars().take(head).collect::<String>())
 }
 
 fn tool_line(tool: &ToolUse) -> String {
@@ -503,12 +533,46 @@ mod tests {
         let all = recap(&entries, 10_000);
         assert_eq!(
             all,
-            "Earlier in this conversation, restored after the session was lost:\n\nUser: first question\nAssistant: first answer\n\n```sql\nselect 1\n```\n\nUser: second question\n[searched the catalog for \"x\": 1+ rows]\nAssistant: hi\n"
+            "Earlier in this conversation:\n\nUser: first question\nAssistant: first answer\n\n```sql\nselect 1\n```\n\nUser: second question\n[searched the catalog for \"x\": 1+ rows]\nAssistant: hi\n"
         );
         let newest = recap(&entries, 80);
         assert_eq!(
             newest,
-            "Earlier in this conversation, restored after the session was lost:\n\nUser: second question\n[searched the catalog for \"x\": 1+ rows]\nAssistant: hi\n"
+            "Earlier in this conversation:\n\nUser: second question\n[searched the catalog for \"x\": 1+ rows]\nAssistant: hi\n"
         );
+    }
+
+    #[test]
+    fn recap_keeps_a_marked_excerpt_of_an_oversized_latest_sql_attachment() {
+        let source = crate::model::AskSource {
+            scope: crate::model::AskScope::Selection,
+            sql: format!("SELECT 'SOURCE_BEGIN{}SOURCE_END';", "x".repeat(20_000)),
+            draft: Some(format!("SELECT 'DRAFT_BEGIN{}DRAFT_END';", "y".repeat(20_000))),
+        };
+        let entries = vec![
+            (
+                0,
+                0,
+                Entry::User {
+                    at_ms: 1,
+                    text: "CURRENT_QUESTION".into(),
+                    attachment: None,
+                    context: Some(crate::model::SentContext {
+                        database_kind: None,
+                        db: None,
+                        connection_name: None,
+                        tab_title: String::new(),
+                        ask: Some(source),
+                    }),
+                },
+            ),
+            (1, 0, Entry::Text { blocks: vec![markdown("LATEST_ANSWER")], done: true }),
+        ];
+        let recap = recap(&entries, 16_000);
+        assert!(recap.contains("CURRENT_QUESTION") && recap.contains("SOURCE_BEGIN"));
+        assert!(recap.contains("DRAFT_BEGIN") && recap.contains("DRAFT_END") && recap.contains("LATEST_ANSWER"));
+        assert!(recap.contains("Original SQL:") && recap.contains("Latest proposed SQL:"));
+        assert!(recap.contains("excerpt truncated"));
+        assert!(recap.chars().count() <= 16_000 + "Earlier in this conversation:\n\n".len());
     }
 }

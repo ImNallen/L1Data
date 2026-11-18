@@ -4,20 +4,7 @@ use super::reply::{fence_close, fence_open};
 use crate::model::{AskOutcome, AskSource, AssistantAccess};
 
 pub(crate) const FENCE: &str = "ask-edit";
-pub(crate) const INSTRUCTIONS: &str = r#"
-The user invoked Ask AI on an explicit SQL capture. Never execute SQL. Use only schema tools.
-The current request, original SQL, and optional latest accepted draft are the entire editing context.
-For a question, answer normally. SQL examples in an answer use ordinary sql fences.
-For an edit or generation request, return exactly one closed ask-edit fenced JSON object with exactly
-one string field named sql. It is the complete replacement for the captured range, not the entire
-cell unless the source scope is Cell. Preserve meaningful whitespace. An empty sql string deletes
-the captured range. Escape SQL as JSON. Do not include followups or other replacement envelopes.
-Example:
-```ask-edit
-{"sql":"SELECT 1;\n"}
-```
-The user reviews and explicitly applies a proposal. Nothing is run automatically.
-"#;
+pub(crate) const SYSTEM_PROMPT: &str = include_str!("system_prompt_ask.md");
 
 #[derive(Debug, Clone)]
 pub(crate) enum Purpose {

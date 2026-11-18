@@ -299,6 +299,11 @@ impl Cli {
                     self.stream("This SQL reads the selected rows.\n\n```sql\nSELECT 1;\n```", Duration::ZERO);
                     self.result_success();
                 }
+                "ask-split" => {
+                    self.stream("```ask-edit\n", Duration::ZERO);
+                    self.stream(&format!("{}\n```", json!({ "sql": self.sql })), Duration::ZERO);
+                    self.result_success();
+                }
                 "card" => {
                     self.stream(CARD_REPLY, Duration::from_millis(30));
                     self.result_success();
