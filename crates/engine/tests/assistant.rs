@@ -1916,7 +1916,7 @@ async fn sql_server_model_queries_are_refused_without_an_approval_even_without_a
             e,
             Entry::User { context: Some(SentContext { database_kind: Some(DatabaseKind::SqlServer), .. }), .. }
         )));
-        assert!(entries.iter().any(|e| matches!(e, Entry::Tool { tool: ToolUse::RunQuery { .. }, status: ToolStatus::Failed { message }, .. } if message.contains("SQL Server model queries are disabled"))), "{entries:?}");
+        assert!(entries.iter().any(|e| matches!(e, Entry::Tool { tool: ToolUse::RunQuery { .. }, status: ToolStatus::Failed { message }, .. } if message.contains("Running queries on this SQL Server connection is off"))), "{entries:?}");
         assert!(!h.stdin_lines().iter().any(|l| l.contains("\"behavior\":\"allow\"")));
         assert!(h.stdin_lines().iter().any(|l| l.contains("SQL Server / T-SQL")));
         let protocol = h.stdin_lines().join("\n");

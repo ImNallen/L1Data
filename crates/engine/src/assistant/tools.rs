@@ -97,29 +97,45 @@ pub(crate) enum Ask {
     User(ApprovalReason),
 }
 
-pub(crate) const MSSQL_REFUSAL: &str = "SQL Server model queries are disabled because server-enforced read-only transactions are unavailable. Use the schema tools and suggest T-SQL for the user to run.";
+pub(crate) const MSSQL_REFUSAL: &str = "Running queries on this SQL Server connection is off. Turn on \"Let the assistant run read-only queries\" in the connection's settings; it needs a database marked READ_ONLY. Until then, use the schema tools and suggest T-SQL for the user to run.";
+/// The guard batch's `THROW` message when `DATABASEPROPERTYEX` finds the database is not `READ_ONLY`
+/// at the moment of the call. The model and the user see it verbatim.
+pub(crate) const MSSQL_NOT_READ_ONLY: &str = "This database is writable now, so the assistant's query did not run. To let it run, mark the database READ_ONLY on the server. Otherwise turn off \"Let the assistant run read-only queries\" for this connection and run the SQL yourself.";
+
+/// The SQL Server connection facts `policy` needs: whether the read-only setting is on for the
+/// connection `run_query` would reach. `None` means the connection is PostgreSQL or unknown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Target {
+    Postgres,
+    SqlServer { read_only: bool },
+}
 
 pub(crate) fn policy(
     call: &ParsedCall,
     permission: Permission,
-    database_kind: Option<DatabaseKind>,
+    target: Option<Target>,
     access: AssistantAccess,
 ) -> Ask {
     if access == AssistantAccess::SchemaOnly && matches!(call, ParsedCall::RunQuery { .. }) {
         return Ask::Refuse(SCHEMA_REFUSAL.into());
     }
-    if matches!(call, ParsedCall::RunQuery { .. }) && database_kind == Some(DatabaseKind::SqlServer) {
-        return Ask::Refuse(MSSQL_REFUSAL.into());
-    }
     match call {
         ParsedCall::DescribeTables { .. } | ParsedCall::SearchCatalog { .. } => Ask::Allow,
         ParsedCall::Invalid { message, .. } => Ask::Refuse(message.clone()),
-        ParsedCall::RunQuery { sql, .. } => match sql::vet(sql) {
-            sql::Vet::NotARead => Ask::Refuse(REFUSED_WRITE.into()),
-            sql::Vet::Unvetted(functions) => Ask::User(ApprovalReason::Unvetted { functions }),
-            sql::Vet::Clear => match permission {
-                Permission::AskFirst => Ask::User(ApprovalReason::AskFirst),
-                Permission::Auto => Ask::Allow,
+        ParsedCall::RunQuery { sql, .. } => match target {
+            Some(Target::SqlServer { read_only: false }) => Ask::Refuse(MSSQL_REFUSAL.into()),
+            Some(Target::SqlServer { read_only: true }) => match sql::tsql::read::read_refusal(sql) {
+                // No SQL Server read is ever `Clear`, so every one asks, in both permission modes.
+                Ok(()) => Ask::User(ApprovalReason::AskFirst),
+                Err(r) => Ask::Refuse(r.to_string()),
+            },
+            Some(Target::Postgres) | None => match sql::vet(sql) {
+                sql::Vet::NotARead => Ask::Refuse(REFUSED_WRITE.into()),
+                sql::Vet::Unvetted(functions) => Ask::User(ApprovalReason::Unvetted { functions }),
+                sql::Vet::Clear => match permission {
+                    Permission::AskFirst => Ask::User(ApprovalReason::AskFirst),
+                    Permission::Auto => Ask::Allow,
+                },
             },
         },
     }
@@ -194,14 +210,27 @@ async fn execute_allowed(
             Err(message) => Executed::failed(message),
         },
         ParsedCall::RunQuery { sql, .. } => {
-            if instance.config.database_kind != DatabaseKind::Postgres {
-                return Executed::failed(MSSQL_REFUSAL);
+            let sql_server = instance.config.database_kind == DatabaseKind::SqlServer;
+            if sql_server {
+                // The saved setting, as `policy` reads it, so a change applies without reconnecting.
+                if !shared.config(db.connection_id).is_some_and(|c| c.assistant_read_only) {
+                    return Executed::failed(MSSQL_REFUSAL);
+                }
+                // The allowlist refuses before any session opens, the same verdict `policy` reached.
+                if let Err(r) = sql::tsql::read::read_refusal(&sql) {
+                    return Executed::failed(r.to_string());
+                }
             }
             let params = match shared.params(&instance.config, &db.database) {
                 Ok(params) => params,
                 Err(e) => return Executed::failed(connect_error_text(&e)),
             };
-            match run_query(shared, &params, &sql, QUERY_TIMEOUT).await {
+            let run = if sql_server {
+                run_query_mssql(shared, &params, &sql, QUERY_TIMEOUT).await
+            } else {
+                run_query(shared, &params, &sql, QUERY_TIMEOUT).await
+            };
+            match run {
                 Ok(rows) => Executed {
                     for_model: ModelResult { text: rows_text(&rows), is_error: false },
                     status: ToolStatus::Done {
@@ -444,6 +473,65 @@ pub(crate) async fn run_query(
     Ok(RowsOut { columns, rows, more, elapsed_ms: crate::console::elapsed_ms(started) })
 }
 
+/// The SQL Server read: a fresh `ApplicationIntent=ReadOnly` session, a single batch that refuses to
+/// run the model's statement unless the connected database is `READ_ONLY` at that instant, the same
+/// row and byte caps as PostgreSQL, and a lock timeout and a statement timeout. Dropping the session
+/// discards it and sends an attention for a query the engine stopped reading.
+pub(crate) async fn run_query_mssql(
+    shared: &Shared,
+    params: &ConnectParams,
+    sql: &str,
+    statement_timeout: Duration,
+) -> Result<RowsOut, String> {
+    let mut session = Session::open_assistant_mssql(params).await.map_err(|e| connect_error_text(&e))?;
+    let mut guard = CancelOnDrop { shared, handle: Some(session.cancel_handle()) };
+    let batch = format!(
+        "SET LOCK_TIMEOUT {LOCK_TIMEOUT_MS};\nIF DATABASEPROPERTYEX(DB_NAME(), N'Updateability') <> N'READ_ONLY'\n    THROW 50000, N'{}', 1;\n{sql}",
+        MSSQL_NOT_READ_ONLY.replace('\'', "''")
+    );
+    let started = Instant::now();
+    let read = async {
+        let mut columns = Vec::new();
+        let mut rows: Vec<Vec<Option<String>>> = Vec::new();
+        let mut bytes = 0;
+        let mut more = false;
+        let mut stream = session.query(&batch);
+        while let Some(message) = stream.next().await {
+            match message.map_err(|e| query_error_text(&e))? {
+                // SQL Server runs `SELECT 1 (SELECT 2)` as two statements, so a second result set is
+                // a second statement the allowlist did not see.
+                QueryEvent::Columns(_) if !columns.is_empty() => {
+                    return Err(sql::tsql::read::Refusal::SecondStatement.to_string());
+                }
+                QueryEvent::Columns(cols) => columns = cols.into_iter().map(|c| c.name).collect(),
+                QueryEvent::ServerError(e) => return Err(query_error_text(&e)),
+                QueryEvent::Row(row) => {
+                    let cells: Vec<Option<String>> =
+                        row.iter().map(|c| c.as_ref().map(|c| super::context::cut(c, TOOL_CELL_CHARS))).collect();
+                    let size = row_bytes(&cells);
+                    if rows.len() == TOOL_ROWS || (!rows.is_empty() && bytes + size > TOOL_BYTES) {
+                        more = true;
+                        break;
+                    }
+                    let cells = if size > TOOL_BYTES { fit(cells, TOOL_BYTES) } else { cells };
+                    bytes += row_bytes(&cells);
+                    rows.push(cells);
+                }
+                _ => {}
+            }
+        }
+        Ok((columns, rows, more))
+    };
+    let (columns, rows, more) = match tokio::time::timeout(statement_timeout, read).await {
+        Ok(result) => result?,
+        Err(_) => return Err("The query reached the 30 s assistant timeout and was cancelled.".into()),
+    };
+    if !more {
+        guard.handle = None;
+    }
+    Ok(RowsOut { columns, rows, more, elapsed_ms: crate::console::elapsed_ms(started) })
+}
+
 struct CancelOnDrop<'a> {
     shared: &'a Shared,
     handle: Option<CancelHandle>,
@@ -518,7 +606,7 @@ fn cut_bytes(text: &str, max: usize) -> String {
 mod tests {
     use super::*;
     fn policy(call: &ParsedCall, permission: Permission) -> Ask {
-        super::policy(call, permission, Some(DatabaseKind::Postgres), AssistantAccess::Full)
+        super::policy(call, permission, Some(Target::Postgres), AssistantAccess::Full)
     }
     #[test]
     fn schema_search_omits_free_form_function_arguments() {
@@ -585,19 +673,35 @@ mod tests {
         assert!(stale.for_model.is_error && stale.for_model.text.contains("access changed"));
     }
     #[test]
-    fn sql_server_queries_are_refused_before_approval_in_every_permission_mode() {
+    fn sql_server_queries_are_refused_when_the_setting_is_off_and_ask_when_it_is_on() {
         let call = parse_call("run_query", &json!({"sql":"SELECT 1"}));
+        let off = Some(Target::SqlServer { read_only: false });
+        let on = Some(Target::SqlServer { read_only: true });
         for permission in [Permission::Auto, Permission::AskFirst] {
+            assert_eq!(super::policy(&call, permission, off, AssistantAccess::Full), Ask::Refuse(MSSQL_REFUSAL.into()));
+            // With the setting on, a plain read always asks, in both permission modes.
             assert_eq!(
-                super::policy(&call, permission, Some(DatabaseKind::SqlServer), AssistantAccess::Full),
-                Ask::Refuse(MSSQL_REFUSAL.into())
+                super::policy(&call, permission, on, AssistantAccess::Full),
+                Ask::User(ApprovalReason::AskFirst),
+                "no SQL Server read is ever Clear"
             );
         }
+        // The single-SELECT allowlist refuses before anyone is asked, with the setting on.
+        let next_value = parse_call("run_query", &json!({"sql":"SELECT NEXT VALUE FOR other.dbo.seq"}));
+        assert_eq!(
+            super::policy(&next_value, Permission::Auto, on, AssistantAccess::Full),
+            Ask::Refuse(sql::tsql::read::Refusal::Sequence.to_string())
+        );
+        let fs = parse_call("run_query", &json!({"sql":"SELECT * FROM sys.dm_os_enumerate_filesystem('/etc','*')"}));
+        assert!(
+            matches!(super::policy(&fs, Permission::Auto, on, AssistantAccess::Full), Ask::Refuse(m) if m.contains("dm_os_enumerate_filesystem"))
+        );
+        // Schema tools are allowed on SQL Server regardless of the setting.
         assert_eq!(
             super::policy(
                 &parse_call("search_catalog", &json!({"query":"orders"})),
                 Permission::Auto,
-                Some(DatabaseKind::SqlServer),
+                off,
                 AssistantAccess::Full
             ),
             Ask::Allow

@@ -474,6 +474,12 @@ export type ConnectionConfig = {
 	environment: Environment | null,
 	/**  `None` is a SQL login, as on every connection saved before this field existed. */
 	sqlServerAuth: SqlServerAuth | null,
+	/**
+	 *  SQL Server only, off by default. When on, the assistant's `run_query` may read against this
+	 *  connection on a fresh `ApplicationIntent=ReadOnly` session, after confirming per call that the
+	 *  connected database is `READ_ONLY`. Off keeps the SQL Server query refusal.
+	 */
+	assistantReadOnly: boolean,
 };
 
 export type ConnectionDraft = {
@@ -492,6 +498,7 @@ export type ConnectionDraft = {
 	ssh: SshTunnelDraft | null,
 	environment: Environment | null,
 	sqlServerAuth: SqlServerAuth | null,
+	assistantReadOnly?: boolean,
 };
 
 export type ConnectionId = string;

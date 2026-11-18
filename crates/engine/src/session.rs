@@ -152,6 +152,16 @@ impl Session {
         Ok(session)
     }
 
+    /// A fresh SQL Server session with `ApplicationIntent=ReadOnly`, for the assistant's read-only
+    /// query path. It borrows no tab or metadata session. The caller sends the guarded batch.
+    pub async fn open_assistant_mssql(p: &ConnectParams) -> Result<Self, ConnectError> {
+        if p.database_kind != DatabaseKind::SqlServer {
+            return Err(ConnectError::Server(error("A read-only SQL Server session needs a SQL Server connection.")));
+        }
+        let driver = mssql::MsSession::open_assistant(p).await?;
+        Ok(Self { backend_pid: driver.backend_pid, server: driver.server.clone(), driver: Driver::SqlServer(driver) })
+    }
+
     pub fn txn_depth(&self) -> Option<u32> {
         match &self.driver {
             Driver::Postgres(_) => None,

@@ -46,6 +46,7 @@ impl Harness {
                 ssh: None,
                 environment: None,
                 sql_server_auth: None,
+                assistant_read_only: false,
             })
             .await
             .unwrap();
@@ -720,6 +721,7 @@ async fn connection_kind_is_immutable_and_history_records_sql_server() {
         ssh: None,
         environment: None,
         sql_server_auth: None,
+        assistant_read_only: false,
     };
     assert!(matches!(h.engine.save_connection(changed).await, Err(SaveError::Invalid { .. })));
     assert!(h.engine.boot().connections.iter().find(|c| c.id == h.connection).unwrap().has_password);
@@ -1115,6 +1117,7 @@ async fn set_environment(h: &Harness, environment: Option<Environment>) {
         ssh: None,
         environment,
         sql_server_auth: old.sql_server_auth,
+        assistant_read_only: false,
     };
     h.engine.save_connection(draft).await.unwrap();
 }
