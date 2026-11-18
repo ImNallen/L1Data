@@ -996,6 +996,7 @@ async fn sql_server_inserts_round_trip_every_value_under_another_dateformat() {
     let columns = "id int, big bigint, exact decimal(38,12), flag bit, label nvarchar(50), ascii varchar(20), old datetime, small smalldatetime, day date, \
                    tick time(7), modern datetime2(7), moment datetimeoffset(7), uid uniqueidentifier, bytes varbinary(16), ratio float, single real";
     h.ok(&format!("CREATE TABLE dbo.[{source}] ({columns}); CREATE TABLE dbo.[{copy}] ({columns})")).await;
+    h.engine.refresh_catalog(h.db()).await.unwrap();
     let outcome = AssertUnwindSafe(async {
         h.ok(&format!(
             "INSERT INTO dbo.[{source}] VALUES \
