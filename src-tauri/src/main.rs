@@ -215,6 +215,19 @@ fn quit(app: &AppHandle) {
     });
 }
 
+fn focus_main_window(app: &AppHandle) {
+    let Some(window) = app.get_webview_window("main") else { return };
+    if let Err(e) = window.unminimize() {
+        eprintln!("unminimize window failed: {e}");
+    }
+    if let Err(e) = window.show() {
+        eprintln!("show window failed: {e}");
+    }
+    if let Err(e) = window.set_focus() {
+        eprintln!("focus window failed: {e}");
+    }
+}
+
 const LIGHT_BACKGROUND: tauri::window::Color = tauri::window::Color(255, 255, 255, 255);
 
 fn window_theme(scheme: ColorScheme) -> Option<tauri::Theme> {
@@ -403,6 +416,13 @@ fn main() {
             eprintln!("close window failed: {e}");
         }
     });
+    // Debug builds from parallel worktrees share the identifier that keys the lock, and a self-check must not
+    // exit into a running app.
+    let app = if !cfg!(debug_assertions) && !self_checking {
+        app.plugin(tauri_plugin_single_instance::init(|app, _, _| focus_main_window(app)))
+    } else {
+        app
+    };
     app.plugin(tauri_plugin_dialog::init())
         .plugin(updater::plugin())
         .invoke_handler(builder.invoke_handler())
