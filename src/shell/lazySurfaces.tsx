@@ -1,12 +1,10 @@
 import { createElement, Suspense, use, useEffect, useState, type ComponentType } from "react";
 
-// Rarely opened surfaces load from their own chunks, so the main chunk skips their code and their libraries:
-// fflate and jsonc-parser behind Settings, @pierre/words behind the assistant. Each loads once
-// the app idles after first paint, so the first open usually finds it ready. A surface opened before then renders
-// nothing until its chunk arrives. Once loaded, a surface renders synchronously, with no fallback frame.
-function lazySurface(load: () => Promise<ComponentType>) {
-  let loaded: ComponentType | null = null;
-  let pending: Promise<ComponentType> | null = null;
+// Rarely opened surfaces load from their own chunks once the app idles after first paint, so the main chunk skips
+// their libraries. A surface opened before its chunk arrives renders nothing.
+function lazySurface<P extends object>(load: () => Promise<ComponentType<P>>) {
+  let loaded: ComponentType<P> | null = null;
+  let pending: Promise<ComponentType<P>> | null = null;
   const preload = () =>
     (pending ??= load().then(
       (component) => (loaded = component),
@@ -16,11 +14,11 @@ function lazySurface(load: () => Promise<ComponentType>) {
       },
     ));
   // The loaded component is one module-level value, so this never creates a component during render.
-  const Loaded = () => createElement(loaded ?? use(preload()));
-  function Surface() {
+  const Loaded = (props: P) => createElement(loaded ?? use(preload()), props);
+  function Surface(props: P) {
     return (
       <Suspense fallback={null}>
-        <Loaded />
+        <Loaded {...props} />
       </Suspense>
     );
   }
@@ -30,11 +28,13 @@ function lazySurface(load: () => Promise<ComponentType>) {
 const settings = lazySurface(() => import("../features/settings/SettingsScreen").then((m) => m.SettingsDialog));
 const connection = lazySurface(() => import("../features/connections/ConnectionDialog").then((m) => m.ConnectionDialog));
 const assistant = lazySurface(() => import("../features/assistant/AssistantPanel").then((m) => m.AssistantPanel));
-const SURFACES = [settings, connection, assistant];
+const replyText = lazySurface(() => import("../features/assistant/ReplyText").then((m) => m.ReplyText));
+const SURFACES = [settings, connection, assistant, replyText];
 
 export const SettingsDialog = settings.Surface;
 export const ConnectionDialog = connection.Surface;
 export const AssistantPanel = assistant.Surface;
+export const ReplyText = replyText.Surface;
 
 /** Loads every surface's chunk. Tests await it so a surface renders in the same pass that opens it. */
 export const preloadSurfaces = () => Promise.all(SURFACES.map((s) => s.preload())).then(() => undefined);

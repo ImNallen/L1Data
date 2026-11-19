@@ -1,19 +1,22 @@
 // @vitest-environment jsdom
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { commands, type AskOutcome, type ChatOptions, type ReplyBlock } from "../../ipc/bindings";
 import { useLive } from "../../state/live";
 import { useWorkspace, type Tab } from "../../state/workspace";
 import { cellsState } from "../../testing/notebooks";
 import { CommandPalette } from "../../shell/CommandPalette";
 import { openCommandPalette } from "../../shell/commands";
+import { preloadSurfaces } from "../../shell/lazySurfaces";
 import { AskAi } from "./AskAiPopover";
 import { applyAsk, discardAsk, openAskAi, setAskPrompt, startAskAiSync, submitAsk, useAskAi } from "./askAi";
 import { activateEditor, dropEditor, seedEditor, textOf } from "./editorStates";
 
 const TAB: Tab = { id: "ask-overlay-cell", title: "Cell", console: { db: null, schema: null, mode: "AutoCommit" }, table: null };
 let stop = () => {};
+
+beforeAll(preloadSurfaces);
 
 beforeEach(() => {
   mockIPC(() => null);
