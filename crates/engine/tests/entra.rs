@@ -73,9 +73,9 @@ fn fake_az(program: &Path, dir: &tempfile::TempDir, scenario: &str, delay_secs: 
     std::fs::set_permissions(program, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
-fn refused_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
-}
+/// A freed ephemeral port can be taken by another test's `closing_port` listener. Port 1 sits below
+/// every ephemeral range, so `bind(0)` never hands it out.
+const REFUSED_PORT: u16 = 1;
 
 fn closing_port() -> u16 {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -157,7 +157,7 @@ async fn a_token_inside_the_refresh_margin_is_fetched_again() {
 #[tokio::test]
 async fn an_unreachable_host_fails_before_az_runs() {
     let h = Harness::with_az("ok").await;
-    let id = h.engine.save_connection(entra("127.0.0.1", refused_port())).await.unwrap().id;
+    let id = h.engine.save_connection(entra("127.0.0.1", REFUSED_PORT)).await.unwrap().id;
     assert!(matches!(h.engine.connect(id).await, Err(ConnectError::Network { .. })));
     assert_eq!(h.calls(), 0);
 }
@@ -208,7 +208,7 @@ async fn an_entra_token_is_never_sent_over_tls_that_skips_verification() {
     let h = Harness::with_az("ok").await;
     let Err(ConnectError::Tls { message }) = h
         .engine
-        .test_connection(ConnectionDraft { ssl_mode: SslMode::Require, ..entra("127.0.0.1", refused_port()) })
+        .test_connection(ConnectionDraft { ssl_mode: SslMode::Require, ..entra("127.0.0.1", REFUSED_PORT) })
         .await
     else {
         panic!("expected Tls")
@@ -230,7 +230,7 @@ async fn the_engine_config_az_binary_replaces_az_on_the_path() {
 #[tokio::test]
 async fn a_sql_login_never_runs_az() {
     let h = Harness::with_az("ok").await;
-    let draft = ConnectionDraft { user: "sa".into(), sql_server_auth: None, ..entra("127.0.0.1", refused_port()) };
+    let draft = ConnectionDraft { user: "sa".into(), sql_server_auth: None, ..entra("127.0.0.1", REFUSED_PORT) };
     assert!(matches!(h.engine.test_connection(draft).await, Err(ConnectError::Network { .. })));
     assert_eq!(h.calls(), 0);
 }
