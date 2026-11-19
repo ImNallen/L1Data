@@ -12,6 +12,7 @@ import {
   type ColumnProfile,
   type DatabaseKind,
   type EditSupport,
+  type Relation,
   type RelationDetail,
   type ResultMeta,
   type RowPage,
@@ -27,6 +28,7 @@ import { useWorkspace } from "../../state/workspace";
 import { Overlays } from "../../shell/Overlays";
 import { shopCatalog } from "../../testing/shopCatalog";
 import { dropEditor } from "../editor/editorStates";
+import type { EditTarget } from "./editTarget";
 import { gridEditing, gridKeyColumns, HeaderIcon, nextFocus, primaryKeyColumns, ResultGrid, selectRows } from "./ResultGrid";
 import { acceptSelectionTotals, type SelectionSlot } from "./selectionTotals";
 
@@ -147,76 +149,38 @@ it("selects whole rows from the first to the last column, focused on the first",
   expect(selectRows(2, 7, 6)).toEqual({ anchor: { row: 2, col: 5 }, focus: { row: 7, col: 0 } });
 });
 
-it("keeps generated columns read-only and requires database-scoped edit provenance", () => {
-  const catalog = shopCatalog("ms", 1);
+function ordersTarget(kind: DatabaseKind, edit: (orders: Relation) => void = () => {}): EditTarget {
+  const catalog = { ...shopCatalog("c1", 1), databaseKind: kind };
   const relation = catalog.schemas[1]!.relations.find((r) => r.name === "orders")!;
-  relation.columns[0]!.writable = false;
-  const meta = {
-    databaseKind: catalog.databaseKind,
-    db: catalog.db,
-    columns: relation.columns.map((column) => ({
-      name: column.name,
-      type: { display: column.typeDisplay, category: column.category },
-      source: { tableOid: relation.oid, attnum: column.attnum },
-    })),
-  };
-  const view = buildCatalogView(catalog);
-  const editing = gridEditing(view, "public", "orders", meta);
+  edit(relation);
+  return { kind: "Table", table: { db: catalog.db, schema: "public", table: "orders" }, databaseKind: kind, relation, pkColumns: ["id"] };
+}
+
+it("keeps generated columns read-only, and a read-only result uneditable", () => {
+  const editing = gridEditing(ordersTarget("Postgres", (orders) => (orders.columns[0]!.writable = false)));
   expect(editing?.pkColumns).toEqual(["id"]);
   expect(editing?.writableColumns.has("id")).toBe(false);
   expect(editing?.writableColumns.has("status")).toBe(true);
-  expect(gridEditing(view, "public", "orders", { ...meta, db: { ...meta.db, database: "reporting" } })).toBeNull();
-  expect(gridEditing(view, "public", "orders", { ...meta, columns: meta.columns.map((c) => ({ ...c, source: null })) })).toBeNull();
+  expect(gridEditing({ kind: "ReadOnly", reason: { kind: "Tables", count: 2 } })).toBeNull();
 });
 
 it("takes a SQL Server table's writable columns, read-only reasons, and Delete from its edit support", () => {
-  const catalog = { ...shopCatalog("ms", 1), databaseKind: "SqlServer" as const };
-  const relation = catalog.schemas[1]!.relations.find((r) => r.name === "orders")!;
-  const meta = {
-    databaseKind: "SqlServer" as const,
-    db: catalog.db,
-    columns: relation.columns.map((column) => ({
-      name: column.name,
-      type: { display: column.typeDisplay, category: column.category },
-      source: { tableOid: relation.oid, attnum: column.attnum },
-    })),
-  };
-  const view = buildCatalogView(catalog);
+  const target = ordersTarget("SqlServer");
   const trigger = { kind: "Trigger" as const, table: "dbo.items", trigger: "dbo.items_audit" };
   const support: EditSupport = {
     kind: "Editable",
     rowCheck: { kind: "Values" },
-    columns: relation.columns.map((c) => ({ name: c.name, readOnly: c.name === "id" ? { kind: "Identity" } : null })),
+    columns: target.kind === "Table" ? target.relation.columns.map((c) => ({ name: c.name, readOnly: c.name === "id" ? { kind: "Identity" } : null })) : [],
     delete: { kind: "Cascade", foreignKey: "FK_items", table: "dbo.items", cause: trigger },
   };
-  const editing = gridEditing(view, "public", "orders", meta, support);
+  const editing = gridEditing(target, support);
   expect(editing?.writableColumns.has("id")).toBe(false);
   expect(editing?.writableColumns.has("status")).toBe(true);
   expect(editing?.readOnly?.get("id")).toBe("Read-only: identity");
   expect(editing?.deleteRefusal).toMatch(/^Delete is unavailable: FK_items changes rows in dbo.items, and dbo.items has an enabled trigger/);
   expect(editing?.rowCheck).toEqual({ kind: "Values" });
-  expect(gridEditing(view, "public", "orders", meta, { kind: "Refused", reason: trigger })).toBeNull();
-  expect(gridEditing(view, "public", "orders", meta, null)).toBeNull();
-});
-
-it.each<{ catalogKind: DatabaseKind; resultKind: DatabaseKind }>([
-  { catalogKind: "SqlServer", resultKind: "SqlServer" },
-  { catalogKind: "SqlServer", resultKind: "Postgres" },
-  { catalogKind: "Postgres", resultKind: "SqlServer" },
-])("keeps a $resultKind result read-only with a $catalogKind catalog despite valid key provenance", ({ catalogKind, resultKind }) => {
-  const catalog = shopCatalog("ms", 1);
-  const relation = catalog.schemas[1]!.relations.find((r) => r.name === "orders")!;
-  const meta = {
-    databaseKind: catalog.databaseKind,
-    db: catalog.db,
-    columns: relation.columns.map((column) => ({
-      name: column.name,
-      type: { display: column.typeDisplay, category: column.category },
-      source: { tableOid: relation.oid, attnum: column.attnum },
-    })),
-  };
-  expect(gridEditing(buildCatalogView(catalog), "public", "orders", meta)?.pkColumns).toEqual(["id"]);
-  expect(gridEditing(buildCatalogView({ ...catalog, databaseKind: catalogKind }), "public", "orders", { ...meta, databaseKind: resultKind })).toBeNull();
+  expect(gridEditing(target, { kind: "Refused", reason: trigger })).toBeNull();
+  expect(gridEditing(target, null)).toBeNull();
 });
 
 it.each(["update", "delete"])("keeps original key columns for a pending %s when the key changes or editing is refused", (change) => {
@@ -306,6 +270,7 @@ function queryResult(rows: (string | null)[][], spec: ResultSpec = {}): ResultMe
     truncated: null,
     elapsedMs: 1,
     allRows: spec.allRows ?? { kind: "Statement" },
+    repeatedRead: null,
   };
 }
 
@@ -375,6 +340,8 @@ it("opens the focused row as a record with ⌘I or the menu", async () => {
 });
 
 const EDITING = { pkColumns: ["id"], writableColumns: new Set(["customer_id"]) };
+const ORDERS = { db: shopDb, schema: "public", table: "orders" };
+const TARGET = ordersTarget("Postgres");
 const lastOpened = (table: string) =>
   Object.values(useWorkspace.getState().tabs)
     .filter((t) => t.table?.table === table)
@@ -405,8 +372,8 @@ it("offers no follow and reads no keys for columns without a table column, as a 
 it("disables View as record on a staged new row", async () => {
   const user = userEvent.setup();
   const meta = queryResult([["1", "42"]]);
-  useTableEdits.getState().addRow("q1");
-  render(<ResultGrid meta={meta} done query={null} editing={EDITING} />);
+  useTableEdits.getState().addRow("q1", ORDERS);
+  render(<ResultGrid meta={meta} done query={null} target={TARGET} editing={EDITING} />);
   await screen.findByText("42");
   await user.pointer({ keys: "[MouseRight]", target: screen.getByTestId("grid-cell-1-1") });
   expect((await screen.findByTestId("grid-menu-record")).getAttribute("aria-disabled")).toBe("true");
@@ -430,8 +397,8 @@ it("follows a cut key by its full value, and a staged key by the value the grid 
       cell: (row) => (row === 0 ? "42000000" : "43000000"),
     },
   );
-  useTableEdits.getState().edit("q1", (e) => setCell(e, [{ column: "id", value: "2" }], "customer_id", "7", "4300"));
-  render(<ResultGrid meta={meta} done query={null} editing={EDITING} />);
+  useTableEdits.getState().edit("q1", ORDERS, (e) => setCell(e, [{ column: "id", value: "2" }], "customer_id", "7", "4300"));
+  render(<ResultGrid meta={meta} done query={null} target={TARGET} editing={EDITING} />);
   await followFrom(user, await screen.findByTestId("grid-cell-0-1"));
   await vi.waitFor(() => expect(lastOpened("customers")).toEqual(byId("42000000")));
   await followFrom(user, screen.getByText("7"));
@@ -503,6 +470,7 @@ it("loads its visible rows again after the record view pages them out of the sha
 });
 
 function SelectionHarness({ meta, editing }: { meta: ResultMeta; editing: { pkColumns: string[]; writableColumns: ReadonlySet<string> } | null }) {
+  const target = editing ? TARGET : null;
   const shownKey = `${meta.ref.tabId}:${meta.ref.runId}:${meta.ref.index}`;
   const [slot, setSlot] = useState<SelectionSlot | null>(null);
   const text = slot?.key === shownKey ? slot.text : null;
@@ -517,6 +485,7 @@ function SelectionHarness({ meta, editing }: { meta: ResultMeta; editing: { pkCo
         meta={meta}
         done
         query={null}
+        target={target}
         editing={editing}
         onSelectionTotals={(next) => setSlot((current) => acceptSelectionTotals(current, next, shownKey))}
       />
@@ -596,7 +565,7 @@ it("keeps a staged value on screen and says the stored sum excludes it", async (
   ]);
   render(<SelectionHarness meta={meta} editing={EDITING} />);
   await screen.findByText("10");
-  useTableEdits.getState().edit("q1", (e) => setCell(e, [{ column: "id", value: "1" }], "customer_id", "77", "10"));
+  useTableEdits.getState().edit("q1", ORDERS, (e) => setCell(e, [{ column: "id", value: "1" }], "customer_id", "77", "10"));
   await user.click(await screen.findByText("77"));
   await user.keyboard("{Shift>}{ArrowDown}{/Shift}");
   const span = await screen.findByTestId("result-selection");
@@ -609,8 +578,8 @@ it("names pending edits and does not total a selection of only new rows", async 
   const user = userEvent.setup();
   const aggregate = vi.spyOn(commands, "resultAggregate").mockResolvedValue(numericTotal("999"));
   const meta = queryResult([]);
-  useTableEdits.getState().addRow("q1");
-  useTableEdits.getState().addRow("q1");
+  useTableEdits.getState().addRow("q1", ORDERS);
+  useTableEdits.getState().addRow("q1", ORDERS);
   render(<SelectionHarness meta={meta} editing={EDITING} />);
   await user.click(await screen.findByTestId("grid-cell-0-0"));
   await user.keyboard("{Shift>}{ArrowDown}{/Shift}");
@@ -765,9 +734,9 @@ it("names the editor, the full-value button, and each row's staged state for ass
   );
   useTableEdits
     .getState()
-    .edit("q1", (e) => setCell(markDeleted(e, [[{ column: "id", value: "2" }]], true), [{ column: "id", value: "1" }], "customer_id", "7", "4200"));
-  useTableEdits.getState().addRow("q1");
-  render(<ResultGrid meta={meta} done query={null} editing={EDITING} />);
+    .edit("q1", ORDERS, (e) => setCell(markDeleted(e, [[{ column: "id", value: "2" }]], true), [{ column: "id", value: "1" }], "customer_id", "7", "4200"));
+  useTableEdits.getState().addRow("q1", ORDERS);
+  render(<ResultGrid meta={meta} done query={null} target={TARGET} editing={EDITING} />);
   await screen.findByText("7");
   expect([0, 1, 3].map((row) => screen.getByTestId(`grid-rownum-${row}`).textContent)).toEqual(["1, changed", "2, marked for deletion", "+New row"]);
   expect(screen.getByTestId("grid-cell-1-1").className).toContain("text-dim line-through");
@@ -929,4 +898,27 @@ it("names a bin's edges finely enough to tell a tiny range from 0, without float
   await user.click(await screen.findByTestId("grid-header-0"));
   fireEvent.mouseEnter(await screen.findByTestId("profile-bin-0"));
   expect(screen.getByTestId("profile-bin-tooltip").textContent).toBe("0.0000001 – 0.0000002 · 1 row");
+});
+
+it("says once why a read-only result can't be edited, however the user tries", async () => {
+  const user = userEvent.setup();
+  const target: EditTarget = { kind: "ReadOnly", reason: { kind: "Tables", count: 2 } };
+  render(<ResultGrid meta={queryResult([["1", "42"]])} done query={null} target={target} editing={null} />);
+  await user.click(await screen.findByText("42"));
+  await user.keyboard("x");
+  expect(useWorkspace.getState().toast?.text).toBe("Read-only: this result joins 2 tables.");
+  useWorkspace.setState({ toast: null });
+  await user.keyboard("{F2}");
+  await user.dblClick(screen.getByText("42"));
+  expect(useWorkspace.getState().toast).toBeNull();
+  expect(screen.queryByTestId("grid-editor")).toBeNull();
+});
+
+it.each(["{F2}", "{Enter}", "x"])("says why on %s too", async (key) => {
+  const user = userEvent.setup();
+  const target: EditTarget = { kind: "ReadOnly", reason: { kind: "NoKey", missing: ["id"] } };
+  render(<ResultGrid meta={queryResult([["1", "42"]])} done query={null} target={target} editing={null} />);
+  await user.click(await screen.findByText("42"));
+  await user.keyboard(key);
+  expect(useWorkspace.getState().toast?.text).toBe("Read-only: add the primary key column id to edit.");
 });

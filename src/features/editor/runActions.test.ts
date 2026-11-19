@@ -24,7 +24,8 @@ import { useEditSupport } from "../../state/editSupport";
 import { holdSubmit, markDeleted, pendingCount, rowKey, setCell, useTableEdits } from "../../state/tableEdits";
 import { notebookOf } from "../../state/notebooks";
 import { activeId, useWorkspace, workspaceSnapshot } from "../../state/workspace";
-import { gridEditing } from "../results/ResultGrid";
+import { editTarget } from "../results/editTarget";
+import { idleConsole, showTableRows } from "../../testing/tableRun";
 import { dropEditor, editorStateOf, insertAtCursor, moveCursor, seedEditor, textOf } from "./editorStates";
 import { finishParams, useParams } from "./paramsState";
 import {
@@ -62,6 +63,7 @@ afterEach(() => {
 });
 
 const orders = { db: { connectionId: "c1", database: "shop" }, schema: "public", relation: "orders" };
+const ORDERS = { db: orders.db, schema: "public", table: "orders" };
 const ordersScript = {
   text: "SELECT * FROM public.orders",
   acceptedTexts: ["SELECT * FROM public.orders", "SELECT * FROM public.orders;"],
@@ -167,7 +169,7 @@ it("shows a query in the table's open tab, or in a second tab while the first ho
   await vi.waitFor(() => expect(pages).toContainEqual({ kind: "tablePage", schema: "public", table: "orders", page: 0, query: byTwo }));
   expect([activeId(useWorkspace.getState()), tables()]).toEqual([first, [byTwo]]);
 
-  useTableEdits.getState().addRow(first);
+  useTableEdits.getState().addRow(first, ORDERS);
   await openTableTab(orders, byId);
   const second = activeId(useWorkspace.getState())!;
   expect([second !== first, tables()]).toEqual([true, [byTwo, byId]]);
@@ -337,24 +339,14 @@ it.each(["update", "delete"])("submits the original named %s key after PostgreSQ
   const catalog = shopCatalog("c1", 1);
   const relation = catalog.schemas[1]!.relations.find((r) => r.name === "orders")!;
   relation.columns[1]!.name = "alternate";
-  const meta = {
-    databaseKind: catalog.databaseKind,
-    db: catalog.db,
-    columns: relation.columns.map((column) => ({
-      name: column.name,
-      type: { display: column.typeDisplay, category: column.category },
-      source: { tableOid: relation.oid, attnum: column.attnum },
-    })),
-  };
-  const original = buildCatalogView(catalog);
-  useCatalog.setState({ views: { [dbKey(catalog.db)]: original } });
-  const editing = gridEditing(original, "public", "orders", meta);
-  expect(editing?.pkColumns).toEqual(["id"]);
-  const originalRow = ["1", "2", "selected", "0", "2026-10-21"];
-  const selected = editing!.pkColumns.map((column) => ({ column, value: originalRow[meta.columns.findIndex((c) => c.name === column)] ?? null }));
+  showTableRows(id, catalog, "public", "orders");
+  const shown = () =>
+    editTarget({ run: useLive.getState().consoles[id]!.run, view: useCatalog.getState().views[dbKey(catalog.db)], db: catalog.db, edits: undefined });
+  expect(shown()).toMatchObject({ pkColumns: ["id"] });
+  const selected = [{ column: "id", value: "1" }];
   useTableEdits
     .getState()
-    .edit(id, (edits) => (change === "update" ? setCell(edits, selected, "status", "edited", "selected") : markDeleted(edits, [selected], true)));
+    .edit(id, ORDERS, (edits) => (change === "update" ? setCell(edits, selected, "status", "edited", "selected") : markDeleted(edits, [selected], true)));
   const staged = useTableEdits.getState().byTab[id];
 
   const refreshed = buildCatalogView({
@@ -366,7 +358,7 @@ it.each(["update", "delete"])("submits the original named %s key after PostgreSQ
     })),
   });
   useCatalog.setState({ views: { [dbKey(catalog.db)]: refreshed } });
-  expect(gridEditing(refreshed, "public", "orders", meta)?.pkColumns).toEqual(["alternate"]);
+  expect(shown()).toMatchObject({ pkColumns: ["alternate"] });
   const submitted: unknown[] = [];
   mockIPC((cmd, args) => {
     if (cmd === "script_params") return [];
@@ -1113,7 +1105,8 @@ describe("staged edits the engine asks about", () => {
 
   async function staged(...replies: (ApplyError | null)[]) {
     const id = await openWithConsole();
-    useTableEdits.getState().edit(id, (edits) => markDeleted(setCell(edits, [{ column: "id", value: "2" }], "status", "x", "y"), [key], true));
+    showTableRows(id, shopCatalog("c1", 1), "public", "orders");
+    useTableEdits.getState().edit(id, ORDERS, (edits) => markDeleted(setCell(edits, [{ column: "id", value: "2" }], "status", "x", "y"), [key], true));
     const applies: { confirmed?: unknown; changes?: TableChanges }[] = [];
     const pages: unknown[] = [];
     mockIPC((cmd, args) => {
@@ -1162,7 +1155,7 @@ describe("staged edits the engine asks about", () => {
     expect(useWorkspace.getState().toast?.text).toBe(
       `Nothing was applied. ${toast} Drop changed row discards that row's edits and reloads the page. Your other edits stay.`,
     );
-    useTableEdits.getState().edit(id, (e) => markDeleted(e, [[{ column: "id", value: "3" }]], true));
+    useTableEdits.getState().edit(id, ORDERS, (e) => markDeleted(e, [[{ column: "id", value: "3" }]], true));
     expect(useTableEdits.getState().byTab[id]?.stale).toEqual({ [changed]: true });
     const done = dropChangedRows(id);
     await vi.waitFor(() => expect(question()?.title).toBe("Drop the changed row's edits?"));
@@ -1172,7 +1165,7 @@ describe("staged edits the engine asks about", () => {
     const edits = useTableEdits.getState().byTab[id]!;
     expect([edits.updates, Object.keys(edits.deletes), edits.stale]).toEqual([{}, [rowKey(key), rowKey([{ column: "id", value: "3" }])], {}]);
     await vi.waitFor(() => expect(pages).toMatchObject([{ kind: "tablePage", page: 0 }]));
-    useTableEdits.getState().edit(id, (e) => setCell(e, [{ column: "id", value: "2" }], "status", "x", "z"));
+    useTableEdits.getState().edit(id, ORDERS, (e) => setCell(e, [{ column: "id", value: "2" }], "status", "x", "z"));
     await submitEdits(id);
     expect(applies.at(-1)?.changes?.updates).toEqual([
       { key: [{ column: "id", value: "2" }], set: [{ column: "status", value: "x" }], expect: [{ column: "status", value: "z" }] },
@@ -1193,7 +1186,7 @@ describe("staged edits the engine asks about", () => {
     holdSubmit(
       id,
       new Promise<void>((resolve) => (load = resolve)).then(() =>
-        useTableEdits.getState().edit(id, (e) => setCell(e, [{ column: "id", value: "3" }], "status", "typed", "long")),
+        useTableEdits.getState().edit(id, ORDERS, (e) => setCell(e, [{ column: "id", value: "3" }], "status", "typed", "long")),
       ),
     );
     const done = submitEdits(id);
@@ -1262,6 +1255,50 @@ describe("staged edits the engine asks about", () => {
     useWorkspace.getState().answer("btn");
     await again;
     expect(useTableEdits.getState().byTab[id]).toBeUndefined();
+  });
+});
+
+describe("staged edits in a query tab", () => {
+  const SELECT = "SELECT * FROM public.orders WHERE id < 10";
+
+  async function ranOrders() {
+    const calls: { cmd: string; args: unknown }[] = [];
+    mockIPC((cmd, args) => {
+      if (cmd === "script_params") return [];
+      if (cmd === "script_outline") return { statements: [], atCursor: null, unitKind: "Statement" };
+      calls.push({ cmd, args });
+      if (cmd === "console_run") return { runId: 5, statements: [{ from: 0, to: SELECT.length }], sources: [] };
+      if (cmd === "table_apply") return { committed: true };
+      return null;
+    });
+    const id = openSqlTab({ db: orders.db, text: SELECT });
+    runActive({ kind: "all" });
+    await vi.waitFor(() => expect(calls.map((c) => c.cmd)).toContain("console_run"));
+    useLive.setState({ consoles: { [id]: idleConsole(id, orders.db) } });
+    showTableRows(id, shopCatalog("c1", 1), "public", "orders", { kind: "Statement" }, 5);
+    calls.length = 0;
+    return { id, calls };
+  }
+
+  it("applies the edits to the result's table, then runs the script it sent again, not the edited text", async () => {
+    const { id, calls } = await ranOrders();
+    insertAtCursor(id, " AND status = 'new'");
+    useTableEdits.getState().edit(id, ORDERS, (e) => setCell(e, [{ column: "id", value: "2" }], "status", "paid", "new"));
+    await submitEdits(id);
+    expect(calls[0]).toMatchObject({ cmd: "table_apply", args: { changes: { schema: "public", table: "orders" } } });
+    await vi.waitFor(() => expect(calls.map((c) => c.cmd)).toEqual(["table_apply", "console_run"]));
+    expect(calls[1]?.args).toMatchObject({ request: { kind: "script", text: SELECT, target: { kind: "all" }, mode: "Run" } });
+    expect(useTableEdits.getState().byTab[id]).toBeUndefined();
+  });
+
+  it("refuses ⌘S's Submit while the tab shows another table's rows, and keeps the edits", async () => {
+    const { id, calls } = await ranOrders();
+    useTableEdits.getState().edit(id, ORDERS, (e) => setCell(e, [{ column: "id", value: "2" }], "status", "paid", "new"));
+    showTableRows(id, shopCatalog("c1", 1), "public", "customers", { kind: "Statement" }, 6);
+    await submitEdits(id);
+    expect(calls).toEqual([]);
+    expect(pendingCount(useTableEdits.getState().byTab[id]!)).toBe(1);
+    expect(useWorkspace.getState().toast?.text).toBe("These edits are to public.orders. Show that table's rows to submit them.");
   });
 });
 

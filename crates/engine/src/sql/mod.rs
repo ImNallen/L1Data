@@ -5,6 +5,7 @@ mod history;
 mod keywords;
 pub(crate) mod lex;
 pub(crate) mod mssql_value;
+mod reads;
 pub(crate) mod refs;
 mod relations;
 mod scope;
@@ -13,6 +14,7 @@ pub(crate) mod tsql;
 
 pub use classify::{DmlVerb, Invalidates, StmtKind, classify};
 pub use format::format_statement;
+pub(crate) use reads::repeated_read;
 pub(crate) use relations::is_read_statement;
 pub use relations::{Vet, relation_names, vet};
 pub(crate) use scope::scope_at;

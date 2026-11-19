@@ -14,6 +14,7 @@ const meta = (index: number, rowCount: number, extra: Partial<ResultMeta> = {}):
   truncated: null,
   elapsedMs: 38,
   allRows: { kind: "Statement" },
+  repeatedRead: null,
   ...extra,
 });
 const stmt = (index: number, status: StatementRun["status"], outputs: RunOutput[] = []): StatementRun => ({

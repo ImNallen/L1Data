@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import type { CellWrite, ChangeRef, RowCheck, TabId, TableChanges } from "../ipc/bindings";
+import type { CellWrite, ChangeRef, DatabaseRef, RowCheck, TabId, TableChanges } from "../ipc/bindings";
+import { sameDb } from "./dbKey";
 
 export type CellValue = string | null;
 type RowKey = string;
@@ -7,7 +8,13 @@ export type RowId = readonly Readonly<CellWrite>[];
 
 export type NewRow = { id: number; values: Record<string, CellValue> };
 
+export type EditTable = { db: DatabaseRef; schema: string; table: string };
+
+export const sameTable = (a: EditTable, b: EditTable): boolean => sameDb(a.db, b.db) && a.schema === b.schema && a.table === b.table;
+
 export type TableEdits = {
+  /** Set by the first staged edit. A result of another table neither shows nor submits them. */
+  table?: EditTable;
   inserts: NewRow[];
   updates: Record<RowKey, { key: RowId; values: Record<string, CellValue> }>;
   /** Each edited cell's stored value from when it was first staged. */
@@ -165,13 +172,18 @@ export async function stagingSettled(tab: TabId): Promise<void> {
   for (let held = staging.get(tab); held?.size; held = staging.get(tab)) await Promise.allSettled(held);
 }
 
+function accepts(s: { byTab: Record<TabId, TableEdits>; submitting: Record<TabId, true> }, tab: TabId, table: EditTable): boolean {
+  const current = s.byTab[tab];
+  return !s.submitting[tab] && (!current?.table || pendingCount(current) === 0 || sameTable(current.table, table));
+}
+
 export const useTableEdits = create<{
   byTab: Record<TabId, TableEdits>;
   /** Tabs whose submit is in flight; their edits can't change until it settles. */
   submitting: Record<TabId, true>;
-  /** False when a submit for the tab is in flight and the edit was dropped. */
-  edit(tab: TabId, f: (e: TableEdits) => TableEdits): boolean;
-  addRow(tab: TabId): number | null;
+  /** False when the edit was dropped: a submit for the tab is in flight, or the tab holds edits to another table. */
+  edit(tab: TabId, table: EditTable, f: (e: TableEdits) => TableEdits): boolean;
+  addRow(tab: TabId, table: EditTable): number | null;
   clear(tab: TabId): void;
   /** False when a submit for the tab is already in flight. */
   beginSubmit(tab: TabId): boolean;
@@ -179,15 +191,15 @@ export const useTableEdits = create<{
 }>((set, get) => ({
   byTab: {},
   submitting: {},
-  edit: (tab, f) => {
-    if (get().submitting[tab]) return false;
-    set((s) => ({ byTab: { ...s.byTab, [tab]: { ...f(s.byTab[tab] ?? NO_EDITS), failedAt: null } } }));
+  edit: (tab, table, f) => {
+    if (!accepts(get(), tab, table)) return false;
+    set((s) => ({ byTab: { ...s.byTab, [tab]: { ...f(s.byTab[tab] ?? NO_EDITS), table, failedAt: null } } }));
     return true;
   },
-  addRow: (tab) => {
-    if (get().submitting[tab]) return null;
+  addRow: (tab, table) => {
+    if (!accepts(get(), tab, table)) return null;
     const id = nextRowId++;
-    set((s) => ({ byTab: { ...s.byTab, [tab]: addRow(s.byTab[tab] ?? NO_EDITS, id) } }));
+    set((s) => ({ byTab: { ...s.byTab, [tab]: { ...addRow(s.byTab[tab] ?? NO_EDITS, id), table } } }));
     return id;
   },
   beginSubmit: (tab) => {

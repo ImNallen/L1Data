@@ -4,6 +4,11 @@ import { dropEditor, seedEditor } from "../features/editor/editorStates";
 import { setCell, useTableEdits } from "../state/tableEdits";
 import { allCells, ask, EMPTY_QUERY, shownNotebook, useWorkspace } from "../state/workspace";
 import { cellsState } from "../testing/notebooks";
+import { shopCatalog } from "../testing/shopCatalog";
+import { idleConsole, tableRun } from "../testing/tableRun";
+import { buildCatalogView, useCatalog } from "../state/catalog";
+import { dbKey } from "../state/dbKey";
+import { useLive } from "../state/live";
 import { COMMANDS, START_COMMANDS, commandAvailable, commandForKey, commandLabel, handleGlobalKey, openCommandPalette, type Command } from "./commands";
 
 type Mods = Partial<Record<"metaKey" | "ctrlKey" | "shiftKey" | "altKey", boolean>>;
@@ -16,6 +21,8 @@ afterEach(() => {
   for (const id of Object.keys(useWorkspace.getState().tabs)) dropEditor(id);
   useWorkspace.setState(useWorkspace.getInitialState(), true);
   useTableEdits.setState(useTableEdits.getInitialState(), true);
+  useLive.setState(useLive.getInitialState(), true);
+  useCatalog.setState(useCatalog.getInitialState(), true);
 });
 
 function recordIpc(): string[] {
@@ -37,7 +44,12 @@ it("asks for a path on ⌘⇧S even with staged edits, while ⌘S submits them a
     console: { db: { connectionId: "c", database: "shop" }, mode: "AutoCommit" },
     table: { schema: "public", table: "orders", page: 0, query: EMPTY_QUERY },
   });
-  useTableEdits.getState().edit("orders", (e) => setCell(e, [{ column: "id", value: "1" }], "total", "9", "1"));
+  const catalog = shopCatalog("c", 1);
+  useLive.setState({ consoles: { orders: { ...idleConsole("orders", catalog.db), run: tableRun("orders", catalog, "public", "orders") } } });
+  useCatalog.setState({ views: { [dbKey(catalog.db)]: buildCatalogView(catalog) } });
+  useTableEdits
+    .getState()
+    .edit("orders", { db: catalog.db, schema: "public", table: "orders" }, (e) => setCell(e, [{ column: "id", value: "1" }], "total", "9", "1"));
   const saveAs = keydown("s", { ctrlKey: true, shiftKey: true }, false);
   await vi.waitFor(() => expect(cmds).toEqual(["plugin:dialog|save"]));
   expect(saveAs.prevented).toBe(true);

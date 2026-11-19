@@ -7,6 +7,7 @@ import { NO_EDITS, setCell, useTableEdits } from "../../state/tableEdits";
 import { dropRowCaches } from "../../state/rowCache";
 import { ResultGrid } from "./ResultGrid";
 import { storedValueMatches, useResultFind } from "./useResultFind";
+import { tableTarget } from "../../testing/editTarget";
 
 const meta: ResultMeta = {
   databaseKind: "Postgres",
@@ -18,6 +19,7 @@ const meta: ResultMeta = {
   truncated: "RowLimit",
   elapsedMs: 1,
   allRows: { kind: "Statement" },
+  repeatedRead: null,
 };
 const result = (row: number, ordinal = 1): ResultFind => ({ count: 2, rowCount: 10_000, target: { cell: { row, col: 0 }, ordinal } });
 
@@ -257,13 +259,22 @@ it("publishes a streaming snapshot before refreshing the new row bound", async (
 it("highlights a full-value suffix target but never its staged display value", async () => {
   mockIPC(() => ({ start: 0, rows: [["prefix"]], cut: [[0, 0]] }));
   const search = vi.spyOn(commands, "resultFind").mockResolvedValue({ status: "ok", data: { ...result(0), rowCount: 1 } });
-  render(<ResultGrid meta={{ ...meta, rowCount: 1 }} done query={null} editing={{ pkColumns: ["value"], writableColumns: new Set(["value"]) }} />);
+  const table = { db: meta.db, schema: "public", table: "t" };
+  render(
+    <ResultGrid
+      meta={{ ...meta, rowCount: 1 }}
+      done
+      query={null}
+      target={tableTarget(table, ["value"])}
+      editing={{ pkColumns: ["value"], writableColumns: new Set(["value"]) }}
+    />,
+  );
   fireEvent.click(screen.getByText("Find in results"));
   fireEvent.change(screen.getByLabelText("Find in results"), { target: { value: "suffix" } });
   await screen.findByText("1 of 2 matching cells");
   expect(screen.getByTestId("grid-cell-0-0").getAttribute("data-find-match")).toBe("true");
   const edits = setCell(NO_EDITS, [{ column: "value", value: "prefix" }], "value", "suffix draft", "prefix");
-  useTableEdits.setState({ byTab: { "find-test": edits } });
+  useTableEdits.setState({ byTab: { "find-test": { ...edits, table } } });
   await screen.findByText("suffix draft");
   expect(screen.getByTestId("grid-cell-0-0").hasAttribute("data-find-match")).toBe(false);
   search.mockRestore();

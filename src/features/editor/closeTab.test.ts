@@ -12,6 +12,7 @@ import { openSqlTab } from "./runActions";
 
 const ws = () => useWorkspace.getState();
 const flush = () => new Promise((r) => setTimeout(r, 0));
+const TABLE = { db: { connectionId: "c1", database: "shop" }, schema: "public", table: "orders" };
 const question = () => {
   const o = ws().overlay;
   return o.kind === "ask" ? o.title : null;
@@ -76,7 +77,7 @@ function tabWithConsole(): string {
   return id;
 }
 
-const stageEdit = (id: string) => useTableEdits.getState().edit(id, (e) => setCell(e, [{ column: "id", value: "1" }], "total", "9", "1"));
+const stageEdit = (id: string) => useTableEdits.getState().edit(id, TABLE, (e) => setCell(e, [{ column: "id", value: "1" }], "total", "9", "1"));
 
 it("closes a tab with nothing to lose without asking", async () => {
   const id = openSqlTab();

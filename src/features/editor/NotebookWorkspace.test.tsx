@@ -40,6 +40,7 @@ function finished(id: TabId, rowCounts: number[]): ConsoleState {
       truncated: null,
       elapsedMs: 5,
       allRows: { kind: "Statement" },
+      repeatedRead: null,
     };
     return { kind: "Rows" as const, result, state: "Complete" as const };
   });

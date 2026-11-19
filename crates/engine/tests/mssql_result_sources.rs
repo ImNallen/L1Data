@@ -153,6 +153,23 @@ async fn each_key_column_of_a_join_names_its_own_table_column() {
 }
 
 #[tokio::test]
+async fn a_self_join_names_one_table_for_both_reads_and_says_it_reads_it_twice() {
+    let mut h = Harness::open().await;
+    let (id, status) = (h.column("orders", "id").await, h.column("orders", "status").await);
+    for sql in [
+        "SELECT a.id, b.status FROM dbo.orders a JOIN dbo.orders b ON b.id = a.id + 1",
+        "WITH x AS (SELECT * FROM dbo.orders) SELECT a.id, b.status FROM x a JOIN x b ON b.id = a.id + 1",
+    ] {
+        let sets = h.ok(sql).await;
+        assert_eq!(sources(&sets[0]), [id, status], "{sql}");
+        assert!(sets[0].repeated_read.is_some(), "{sql}");
+    }
+    let sets = h.ok("SELECT id, status FROM dbo.orders").await;
+    assert_eq!(sets[0].repeated_read, None);
+    h.engine.shutdown().await;
+}
+
+#[tokio::test]
 async fn columns_without_one_exact_table_column_have_no_source() {
     let mut h = Harness::open().await;
     for sql in [

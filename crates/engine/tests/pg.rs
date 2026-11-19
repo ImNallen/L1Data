@@ -1391,6 +1391,24 @@ async fn all_rows_refuses_a_write_and_a_nextval_rerun_fails_without_advancing() 
 }
 
 #[tokio::test]
+async fn a_self_join_names_one_table_for_both_reads_and_says_it_reads_it_twice() {
+    let mut h = Harness::start().await;
+    let tab = h.sql_tab(TxnMode::AutoCommit).await;
+    for (sql, repeated) in [
+        ("select a.id, b.status from public.orders a join public.orders b on b.id = a.id + 1", "public.orders"),
+        ("with x as (select * from orders) select a.id, b.status from x a join x b on b.id = a.id + 1", "x"),
+    ] {
+        let state = h.run_ok(tab, sql).await;
+        let meta = Harness::result(&state, 0);
+        let oids: Vec<_> = meta.columns.iter().map(|c| c.source.map(|s| s.table_oid)).collect();
+        assert!(oids[0].is_some() && oids[0] == oids[1], "{sql}: {oids:?}");
+        assert_eq!(meta.repeated_read.as_deref(), Some(repeated), "{sql}");
+    }
+    let state = h.run_ok(tab, "select id, status from public.orders").await;
+    assert_eq!(Harness::result(&state, 0).repeated_read, None);
+}
+
+#[tokio::test]
 async fn a_table_tabs_all_rows_is_the_whole_filtered_table_in_page_order() {
     let mut h = Harness::start().await;
     h.engine.set_settings(Settings { table_page_size: 10, ..h.engine.settings() }).unwrap();
@@ -1409,6 +1427,7 @@ async fn a_table_tabs_all_rows_is_the_whole_filtered_table_in_page_order() {
     let state = h.wait_finished(tab, accepted.run_id).await;
     let meta = Harness::result(&state, 0);
     assert_eq!((meta.row_count, meta.truncated, &meta.all_rows), (10, None, &AllRows::Table));
+    assert_eq!(meta.repeated_read, None);
 
     let (summary, csv) = h.export(&meta, ExportFormat::Csv, ExportScope::All, "orders.csv").await;
     let expected: Vec<String> = h

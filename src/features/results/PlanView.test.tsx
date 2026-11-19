@@ -71,6 +71,7 @@ const result: RowResult = {
     truncated: null,
     elapsedMs: 38,
     allRows: { kind: "Refused", reason: "Explain is not re-run." },
+    repeatedRead: null,
   },
 };
 

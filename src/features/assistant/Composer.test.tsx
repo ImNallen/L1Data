@@ -54,6 +54,7 @@ it("shows schema access and only offers query permissions and attachments in Ful
                     truncated: null,
                     elapsedMs: 0,
                     allRows: { kind: "Statement" },
+                    repeatedRead: null,
                   },
                 },
               ],

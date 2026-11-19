@@ -13,6 +13,7 @@ const meta = (allRows: AllRows, rowCount: number, rowsSeen = rowCount): ResultMe
   truncated: rowsSeen > rowCount ? "RowLimit" : null,
   elapsedMs: 1,
   allRows,
+  repeatedRead: null,
 });
 
 const page = (over: Partial<TablePage> = {}): TablePage => ({ page: 0, pageSize: 100, exactRowCount: null, filtered: false, ...over });

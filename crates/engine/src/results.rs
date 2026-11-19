@@ -34,6 +34,7 @@ pub struct Origin {
     pub nth: u16,
     pub schema: Option<String>,
     pub page: bool,
+    pub repeated_read: Option<String>,
 }
 
 #[derive(Clone)]
@@ -149,6 +150,7 @@ impl ResultSet {
             truncated: a.truncated,
             elapsed_ms: a.elapsed_ms,
             all_rows: self.origin.all_rows(),
+            repeated_read: self.origin.repeated_read.clone(),
         }
     }
 
@@ -410,7 +412,13 @@ pub(crate) fn plan_output(
         DatabaseRef { connection_id, database: database.to_owned() },
         kind,
         columns,
-        Origin { rerun: Rerun::Refused("Explain is not re-run."), nth: 0, schema: schema.clone(), page: false },
+        Origin {
+            rerun: Rerun::Refused("Explain is not re-run."),
+            nth: 0,
+            schema: schema.clone(),
+            page: false,
+            repeated_read: None,
+        },
     );
     set.plan_format = Some(format);
     let set = Arc::new(set);
@@ -448,7 +456,8 @@ mod tests {
             })
             .collect();
         let db = DatabaseRef { connection_id: ConnectionId(uuid::Uuid::nil()), database: "shop".into() };
-        let origin = Origin { rerun: Rerun::Ready("select".into()), nth: 0, schema: None, page: false };
+        let origin =
+            Origin { rerun: Rerun::Ready("select".into()), nth: 0, schema: None, page: false, repeated_read: None };
         ResultSet::new(
             ResultRef { tab_id: TabId(uuid::Uuid::nil()), run_id: RunId(1), index: 0 },
             db,
