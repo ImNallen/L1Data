@@ -173,6 +173,7 @@ A `.sql` file is a notebook, and a notebook can be saved to one. A notebook does
 - When L1 Data cannot write its own data, as on a full disk, a toast says why. A settings change it could not save still applies until you quit. **Clear history** removes nothing when it fails. The workspace saves as you work, so its toast shows once until a save succeeds again.
 - The Queries, connection, and theme dialogs share Settings' centered frame and blurred backdrop. `Esc` closes the active dialog first, after any field cancels its draft.
 - On macOS the window keeps the native traffic lights. On Windows and Linux the app draws its own window controls and resize edges.
+- Only one L1 Data runs at a time. Launching it again brings the open window to the front, unminimized. Development builds are exempt.
 
 ## Ask AI in a SQL cell
 
