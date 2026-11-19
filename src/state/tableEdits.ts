@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import type { CellWrite, ChangeRef, RowCheck, TabId, TableChanges } from "../ipc/bindings";
+import type { CellWrite, ChangeRef, DatabaseRef, RowCheck, TabId, TableChanges } from "../ipc/bindings";
+import { sameDb } from "./dbKey";
 
 export type CellValue = string | null;
 type RowKey = string;
@@ -7,7 +8,13 @@ export type RowId = readonly Readonly<CellWrite>[];
 
 export type NewRow = { id: number; values: Record<string, CellValue> };
 
+export type EditTable = { db: DatabaseRef; schema: string; table: string };
+
+export const sameTable = (a: EditTable, b: EditTable): boolean => sameDb(a.db, b.db) && a.schema === b.schema && a.table === b.table;
+
 export type TableEdits = {
+  /** Set by the first staged edit. A result of another table neither shows nor submits them. */
+  table?: EditTable;
   inserts: NewRow[];
   updates: Record<RowKey, { key: RowId; values: Record<string, CellValue> }>;
   /** Each edited cell's stored value from when it was first staged. */
