@@ -251,6 +251,27 @@ textarea,
   }
 }
 
+@keyframes boot-mark-leave {
+  to {
+    opacity: 0;
+    transform: scale(1.03);
+  }
+}
+/* The splash leaves after boot has painted data-motion, so the app's Reduce motion setting decides here.
+   Reduced motion keeps a short fade rather than none, because the splash unmounts when its animation ends. */
+.boot-leave {
+  animation: fade-out 320ms ease-out forwards;
+}
+.boot-leave .boot-mark {
+  animation: boot-mark-leave 240ms ease-out forwards;
+}
+:root[data-motion="reduced"] .boot-leave {
+  animation-duration: 150ms;
+}
+:root[data-motion="reduced"] .boot-leave .boot-mark {
+  animation: none;
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
