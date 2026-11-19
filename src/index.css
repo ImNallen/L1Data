@@ -627,6 +627,9 @@ textarea,
   line-height: 16px;
   color: var(--color-muted);
 }
+:root[data-theme="dark"] .chat-composer-details {
+  background: color-mix(in srgb, var(--color-bg) 60%, var(--color-canvas));
+}
 @media (max-width: 1100px) {
   .notebook-workspace {
     padding-inline: 16px;
