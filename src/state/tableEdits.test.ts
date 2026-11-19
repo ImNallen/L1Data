@@ -19,6 +19,7 @@ import {
 } from "./tableEdits";
 
 const row = (value: string | null): RowId => [{ column: "id", value }];
+const T = { db: { connectionId: "c1", database: "shop" }, schema: "public", table: "t" };
 
 it("turns pending edits into engine changes keyed by primary key", () => {
   let e = addRow(NO_EDITS, 7);
@@ -92,17 +93,29 @@ it("keys composite primary keys in column order and removes new rows by id", () 
 
 it("holds a tab's edits still while its submit is in flight", () => {
   const store = useTableEdits.getState();
-  store.edit("t", (e) => setNewCell(addRow(e, 1), 1, "name", "a"));
+  store.edit("t", T, (e) => setNewCell(addRow(e, 1), 1, "name", "a"));
   expect(store.beginSubmit("t")).toBe(true);
   expect(store.beginSubmit("t")).toBe(false);
 
-  store.edit("t", (e) => toggleDeletes(e, [row("9")]));
-  expect(store.addRow("t")).toBeNull();
-  expect(useTableEdits.getState().byTab["t"]).toEqual({ ...addRow(NO_EDITS, 1), inserts: [{ id: 1, values: { name: "a" } }], failedAt: null });
+  store.edit("t", T, (e) => toggleDeletes(e, [row("9")]));
+  expect(store.addRow("t", T)).toBeNull();
+  expect(useTableEdits.getState().byTab["t"]).toEqual({ ...addRow(NO_EDITS, 1), table: T, inserts: [{ id: 1, values: { name: "a" } }], failedAt: null });
 
   store.endSubmit("t");
-  store.edit("t", (e) => toggleDeletes(e, [row("9")]));
+  store.edit("t", T, (e) => toggleDeletes(e, [row("9")]));
   expect(pendingCount(useTableEdits.getState().byTab["t"]!)).toBe(2);
+});
+
+it("keeps a tab's pending edits to one table until they clear, so a result of another table cannot stage beside them", () => {
+  const store = useTableEdits.getState();
+  const other = { ...T, table: "other" };
+  expect(store.edit("v", T, (e) => setCell(e, row("1"), "name", "x", "y"))).toBe(true);
+  expect(store.edit("v", other, (e) => setCell(e, row("1"), "name", "z", "y"))).toBe(false);
+  expect(store.addRow("v", other)).toBeNull();
+  expect(useTableEdits.getState().byTab["v"]?.updates).toEqual({ [rowKey(row("1"))]: { key: row("1"), values: { name: "x" } } });
+  store.edit("v", T, (e) => setCell(e, row("1"), "name", "y", "y"));
+  expect(store.edit("v", other, (e) => setCell(e, row("1"), "name", "z", "y"))).toBe(true);
+  expect(useTableEdits.getState().byTab["v"]?.table).toEqual(other);
 });
 
 it("marks or unmarks rows for deletion the same way however often it runs", () => {
@@ -114,9 +127,9 @@ it("marks or unmarks rows for deletion the same way however often it runs", () =
 it("tells the caller when an edit was refused during a submit", () => {
   const store = useTableEdits.getState();
   expect(store.beginSubmit("u")).toBe(true);
-  expect(store.edit("u", (e) => markDeleted(e, [row("1")], true))).toBe(false);
+  expect(store.edit("u", T, (e) => markDeleted(e, [row("1")], true))).toBe(false);
   store.endSubmit("u");
-  expect(store.edit("u", (e) => markDeleted(e, [row("1")], true))).toBe(true);
+  expect(store.edit("u", T, (e) => markDeleted(e, [row("1")], true))).toBe(true);
 });
 
 it("keeps equal key values under different primary-key names separate", () => {

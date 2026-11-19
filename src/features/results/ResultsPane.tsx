@@ -30,12 +30,12 @@ import {
   type ResultView,
   type Summary,
 } from "../../state/status";
-import { findRelation, useCatalog, viewFor } from "../../state/catalog";
+import { useCatalog, viewFor } from "../../state/catalog";
 import { databaseKindFor } from "../../state/databaseKind";
 import { loadEditSupport, useEditSupport } from "../../state/editSupport";
 import { applyErrorText, editRefusalText } from "../../ipc/errors";
 import { NO_EDITS, pendingCount, useTableEdits } from "../../state/tableEdits";
-import { isFiltered, isTableTab, useWorkspace, type ResultDisplayPref, type Tab, type TableTab } from "../../state/workspace";
+import { isFiltered, isTableTab, tabTarget, useWorkspace, type ResultDisplayPref, type Tab, type TableTab } from "../../state/workspace";
 import { Button, cx, IconButton, MenuContent, MenuItem, Spinner } from "../../ui/primitives";
 import { MAC } from "../../shell/hostedWindow";
 import { useNow } from "../../ui/useNow";
@@ -52,6 +52,7 @@ import {
   updateTableQuery,
 } from "../editor/runActions";
 import { defaultChart, type ChartSpec } from "./chart";
+import { editTarget, type EditTarget } from "./editTarget";
 import { ChartView } from "./ChartView";
 import { ExportMenu } from "./ExportMenu";
 import { FilterBar } from "./FilterBar";
@@ -63,6 +64,7 @@ import { acceptSelectionTotals, type SelectionSlot } from "./selectionTotals";
 import { cycleTableOrder, filterForValue, useFilterDrafts, useTableOrder } from "./tableQuery";
 
 const NO_OUTPUT: OutputLog = { entries: [], dropped: 0 };
+const IDLE: RunState = { kind: "Idle" };
 
 function PagerBar({
   testId,
@@ -349,6 +351,7 @@ function ResultBody({
   view,
   output,
   query,
+  target,
   editing,
   actions,
   onSelectionTotals,
@@ -361,6 +364,7 @@ function ResultBody({
   view: ResultView;
   output: OutputLog;
   query: GridQuery | null;
+  target: EditTarget;
   editing: GridEditing | null;
   actions: RefObject<GridActions | null>;
   onSelectionTotals: (slot: SelectionSlot) => void;
@@ -377,6 +381,7 @@ function ResultBody({
           meta={view.result.meta}
           done={view.result.state !== "Streaming"}
           query={query}
+          target={target}
           editing={editing}
           actionsRef={actions}
           onSelectionTotals={onSelectionTotals}
@@ -421,7 +426,7 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
   const databaseKind = useWorkspace((s) => databaseKindFor(tab?.console.db ?? null, s.configs));
   const setActiveResult = useWorkspace((s) => s.setActiveResult);
   const console = useLive((s) => (tabId ? s.consoles[tabId] : undefined));
-  const run = console?.run ?? { kind: "Idle" as const };
+  const run = console?.run ?? IDLE;
   const busy = isBusy(console);
   const now = useNow(run.kind === "Running", 100);
   const results = rowResults(run);
@@ -461,37 +466,34 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
   useEffect(() => {
     if (tabId && isTable) loadTableOnce(tabId);
   }, [tabId, isTable]);
-  const catalogView = useCatalog((s) => viewFor(s.views, browsingTable?.console.db));
-  const isView =
-    browsingTable !== null && databaseKind === "SqlServer" && findRelation(catalogView, browsingTable.table.schema, browsingTable.table.table)?.kind === "View";
-  // Asked again for each page the tab loads, which also comes after the tab's session exists.
+  const tabDb = tabTarget(tab);
+  const catalogView = useCatalog((s) => viewFor(s.views, tabDb));
+  const staged = useTableEdits((s) => (tabId ? s.byTab[tabId] : undefined));
+  const target = useMemo(() => editTarget({ run, view: catalogView, db: tabDb, edits: staged }), [run, catalogView, tabDb, staged]);
+  const targetTable = target.kind === "Table" ? target.table : null;
+  // Asked again for each result the tab shows, which also comes after the tab's session exists.
   const supportKey =
-    browsingTable && databaseKind === "SqlServer" && !isView && catalogView && shown
-      ? JSON.stringify([browsingTable.console.db, browsingTable.table.schema, browsingTable.table.table, catalogView.catalog.version, shown.meta.ref.runId])
+    targetTable && databaseKind === "SqlServer" && catalogView && shown
+      ? JSON.stringify([targetTable.db, targetTable.schema, targetTable.table, catalogView.catalog.version, shown.meta.ref.runId])
       : null;
   const supportEntry = useEditSupport((s) => (tabId ? s.byTab[tabId] : undefined));
   const support = supportKey !== null && supportEntry?.key === supportKey ? supportEntry : null;
   useEffect(() => {
-    if (tabId && browsingTable && supportKey !== null && supportEntry?.key !== supportKey)
-      void loadEditSupport(tabId, browsingTable.table.schema, browsingTable.table.table, supportKey);
-  }, [tabId, browsingTable, supportKey, supportEntry?.key]);
-  const editing = useMemo(
-    () =>
-      browsingTable && shown && (databaseKind === "Postgres" || support?.support)
-        ? gridEditing(catalogView, browsingTable.table.schema, browsingTable.table.table, shown.meta, support?.support ?? null)
-        : null,
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the deps name the fields the memo reads, not the objects that hold them
-    [browsingTable?.console.db, browsingTable?.table.schema, browsingTable?.table.table, catalogView, shown?.meta, databaseKind, support?.support],
-  );
-  const refusal = isView
-    ? "Views are read-only here. Use a SQL script to change their rows."
-    : support?.support?.kind === "Refused"
-      ? `Edits are unavailable here: ${editRefusalText(support.support.reason)}. Use a SQL script to change these rows.`
-      : support?.error
-        ? `L1 Data could not check this table for edits. ${applyErrorText(support.error)}`
-        : null;
+    if (tabId && targetTable && supportKey !== null && !busy && supportEntry?.key !== supportKey)
+      void loadEditSupport(tabId, targetTable.schema, targetTable.table, supportKey);
+  }, [tabId, targetTable, supportKey, busy, supportEntry?.key]);
+  const editing = useMemo(() => gridEditing(target, support?.support ?? null), [target, support?.support]);
+  const refusal =
+    browsingTable && target.kind === "ReadOnly" && target.reason.kind === "View"
+      ? "Views are read-only here. Use a SQL script to change their rows."
+      : support?.support?.kind === "Refused"
+        ? `Edits are unavailable here: ${editRefusalText(support.support.reason)}. Use a SQL script to change these rows.`
+        : support?.error
+          ? `L1 Data could not check this table for edits. ${applyErrorText(support.error)}`
+          : null;
   const actions = useRef<GridActions | null>(null);
   const shownKeyRef = useRef(shownRef);
+  // oxlint-disable-next-line react/refs -- the selection totals callback reads the newest shown key, and nothing renders from this ref
   shownKeyRef.current = shownRef;
   const [totals, setTotals] = useState<SelectionSlot | null>(null);
   if (view.kind !== "rows" || (totals !== null && totals.key !== shownRef)) {
@@ -623,7 +625,7 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
         </div>
       </div>
 
-      {browsingTable && refusal && (
+      {refusal && (
         <p data-testid="edit-refusal" className="border-b border-grid px-3 py-1 text-ui-11.5 text-dim">
           {refusal}
         </p>
@@ -641,6 +643,7 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
           view={view}
           output={output}
           query={gridQuery}
+          target={target}
           editing={editing}
           actions={actions}
           onSelectionTotals={onSelectionTotals}

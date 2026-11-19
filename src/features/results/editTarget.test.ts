@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import type { AllRows, ColumnMeta, ResultMeta, RunOutput, RunState } from "../../ipc/bindings";
+import type { AllRows, ColumnMeta, DatabaseKind, ResultMeta, RunOutput, RunState } from "../../ipc/bindings";
 import { buildCatalogView } from "../../state/catalog";
 import { NO_EDITS, setCell } from "../../state/tableEdits";
 import { shopCatalog } from "../../testing/shopCatalog";
@@ -108,6 +108,16 @@ it("keeps a result from another database, or one with no catalog, read-only", ()
   const run = finished([rows(all("orders"))]);
   expect(editTarget({ run, view, db: { ...db, database: "reporting" }, edits: NO_EDITS })).toMatchObject({ reason: { kind: "Unknown" } });
   expect(editTarget({ run, view: undefined, db, edits: NO_EDITS })).toMatchObject({ reason: { kind: "Unknown" } });
+});
+
+it.each<{ catalogKind: DatabaseKind; resultKind: DatabaseKind }>([
+  { catalogKind: "SqlServer", resultKind: "Postgres" },
+  { catalogKind: "Postgres", resultKind: "SqlServer" },
+])("keeps a $resultKind result read-only with a $catalogKind catalog despite valid key provenance", ({ catalogKind, resultKind }) => {
+  const output = rows(all("orders"));
+  const run = finished([output.kind === "Rows" ? { ...output, result: { ...output.result, databaseKind: resultKind } } : output]);
+  const other = buildCatalogView({ ...catalog, databaseKind: catalogKind });
+  expect(editTarget({ run, view: other, db, edits: NO_EDITS })).toMatchObject({ reason: { kind: "Unknown" } });
 });
 
 it("waits for a script to finish, but not a table page", () => {

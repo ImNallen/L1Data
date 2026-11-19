@@ -12,6 +12,9 @@ import { dropRowCaches } from "../../state/rowCache";
 import { NO_EDITS, stagingSettled, toChanges, useTableEdits } from "../../state/tableEdits";
 import { useWorkspace } from "../../state/workspace";
 import { dropEditor, seedEditor } from "../editor/editorStates";
+import { tableTarget } from "../../testing/editTarget";
+import { shopCatalog } from "../../testing/shopCatalog";
+import { idleConsole, showTableRows } from "../../testing/tableRun";
 import { ResultGrid, type GridEditing } from "./ResultGrid";
 
 const meta: ResultMeta = {
@@ -29,6 +32,8 @@ const meta: ResultMeta = {
   allRows: { kind: "Table" },
 };
 const editing: GridEditing = { pkColumns: ["id"], writableColumns: new Set(["status"]) };
+const T1 = { db: meta.db, schema: "public", table: "orders" };
+const target = tableTarget(T1, ["id"]);
 
 beforeAll(() => {
   // jsdom lays nothing out, and the virtualizer renders no rows into a zero-size viewport.
@@ -71,7 +76,7 @@ afterEach(() => {
 const pending = () => useTableEdits.getState().byTab.t1 ?? NO_EDITS;
 
 async function typeIntoStatus(user: ReturnType<typeof userEvent.setup>, text: string) {
-  render(<ResultGrid meta={meta} done query={null} editing={editing} />);
+  render(<ResultGrid meta={meta} done query={null} target={target} editing={editing} />);
   await user.dblClick(await screen.findByText("paid"));
   const editor = screen.getByTestId("grid-editor");
   await user.clear(editor);
@@ -116,7 +121,7 @@ it("holds Submit while a typed-over SQL Server cell loads its full original valu
     if (cmd === "result_cell") return new Promise((resolve) => (full = resolve));
     throw "not served in this test";
   });
-  render(<ResultGrid meta={{ ...meta, databaseKind: "SqlServer" }} done query={null} editing={{ ...editing, rowCheck: { kind: "Values" } }} />);
+  render(<ResultGrid meta={{ ...meta, databaseKind: "SqlServer" }} done query={null} target={target} editing={{ ...editing, rowCheck: { kind: "Values" } }} />);
   await user.click(await screen.findByText("pai"));
   await user.keyboard("x{Enter}");
   expect(screen.queryByTestId("grid-editor")).toBeNull();
@@ -140,7 +145,7 @@ it("stops a running SQL Server Submit when Esc is pressed in the grid", async ()
     cancels.push(args);
     return null;
   });
-  render(<ResultGrid meta={{ ...meta, databaseKind: "SqlServer" }} done query={null} editing={editing} />);
+  render(<ResultGrid meta={{ ...meta, databaseKind: "SqlServer" }} done query={null} target={target} editing={editing} />);
   await user.click(await screen.findByText("paid"));
   await user.keyboard("{Escape}");
   expect(cancels).toEqual([]);
@@ -157,7 +162,13 @@ function gridWith(value: string | null, type: SqlTypeRef = { display: "text", ca
   });
   render(
     <>
-      <ResultGrid meta={{ ...meta, ...extra, columns: [meta.columns[0]!, { ...meta.columns[1]!, type }] }} done query={null} editing={editing} />
+      <ResultGrid
+        meta={{ ...meta, ...extra, columns: [meta.columns[0]!, { ...meta.columns[1]!, type }] }}
+        done
+        query={null}
+        target={target}
+        editing={editing}
+      />
       <button type="button">Outside destination</button>
     </>,
   );
@@ -180,7 +191,7 @@ it("leaves untouched NULL intact but stages deliberately edited empty text", asy
 
 it("keeps untouched inserted DEFAULT omitted and deliberately empty inserted text present", async () => {
   const user = userEvent.setup();
-  useTableEdits.getState().addRow("t1");
+  useTableEdits.getState().addRow("t1", T1);
   gridWith("paid");
   await openStatus(user, 1);
   await user.keyboard("{Enter}");
@@ -409,7 +420,7 @@ it("fetches the full cut source before opening a popup and retains the full orig
     if (cmd === "result_cell") return source;
     throw new Error(`Unexpected ${cmd}`);
   });
-  render(<ResultGrid meta={{ ...meta, databaseKind: "SqlServer" }} done query={null} editing={{ ...editing, rowCheck: { kind: "Values" } }} />);
+  render(<ResultGrid meta={{ ...meta, databaseKind: "SqlServer" }} done query={null} target={target} editing={{ ...editing, rowCheck: { kind: "Values" } }} />);
   await openStatus(user);
   await user.click(await screen.findByRole("button", { name: "Expand value" }));
   expect(screen.getByRole("textbox", { name: "Exact status" })).toHaveProperty("value", source);
@@ -424,21 +435,23 @@ it("stages the current popup value before the real save command submits its exac
   mockIPC((cmd, args) => {
     if (cmd === "result_page") return { start: 0, rows: [["1", "paid"]], cut: [] };
     if (cmd === "script_params") return [];
-    if (cmd === "table_script") return { text: "SELECT * FROM public.t", acceptedTexts: ["SELECT * FROM public.t"] };
+    if (cmd === "table_script") return { text: "SELECT * FROM public.orders", acceptedTexts: ["SELECT * FROM public.orders"] };
     if (cmd === "table_apply") {
       applied.push(args);
       return { committed: true };
     }
     return null;
   });
-  seedEditor("t1", "SELECT * FROM public.t");
+  seedEditor("t1", "SELECT * FROM public.orders");
   useWorkspace.getState().addTab({
     id: "t1",
-    title: "t",
+    title: "orders",
     console: { db: meta.db, mode: "AutoCommit" },
-    table: { schema: "public", table: "t", page: 0, query: { where: "", filters: [], orderBy: "" } },
+    table: { schema: "public", table: "orders", page: 0, query: { where: "", filters: [], orderBy: "" } },
   });
-  render(<ResultGrid meta={meta} done query={null} editing={editing} />);
+  useLive.setState({ consoles: { t1: idleConsole("t1", meta.db) } });
+  showTableRows("t1", shopCatalog("c1", 1), "public", "orders");
+  render(<ResultGrid meta={meta} done query={null} target={target} editing={editing} />);
   await openStatus(user);
   await user.click(screen.getByRole("button", { name: "Expand value" }));
   fireEvent.change(screen.getByRole("textbox", { name: "Exact status" }), { target: { value: "first\nsecond" } });
@@ -450,7 +463,7 @@ it("stages the current popup value before the real save command submits its exac
         confirmed: null,
         changes: {
           schema: "public",
-          table: "t",
+          table: "orders",
           inserts: [],
           updates: [{ key: [{ column: "id", value: "1" }], set: [{ column: "status", value: "first\nsecond" }], expect: [] }],
           deletes: [],

@@ -126,7 +126,7 @@ it("shows the picked database's notebook, or its start commands, without moving 
   addSecondDatabase();
   const shop = { connectionId: "p", database: "shop" };
   const id = runActions.openSqlTab({ db: shop });
-  useTableEdits.getState().addRow(id);
+  useTableEdits.getState().addRow(id, { db: shop, schema: "public", table: "orders" });
   const user = userEvent.setup();
   render(<Sidebar hosted={null} />);
   await user.click(screen.getByTestId("tree-node-Alpha/shop"));

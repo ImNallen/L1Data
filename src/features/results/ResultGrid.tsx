@@ -56,8 +56,8 @@ import { MAC, MOD_LABEL } from "../../shell/hostedWindow";
 import { rowCacheFor, windowedRows, type Row, type RowView } from "../../state/rowCache";
 import { useLive } from "../../state/live";
 import { refKey } from "../../state/status";
-import { findRelation, isPrimaryKey, sourceColumn, useCatalog, viewFor, type CatalogView } from "../../state/catalog";
-import { sameDb, type DbKey } from "../../state/dbKey";
+import { isPrimaryKey, sourceColumn, useCatalog, viewFor, type CatalogView } from "../../state/catalog";
+import type { DbKey } from "../../state/dbKey";
 import {
   NO_EDITS,
   holdSubmit,
@@ -66,6 +66,7 @@ import {
   removeNewRows,
   resetNewCell,
   rowKey,
+  sameTable,
   setCell,
   setNewCell,
   useTableEdits,
@@ -82,6 +83,7 @@ import { ColumnProfilePopover } from "./ColumnProfile";
 import { cellAt, DEFAULT, EMPTY_MARK, GridRow, NULL_MARK, rowNumberAt, type Cell } from "./GridRows";
 import { GridEditor } from "./GridEditor";
 import { describeEditor, type EditorDescriptor } from "./gridEditorType";
+import type { EditTarget } from "./editTarget";
 import type { EditOutcome, InitialValue } from "./gridEditorValue";
 import { groupCount, groupDigits, isNumeric, toTsv, type RowWindow } from "./format";
 import { formatSelectionTotals, type SelectionSlot } from "./selectionTotals";
@@ -124,25 +126,9 @@ export type GridEditing = {
 export type GridActions = { addRow(): void; deleteSelectedRows(): void };
 
 /** `support` is a SQL Server table's answer from `tableEditSupport`. PostgreSQL decides from the catalog. */
-export function gridEditing(
-  view: CatalogView | undefined,
-  schema: string,
-  table: string,
-  meta: Pick<ResultMeta, "databaseKind" | "db" | "columns">,
-  support: EditSupport | null = null,
-): GridEditing | null {
-  const kind = view?.catalog.databaseKind;
-  if (!kind || kind !== meta.databaseKind || (kind === "SqlServer" && support?.kind !== "Editable")) return null;
-  const relation = findRelation(view, schema, table);
-  if (!relation || relation.kind !== "Table" || !sameDb(view?.catalog.db, meta.db)) return null;
-  const pkColumns = relation.columns.filter((c) => c.pk).map((c) => c.name);
-  if (!pkColumns.length || !pkColumns.every((name) => meta.columns.some((c) => c.name === name))) return null;
-  if (
-    !meta.columns.every(
-      (c) => c.source?.tableOid === relation.oid && relation.columns.some((column) => column.attnum === c.source?.attnum && column.name === c.name),
-    )
-  )
-    return null;
+export function gridEditing(target: EditTarget, support: EditSupport | null = null): GridEditing | null {
+  if (target.kind !== "Table" || (target.databaseKind === "SqlServer" && support?.kind !== "Editable")) return null;
+  const { relation, pkColumns } = target;
   if (support?.kind !== "Editable") return { pkColumns, writableColumns: new Set(relation.columns.filter((c) => c.writable).map((c) => c.name)) };
   return {
     pkColumns,
@@ -478,6 +464,8 @@ type GridProps = {
   meta: ResultMeta;
   done: boolean;
   query: GridQuery | null;
+  /** The table the rows are, or why they are read-only. Staged edits show and stage only on their own table. */
+  target?: EditTarget | null;
   editing: GridEditing | null;
   actionsRef?: Ref<GridActions | null>;
   onSelectionTotals?: (slot: SelectionSlot) => void;
@@ -521,6 +509,7 @@ export function ResultGrid(props: GridProps) {
       meta={props.meta}
       done={props.done}
       query={stableQuery}
+      target={props.target ?? null}
       editing={props.editing}
       actionsRef={props.actionsRef}
       onSelectionTotals={onSelectionTotals}
@@ -530,7 +519,7 @@ export function ResultGrid(props: GridProps) {
   );
 }
 
-const GridView = memo(function GridView({ meta, done, query, editing, actionsRef, onSelectionTotals, rowWindow, onFindOutsideWindow }: GridProps) {
+const GridView = memo(function GridView({ meta, done, query, target, editing, actionsRef, onSelectionTotals, rowWindow, onFindOutsideWindow }: GridProps) {
   const stored = rowCacheFor(meta.ref);
   const cacheVersion = useSyncExternalStore(stored.subscribe, stored.getVersion);
   const cache = useMemo<RowView>(() => (rowWindow ? windowedRows(stored, rowWindow.start, meta.rowCount) : stored), [stored, rowWindow, meta.rowCount]);
@@ -548,12 +537,17 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
   const catalogView = useCatalog((s) => viewFor(s.views, meta.db));
   const pk = useMemo(() => primaryKeysIn(catalogView, columns), [catalogView, columns]);
   const tabId = meta.ref.tabId;
-  const edits = useTableEdits((s) => s.byTab[tabId] ?? NO_EDITS);
+  const table = target?.kind === "Table" ? target.table : null;
+  const edits = useTableEdits((s) => {
+    const staged = s.byTab[tabId];
+    return staged?.table && table && sameTable(staged.table, table) ? staged : NO_EDITS;
+  });
   const pkColumns = useMemo(() => gridKeyColumns(editing, edits), [editing, edits]);
   const pkIdx = useMemo(() => pkColumns.map((n) => columns.findIndex((c) => c.name === n)), [pkColumns, columns]);
   const hasKey = pkIdx.length > 0 && pkIdx.every((i) => i >= 0);
-  const editable = editing !== null && hasKey;
-  const edit = (f: (e: TableEdits) => TableEdits) => useTableEdits.getState().edit(tabId, f);
+  const editable = editing !== null && table !== null && hasKey;
+  const edit = (f: (e: TableEdits) => TableEdits) => table !== null && useTableEdits.getState().edit(tabId, table, f);
+  const addRow = () => table !== null && useTableEdits.getState().addRow(tabId, table);
   const total = rowCount + edits.inserts.length;
   const newRowAt = (row: number) => (row >= rowCount ? edits.inserts[row - rowCount] : undefined);
   const rowIdOf = (row: number): RowId | null => {
@@ -945,7 +939,7 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
   }, [edits.inserts.length, rowCount, columns, editing, rows]);
   useImperativeHandle<GridActions | null, GridActions | null>(actionsRef, () => {
     if (!editable) return null;
-    return { addRow: () => void useTableEdits.getState().addRow(tabId), deleteSelectedRows: () => void deleteSelectedRows() };
+    return { addRow: () => void addRow(), deleteSelectedRows: () => void deleteSelectedRows() };
   });
 
   const openMenuAt = (cell: Cell) => {
@@ -1276,7 +1270,7 @@ const GridView = memo(function GridView({ meta, done, query, editing, actionsRef
                   <ContextMenuItem testId="grid-menu-delete" onSelect={deleteSelectedRows}>
                     {menuRowDeleted ? "Restore row" : "Delete row"}
                   </ContextMenuItem>
-                  <ContextMenuItem testId="grid-menu-add" onSelect={() => useTableEdits.getState().addRow(tabId)}>
+                  <ContextMenuItem testId="grid-menu-add" onSelect={addRow}>
                     Add row
                   </ContextMenuItem>
                 </>

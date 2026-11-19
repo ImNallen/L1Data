@@ -17,6 +17,7 @@ afterEach(() => {
 });
 
 const ws = () => useWorkspace.getState();
+const TABLE = { db: { connectionId: "c1", database: "shop" }, schema: "public", table: "orders" };
 
 function confirmShown() {
   const overlay = ws().overlay;
@@ -70,7 +71,7 @@ it("names the tabs with unsubmitted table edits, and asks again when another tab
   vi.stubGlobal("window", { crypto });
   const orders = openSqlTab({ title: "public.orders" });
   const customers = openSqlTab({ title: "public.customers" });
-  useTableEdits.getState().addRow(orders);
+  useTableEdits.getState().addRow(orders, TABLE);
   const none: RestartImpact = { running: [], transactions: [], chats: [] };
   const replies: InstallReply[] = [{ kind: "Confirm", impact: none }, { kind: "Confirm", impact: none }, { kind: "Restarting" }];
   const accepted: (RestartImpact | null)[] = [];
@@ -84,7 +85,7 @@ it("names the tabs with unsubmitted table edits, and asks again when another tab
   await vi.waitFor(() => confirmShown());
   expect(confirmShown().body).toBe("Restarting discards the changes in “public.orders” that haven't been submitted. L1 Data will close and reopen.");
 
-  useTableEdits.getState().addRow(customers);
+  useTableEdits.getState().addRow(customers, TABLE);
   confirm();
   await vi.waitFor(() => expect(accepted).toHaveLength(2));
   await vi.waitFor(() => confirmShown());

@@ -27,7 +27,20 @@ import { MAP_TITLE } from "../../state/notebookFile";
 import { notebookOf } from "../../state/notebooks";
 import { dropRowCaches } from "../../state/rowCache";
 import { canCancel, isBusy } from "../../state/status";
-import { dropStale, markStale, NO_EDITS, pendingCount, stagingSettled, toChanges, useTableEdits, type TableEdits } from "../../state/tableEdits";
+import {
+  dropStale,
+  markStale,
+  NO_EDITS,
+  pendingCount,
+  sameTable,
+  stagingSettled,
+  toChanges,
+  useTableEdits,
+  type EditTable,
+  type TableEdits,
+} from "../../state/tableEdits";
+import { useCatalog, viewFor } from "../../state/catalog";
+import { editTarget } from "../results/editTarget";
 import { forgetEditSupport, useEditSupport } from "../../state/editSupport";
 import {
   EMPTY_QUERY,
@@ -102,6 +115,9 @@ export async function ensureConsole(tab: SqlTab): Promise<boolean> {
 const runIntents = new Map<TabId, symbol>();
 
 const sent = new Map<TabId, { runId: number; text: string }>();
+
+/** Each tab's last script, as sent, so Submit can show what it saved by running that script again. */
+const scripts = new Map<TabId, { runId: number; request: RunRequest }>();
 
 const tableScripts = new Map<string, TableScript>();
 const tableScriptKey = (db: DatabaseRef, schema: string, table: string) => JSON.stringify([db.connectionId, databaseKindFor(db, ws().configs), schema, table]);
@@ -287,8 +303,9 @@ async function sendRun(tab: Tab, request: RunRequest, digest: WriteDigest | null
   if (res.status === "error") return { kind: "refused", error: res.error };
   if (request.kind === "script") {
     sent.set(tab.id, { runId: res.data.runId, text: request.text });
+    scripts.set(tab.id, { runId: res.data.runId, request });
     ws().setRunSources(tab.id, res.data.sources);
-    flashRanges(tab.id, res.data.statements);
+    if (textOf(tab.id) === request.text) flashRanges(tab.id, res.data.statements);
     showRunErrors(useLive.getState());
   }
   return { kind: "accepted", run: res.data };
@@ -576,21 +593,35 @@ export function updateTableQuery(tabId: TabId, update: (q: TableQuery) => TableQ
   setTablePage(tabId, 0);
 }
 
+function submitTarget(tabId: TabId, edits: TableEdits): EditTable | null {
+  const tab = ws().tabs[tabId];
+  const db = tabTarget(tab);
+  const run = useLive.getState().consoles[tabId]?.run;
+  if (!run || !edits.table) return null;
+  const target = editTarget({ run, view: viewFor(useCatalog.getState().views, db), db, edits });
+  return target.kind === "Table" && sameTable(target.table, edits.table) ? target.table : null;
+}
+
 export async function submitEdits(tabId: TabId): Promise<void> {
   await stagingSettled(tabId);
   const tab = ws().tabs[tabId];
   const edits = useTableEdits.getState().byTab[tabId];
-  if (!isTableTab(tab) || !edits || pendingCount(edits) === 0) return;
+  if (!isSqlTab(tab) || !edits || pendingCount(edits) === 0) return;
+  const table = submitTarget(tabId, edits);
+  if (!table) {
+    if (edits.table) notify(`These edits are to ${edits.table.schema}.${edits.table.table}. Show that table's rows to submit them.`);
+    return;
+  }
   const store = useTableEdits.getState();
   if (!store.beginSubmit(tabId)) return;
   try {
-    await applyEdits(tab, edits);
+    await applyEdits(tab, table, edits);
   } finally {
     store.endSubmit(tabId);
   }
 }
 
-async function editsConfirmed(tab: TableTab, edits: TableEdits, asked: WriteConfirmation): Promise<boolean> {
+async function editsConfirmed(tab: SqlTab, table: EditTable, edits: TableEdits, asked: WriteConfirmation): Promise<boolean> {
   const updates = Object.keys(edits.updates).filter((k) => !(k in edits.deletes)).length;
   const parts = [
     edits.inserts.length > 0 && plural(edits.inserts.length, "insert"),
@@ -600,10 +631,7 @@ async function editsConfirmed(tab: TableTab, edits: TableEdits, asked: WriteConf
   const what = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
   const ok = await confirm({
     title: `Apply ${plural(asked.sends.count, "change")} on Production?`,
-    body: [
-      `This sends ${what} to ${tab.table.schema}.${tab.table.table} on ${asked.connection} / ${asked.database}.`,
-      asked.holds.count > 0 && heldWrites(asked),
-    ]
+    body: [`This sends ${what} to ${table.schema}.${table.table} on ${asked.connection} / ${asked.database}.`, asked.holds.count > 0 && heldWrites(asked)]
       .filter(Boolean)
       .join(" "),
     // SQL Server shows the batch of each change Submit sends. PostgreSQL shows only the writes the transaction holds.
@@ -639,21 +667,32 @@ export async function dropChangedRows(tabId: TabId): Promise<void> {
         : "Another session changed these rows after the page read them. Their staged edits are discarded and the page reloads, so you can edit their current values. Other staged changes stay.",
     confirmLabel: "Drop edits",
   });
-  if (!ok || useTableEdits.getState().byTab[tabId] !== edits || !useTableEdits.getState().edit(tabId, dropStale)) return;
-  const now = ws().tabs[tabId];
-  if (isTableTab(now)) setTablePage(tabId, now.table.page);
+  if (!ok || !edits?.table || useTableEdits.getState().byTab[tabId] !== edits || !useTableEdits.getState().edit(tabId, edits.table, dropStale)) return;
+  reloadRows(tabId);
 }
 
-async function applyEdits(tab: TableTab, edits: TableEdits): Promise<void> {
+function reloadRows(tabId: TabId): void {
+  const tab = ws().tabs[tabId];
+  if (!isSqlTab(tab)) return;
+  if (isBrowsing(tab)) return setTablePage(tabId, tab.table.page);
+  const last = scripts.get(tabId);
+  const run = useLive.getState().consoles[tabId]?.run;
+  if (!last || run?.kind !== "Finished" || run.runId !== last.runId) return;
+  void sendRun(tab, last.request, null, () => ws().tabs[tabId]?.console === tab.console).then((result) => {
+    if (result.kind === "refused") notify(runErrorText(result.error));
+  });
+}
+
+async function applyEdits(tab: SqlTab, table: EditTable, edits: TableEdits): Promise<void> {
   const tabId = tab.id;
   if (!(await ensureConsole(tab))) return;
   const count = pendingCount(edits);
   const support = useEditSupport.getState().byTab[tabId]?.support;
   const rowCheck = support?.kind === "Editable" ? support.rowCheck : null;
-  const { changes, rowOf } = toChanges(edits, tab.table.schema, tab.table.table, rowCheck);
+  const { changes, rowOf } = toChanges(edits, table.schema, table.table, rowCheck);
   let res = await commands.tableApply(tabId, changes, null);
   while (res.status === "error" && res.error.kind === "ConfirmWrites") {
-    if (!(await editsConfirmed(tab, edits, res.error.confirmation))) return;
+    if (!(await editsConfirmed(tab, table, edits, res.error.confirmation))) return;
     res = await commands.tableApply(tabId, changes, res.error.confirmation.digest);
   }
   if (res.status === "error") {
@@ -668,12 +707,13 @@ async function applyEdits(tab: TableTab, edits: TableEdits): Promise<void> {
   }
   useTableEdits.getState().clear(tabId);
   notify(res.data.committed ? `Saved ${plural(count, "change")}.` : `${plural(count, "change")} wait in the open transaction. Commit to keep them.`);
-  setTablePage(tabId, tab.table.page);
+  reloadRows(tabId);
 }
 
 export function forgetTab(tabId: TabId) {
   runIntents.delete(tabId);
   sent.delete(tabId);
+  scripts.delete(tabId);
   queuedPages.delete(tabId);
   loadedTables.delete(tabId);
   dropRowCaches(tabId);
