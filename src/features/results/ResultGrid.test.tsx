@@ -898,3 +898,26 @@ it("names a bin's edges finely enough to tell a tiny range from 0, without float
   fireEvent.mouseEnter(await screen.findByTestId("profile-bin-0"));
   expect(screen.getByTestId("profile-bin-tooltip").textContent).toBe("0.0000001 – 0.0000002 · 1 row");
 });
+
+it("says once why a read-only result can't be edited, however the user tries", async () => {
+  const user = userEvent.setup();
+  const target: EditTarget = { kind: "ReadOnly", reason: { kind: "Tables", count: 2 } };
+  render(<ResultGrid meta={queryResult([["1", "42"]])} done query={null} target={target} editing={null} />);
+  await user.click(await screen.findByText("42"));
+  await user.keyboard("x");
+  expect(useWorkspace.getState().toast?.text).toBe("Read-only: this result joins 2 tables.");
+  useWorkspace.setState({ toast: null });
+  await user.keyboard("{F2}");
+  await user.dblClick(screen.getByText("42"));
+  expect(useWorkspace.getState().toast).toBeNull();
+  expect(screen.queryByTestId("grid-editor")).toBeNull();
+});
+
+it.each(["{F2}", "{Enter}", "x"])("says why on %s too", async (key) => {
+  const user = userEvent.setup();
+  const target: EditTarget = { kind: "ReadOnly", reason: { kind: "NoKey", missing: ["id"] } };
+  render(<ResultGrid meta={queryResult([["1", "42"]])} done query={null} target={target} editing={null} />);
+  await user.click(await screen.findByText("42"));
+  await user.keyboard(key);
+  expect(useWorkspace.getState().toast?.text).toBe("Read-only: add the primary key column id to edit.");
+});

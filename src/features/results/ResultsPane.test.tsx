@@ -247,3 +247,23 @@ it("checks a SQL Server query result's table for edits, and says why it refuses"
   expect(screen.getByTestId("edit-refusal").textContent).toMatch(/^Edits are unavailable here: public.orders has an enabled trigger/);
   expect(screen.queryByTestId("add-row")).toBeNull();
 });
+
+it("marks a join's result Read-only, with the reason as its tooltip and description", async () => {
+  await showQuery("Postgres");
+  expect(screen.queryByTestId("read-only")).toBeNull();
+  const catalog = shopCatalog("c1", 1);
+  const run = tableRun("q1", catalog, "public", "orders", { kind: "Statement" }, 2);
+  const customers = catalog.schemas[1]!.relations.find((r) => r.name === "customers")!;
+  const email: ColumnMeta = { name: "email", type: { display: "text", category: "Text" }, source: { tableOid: customers.oid, attnum: 2 } };
+  const output = run.kind === "Finished" ? run.statements[0]!.outputs[0]! : null;
+  if (output?.kind !== "Rows" || run.kind !== "Finished") throw new Error("tableRun gives one Rows output");
+  const joined = {
+    ...run,
+    statements: [{ ...run.statements[0]!, outputs: [{ ...output, result: { ...output.result, columns: [...output.result.columns, email] } }] }],
+  };
+  await act(async () => useLive.setState({ consoles: { q1: { ...idleConsole("q1", db), run: joined } } }));
+  const label = screen.getByTestId("read-only");
+  expect(label.title).toBe("Read-only: this result joins 2 tables.");
+  expect(document.getElementById(label.getAttribute("aria-describedby")!)?.textContent).toBe("Read-only: this result joins 2 tables.");
+  expect(screen.queryByTestId("add-row")).toBeNull();
+});

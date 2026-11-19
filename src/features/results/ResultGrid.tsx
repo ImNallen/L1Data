@@ -83,7 +83,7 @@ import { ColumnProfilePopover } from "./ColumnProfile";
 import { cellAt, DEFAULT, EMPTY_MARK, GridRow, NULL_MARK, rowNumberAt, type Cell } from "./GridRows";
 import { GridEditor } from "./GridEditor";
 import { describeEditor, type EditorDescriptor } from "./gridEditorType";
-import type { EditTarget } from "./editTarget";
+import { readOnlyReasonText, type EditTarget } from "./editTarget";
 import type { EditOutcome, InitialValue } from "./gridEditorValue";
 import { groupCount, groupDigits, isNumeric, toTsv, type RowWindow } from "./format";
 import { formatSelectionTotals, type SelectionSlot } from "./selectionTotals";
@@ -814,6 +814,12 @@ const GridView = memo(function GridView({ meta, done, query, target, editing, ac
   const opening = useRef(0);
   const notify = (text: string) => useWorkspace.getState().notify(text);
   const refused = () => notify("A submit is running. Try again when it finishes.");
+  const told = useRef(false);
+  const tellReadOnly = () => {
+    if (editable || target?.kind !== "ReadOnly" || told.current) return;
+    told.current = true;
+    notify(readOnlyReasonText(target.reason));
+  };
   // SQL Server compares the row Submit reads with the page, so it needs whole keys, and the rowversion or whole originals.
   const rowversion = editing?.rowCheck?.kind === "Rowversion" ? editing.rowCheck.column : null;
   const versionAt = rowversion === null ? -1 : columns.findIndex((c) => c.name === rowversion);
@@ -966,6 +972,8 @@ const GridView = memo(function GridView({ meta, done, query, target, editing, ac
     } else if (editable && selection && e.key.length === 1 && !mod && !e.altKey) {
       e.preventDefault();
       startEdit(selection.focus.row, selection.focus.col, e.key);
+    } else if (selection && (e.key === "F2" || (e.key.length === 1 && !mod && !e.altKey))) {
+      tellReadOnly();
     } else if (mod && e.key.toLowerCase() === "c" && selection) {
       e.preventDefault();
       void copySelection(cache, selection, rowCount, total, (r, c) => {
@@ -990,6 +998,7 @@ const GridView = memo(function GridView({ meta, done, query, target, editing, ac
       e.preventDefault();
       query.onSort(columns[selection.focus.col]!.name, e.shiftKey);
     } else if (e.key === "Enter" && selection) {
+      tellReadOnly();
       void openCell(selection.focus.row, selection.focus.col);
     } else if (e.key === "Escape" && meta.databaseKind === "SqlServer" && useLive.getState().consoles[tabId]?.work === "Edit") {
       e.preventDefault();
@@ -1117,7 +1126,10 @@ const GridView = memo(function GridView({ meta, done, query, target, editing, ac
       }}
       onDoubleClick={(e) => {
         const cell = cellAt(e.target);
-        if (cell) void (canWrite(cell.col) ? startEdit(cell.row, cell.col) : openCell(cell.row, cell.col));
+        if (!cell) return;
+        if (canWrite(cell.col)) return startEdit(cell.row, cell.col);
+        tellReadOnly();
+        void openCell(cell.row, cell.col);
       }}
       onContextMenu={(e) => {
         const header = (e.target as Element).closest<HTMLElement>("[data-header]");

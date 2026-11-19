@@ -8,13 +8,14 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   CircleAlertIcon,
+  LockIcon,
   MinusIcon,
   PlusIcon,
   SquareTerminalIcon,
   Table2Icon,
   Undo2Icon,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import type { ConsoleState, QueryError, RunState, TabId } from "../../ipc/bindings";
 import { useLive, type OutputLog } from "../../state/live";
 import {
@@ -52,7 +53,7 @@ import {
   updateTableQuery,
 } from "../editor/runActions";
 import { defaultChart, type ChartSpec } from "./chart";
-import { editTarget, type EditTarget } from "./editTarget";
+import { editTarget, readOnlyReasonText, type EditTarget } from "./editTarget";
 import { ChartView } from "./ChartView";
 import { ExportMenu } from "./ExportMenu";
 import { FilterBar } from "./FilterBar";
@@ -204,6 +205,27 @@ function ErrorPanel({ error }: { error: QueryError }) {
     <div className="selectable flex-1 overflow-auto bg-bg px-5 py-4 text-ui-13 leading-6">
       <ErrorBlock error={error} />
     </div>
+  );
+}
+
+function ReadOnlyLabel({ reason }: { reason: string }) {
+  const id = useId();
+  return (
+    <>
+      <span
+        data-testid="read-only"
+        tabIndex={0}
+        title={reason}
+        aria-describedby={id}
+        className="inline-flex h-6 shrink-0 items-center gap-1 rounded-[4px] px-1.5 text-ui-12 whitespace-nowrap text-dim outline-none hover:text-muted focus-visible:ring-1 focus-visible:ring-focus"
+      >
+        <LockIcon size={12} />
+        Read-only
+      </span>
+      <span id={id} hidden>
+        {reason}
+      </span>
+    </>
   );
 }
 
@@ -491,6 +513,7 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
         : support?.error
           ? `L1 Data could not check this table for edits. ${applyErrorText(support.error)}`
           : null;
+  const readOnly = view.kind === "rows" && !busy && !refusal && target.kind === "ReadOnly" ? readOnlyReasonText(target.reason) : null;
   const actions = useRef<GridActions | null>(null);
   const shownKeyRef = useRef(shownRef);
   // oxlint-disable-next-line react/refs -- the selection totals callback reads the newest shown key, and nothing renders from this ref
@@ -526,6 +549,7 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
           deleteRefusal={editing?.deleteRefusal}
           actions={actions}
         />
+        {readOnly && <ReadOnlyLabel reason={readOnly} />}
         {results.length > 1 && (
           <div data-testid="result-selector" className="flex max-w-full items-center gap-0.5 overflow-x-auto rounded-md border border-control p-0.5">
             {results.map((r, i) => (
