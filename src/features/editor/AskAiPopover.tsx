@@ -54,7 +54,15 @@ function AskThread({ chatId, capture }: { chatId: ChatId; capture: AskCapture })
             {entry.text}
           </p>
         ) : entry.kind === "Text" ? (
-          <ReplyText key={seq} testId={`ask-ai-text-${seq}`} blocks={entry.blocks} db={capture.db} databaseKind={capture.databaseKind} cards={false} />
+          <ReplyText
+            key={seq}
+            testId={`ask-ai-text-${seq}`}
+            blocks={entry.blocks}
+            db={capture.db}
+            databaseKind={capture.databaseKind}
+            cards={false}
+            streaming={!entry.done}
+          />
         ) : null,
       )}
     </div>

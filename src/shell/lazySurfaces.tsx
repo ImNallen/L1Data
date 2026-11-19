@@ -1,7 +1,7 @@
 import { createElement, Suspense, use, useEffect, useState, type ComponentType } from "react";
 
 // Rarely opened surfaces load from their own chunks, so the main chunk skips their code and their libraries:
-// fflate and jsonc-parser behind Settings, react-markdown and remark-gfm behind the assistant. Each loads once
+// fflate and jsonc-parser behind Settings, @pierre/words behind the assistant. Each loads once
 // the app idles after first paint, so the first open usually finds it ready. A surface opened before then renders
 // nothing until its chunk arrives. Once loaded, a surface renders synchronously, with no fallback frame.
 function lazySurface(load: () => Promise<ComponentType>) {
