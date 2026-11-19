@@ -105,6 +105,7 @@ it("keeps the query, editor and displayed rows when the engine refuses an additi
     truncated: null,
     elapsedMs: 1,
     allRows: { kind: "Table" },
+    repeatedRead: null,
   } satisfies ResultMeta;
   const console: ConsoleState = {
     tabId: raw.id,

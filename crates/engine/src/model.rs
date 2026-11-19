@@ -1324,6 +1324,9 @@ pub struct ResultMeta {
     pub elapsed_ms: u32,
     /// What `ExportScope::All` would run for this result. Decided once, when the result was created.
     pub all_rows: AllRows,
+    /// A relation or CTE name the statement reads more than once, as written. Its rows may then mix
+    /// values from different rows of one table, though every column names that table. `None` on a table page.
+    pub repeated_read: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]

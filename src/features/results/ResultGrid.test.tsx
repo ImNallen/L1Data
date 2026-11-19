@@ -270,6 +270,7 @@ function queryResult(rows: (string | null)[][], spec: ResultSpec = {}): ResultMe
     truncated: null,
     elapsedMs: 1,
     allRows: spec.allRows ?? { kind: "Statement" },
+    repeatedRead: null,
   };
 }
 

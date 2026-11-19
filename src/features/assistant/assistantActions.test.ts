@@ -53,6 +53,7 @@ const rows = (runId: number): ResultMeta => ({
   truncated: null,
   elapsedMs: 27,
   allRows: { kind: "Statement" },
+  repeatedRead: null,
 });
 
 function showTab(text: string, live?: ConsoleState) {

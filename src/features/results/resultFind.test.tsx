@@ -19,6 +19,7 @@ const meta: ResultMeta = {
   truncated: "RowLimit",
   elapsedMs: 1,
   allRows: { kind: "Statement" },
+  repeatedRead: null,
 };
 const result = (row: number, ordinal = 1): ResultFind => ({ count: 2, rowCount: 10_000, target: { cell: { row, col: 0 }, ordinal } });
 

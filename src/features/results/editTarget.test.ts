@@ -30,6 +30,7 @@ function rows(columns: ColumnMeta[], index = 0, allRows: AllRows = { kind: "Stat
     truncated: null,
     elapsedMs: 1,
     allRows,
+    repeatedRead: null,
   };
   return { kind: "Rows", result, state: "Complete" };
 }
@@ -77,6 +78,14 @@ it("keeps a join across two tables read-only", () => {
 
 it("edits a join that selects only one table's columns", () => {
   expect(target(finished([rows(all("customers"))]))).toMatchObject({ kind: "Table", table: { table: "customers" } });
+});
+
+it("keeps a self-join of one table read-only, since its key and its other columns may be different rows", () => {
+  const output = rows([col("orders", "id"), col("orders", "status")]);
+  if (output.kind !== "Rows") throw new Error("rows gives a Rows output");
+  const selfJoin = finished([{ ...output, result: { ...output.result, repeatedRead: "public.orders" } }]);
+  expect(reason(selfJoin)).toBe("Read-only: this query reads public.orders more than once, so a row's values may come from different rows.");
+  expect(target(finished([output]))).toMatchObject({ kind: "Table", table: { table: "orders" } });
 });
 
 it("keeps a view's rows read-only", () => {

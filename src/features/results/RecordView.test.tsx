@@ -23,6 +23,7 @@ const meta: ResultMeta = {
   truncated: null,
   elapsedMs: 1,
   allRows: { kind: "Statement" },
+  repeatedRead: null,
 };
 
 const long = (row: number) => `${row}:${"x".repeat(5_000)}`;

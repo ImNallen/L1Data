@@ -31,6 +31,7 @@ function result(rowCount: number, state: RowResult["state"] = "Complete"): RowRe
       truncated: null,
       elapsedMs: 5,
       allRows: { kind: "Statement" },
+      repeatedRead: null,
     },
   };
 }

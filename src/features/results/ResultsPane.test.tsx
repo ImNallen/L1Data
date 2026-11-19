@@ -80,6 +80,7 @@ it.each([
       truncated,
       elapsedMs: 5,
       allRows: { kind: "Statement" },
+      repeatedRead: null,
     };
     const state: ConsoleState = {
       tabId: tab.id,
@@ -126,6 +127,7 @@ function finishedWith(output: (meta: ResultMeta) => RunOutput, columns: ColumnMe
     truncated: null,
     elapsedMs: 5,
     allRows: { kind: "Statement" },
+    repeatedRead: null,
   };
   return {
     tabId: tab.id,

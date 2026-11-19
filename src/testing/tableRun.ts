@@ -21,6 +21,7 @@ export function tableRun(tabId: TabId, catalog: Catalog, schema: string, table: 
     truncated: null,
     elapsedMs: 1,
     allRows,
+    repeatedRead: null,
   };
   return {
     kind: "Finished",

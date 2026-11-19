@@ -979,6 +979,8 @@ async fn run_outputs(
             Err(error) => return Ok(Err(Failed { error, logged: false, server_done: false })),
         }
     }
+    let repeated_read =
+        plan.page.is_none().then(|| crate::sql::repeated_read(sql, plan.connection.database_kind)).flatten();
     let mut stream = session.query(sql);
     loop {
         let next = if log.is_empty() { stream.next().await } else { log.wait(&mut stream).await };
@@ -1035,7 +1037,13 @@ async fn run_outputs(
                         None => crate::export::rerun(plan.connection.database_kind, sql, false),
                     })
                     .clone();
-                let origin = Origin { rerun, nth, schema: plan.schema.clone(), page: plan.page.is_some() };
+                let origin = Origin {
+                    rerun,
+                    nth,
+                    schema: plan.schema.clone(),
+                    page: plan.page.is_some(),
+                    repeated_read: repeated_read.clone(),
+                };
                 nth = nth.saturating_add(1);
                 let set = Arc::new(ResultSet::new(
                     ResultRef { tab_id: console.tab, run_id, index: ordinal },

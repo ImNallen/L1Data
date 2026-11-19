@@ -13,6 +13,7 @@ export type ReadOnlyReason =
   | { kind: "Tables"; count: number }
   | { kind: "View"; name: string }
   | { kind: "NotTable"; name: string; relKind: RelKind }
+  | { kind: "ReadsTwice"; name: string }
   | { kind: "NoPrimaryKey"; name: string }
   | { kind: "NoKey"; missing: string[] }
   | { kind: "Writes" }
@@ -61,6 +62,8 @@ export function editTarget({
   const name = `${schema}.${rel.name}`;
   if (isViewKind(rel.kind)) return readOnly({ kind: "View", name });
   if (rel.kind !== "Table") return readOnly({ kind: "NotTable", name, relKind: rel.kind });
+  // Both servers name one table for every column of a self-join or a CTE read twice, though each read is its own row.
+  if (meta.repeatedRead !== null) return readOnly({ kind: "ReadsTwice", name: meta.repeatedRead });
   for (const c of meta.columns) {
     const column = rel.columns.find((col) => col.attnum === c.source!.attnum);
     if (!column) return readOnly({ kind: "Unknown" });
@@ -109,6 +112,8 @@ export function readOnlyReasonText(reason: ReadOnlyReason): string {
       return `Read-only: ${reason.name} is a view.`;
     case "NotTable":
       return `Read-only: ${reason.name} is a ${RELATION_KIND[reason.relKind]}. Only plain tables edit here.`;
+    case "ReadsTwice":
+      return `Read-only: this query reads ${reason.name} more than once, so a row's values may come from different rows.`;
     case "NoPrimaryKey":
       return `Read-only: ${reason.name} has no primary key.`;
     case "NoKey":

@@ -30,6 +30,7 @@ const meta: ResultMeta = {
   truncated: null,
   elapsedMs: 1,
   allRows: { kind: "Table" },
+  repeatedRead: null,
 };
 const editing: GridEditing = { pkColumns: ["id"], writableColumns: new Set(["status"]) };
 const T1 = { db: meta.db, schema: "public", table: "orders" };

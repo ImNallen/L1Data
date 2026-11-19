@@ -27,6 +27,7 @@ const meta = (rowCount: number, index = 0, runId = 1): ResultMeta => ({
   truncated: null,
   elapsedMs: 5,
   allRows: { kind: "Statement" },
+  repeatedRead: null,
 });
 
 function showRun(rowCounts: number[], runId = 1) {
