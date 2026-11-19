@@ -3,10 +3,10 @@ import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import type { ChatId } from "../../ipc/bindings";
 import { MAC } from "../../shell/hostedWindow";
+import { ReplyText } from "../../shell/lazySurfaces";
 import { useLive } from "../../state/live";
 import { useWorkspace } from "../../state/workspace";
 import { cx } from "../../ui/primitives";
-import { ReplyText } from "../assistant/ReplyText";
 import { applyAsk, discardAsk, dismissAsk, openAskAi, setAskPrompt, submitAsk, useAskAi, type AskCapture, type AskState } from "./askAi";
 import { changedHunks } from "./askDiff";
 import { askAnchor, askPreviewHeight, onEditorGeometry } from "./editorStates";
@@ -54,7 +54,15 @@ function AskThread({ chatId, capture }: { chatId: ChatId; capture: AskCapture })
             {entry.text}
           </p>
         ) : entry.kind === "Text" ? (
-          <ReplyText key={seq} testId={`ask-ai-text-${seq}`} blocks={entry.blocks} db={capture.db} databaseKind={capture.databaseKind} cards={false} />
+          <ReplyText
+            key={seq}
+            testId={`ask-ai-text-${seq}`}
+            blocks={entry.blocks}
+            db={capture.db}
+            databaseKind={capture.databaseKind}
+            cards={false}
+            streaming={!entry.done}
+          />
         ) : null,
       )}
     </div>

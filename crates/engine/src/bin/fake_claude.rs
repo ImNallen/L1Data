@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 
 const VERSION: &str = "2.1.301 (Claude Code)";
 const CARD_REPLY: &str = "This compares paid revenue in the last 90 days with the 90 days before that, per region:\n\n```sql\nSELECT c.region,\n  sum(o.total) FILTER (\n    WHERE o.created_at >= now() - interval '90 days'\n  ) - sum(o.total) FILTER (\n    WHERE o.created_at <  now() - interval '90 days'\n  ) AS growth\nFROM orders o\nJOIN customers c ON c.id = o.customer_id\nWHERE o.status = 'paid'\n  AND o.created_at >= now() - interval '180 days'\nGROUP BY c.region\nORDER BY growth DESC;\n```\n\n`FILTER` keeps both periods in one scan of `orders`, which already has an index on `created_at`.\n\n```followups\nShow growth as a percentage\nOnly EU regions\n```\n";
+const MARKDOWN_REPLY: &str = "Postgres can serve this from the **`created_at` index** if the filter is selective. Run `EXPLAIN ANALYZE` first, then compare with the [planner docs](https://www.postgresql.org/docs/current/using-explain.html).\n\n| Column | Index | Rows |\n|---|---|--:|\n| `created_at` | btree | 18,400 |\n| `status` | none | 18,400 |\n\n- Keep the range on *created_at*\n- Add `status` to the index only if it **filters well**\n";
 const DELTA_CHARS: usize = 12;
 
 fn main() {
@@ -306,6 +307,10 @@ impl Cli {
                 }
                 "card" => {
                     self.stream(CARD_REPLY, Duration::from_millis(30));
+                    self.result_success();
+                }
+                "markdown" => {
+                    self.stream(MARKDOWN_REPLY, Duration::from_millis(250));
                     self.result_success();
                 }
                 "slow" => self.slow(false),

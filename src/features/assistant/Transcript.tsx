@@ -53,7 +53,7 @@ const Item = memo(function Item({
   const { entry, seq } = snap;
   switch (entry.kind) {
     case "Text":
-      return <ReplyText testId={`chat-text-${seq}`} blocks={entry.blocks} db={db} databaseKind={databaseKind} />;
+      return <ReplyText testId={`chat-text-${seq}`} blocks={entry.blocks} db={db} databaseKind={databaseKind} streaming={!entry.done} />;
     case "Tool":
       return <ToolCard chatId={chatId} seq={seq} tool={entry.tool} status={entry.status} db={db} databaseKind={databaseKind} />;
     case "Notice":

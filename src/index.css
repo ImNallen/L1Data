@@ -598,6 +598,52 @@ textarea,
 .chat-sql .text-green {
   color: var(--chat-string);
 }
+.reply-markdown {
+  @apply flex flex-col gap-2.5 text-ui-13 leading-relaxed text-fg;
+}
+.reply-markdown :is([data-markdown="h1"], [data-markdown="h2"]) {
+  @apply text-ui-14 font-semibold;
+}
+.reply-markdown :is([data-markdown="h3"], [data-markdown="h4"]) {
+  @apply text-ui-13 font-semibold;
+}
+.reply-markdown [data-markdown="ul"] {
+  @apply list-disc space-y-1 pl-5;
+}
+.reply-markdown [data-markdown="ol"] {
+  @apply list-decimal space-y-1 pl-5;
+}
+.reply-markdown [data-markdown="blockquote"] {
+  @apply border-l-2 border-control pl-3 text-muted;
+}
+.reply-markdown [data-markdown="hr"] {
+  @apply border-border;
+}
+.reply-markdown :not(pre) > [data-markdown="code"] {
+  @apply rounded-[4px] bg-pill px-1 py-px font-mono text-code-sm text-fg;
+}
+.reply-markdown [data-markdown="code-header"] {
+  display: none;
+}
+.reply-markdown [data-markdown="code-block"] pre {
+  @apply overflow-x-auto rounded-lg border border-control px-3 py-2.5 font-mono text-code-sm leading-[1.6] text-(color:--code);
+}
+.reply-markdown [data-markdown="table-frame"] {
+  @apply overflow-x-auto rounded-lg border border-control;
+}
+.reply-markdown [data-markdown="table"] {
+  @apply w-full border-collapse text-ui-12.5 tabular-nums;
+}
+.reply-markdown [data-markdown="th"] {
+  @apply border-b border-control px-2.5 py-1.5 text-left font-medium text-muted;
+}
+.reply-markdown [data-markdown="td"] {
+  @apply border-t border-grid px-2.5 py-1.5;
+}
+/* Words unwraps each fade span after its default 180 ms, so the fade can't run longer. */
+.reply-markdown [data-animated="true"] {
+  animation: fade-in 180ms ease-out backwards;
+}
 .chat-choice {
   display: flex;
   align-items: center;

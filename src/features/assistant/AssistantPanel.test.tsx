@@ -143,11 +143,11 @@ it("draws a finished turn as the mockup does: bubble and context, tool line, mar
   );
   expect(text(section(html, "chat-tool-1", "chat-text-2"))).toContain("Ran query · 6 rows · 27 ms");
   const reply = section(html, "chat-text-2", "chat-end-3") ?? "";
-  expect(reply).toContain('<code class="rounded-[4px] bg-pill');
+  expect(reply).toMatch(/<code[^>]*>FILTER<\/code>/);
   expect(reply).not.toContain("<a ");
   expect(reply).not.toContain("<b>");
   expect(text(reply)).toContain("FILTER keeps both periods in one scan of orders.");
-  expect(reply).toMatch(/<table[^>]*>.*<th[^>]*>region<\/th>.*<td[^>]*>EU-West<\/td>/);
+  expect(reply).toMatch(/<table[^>]*>.*<th[^>]*>region<\/th>.*<td[^>]*>EU-West<\/td>/s);
   expect(text(/data-testid="sql-card-uses"[^>]*>(.*?)<\/span>/.exec(reply)?.[1])).toBe("Uses orders, customers");
   expect(html).toContain('data-testid="chat-end-3" data-outcome="Completed"');
   expect(html).toContain('type="checkbox"');
