@@ -1,4 +1,4 @@
-import type { DatabaseKind, DatabaseRef, RelKind, Relation, RunState } from "../../ipc/bindings";
+import type { ColumnMeta, DatabaseKind, DatabaseRef, EditSupport, RelKind, Relation, RunState } from "../../ipc/bindings";
 import { isViewKind, type CatalogView } from "../../state/catalog";
 import { sameDb } from "../../state/dbKey";
 import { rowResults, runStatements } from "../../state/status";
@@ -16,6 +16,7 @@ export type ReadOnlyReason =
   | { kind: "ReadsTwice"; name: string }
   | { kind: "NoPrimaryKey"; name: string }
   | { kind: "NoKey"; missing: string[] }
+  | { kind: "NoRowversion"; column: string }
   | { kind: "Writes" }
   | { kind: "Calls"; calls: string[] }
   | { kind: "Staged"; name: string; count: number }
@@ -84,6 +85,16 @@ export function editTarget({
   return { kind: "Table", table, databaseKind: meta.databaseKind, relation: rel, pkColumns };
 }
 
+/**
+ * `support` is the SQL Server table's answer, which comes after `editTarget`. Submit proves each row unchanged by its rowversion
+ * when the table has one, so a result without that column could only send stale updates.
+ */
+export function withRowCheck(target: EditTarget, support: EditSupport | null, columns: ColumnMeta[]): EditTarget {
+  if (target.kind !== "Table" || support?.kind !== "Editable" || support.rowCheck.kind !== "Rowversion") return target;
+  const { column } = support.rowCheck;
+  return columns.some((c) => c.name === column) ? target : readOnly({ kind: "NoRowversion", column });
+}
+
 const RELATION_KIND: Record<RelKind, string> = {
   Table: "table",
   PartitionedTable: "partitioned table",
@@ -118,6 +129,8 @@ export function readOnlyReasonText(reason: ReadOnlyReason): string {
       return `Read-only: ${reason.name} has no primary key.`;
     case "NoKey":
       return `Read-only: add the primary key ${reason.missing.length > 1 ? "columns" : "column"} ${list(reason.missing)} to edit.`;
+    case "NoRowversion":
+      return `Read-only: add the rowversion column ${reason.column} to edit.`;
     case "Writes":
       return "Read-only: this statement may write, so L1 Data won't run it again to show what Submit saved.";
     case "Calls":

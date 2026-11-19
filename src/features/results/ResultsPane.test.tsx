@@ -15,6 +15,7 @@ import { shopCatalog } from "../../testing/shopCatalog";
 import { idleConsole, tableRun } from "../../testing/tableRun";
 import { buildCatalogView, useCatalog } from "../../state/catalog";
 import { dbKey } from "../../state/dbKey";
+import { useEditSupport } from "../../state/editSupport";
 
 const db = { connectionId: "c1", database: "shop" };
 const tab: TableTab = {
@@ -59,6 +60,7 @@ afterEach(() => {
   useWorkspace.setState(useWorkspace.getInitialState(), true);
   useLive.setState(useLive.getInitialState(), true);
   useCatalog.setState(useCatalog.getInitialState(), true);
+  useEditSupport.setState(useEditSupport.getInitialState(), true);
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -268,4 +270,41 @@ it("marks a join's result Read-only, with the reason as its tooltip and descript
   expect(label.title).toBe("Read-only: this result joins 2 tables.");
   expect(document.getElementById(label.getAttribute("aria-describedby")!)?.textContent).toBe("Read-only: this result joins 2 tables.");
   expect(screen.queryByTestId("add-row")).toBeNull();
+});
+
+it("keeps a SQL Server result without its table's rowversion read-only, and edits it once the result has it", async () => {
+  const catalog = { ...shopCatalog("c1", 1), databaseKind: "SqlServer" as const };
+  const orders = catalog.schemas[1]!.relations.find((r) => r.name === "orders")!;
+  orders.columns.push({ ...orders.columns[1]!, name: "rv", quoted: "rv", typeDisplay: "timestamp", category: "Binary", writable: false, attnum: 6 });
+  useCatalog.setState({ views: { [dbKey(db)]: buildCatalogView(catalog) } });
+  useWorkspace.setState({ ...cellsState([queryTab]), configs: { c1: { ...connectionConfig("c1", "local"), databaseKind: "SqlServer" } } });
+  seedEditor(queryTab.id, "SELECT id, customer_id, status, total, created_at FROM dbo.orders");
+  mockIPC((cmd) => {
+    if (cmd === "result_page") return { start: 0, rows: [["1", "7", "new", "10", "2026-11-19", "0x01"]], cut: [] };
+    if (cmd === "table_edit_support")
+      return {
+        kind: "Editable",
+        rowCheck: { kind: "Rowversion", column: "rv" },
+        columns: orders.columns.map((c) => ({ name: c.name, readOnly: null })),
+        delete: null,
+      };
+    throw new Error(`Unexpected IPC command: ${cmd}`);
+  });
+  const withRv = tableRun("q1", catalog, "public", "orders", { kind: "Statement" });
+  const output = withRv.kind === "Finished" ? withRv.statements[0]!.outputs[0]! : null;
+  if (output?.kind !== "Rows" || withRv.kind !== "Finished") throw new Error("tableRun gives one Rows output");
+  const columns = output.result.columns.filter((c) => c.name !== "rv");
+  const withoutRv = { ...withRv, statements: [{ ...withRv.statements[0]!, outputs: [{ ...output, result: { ...output.result, columns } }] }] };
+  useLive.setState({ consoles: { q1: { ...idleConsole("q1", db), run: withoutRv } } });
+  await act(async () => {
+    render(<ResultsPane tabId="q1" />);
+  });
+  expect(screen.getByTestId("read-only").title).toBe("Read-only: add the rowversion column rv to edit.");
+  expect(screen.queryByTestId("add-row")).toBeNull();
+
+  await act(async () =>
+    useLive.setState({ consoles: { q1: { ...idleConsole("q1", db), run: tableRun("q1", catalog, "public", "orders", { kind: "Statement" }, 2) } } }),
+  );
+  expect(screen.queryByTestId("read-only")).toBeNull();
+  expect(screen.getByTestId("add-row").hasAttribute("disabled")).toBe(false);
 });

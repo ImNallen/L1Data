@@ -16,7 +16,7 @@ import {
   Undo2Icon,
 } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
-import type { ConsoleState, QueryError, RunState, TabId } from "../../ipc/bindings";
+import type { ColumnMeta, ConsoleState, QueryError, RunState, TabId } from "../../ipc/bindings";
 import { useLive, type OutputLog } from "../../state/live";
 import {
   isBusy,
@@ -53,7 +53,7 @@ import {
   updateTableQuery,
 } from "../editor/runActions";
 import { defaultChart, type ChartSpec } from "./chart";
-import { editTarget, readOnlyReasonText, type EditTarget } from "./editTarget";
+import { editTarget, readOnlyReasonText, withRowCheck, type EditTarget } from "./editTarget";
 import { ChartView } from "./ChartView";
 import { ExportMenu } from "./ExportMenu";
 import { FilterBar } from "./FilterBar";
@@ -66,6 +66,7 @@ import { cycleTableOrder, filterForValue, useFilterDrafts, useTableOrder } from 
 
 const NO_OUTPUT: OutputLog = { entries: [], dropped: 0 };
 const IDLE: RunState = { kind: "Idle" };
+const NO_COLUMNS: ColumnMeta[] = [];
 
 function PagerBar({
   testId,
@@ -491,8 +492,8 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
   const tabDb = tabTarget(tab);
   const catalogView = useCatalog((s) => viewFor(s.views, tabDb));
   const staged = useTableEdits((s) => (tabId ? s.byTab[tabId] : undefined));
-  const target = useMemo(() => editTarget({ run, view: catalogView, db: tabDb, edits: staged }), [run, catalogView, tabDb, staged]);
-  const targetTable = target.kind === "Table" ? target.table : null;
+  const found = useMemo(() => editTarget({ run, view: catalogView, db: tabDb, edits: staged }), [run, catalogView, tabDb, staged]);
+  const targetTable = found.kind === "Table" ? found.table : null;
   // Asked again for each result the tab shows, which also comes after the tab's session exists.
   const supportKey =
     targetTable && databaseKind === "SqlServer" && catalogView && shown
@@ -504,6 +505,8 @@ export function ResultsPane({ tabId }: { tabId: TabId | null }) {
     if (tabId && targetTable && supportKey !== null && !busy && supportEntry?.key !== supportKey)
       void loadEditSupport(tabId, targetTable.schema, targetTable.table, supportKey);
   }, [tabId, targetTable, supportKey, busy, supportEntry?.key]);
+  const shownColumns = shown?.meta.columns ?? NO_COLUMNS;
+  const target = useMemo(() => withRowCheck(found, support?.support ?? null, shownColumns), [found, support?.support, shownColumns]);
   const editing = useMemo(() => gridEditing(target, support?.support ?? null), [target, support?.support]);
   const refusal =
     browsingTable && target.kind === "ReadOnly" && target.reason.kind === "View"
